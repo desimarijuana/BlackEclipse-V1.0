@@ -102,6 +102,13 @@ export interface SidebarSectionConfig {
 export interface SidebarConfig {
   sections: SidebarSectionConfig[];
   shortcutVersion?: number;
+  /**
+   * True once the user assigns (or clears) a key in Settings. Until then the
+   * shortcut slots are treated as the shipped scheme and re-numbered F1..F12
+   * down the menu, which repairs legacy/remote orders that left gaps or
+   * duplicate keys. Explicit custom assignments are never re-numbered.
+   */
+  shortcutsCustomized?: boolean;
 }
 
 /** Shortcut choices offered in Settings. Keyboard codes (not labels). */
@@ -109,6 +116,47 @@ export const SHORTCUT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'None' },
   ...Array.from({ length: 12 }, (_, i) => ({ value: `F${i + 1}`, label: `F${i + 1}` })),
 ];
+
+/** The number of function-key slots the menu ships with (F1..F12). */
+export const SHORTCUT_SLOT_COUNT = 12;
+
+/** The key for a menu slot: slot 0 is F1, slot 11 is F12, later slots none. */
+export function defaultShortcutForIndex(index: number): string {
+  return index < SHORTCUT_SLOT_COUNT ? `F${index + 1}` : '';
+}
+
+function isFunctionKeyShortcut(value: string): boolean {
+  return /^F([1-9]|1[0-2])$/.test(value);
+}
+
+/** Re-number the first twelve menu slots F1..F12 in their visible order. */
+export function assignDefaultShortcuts(sections: SidebarSectionConfig[]): SidebarSectionConfig[] {
+  return sections.map((section, index) => ({ ...section, shortcut: defaultShortcutForIndex(index) }));
+}
+
+/** Keep the first binding of each key; drop duplicates and out-of-range values. */
+export function dedupeShortcuts(sections: SidebarSectionConfig[]): SidebarSectionConfig[] {
+  const seen = new Set<string>();
+  return sections.map((section) => {
+    if (!section.shortcut) return section;
+    if (!isFunctionKeyShortcut(section.shortcut) || seen.has(section.shortcut)) {
+      return { ...section, shortcut: '' };
+    }
+    seen.add(section.shortcut);
+    return section;
+  });
+}
+
+/**
+ * A pre-v3 save built from the shipped scheme — any historical order, with the
+ * Dashboard inserted, or with the retired F12 folding bug — still carries six
+ * or more plain F-keys. Anything smaller is a deliberate custom assignment and
+ * is preserved through the upgrade.
+ */
+function looksLikeDefaultShortcutSet(sections: SidebarSectionConfig[]): boolean {
+  const assigned = sections.map((section) => section.shortcut).filter(Boolean);
+  return assigned.length >= 6 && assigned.every(isFunctionKeyShortcut);
+}
 
 export const SIDEBAR_CONFIG_KEY = 'be_sidebar_config_v1';
 
@@ -120,13 +168,15 @@ const LEGACY_DEFAULT_ORDER: AppTab[] = [
 
 export function defaultSidebarConfig(): SidebarConfig {
   return {
-    shortcutVersion: 2,
-    // F1..F12, unique per section. (The old scheme folded every section past
-    // the tenth onto F12, which collided once the list grew.)
+    shortcutVersion: 3,
+    shortcutsCustomized: false,
+    // F1..F12, unique per section, following the menu's shipped order. (The old
+    // scheme folded every section past the tenth onto F12, which collided once
+    // the list grew.)
     sections: DEFAULT_SIDEBAR_SECTIONS.map((s, index) => ({
       id: s.id,
       enabled: true,
-      shortcut: index < 12 ? `F${index + 1}` : '',
+      shortcut: defaultShortcutForIndex(index),
     })),
   };
 }
@@ -145,7 +195,7 @@ export function loadSidebarConfig(): SidebarConfig {
     const defaultOrders = [LEGACY_DEFAULT_ORDER, DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id), DEFAULT_SIDEBAR_SECTIONS.filter((s) => s.id !== 'investor-eye').map((s) => s.id)];
     const untouched = incoming.every((s) => s.enabled === true && s.shortcut === '');
     const defaultOrder = defaultOrders.some((order) => incomingIds.length === order.length && incomingIds.every((id, i) => id === order[i]));
-    if (parsed.shortcutVersion !== 2 && untouched && defaultOrder) return base;
+    if (parsed.shortcutVersion !== 3 && parsed.shortcutsCustomized !== true && untouched && defaultOrder) return base;
 
     const known = new Set<string>(DEFAULT_SIDEBAR_SECTIONS.map((d) => d.id));
 
@@ -171,7 +221,16 @@ export function loadSidebarConfig(): SidebarConfig {
         merged.push({ id: def.id, enabled: true, shortcut: '' });
       }
     }
-    return { sections: merged, shortcutVersion: 2 };
+
+    // Repair, don't re-scheme. A user who never touched the keys gets the
+    // shipped contract: the first twelve menu slots read F1..F12 in order. That
+    // fixes legacy orders and the inserted-Dashboard gap (which used to leave
+    // one slot blank and shift every following key by one). Deliberate custom
+    // assignments survive the upgrade, de-duplicated.
+    const customized = parsed.shortcutsCustomized === true
+      || (parsed.shortcutVersion !== 3 && !looksLikeDefaultShortcutSet(merged));
+    const sections = customized ? dedupeShortcuts(merged) : assignDefaultShortcuts(merged);
+    return { sections, shortcutVersion: 3, shortcutsCustomized: customized };
   } catch {
     return base;
   }
@@ -180,7 +239,7 @@ export function loadSidebarConfig(): SidebarConfig {
 export function saveSidebarConfig(cfg: SidebarConfig) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(SIDEBAR_CONFIG_KEY, JSON.stringify({ ...cfg, shortcutVersion: 2 }));
+    localStorage.setItem(SIDEBAR_CONFIG_KEY, JSON.stringify({ ...cfg, shortcutVersion: 3 }));
   } catch {
     /* quota / private mode â€” in-memory only */
   }

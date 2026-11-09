@@ -29,6 +29,18 @@ def test_explicit_order_without_a_symbol_also_gets_it():
     assert _trading_intent_block("Place a 0.01 lot order now")
 
 
+def test_the_directive_names_the_approval_card_as_the_execution_path():
+    """A pending card that the operator confirms fills the order (no mandate).
+
+    The old directive said only `order_submit` fills, so a model that had just
+    created the approval reported a real fill as a refusal.
+    """
+    block = _trading_intent_block("Place a 0.01 lot XAUUSD order")
+    assert "submits this exact order" in block.lower()
+    assert "needs no mandate" in block.lower()
+    assert "order_ledger" in block
+
+
 def test_plain_analysis_is_untouched():
     assert _trading_intent_block("Analyze XAUUSD and give me a technical read.") == ""
 

@@ -7,6 +7,7 @@
 //   black status     → is the site up? what's running?
 //   black build      → force a production rebuild
 //   black doctor     → check the environment (Node, deps, DB, Python)
+//   black desktop    → (re)install the desktop shortcut + its app icon
 //
 // Registered globally via `npm link` from the Black-Eclipse-site folder —
 // works in cmd, PowerShell, and Git Bash on Windows/macOS/Linux.
@@ -231,6 +232,16 @@ async function main() {
     case "build":
       forceBuild();
       break;
+    case "desktop": {
+      const { spawnSync } = require("child_process");
+      const result = spawnSync(
+        process.execPath,
+        [path.join(__dirname, "..", "scripts", "desktop-shortcut.js")],
+        { stdio: "inherit" }
+      );
+      if (result.status !== 0) process.exit(result.status || 1);
+      break;
+    }
     case "doctor":
       if (argValue("--fix") !== undefined || rest.includes("--fix")) {
         // Reuse the self-healing script, then report.
@@ -251,6 +262,7 @@ Commands:
   stop         stop production (--all also stops development)
   status       check both servers
   build        force a production rebuild
+  desktop      (re)install the desktop shortcut and its app icon
   doctor       check the environment (--fix to auto-repair)
 
 Options:

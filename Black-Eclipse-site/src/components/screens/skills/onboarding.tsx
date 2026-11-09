@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { GraduationCap, Sparkles, X } from "@/lib/icons";
 import { getOnboarding } from "@/lib/harness/skills-browser";
 import type { OnboardingContent } from "@/lib/harness/skills-types";
-import { LoadingState } from "./skill-ui";
+import { LoadingState, PanelHeader } from "./skill-ui";
 
 export function OnboardingPanel({ onClose }: { onClose?: () => void }) {
   const [content, setContent] = useState<OnboardingContent | null>(null);
@@ -30,18 +30,18 @@ export function OnboardingPanel({ onClose }: { onClose?: () => void }) {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Start here</h3>
-          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-            How the memory and skills system works. This page explains only — it does not write
-            anything to memory or enable a skill.
-          </p>
-        </div>
-        {onClose && (
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground cursor-pointer"><X size={14} /></button>
-        )}
-      </div>
+      <PanelHeader
+        icon={GraduationCap}
+        title="Start here"
+        description="How the memory and skills system works. This page explains only — it does not write anything to memory or enable a skill."
+        actions={
+          onClose ? (
+            <button onClick={onClose} className="cursor-pointer text-muted-foreground hover:text-foreground" aria-label="Close">
+              <X size={14} />
+            </button>
+          ) : undefined
+        }
+      />
 
       <div className="space-y-2">
         {content.steps.map((step) => (

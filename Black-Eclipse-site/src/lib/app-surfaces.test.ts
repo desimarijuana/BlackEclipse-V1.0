@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { APP_TABS } from './search/deep-link';
-import { MEMORY_TABS, SKILLS_TABS, screenTab } from './app-screens';
+import { MEMORY_TABS, SKILLS_GROUPS, SKILLS_TABS, screenTab } from './app-screens';
 import { appSurfaces } from './app-surfaces';
 
 describe('appSurfaces', () => {
@@ -12,14 +12,14 @@ describe('appSurfaces', () => {
     expect(new Set(surfaces.map((s) => s.id)).size).toBe(APP_TABS.length);
   });
 
-  it('exposes Memory → Reviews with its canonical deep link', () => {
+  it('exposes Memory → Review with its canonical deep link', () => {
     const memory = surfaces.find((s) => s.id === 'memory');
     expect(memory?.label).toBe('Eclipse Memory');
     expect(memory?.deepLink).toBe('/?tab=memory');
     expect(memory?.tabs).toContainEqual({
-      id: 'memory.reviews',
-      label: 'Reviews',
-      deepLink: '/?tab=memory&sub=memory.reviews',
+      id: 'memory.review',
+      label: 'Review',
+      deepLink: '/?tab=memory&sub=memory.review',
     });
   });
 
@@ -33,21 +33,24 @@ describe('appSurfaces', () => {
       deepLink: '/?tab=memory&sub=memory.preferences',
     });
     expect(memory?.tabs).toContainEqual({
-      id: 'memory.memories',
+      id: 'memory.facts',
       label: 'Facts',
-      deepLink: '/?tab=memory&sub=memory.memories',
+      deepLink: '/?tab=memory&sub=memory.facts',
     });
     expect(memory?.tabs).toContainEqual({
-      id: 'memory.profiles',
-      label: 'Profiles',
-      deepLink: '/?tab=memory&sub=memory.profiles',
+      id: 'memory.settings',
+      label: 'Settings',
+      deepLink: '/?tab=memory&sub=memory.settings',
     });
   });
 
   it('exposes Skills → Learning Queue and the Maintenance tab', () => {
     const skills = surfaces.find((s) => s.id === 'skills');
-    expect(skills?.tabs).toHaveLength(10);
-    expect(skills?.tabs.map((t) => t.id)).toEqual(SKILLS_TABS.map((t) => `skills.${t.id}`));
+    const visible = SKILLS_TABS.filter((t) => !t.hidden);
+    expect(skills?.tabs).toHaveLength(visible.length);
+    expect(skills?.tabs.map((t) => t.id)).toEqual(visible.map((t) => `skills.${t.id}`));
+    // Start Here became first-run content; it stays deep-linkable but is not a tab.
+    expect(skills?.tabs.map((t) => t.id)).not.toContain('skills.start');
     expect(skills?.tabs).toContainEqual({
       id: 'skills.learning',
       label: 'Learning Queue',
@@ -60,9 +63,16 @@ describe('appSurfaces', () => {
     });
   });
 
+  it('groups every visible Skills tab under one of five primary destinations', () => {
+    const visible = SKILLS_TABS.filter((t) => !t.hidden).map((t) => t.id);
+    const grouped = SKILLS_GROUPS.flatMap((g) => g.tabs).filter((id) => visible.includes(id));
+    expect(SKILLS_GROUPS).toHaveLength(5);
+    expect(new Set(grouped)).toEqual(new Set(visible));
+  });
+
   it('maps legacy subroute aliases to the rendered tab', () => {
-    expect(screenTab(MEMORY_TABS, 'explorer')?.id).toBe('memories');
-    expect(screenTab(MEMORY_TABS, 'learning')?.id).toBe('reviews');
+    expect(screenTab(MEMORY_TABS, 'explorer')?.id).toBe('facts');
+    expect(screenTab(MEMORY_TABS, 'learning')?.id).toBe('review');
     expect(screenTab(SKILLS_TABS, 'maintenance')?.id).toBe('maintenance');
     expect(screenTab(SKILLS_TABS, 'nope')).toBeUndefined();
   });

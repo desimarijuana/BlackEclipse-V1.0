@@ -473,6 +473,26 @@ function tradeLearning(): WorkflowIR {
   );
 }
 
+function decisionDemo(): WorkflowIR {
+  // Zero-config on purpose: no key, no network, no setup. The manual trigger's
+  // run input is ignored, so pressing Run is the whole test.
+  return buildGraph(
+    'Typed decision (demo)',
+    'A deterministic typed judgment through the decision layer: two yes/no answers with their policy verdict and audit record. No key, no network.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'decide', type: 'decision.demo', config: { scenario: 'risk_gate' } },
+      { id: 'answers', type: 'output.result', config: { label: 'Typed answers' } },
+      { id: 'summary', type: 'output.result', config: { label: 'Summary' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'decide', targetHandle: 'state' },
+      { source: 'decide', sourceHandle: 'answers', target: 'answers', targetHandle: 'value' },
+      { source: 'decide', sourceHandle: 'summary', target: 'summary', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
@@ -519,6 +539,12 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     name: 'Trade learning loop',
     description: 'Review journal trades → learn recurring patterns → improve the playbook → commit.',
     build: tradeLearning,
+  },
+  {
+    id: 'decision-demo',
+    name: 'Typed decision (demo)',
+    description: 'Zero-config typed judgment: answers, policy verdict and audit record.',
+    build: decisionDemo,
   },
 ];
 

@@ -70,6 +70,16 @@ export function SkillAuthorForm({
     getAuthoringMeta().then(setMeta).catch(() => setMeta(null));
   }, []);
 
+  // Escape closes the drawer, matching every other modal in the app.
+  useEffect(() => {
+    if (!mounted) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mounted, onClose]);
+
   const isEdit = Boolean(editing);
 
   const submit = async () => {
@@ -124,7 +134,12 @@ export function SkillAuthorForm({
   // container is a backdrop root (blur/transform), which would scope the fixed
   // positioning and trap the panel under the app header.
   const overlay = (
-    <div className="fixed inset-0 z-[100] flex justify-end" role="dialog" aria-label={isEdit ? "Edit skill" : "Add skill"}>
+    <div
+      className="fixed inset-0 z-[100] flex justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={isEdit ? "Edit skill" : "Add skill"}
+    >
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-xl h-full glass-card-strong border-l border-white/10 overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/10 bg-background/80 px-5 py-3 backdrop-blur">

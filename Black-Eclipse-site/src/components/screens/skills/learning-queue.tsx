@@ -6,14 +6,13 @@
 
 import { useState } from "react";
 import {
-  AlertCircle, FileText, Lightbulb, Loader2, RefreshCcw, ShieldCheck, ThumbsDown, WandSparkles,
+  FileText, Lightbulb, Loader2, RefreshCcw, ThumbsDown, WandSparkles,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { LearningCandidate } from "@/lib/harness/skills-types";
-import { formatWhen, LoadingState, Panel } from "./skill-ui";
-import { IconBadge } from "@/components/layout/page-header";
+import { EmptyState, ErrorState, formatWhen, LoadingState, Panel, PanelHeader } from "./skill-ui";
 
 const TYPE_LABEL: Record<string, string> = {
   failure_recovery: "Failure recovery",
@@ -56,43 +55,27 @@ export function LearningQueue({
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <IconBadge icon={Lightbulb} size="sm" />
-          <div>
-            <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Learning Queue</h2>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">
-              Reusable lessons captured from execution traces. A candidate is an observation, not a skill — nothing
-              here is active until evaluated and explicitly promoted.
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" className="cursor-pointer rounded-xl shrink-0" onClick={onRefresh} disabled={loading}>
-          <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
-        </Button>
-      </div>
-
-      {!isOperator && (
-        <p className="mb-4 flex items-center gap-1 text-[10px] text-amber-300/90">
-          <ShieldCheck size={11} /> Read-only session — generating drafts and rejecting require operator authorization.
-        </p>
-      )}
+      <PanelHeader
+        icon={Lightbulb}
+        title="Learning Queue"
+        description="Reusable lessons captured from execution traces. A candidate is an observation, not a skill — nothing here is active until evaluated and explicitly promoted."
+        actions={
+          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl shrink-0" onClick={onRefresh} disabled={loading}>
+            <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
+          </Button>
+        }
+      />
 
       {loading ? (
         <LoadingState label="Loading learning candidates…" />
       ) : error ? (
-        <Panel className="p-8 text-center">
-          <AlertCircle size={24} className="mx-auto text-rose-400" />
-          <p className="mt-2 text-sm text-foreground">{error}</p>
-        </Panel>
+        <ErrorState message={error} />
       ) : candidates.length === 0 ? (
-        <Panel className="p-10 text-center">
-          <Lightbulb size={26} className="mx-auto text-muted-foreground/60" />
-          <p className="mt-3 text-sm font-semibold text-foreground">No learning candidates</p>
-          <p className="mt-1 text-[11px] text-muted-foreground max-w-sm mx-auto">
-            Use “Learn from this run” on a completed execution to capture a reusable lesson.
-          </p>
-        </Panel>
+        <EmptyState
+          icon={Lightbulb}
+          title="No learning candidates"
+          hint="Use “Learn from this run” on a completed execution to capture a reusable lesson."
+        />
       ) : (
         <>
           <div className="space-y-3">

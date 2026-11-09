@@ -86,10 +86,36 @@ export function isOperatorRequest(request?: Request): boolean {
   return checkMutationAllowed(request).allowed;
 }
 
-export async function listSkills(status?: string): Promise<SkillListResponse> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+export interface SkillListQuery {
+  status?: string;
+  /** Free-text terms, matched against id/name/description/tags. */
+  q?: string;
+  category?: string;
+  risk?: string;
+  sort?: "name" | "status" | "risk" | "updated";
+  /** Omit for the historical "return everything" behavior. */
+  limit?: number;
+  offset?: number;
+}
+
+function skillListQueryString(input?: string | SkillListQuery): string {
+  // Back-compat: callers that pass a bare status string keep working.
+  const query: SkillListQuery = typeof input === "string" ? { status: input } : (input ?? {});
+  const sp = new URLSearchParams();
+  if (query.status && query.status !== "all") sp.set("status", query.status);
+  if (query.q) sp.set("q", query.q);
+  if (query.category && query.category !== "all") sp.set("category", query.category);
+  if (query.risk && query.risk !== "all") sp.set("risk", query.risk);
+  if (query.sort) sp.set("sort", query.sort);
+  if (query.limit != null) sp.set("limit", String(query.limit));
+  if (query.offset != null) sp.set("offset", String(query.offset));
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function listSkills(input?: string | SkillListQuery): Promise<SkillListResponse> {
   const body = await request<SkillListResponse>(
-    `/skills${query}`,
+    `/skills${skillListQueryString(input)}`,
     { method: "GET" }
   );
   return {
@@ -101,6 +127,11 @@ export async function listSkills(status?: string): Promise<SkillListResponse> {
     shadowed: body.shadowed ?? [],
     contentFindings: body.contentFindings ?? {},
     quarantined: body.quarantined ?? [],
+    registryTotal: body.registryTotal,
+    total: body.total,
+    limit: body.limit,
+    offset: body.offset,
+    hasMore: body.hasMore,
   };
 }
 

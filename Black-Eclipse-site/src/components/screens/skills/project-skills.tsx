@@ -10,13 +10,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FolderGit2, ShieldCheck, ShieldOff, History } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import {
   projectSkillStatus, trustProjectSkill, untrustProjectSkill, approveProjectSkill,
   projectTrustHistory,
 } from "@/lib/harness/skills-browser";
 import type { ProjectSkillStatus, ProjectTrustApproval } from "@/lib/harness/skills-types";
-import { LoadingState } from "./skill-ui";
+import { ErrorState, formatWhen, LoadingState, PanelHeader } from "./skill-ui";
 
 export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
   const [status, setStatus] = useState<ProjectSkillStatus | null>(null);
@@ -25,6 +26,8 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const trustedPager = usePagination(status?.trusted ?? [], 10);
+  const historyPager = usePagination(history, 10);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -50,7 +53,7 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
     return <LoadingState label="Loading project skills…" />;
   }
   if (error) {
-    return <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-6 text-center text-sm text-foreground">{error}</div>;
+    return <ErrorState message={error} title="Could not load project skills" />;
   }
   if (!status) return null;
 
@@ -62,16 +65,19 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-4">
-        <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Project skills</h3>
-        <p className="mt-1 text-[11px] text-muted-foreground max-w-2xl leading-relaxed">
-          Skills a repository carries under <code>.black-eclipse/skills/</code> or{" "}
-          <code>.agents/skills/</code>. They are never auto-loaded from a cloned repo:
-          a project stays inert until you trust it. On a change, only the changed
-          skills are quarantined — unchanged skills keep working. A trusted project
-          skill still runs through the normal permission and evaluation gates.
-        </p>
-      </div>
+      <PanelHeader
+        icon={FolderGit2}
+        title="Project skills"
+        description={
+          <>
+            Skills a repository carries under <code>.black-eclipse/skills/</code> or{" "}
+            <code>.agents/skills/</code>. They are never auto-loaded from a cloned repo:
+            a project stays inert until you trust it. On a change, only the changed
+            skills are quarantined — unchanged skills keep working. A trusted project
+            skill still runs through the normal permission and evaluation gates.
+          </>
+        }
+      />
       {notice && <p className="mb-3 text-[11px] text-primary">{notice}</p>}
 
       {!status.projectDiscovery && (
@@ -159,14 +165,13 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
                 ))}
               </div>
             )}
-            {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — trust changes require operator authorization.</p>}
           </div>
 
           {status.trusted.length > 0 && (
             <div className="mt-5 rounded-2xl border border-white/10 glass-card p-4">
               <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2">Trust decisions</p>
               <ul className="space-y-1">
-                {status.trusted.map((t) => (
+                {trustedPager.pageItems.map((t) => (
                   <li key={t.path} className="flex items-center justify-between gap-3 text-[11px]">
                     <span className="truncate text-foreground">{t.path}</span>
                     <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase",
@@ -176,6 +181,7 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
                   </li>
                 ))}
               </ul>
+              <PaginationFooter pagination={trustedPager} label="trust decisions" />
             </div>
           )}
 
@@ -185,7 +191,7 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
                 <History size={11} /> Approval history
               </p>
               <ul className="space-y-1.5">
-                {history.map((h) => (
+                {historyPager.pageItems.map((h) => (
                   <li key={h.id} className="flex items-center justify-between gap-3 text-[10px]">
                     <span className="flex items-center gap-1.5 min-w-0">
                       {h.action === "untrust"
@@ -200,18 +206,11 @@ export function ProjectSkills({ isOperator }: { isOperator: boolean }) {
                   </li>
                 ))}
               </ul>
+              <PaginationFooter pagination={historyPager} label="decisions" />
             </div>
           )}
         </>
       )}
     </div>
   );
-}
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
 }

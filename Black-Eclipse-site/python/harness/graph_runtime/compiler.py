@@ -69,6 +69,11 @@ TEST_RUN_CAPABILITIES = frozenset({
     "agent.run",
     # Broker reads (account/quote/bars) cannot change anything.
     "trading.broker.read",
+    # A typed decision is INFORMATION, never authorization: it has no write,
+    # network or trading effect. The demo is rules-only and local; `decision.ask`
+    # may call a configured provider, exactly like the agent nodes a test run
+    # already permits. Privacy still blocks remote providers in local mode.
+    "decision.ask",
 })
 
 

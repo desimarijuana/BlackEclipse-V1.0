@@ -10,13 +10,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Boxes, Plus, RefreshCcw, Trash2, X } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import {
   listSkillBundles, saveSkillBundle, deleteSkillBundle,
-  lockSkillBundle, unlockSkillBundle,
+  lockSkillBundle, unlockSkillBundle, bundleUpdatePreview, rollbackSkillBundle,
 } from "@/lib/harness/skills-browser";
-import type { SkillBundle, SkillBundleResolution } from "@/lib/harness/skills-types";
-import { LoadingState } from "./skill-ui";
+import type {
+  BundleUpdatePreview, SkillBundle, SkillBundleResolution,
+} from "@/lib/harness/skills-types";
+import { EmptyState, ErrorState, LoadingState, PanelHeader } from "./skill-ui";
 
 const EMPTY: Partial<SkillBundle> & { id: string } = {
   id: "", name: "", description: "", skills: [], instruction: "", constraints: "", provenance: "manual",
@@ -31,6 +34,9 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
   const [toast, setToast] = useState<string | null>(null);
   const [draft, setDraft] = useState<(Partial<SkillBundle> & { id: string }) | null>(null);
   const [skillsText, setSkillsText] = useState("");
+  const [previews, setPreviews] = useState<Record<string, BundleUpdatePreview>>({});
+  const [previewing, setPreviewing] = useState<string | null>(null);
+  const pagination = usePagination(bundles, 10);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -74,34 +80,55 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
   };
 
   const remove = async (id: string) => {
+    if (!window.confirm(`Delete bundle "${id}"? Skills in it are not affected.`)) return;
     setBusy(true);
     try { await deleteSkillBundle(id); setToast("Bundle deleted"); await load(); }
     catch (err) { setToast(err instanceof Error ? err.message : "delete failed"); }
     finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
   };
 
+  const previewUpdate = async (id: string) => {
+    setPreviewing(id);
+    try {
+      const next = await bundleUpdatePreview(id);
+      setPreviews((prev) => ({ ...prev, [id]: next }));
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "preview failed");
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setPreviewing(null);
+    }
+  };
+
+  const rollback = async (id: string) => {
+    if (!window.confirm(`Roll bundle "${id}" back to its previous locked member versions?`)) return;
+    setPreviews((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    await act(() => rollbackSkillBundle(id), "Bundle rolled back");
+  };
+
   if (loading) {
     return <LoadingState label="Loading bundles…" />;
   }
   if (error) {
-    return <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-6 text-center text-sm text-foreground">{error}</div>;
+    return <ErrorState message={error} title="Could not load bundles" />;
   }
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Skill bundles</h3>
-          <p className="mt-1 text-[11px] text-muted-foreground max-w-2xl leading-relaxed">
-            Group skills for a recurring workflow under one id. A bundle is a reference — missing or
-            disabled members are reported, never enabled. It cannot widen a permission or exceed the
-            prompt budget.
-          </p>
-        </div>
-        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer shrink-0" onClick={load} disabled={busy}>
-          <RefreshCcw size={13} className="mr-1" /> Refresh
-        </Button>
-      </div>
+      <PanelHeader
+        icon={Boxes}
+        title="Skill bundles"
+        description="Group skills for a recurring workflow under one id. A bundle is a reference — missing or disabled members are reported, never enabled. It cannot widen a permission or exceed the prompt budget."
+        actions={
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer shrink-0" onClick={load} disabled={busy}>
+            <RefreshCcw size={13} className="mr-1" /> Refresh
+          </Button>
+        }
+      />
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
 
       {draft ? (
@@ -131,16 +158,15 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
       )}
 
       {bundles.length === 0 ? (
-        <div className="rounded-2xl border border-border/20 glass-card-subtle p-10 text-center">
-          <Boxes size={24} className="mx-auto text-muted-foreground/60" />
-          <p className="mt-3 text-sm font-semibold text-foreground">No bundles yet</p>
-          <p className="mt-1 text-[11px] text-muted-foreground max-w-sm mx-auto">
-            Create one to compose several skills under a single task profile (research, market-analysis, release-preparation…).
-          </p>
-        </div>
+        <EmptyState
+          icon={Boxes}
+          title="No bundles yet"
+          hint="Create one to compose several skills under a single task profile (research, market-analysis, release-preparation…)."
+        />
       ) : (
+        <>
         <div className="space-y-2">
-          {bundles.map((bundle) => {
+          {pagination.pageItems.map((bundle) => {
             const r = resolved[bundle.id];
             return (
               <div key={bundle.id} className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-3.5">
@@ -180,23 +206,54 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
                     {r.incompatible?.join(" · ") || "A member changed since this bundle was locked."}
                   </p>
                 )}
-                <div className="mt-2 flex items-center gap-3">
+                <div className="mt-2 flex flex-wrap items-center gap-3">
                   <button onClick={() => editBundle(bundle)} disabled={!isOperator}
                     className="text-[10px] text-primary hover:underline cursor-pointer disabled:text-muted-foreground">Edit</button>
                   {bundle.locked ? (
-                    <button onClick={() => act(() => unlockSkillBundle(bundle.id), "Bundle unlocked")} disabled={!isOperator || busy}
-                      className="text-[10px] text-amber-300 hover:underline cursor-pointer disabled:text-muted-foreground">Unlock</button>
+                    <>
+                      <button onClick={() => void previewUpdate(bundle.id)} disabled={!isOperator || busy || previewing === bundle.id}
+                        className="text-[10px] text-sky-300 hover:underline cursor-pointer disabled:text-muted-foreground">
+                        {previewing === bundle.id ? "Checking…" : "Preview update"}
+                      </button>
+                      <button onClick={() => void rollback(bundle.id)} disabled={!isOperator || busy}
+                        className="text-[10px] text-rose-300 hover:underline cursor-pointer disabled:text-muted-foreground">Rollback</button>
+                      <button onClick={() => act(() => unlockSkillBundle(bundle.id), "Bundle unlocked")} disabled={!isOperator || busy}
+                        className="text-[10px] text-amber-300 hover:underline cursor-pointer disabled:text-muted-foreground">Unlock</button>
+                    </>
                   ) : (
                     <button onClick={() => act(() => lockSkillBundle(bundle.id), "Bundle locked to current member versions")} disabled={!isOperator || busy}
                       className="text-[10px] text-emerald-300 hover:underline cursor-pointer disabled:text-muted-foreground">Lock</button>
                   )}
                 </div>
+
+                {previews[bundle.id] && (
+                  <div className="mt-2 rounded-xl border border-sky-400/20 bg-sky-400/5 p-2.5">
+                    <p className="text-[10px] font-semibold text-sky-200">
+                      {previews[bundle.id].wouldChange
+                        ? "A new lock would change these members:"
+                        : "No member changes since the last lock."}
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {previews[bundle.id].changes
+                        .filter((change) => change.change !== "unchanged")
+                        .map((change) => (
+                          <li key={change.skillId} className="text-[10px] text-muted-foreground">
+                            <span className="text-foreground">{change.skillId}</span>
+                            {" · "}{change.change.replace("_", " ")}
+                            {change.lockedVersion ? ` · locked v${change.lockedVersion}` : ""}
+                            {change.currentVersion ? ` → current v${change.currentVersion}` : ""}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
+        <PaginationFooter pagination={pagination} label="bundles" />
+        </>
       )}
-      {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — creating/deleting bundles requires operator authorization.</p>}
     </div>
   );
 }

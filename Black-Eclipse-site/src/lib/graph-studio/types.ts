@@ -162,6 +162,7 @@ export type NodeCategory =
   | 'research'
   | 'trading'
   | 'learning'
+  | 'decision'
   | 'media'
   | 'output';
 

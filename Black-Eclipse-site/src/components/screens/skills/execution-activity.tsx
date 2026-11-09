@@ -4,14 +4,14 @@
 // A readable trace view. Secrets are never part of a trace payload (the runtime
 // redacts tool text), so nothing here leaks credentials.
 
-import { useState } from "react";
-import { Activity, AlertCircle, ChevronDown, ChevronRight, Loader2, RefreshCcw } from "@/lib/icons";
+import { useEffect, useState } from "react";
+import { Activity, ChevronDown, ChevronRight, Loader2, RefreshCcw } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
+import { getSkillExecution } from "@/lib/harness/skills-browser";
 import type { SkillExecutionRecord } from "@/lib/harness/skills-types";
-import { formatDuration, formatWhen, LoadingState, MetaRow, Panel } from "./skill-ui";
-import { IconBadge } from "@/components/layout/page-header";
+import { EmptyState, ErrorState, formatDuration, formatWhen, LoadingState, MetaRow, Panel, PanelHeader } from "./skill-ui";
 
 export interface ExecutionWithSkill extends SkillExecutionRecord {
   skillName?: string;
@@ -25,6 +25,8 @@ export function ExecutionActivity({
   onOpenSkill,
   onLearn,
   isOperator,
+  focusRunId,
+  onClearFocus,
 }: {
   executions: ExecutionWithSkill[];
   loading: boolean;
@@ -33,47 +35,84 @@ export function ExecutionActivity({
   onOpenSkill: (skillId: string) => void;
   onLearn: (runId: string) => Promise<void>;
   isOperator: boolean;
+  /** A run to open on arrival (deep link / "View run"). */
+  focusRunId?: string | null;
+  onClearFocus?: () => void;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focusRunId ?? null);
   const [busy, setBusy] = useState<string | null>(null);
-  const pagination = usePagination(executions, 25);
+  // A run older than the list window still has to be viewable.
+  const [fetched, setFetched] = useState<ExecutionWithSkill | null>(null);
+  const [focusError, setFocusError] = useState<string | null>(null);
+
+  const inList = Boolean(focusRunId && executions.some((e) => e.runId === focusRunId));
+
+  useEffect(() => {
+    setOpen(focusRunId ?? null);
+    if (!focusRunId || inList) {
+      setFetched(null);
+      setFocusError(null);
+      return;
+    }
+    let active = true;
+    setFocusError(null);
+    getSkillExecution(focusRunId)
+      .then((record) => {
+        if (!active) return;
+        if (record) setFetched(record);
+        else setFocusError(`Run ${focusRunId} was not found.`);
+      })
+      .catch((err) => {
+        if (active) setFocusError(err instanceof Error ? err.message : "could not load run");
+      });
+    return () => { active = false; };
+  }, [focusRunId, inList]);
+
+  const rows: ExecutionWithSkill[] =
+    focusRunId && fetched && !inList ? [fetched, ...executions] : executions;
+  const pagination = usePagination(rows, 25);
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <IconBadge icon={Activity} size="sm" />
-          <div>
-            <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Execution Activity</h2>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">
-              Every skill run through the agent runtime — its mode, dependencies, tools, evidence and outcome.
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" className="cursor-pointer rounded-xl shrink-0" onClick={onRefresh} disabled={loading}>
-          <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
-        </Button>
-      </div>
+      <PanelHeader
+        icon={Activity}
+        title="Execution Activity"
+        description="Every skill run through the agent runtime — its mode, dependencies, tools, evidence and outcome."
+        actions={
+          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl shrink-0" onClick={onRefresh} disabled={loading}>
+            <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
+          </Button>
+        }
+      />
 
       {loading ? (
         <LoadingState label="Loading execution activity…" />
       ) : error ? (
-        <Panel className="p-8 text-center"><AlertCircle size={24} className="mx-auto text-rose-400" /><p className="mt-2 text-sm text-foreground">{error}</p></Panel>
-      ) : executions.length === 0 ? (
-        <Panel className="p-10 text-center">
-          <Activity size={26} className="mx-auto text-muted-foreground/60" />
-          <p className="mt-3 text-sm font-semibold text-foreground">No executions yet</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Run a skill from the library to see its trace here.</p>
-        </Panel>
+        <ErrorState message={error} />
+      ) : focusError ? (
+        <ErrorState message={focusError} title="Run not found" />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={Activity}
+          title="No executions yet"
+          hint="Run a skill from the library to see its trace here."
+        />
       ) : (
         <>
           <div className="space-y-2">
             {pagination.pageItems.map((execution) => {
             const expanded = open === execution.runId;
             return (
-              <Panel key={execution.id}>
+              <Panel
+                key={execution.id}
+                className={cn(execution.runId === focusRunId && "ring-1 ring-primary/40")}
+              >
                 <button
-                  onClick={() => setOpen(expanded ? null : execution.runId)}
+                  onClick={() => {
+                    setOpen(expanded ? null : execution.runId);
+                    if (expanded && execution.runId === focusRunId) onClearFocus?.();
+                  }}
+                  aria-expanded={expanded}
                   className="flex w-full items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-accent/20 transition-colors text-left"
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -166,7 +205,6 @@ export function ExecutionActivity({
                         {busy === execution.runId ? <Loader2 size={13} className="mr-1 animate-spin" /> : null}
                         Learn from this run
                       </Button>
-                      {!isOperator && <span className="ml-2 text-[10px] text-muted-foreground">requires operator</span>}
                     </div>
                   </div>
                 )}

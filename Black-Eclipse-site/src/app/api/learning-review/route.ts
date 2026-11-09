@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listLearningReviews } from "@/lib/harness/eclipse-memory-client";
+import { listLearningReviewsPage } from "@/lib/harness/eclipse-memory-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,9 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const status = url.searchParams.get("status") || undefined;
     const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50;
-    const reviews = await listLearningReviews(status, limit);
-    return NextResponse.json({ success: true, reviews });
+    const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+    const page = await listLearningReviewsPage(status, limit, offset);
+    return NextResponse.json({ success: true, ...page });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
     return NextResponse.json(

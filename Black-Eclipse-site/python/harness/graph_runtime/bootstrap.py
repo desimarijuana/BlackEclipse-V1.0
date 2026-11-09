@@ -606,6 +606,14 @@ def install_graph_layer(service: Any) -> bool:
         set_bot_resolver(_bot_resolver)
         set_paper_store(PaperAccountStore(service.store))
 
+        # Typed decisions: the graph nodes reuse the ONE decision service built
+        # at boot (provider registry + confidence policy + audit store on the
+        # SAME agent-memory connection). Absent, the nodes report an honest
+        # "unavailable"-style error rather than guessing.
+        from .decision_nodes import set_decision_service  # noqa: PLC0415
+
+        set_decision_service(getattr(service, "decision", None))
+
         # Trade learning: findings + playbook versions on the SAME agent-memory
         # connection. The journal itself stays in JDDS and is read through the
         # authenticated, read-only bridge — never written from here.

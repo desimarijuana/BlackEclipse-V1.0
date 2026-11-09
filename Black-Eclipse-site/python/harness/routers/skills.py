@@ -16,11 +16,33 @@ from ..deps import require_operator, service
 router = APIRouter()
 
 @router.get("/skills")
-def list_skills(status: Optional[str] = None) -> dict[str, Any]:
+def list_skills(
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    risk: Optional[str] = None,
+    sort: str = "name",
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """The Skills Library list.
+
+    Defaults preserve the historical shape: every skill, name-sorted. Passing
+    `limit` opts into the paged envelope (`total` = filtered count, `hasMore`,
+    `offset`). Filtering happens before paging so `total` is exact.
+    """
+    from ..skills.listing import filter_summaries, page_summaries, sort_summaries
+
     registry = service.skill_registry
+    everything = registry.list_summaries()
+    matched = filter_summaries(
+        everything, q=q, category=category, status=status, risk=risk
+    )
+    page = page_summaries(sort_summaries(matched, sort), limit=limit, offset=offset)
     return {
         "success": True,
-        "skills": registry.list_summaries(),
+        "registryTotal": len(everything),
+        **page,
         "loadErrors": service.skill_load_errors,
         "duplicates": registry.duplicate_ids(),
         "projectNotices": registry.project_notices(),

@@ -5,7 +5,7 @@
 // import anywhere; this is the ONE place a key becomes a component.
 
 import {
-  Activity, Bot, Check, Clock, FileCode2, GitBranch, Globe, ChartLine,
+  Activity, Bot, Brain, Check, Clock, FileCode2, GitBranch, Globe, ChartLine,
   Play, Sigma, Sliders, Sparkles, type LucideIcon,
 } from '@/lib/icons';
 import type { NodeCategory } from '@/lib/graph-studio/types';
@@ -25,6 +25,7 @@ const ICONS: Record<string, LucideIcon> = {
   bot: Bot,
   check: Check,
   sparkles: Sparkles,
+  brain: Brain,
 };
 
 const CATEGORY_FALLBACK: Record<NodeCategory, LucideIcon> = {
@@ -40,6 +41,7 @@ const CATEGORY_FALLBACK: Record<NodeCategory, LucideIcon> = {
   research: Globe,
   trading: Activity,
   learning: Sparkles,
+  decision: Brain,
   media: FileCode2,
   output: Check,
 };

@@ -253,14 +253,12 @@ registerPage({ id: 'page-market-regime', kind: 'page', title: 'Market Regime', a
 // `journal-tabs.ts`). `SUB_PAGE_HINTS` carries only curated search vocabulary
 // (aliases / boosts) — never ids or labels.
 const SUB_PAGE_HINTS: Record<string, { aliases?: string[]; keywords?: string[]; rankBoost?: number }> = {
-  'memory.memories': { aliases: ['memory explorer', 'saved memory', 'facts'], keywords: ['explorer', 'facts', 'saved'] },
-  'memory.history': { aliases: ['session history', 'session search', 'past sessions', 'conversation history'], keywords: ['recall'], rankBoost: 1.1 },
-  'memory.reviews': { aliases: ['learning reviews', 'learning review', 'self improvement'], keywords: ['learning', 'review'] },
-  'memory.health': { aliases: ['memory health', 'health export', 'database identity'], keywords: ['export'] },
-  'memory.lifecycle': { aliases: ['memory lifecycle', 'expired memory', 'superseded memory'], keywords: ['expired', 'superseded', 'conflicts'] },
-  'memory.policies': { aliases: ['memory policies', 'memory retention'], keywords: ['policy', 'retention'] },
-  'memory.profile': { aliases: ['memory profile', 'persistent context', 'user profile'], keywords: ['profile', 'context'] },
-  'memory.activity': { aliases: ['memory activity', 'retrieval diagnostics'], keywords: ['activity', 'retrieval'] },
+  'memory.facts': { aliases: ['memory explorer', 'saved memory', 'facts', 'memory lifecycle'], keywords: ['explorer', 'facts', 'saved', 'lifecycle', 'expired', 'superseded'] },
+  'memory.sessions': { aliases: ['session history', 'session search', 'past sessions', 'conversation history'], keywords: ['recall', 'search'], rankBoost: 1.1 },
+  'memory.review': { aliases: ['learning reviews', 'learning review', 'self improvement', 'memory suggestions'], keywords: ['learning', 'review', 'suggestions'] },
+  'memory.preferences': { aliases: ['learned preferences', 'memory profile', 'persistent context', 'user profile'], keywords: ['profile', 'context', 'preferences'] },
+  'memory.settings': { aliases: ['memory policies', 'memory retention', 'memory providers', 'memory profiles'], keywords: ['policy', 'retention', 'providers', 'profiles'] },
+  'memory.maintenance': { aliases: ['memory health', 'health export', 'database identity', 'memory activity', 'retrieval diagnostics', 'memory files'], keywords: ['export', 'activity', 'retrieval', 'health', 'files'] },
   'skills.start': { aliases: ['start here', 'onboarding', 'getting started'], keywords: ['start', 'onboarding'], rankBoost: 1.2 },
   'skills.project': { aliases: ['project skills', 'repository skills', 'trust project'], keywords: ['project', 'repository'], rankBoost: 1.1 },
   'skills.learn': { aliases: ['learn a skill', 'learn from run', 'learn from document', 'guided learn'], keywords: ['learn', 'draft'], rankBoost: 1.15 },

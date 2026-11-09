@@ -478,7 +478,12 @@ def test_prompt_char_ceiling():
     # the agent never composed the dataset -> plan -> train -> compare/register/predict
     # -> drift path). Re-pinned 42960->43307 (2026-11-06) for the in-flight composer
     # plan-mode prompt block already present in the shared tree. May only shrink.
-    assert len(prompt) <= 43307, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 43307->44183 (2026-11-09): the `<fiduciary_advice>` block called a
+    # demo mandate the ONLY execution path, so a model that had just created an
+    # approval card reported a filled order as refused. It now names both
+    # operator-gated paths and requires `order_ledger` evidence before claiming a
+    # failure. Matches the same test in `test_phase_s_stabilization.py`.
+    assert len(prompt) <= 44183, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

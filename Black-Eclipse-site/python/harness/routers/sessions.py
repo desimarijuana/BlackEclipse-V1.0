@@ -49,6 +49,7 @@ def session_search(
     dateFrom: Optional[str] = None,
     dateTo: Optional[str] = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> dict[str, Any]:
     """Search indexed session history. Historical content is context, not
     current financial evidence."""
@@ -68,6 +69,7 @@ def session_search(
         date_from=dateFrom,
         date_to=dateTo,
         limit=limit,
+        offset=offset,
     )
     return {"success": True, **result}
 
@@ -78,11 +80,21 @@ def session_search(
 @router.get("/sessions")
 def list_sessions(
     profileId: Optional[str] = None, userId: Optional[str] = None,
-    status: Optional[str] = None, limit: int = 50,
+    status: Optional[str] = None, limit: int = 50, offset: int = 0,
 ) -> dict[str, Any]:
-    return {"success": True, "sessions": service.store.list_chat_sessions(
-        profile_id=profileId, user_id=userId, status=status, limit=limit
-    )}
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    sessions = service.store.list_chat_sessions(
+        profile_id=profileId, user_id=userId, status=status,
+        limit=limit, offset=offset,
+    )
+    total = service.store.count_chat_sessions(
+        profile_id=profileId, user_id=userId, status=status,
+    )
+    return {
+        "success": True, "sessions": sessions, "total": total,
+        "limit": limit, "offset": offset, "hasMore": offset + len(sessions) < total,
+    }
 
 
 @router.post("/sessions")
@@ -379,10 +391,14 @@ def accept_candidate(
 
 
 @router.get("/learning-review")
-def list_learning_reviews(status: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
+def list_learning_reviews(status: Optional[str] = None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    reviews = service.store.list_learning_reviews(status=status, limit=limit, offset=offset)
+    total = service.store.count_learning_reviews(status=status)
     return {
-        "success": True,
-        "reviews": service.store.list_learning_reviews(status=status, limit=limit),
+        "success": True, "reviews": reviews, "total": total,
+        "limit": limit, "offset": offset, "hasMore": offset + len(reviews) < total,
     }
 
 

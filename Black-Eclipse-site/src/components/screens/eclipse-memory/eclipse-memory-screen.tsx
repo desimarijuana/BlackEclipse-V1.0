@@ -6,9 +6,9 @@
 // Control Room primitives (frosted glass, tab bar, badges) — no new visual
 // language. All counts are real; no fabricated activity.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Activity, AlertCircle, Brain, Database, FileText, Lightbulb, Loader2, Lock, MessageSquare, Plug, Plus,
+  Activity, AlertCircle, Brain, Database, FileText, MessageSquare, Plus,
   RefreshCcw, Search, Settings2, ShieldCheck, Sparkles, Trash2, Wrench, X, type LucideIcon,
 } from "@/lib/icons";
 import { MEMORY_TABS, screenTab, type MemoryTabId } from "@/lib/app-screens";
@@ -16,35 +16,34 @@ import { TabBar } from "@/components/ui/tab-bar";
 import { useSubroute } from "@/hooks/use-subroute";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ServerPaginationFooter } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import {
-  memoryHealth, memoryOverview, listMemories, getMemory, createMemory,
+  memoryHealth, memoryOverview, listMemoriesPage, getMemory, createMemory,
   archiveMemory, reviewMemory, restoreMemory, renewMemory, memoryLifecycle, memoryRetention,
   memoryUsageReport,
-  listCorrections,
-  listMistakes, retrieveMemories,
-  getPolicies, updatePolicies, clientIsOperator,
+  listCorrectionsPage,
+  listMistakesPage, retrieveMemories,
+  clientIsOperator,
   exportMemory, importMemory, backupMemory, memoryDatabaseHealth, resetMemory,
-  listSuggestions, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
+  listSuggestionsPage, acceptSuggestion, dismissSuggestion, type MemorySuggestion,
   memoryConflictReview, resolveMemoryConflict,
   listCompaction, detectCompaction, acceptCompaction, rejectCompaction,
   memoryProfile, rebuildProfile,
   sessionSearch, sessionSearchHealth, sessionOpen, sessionDelete,
-  listChatSessions, getChatSession, updateChatSession, forkChatSession, deleteChatSession, exportChatSession, getSessionSummary,
-  listProfiles, createProfile, deleteProfile,
-  memoryProviderStatus, memoryProviderSearch, memoryProviderTest,
-  learningReviewHealth, listLearningReviews, runLearningReview, decideLearningReview,
+  listChatSessions, listChatSessionsPage, getChatSession, updateChatSession, forkChatSession, deleteChatSession, exportChatSession, getSessionSummary,
+  memoryProviderStatus,
+  learningReviewHealth, listLearningReviewsPage, runLearningReview, decideLearningReview,
   getMemoryFiles, regenerateMemoryFiles, previewMarkdownImport, importMarkdown, restoreMemoryFiles,
   editMemoryFile, listFileHistory, rollbackMemoryFile, type FileEditOperation, type FileRevision,
 } from "@/lib/harness/eclipse-memory-browser";
-import { listSkills } from "@/lib/harness/skills-browser";
-import type { SkillSummary } from "@/lib/harness/skills-types";
 import {
-  EmptyBox, ErrorBox, FilterRow, Header, MemoryModelLegend, Meta, Muted,
-  OriginBadge, Section, Spinner, StatusPill, TypeBadge,
+  EmptyBox, ErrorBox, FilterRow, Header, MEMORY_STATUSES, MEMORY_TYPES, Meta, Muted,
+  OriginBadge, Section, SegmentedTabs, Spinner, StatusPill, TypeBadge,
 } from "./memory-ui";
 import { MemoryDrawer, MemoryModal } from "./memory-overlay";
 import { Preferences } from "./preferences-panel";
+import { Policies, Profiles, Providers } from "./settings-panel";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDatabaseHealth, MemoryDetail,
   MemoryExportDocument, MemoryLifecycleView,
@@ -53,24 +52,70 @@ import type {
   MemoryRetentionStatus,
   MemoryUsageReport,
   MemoryRecord, MemoryRetrievalDiagnostics, MistakeRecord, MemoryConflictReview, CompactionProposal,
-  SessionSearchHealth, SessionSearchHit, SessionOpenResult,
-  ChatSessionRecord, MemoryProfileRecord, MemoryProviderStatus,
+  SessionSearchHealth, SessionSearchHit,
+  ChatSessionRecord, MemoryProviderStatus,
   LearningReviewHealth, LearningReviewRecord,
 } from "@/lib/harness/eclipse-memory-types";
 
 type Tab = MemoryTabId;
+type SectionMap = {
+  facts: "browse" | "lifecycle";
+  sessions: "list" | "search";
+  review: "suggestions" | "reviews";
+  preferences: "learned" | "snapshot";
+  settings: "policies" | "providers" | "profiles";
+  maintenance: "diagnostics" | "files" | "health";
+};
+
+const DEFAULT_SECTIONS: SectionMap = {
+  facts: "browse",
+  sessions: "list",
+  review: "suggestions",
+  preferences: "learned",
+  settings: "policies",
+  maintenance: "diagnostics",
+};
+
+// Legacy deep links must not 404 now that 16 tabs became 7. This is the single
+// alias → (tab, section) map; `MEMORY_TABS` keeps the aliases for the palette.
+const SUBROUTE_TARGET: Record<string, { tab: Tab; section?: keyof SectionMap; value?: string }> = {
+  overview: { tab: "overview" },
+  facts: { tab: "facts", section: "facts", value: "browse" },
+  memories: { tab: "facts", section: "facts", value: "browse" },
+  explorer: { tab: "facts", section: "facts", value: "browse" },
+  lifecycle: { tab: "facts", section: "facts", value: "lifecycle" },
+  sessions: { tab: "sessions", section: "sessions", value: "list" },
+  history: { tab: "sessions", section: "sessions", value: "search" },
+  search: { tab: "sessions", section: "sessions", value: "search" },
+  "session-search": { tab: "sessions", section: "sessions", value: "search" },
+  review: { tab: "review", section: "review", value: "suggestions" },
+  suggestions: { tab: "review", section: "review", value: "suggestions" },
+  reviews: { tab: "review", section: "review", value: "reviews" },
+  learning: { tab: "review", section: "review", value: "reviews" },
+  preferences: { tab: "preferences", section: "preferences", value: "learned" },
+  prefs: { tab: "preferences", section: "preferences", value: "learned" },
+  profile: { tab: "preferences", section: "preferences", value: "snapshot" },
+  context: { tab: "preferences", section: "preferences", value: "snapshot" },
+  settings: { tab: "settings", section: "settings", value: "policies" },
+  policies: { tab: "settings", section: "settings", value: "policies" },
+  providers: { tab: "settings", section: "settings", value: "providers" },
+  profiles: { tab: "settings", section: "settings", value: "profiles" },
+  maintenance: { tab: "maintenance", section: "maintenance", value: "diagnostics" },
+  activity: { tab: "maintenance", section: "maintenance", value: "diagnostics" },
+  diagnostics: { tab: "maintenance", section: "maintenance", value: "diagnostics" },
+  files: { tab: "maintenance", section: "maintenance", value: "files" },
+  health: { tab: "maintenance", section: "maintenance", value: "health" },
+  "health-export": { tab: "maintenance", section: "maintenance", value: "health" },
+};
 
 // Labels + ids come from `MEMORY_TABS` (the same list the agent's surface map
 // reads); only the icons are screen-local presentation.
 const TAB_ICONS: Record<Tab, LucideIcon> = {
-  overview: Brain, memories: Database, preferences: Sparkles, sessions: MessageSquare, history: Search,
-  skills: Wrench, suggestions: Lightbulb, lifecycle: RefreshCcw, reviews: Activity,
-  activity: Activity, profile: Lock, profiles: ShieldCheck, providers: Plug,
-  files: FileText, policies: Settings2, health: ShieldCheck,
+  overview: Brain, facts: Database, sessions: MessageSquare, review: Activity,
+  preferences: Sparkles, settings: Settings2, maintenance: ShieldCheck,
 };
 
-const MEMORY_TYPES = ["all", "preference", "semantic", "procedural", "episodic", "correction", "constraint", "observation", "summary"];
-const STATUSES = ["all", "active", "proposed", "archived", "superseded", "rejected"];
+const STATUSES = MEMORY_STATUSES;
 
 /** Confidence as a percentage, tolerant of a null/undefined value.
  *
@@ -85,12 +130,24 @@ function formatConfidence(value: number | null | undefined): string {
 
 export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("overview");
-  // Deep links land on the matching sub-page. Slugs and legacy aliases come
-  // from the ONE tab list, so every rendered tab (incl. Profiles/Providers/
-  // Files/Skills) is reachable and the alias map cannot drift. The shell
-  // strips the `memory.` prefix before dispatching, so pass the slug as-is.
+  const [sections, setSections] = useState<SectionMap>(DEFAULT_SECTIONS);
+  const setSection = <K extends keyof SectionMap>(key: K, value: SectionMap[K]) =>
+    setSections((current) => ({ ...current, [key]: value }));
+
+  // Deep links land on the matching tab AND internal section. The shell strips
+  // the `memory.` prefix before dispatching, so pass the slug as-is. Unknown
+  // slugs fall back to the tab list's alias resolution.
   useSubroute("memory", (req) => {
-    const def = screenTab(MEMORY_TABS, req.subroute);
+    const slug = req.subroute ?? "";
+    const target = SUBROUTE_TARGET[slug];
+    if (target) {
+      setTab(target.tab);
+      if (target.section && target.value) {
+        setSections((current) => ({ ...current, [target.section!]: target.value }));
+      }
+      return;
+    }
+    const def = screenTab(MEMORY_TABS, slug);
     if (def) setTab(def.id);
   });
 
@@ -103,22 +160,71 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
         variant="subtle"
         wrap
       />
-      {tab === "overview" && <Overview onNavigate={setTab} />}
-      {tab === "memories" && <Memories isOperator={isOperator} />}
-      {tab === "preferences" && <Preferences isOperator={isOperator} />}
-      {tab === "profile" && <Profile isOperator={isOperator} />}
-      {tab === "profiles" && <Profiles isOperator={isOperator} />}
-      {tab === "history" && <History />}
-      {tab === "sessions" && <Sessions isOperator={isOperator} />}
-      {tab === "reviews" && <Reviews isOperator={isOperator} />}
-      {tab === "lifecycle" && <Lifecycle isOperator={isOperator} />}
-      {tab === "suggestions" && <Suggestions isOperator={isOperator} />}
-      {tab === "activity" && <ActivityView />}
-      {tab === "providers" && <Providers />}
-      {tab === "files" && <FilesTab isOperator={isOperator} />}
-      {tab === "skills" && <SkillsTab />}
-      {tab === "policies" && <Policies isOperator={isOperator} />}
-      {tab === "health" && <Health isOperator={isOperator} />}
+      {tab === "overview" && <Overview />}
+      {tab === "facts" && (
+        <>
+          <SegmentedTabs
+            items={[{ id: "browse", label: "Browse" }, { id: "lifecycle", label: "Lifecycle" }]}
+            activeId={sections.facts}
+            onChange={(id) => setSection("facts", id as SectionMap["facts"])}
+          />
+          {sections.facts === "browse" ? <Memories isOperator={isOperator} /> : <Lifecycle isOperator={isOperator} />}
+        </>
+      )}
+      {tab === "sessions" && (
+        <>
+          <SegmentedTabs
+            items={[{ id: "list", label: "Sessions" }, { id: "search", label: "Search history" }]}
+            activeId={sections.sessions}
+            onChange={(id) => setSection("sessions", id as SectionMap["sessions"])}
+          />
+          {sections.sessions === "list" ? <Sessions isOperator={isOperator} /> : <History />}
+        </>
+      )}
+      {tab === "review" && (
+        <>
+          <SegmentedTabs
+            items={[{ id: "suggestions", label: "Suggestions" }, { id: "reviews", label: "Learning reviews" }]}
+            activeId={sections.review}
+            onChange={(id) => setSection("review", id as SectionMap["review"])}
+          />
+          {sections.review === "suggestions" ? <Suggestions isOperator={isOperator} /> : <Reviews isOperator={isOperator} />}
+        </>
+      )}
+      {tab === "preferences" && (
+        <>
+          <SegmentedTabs
+            items={[{ id: "learned", label: "Learned preferences" }, { id: "snapshot", label: "Context snapshot" }]}
+            activeId={sections.preferences}
+            onChange={(id) => setSection("preferences", id as SectionMap["preferences"])}
+          />
+          {sections.preferences === "learned" ? <Preferences isOperator={isOperator} /> : <Profile isOperator={isOperator} />}
+        </>
+      )}
+      {tab === "settings" && (
+        <>
+          <SegmentedTabs
+            items={[{ id: "policies", label: "Policies" }, { id: "providers", label: "Providers" }, { id: "profiles", label: "Profiles" }]}
+            activeId={sections.settings}
+            onChange={(id) => setSection("settings", id as SectionMap["settings"])}
+          />
+          {sections.settings === "policies" && <Policies isOperator={isOperator} />}
+          {sections.settings === "providers" && <Providers />}
+          {sections.settings === "profiles" && <Profiles isOperator={isOperator} />}
+        </>
+      )}
+      {tab === "maintenance" && (
+        <>
+          <SegmentedTabs
+            items={[{ id: "diagnostics", label: "Diagnostics" }, { id: "files", label: "Files" }, { id: "health", label: "Health & data" }]}
+            activeId={sections.maintenance}
+            onChange={(id) => setSection("maintenance", id as SectionMap["maintenance"])}
+          />
+          {sections.maintenance === "diagnostics" && <ActivityView />}
+          {sections.maintenance === "files" && <FilesTab isOperator={isOperator} />}
+          {sections.maintenance === "health" && <Health isOperator={isOperator} />}
+        </>
+      )}
     </div>
   );
 }
@@ -148,29 +254,34 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
   const [toast, setToast] = useState<string | null>(null);
   const [retention, setRetention] = useState<MemoryRetentionStatus | null>(null);
   const [usage, setUsage] = useState<MemoryUsageReport | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZE = 50;
 
-  const load = useCallback(async (target: MemoryLifecycleView) => {
+  const load = useCallback(async (target: MemoryLifecycleView, nextOffset: number) => {
     setLoading(true); setError(null);
     try {
       // Fan the reads out in parallel — they are independent, and doing
       // them sequentially tripled the tab's latency.
       const [body, retentionBody, usageBody] = await Promise.all([
-        memoryLifecycle(target),
+        memoryLifecycle(target, undefined, PAGE_SIZE, nextOffset),
         memoryRetention(),
         memoryUsageReport(30),
       ]);
       setOverview(body);
       setMemories(body.memories ?? []);
+      setTotal(Number(body.total ?? body.memories?.length ?? 0));
       setRetention(retentionBody);
       setUsage(usageBody);
     } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { void load(view); }, [load, view]);
+  useEffect(() => { setOffset(0); }, [view]);
+  useEffect(() => { void load(view, offset); }, [load, view, offset]);
 
   const act = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true);
-    try { await fn(); setToast(message); await load(view); }
+    try { await fn(); setToast(message); await load(view, offset); }
     catch (err) { setToast(err instanceof Error ? err.message : "action failed"); }
     finally { setBusy(false); setTimeout(() => setToast(null), 4000); }
   };
@@ -257,7 +368,7 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
                 Writes: {usage.durableWrites.saved} saved · {usage.durableWrites.suggested} suggested ·{" "}
                 {usage.durableWrites.historyOnly} history-only · {usage.durableWrites.ignored} ignored
                 {usage.durableWrites.explicitRequestRate != null
-                  ? ` · explicit {Math.round(usage.durableWrites.explicitRequestRate * 100)}% of saves`
+                  ? ` · explicit ${Math.round(usage.durableWrites.explicitRequestRate * 100)}% of saves`
                   : ""}
               </p>
               <p className="mt-1 text-[10px] text-foreground/80">
@@ -303,7 +414,7 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
         </div>
       )}
 
-      <CompactionPanel isOperator={isOperator} onChanged={() => void load(view)} />
+      <CompactionPanel isOperator={isOperator} onChanged={() => void load(view, offset)} />
 
       <div className="mb-4 flex flex-wrap gap-1.5">
         {LIFECYCLE_VIEWS.map((v) => (
@@ -356,6 +467,16 @@ function Lifecycle({ isOperator }: { isOperator: boolean }) {
           ))}
         </div>
       )}
+
+      <ServerPaginationFooter
+        total={total}
+        limit={PAGE_SIZE}
+        offset={offset}
+        count={memories.length}
+        onOffset={(next) => setOffset(Math.max(0, next))}
+        label="memories"
+        disabled={loading}
+      />
 
       <MemoryDrawer
         open={Boolean(detail)}
@@ -568,6 +689,11 @@ function Profile({ isOperator }: { isOperator: boolean }) {
                 {item.id ? `${item.id.slice(0, 16)}…` : "entry"} — {item.reason}
               </li>
             ))}
+            {snap.excluded.length > 40 && (
+              <li className="text-[10px] text-muted-foreground/70">
+                Showing 40 of {snap.excluded.length}; the rest are omitted from this preview.
+              </li>
+            )}
           </ul>
         </div>
       )}
@@ -623,13 +749,19 @@ function Reviews({ isOperator }: { isOperator: boolean }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const PAGE_SIZE = 25;
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     try {
-      const [h, list] = await Promise.all([learningReviewHealth(), listLearningReviews(undefined, 30)]);
-      setHealth(h); setReviews(list);
+      const [h, page] = await Promise.all([
+        learningReviewHealth(),
+        listLearningReviewsPage(undefined, PAGE_SIZE, offset),
+      ]);
+      setHealth(h); setReviews(page.reviews); setTotal(page.total);
     } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
-  }, []);
+  }, [offset]);
   useEffect(() => { void load(); }, [load]);
 
   const act = async (fn: () => Promise<unknown>, message: string) => {
@@ -670,6 +802,11 @@ function Reviews({ isOperator }: { isOperator: boolean }) {
       </div>
 
       <div className="mt-4 space-y-2">
+        {health && reviews.length > 0 && (
+          <p className="text-[10px] text-muted-foreground">
+            Showing {reviews.length} of {total} review(s).
+          </p>
+        )}
         {reviews.length === 0 ? (
           <EmptyBox title="No reviews yet" hint="Completed runs are reviewed automatically after they finish." />
         ) : reviews.map((review) => (
@@ -713,6 +850,15 @@ function Reviews({ isOperator }: { isOperator: boolean }) {
         ))}
       </div>
 
+      <ServerPaginationFooter
+        total={total}
+        limit={PAGE_SIZE}
+        offset={offset}
+        count={reviews.length}
+        onOffset={(next) => setOffset(Math.max(0, next))}
+        label="reviews"
+      />
+
       {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — running or deciding a review requires operator authorization.</p>}
     </div>
   );
@@ -721,11 +867,13 @@ function Reviews({ isOperator }: { isOperator: boolean }) {
 // ── History (full-session search) ───────────────────────────────────────────
 
 function History() {
+  const PAGE_SIZE = 20;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SessionSearchHit[]>([]);
   const [health, setHealth] = useState<SessionSearchHealth | null>(null);
   const [engine, setEngine] = useState<string>("");
   const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [open, setOpen] = useState<{ runId: string; messages: SessionSearchHit[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -735,12 +883,15 @@ function History() {
     sessionSearchHealth().then(setHealth).catch(() => setHealth(null));
   }, []);
 
-  const run = async () => {
+  const run = async (nextOffset = 0, append = false) => {
     if (!query.trim()) return;
     setBusy(true); setError(null);
     try {
-      const result = await sessionSearch({ q: query, limit: 20 });
-      setResults(result.results); setEngine(result.engine); setHasMore(result.hasMore);
+      const result = await sessionSearch({ q: query, limit: PAGE_SIZE, offset: nextOffset });
+      setResults((current) => (append ? [...current, ...result.results] : result.results));
+      setEngine(result.engine);
+      setHasMore(result.hasMore);
+      setOffset(nextOffset);
     } catch (err) { setError(err instanceof Error ? err.message : "search failed"); }
     finally { setBusy(false); }
   };
@@ -759,9 +910,9 @@ function History() {
       <div className="rounded-2xl border border-white/10 glass-card p-4">
         <div className="flex gap-2">
           <Input value={query} onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") void run(); }}
+            onKeyDown={(e) => { if (e.key === "Enter") void run(0); }}
             placeholder="Search prior sessions…" className="rounded-xl bg-background/60" />
-          <Button size="sm" className="rounded-xl cursor-pointer" disabled={busy} onClick={run}>Search</Button>
+          <Button size="sm" className="rounded-xl cursor-pointer" disabled={busy} onClick={() => void run(0)}>Search</Button>
         </div>
         {health && (
           <p className="mt-2 text-[10px] text-muted-foreground">
@@ -775,7 +926,7 @@ function History() {
 
       {engine && (
         <p className="mt-3 text-[10px] text-muted-foreground">
-          {results.length} result(s) via {engine}{hasMore ? " · more available" : ""}
+          {results.length} result(s) via {engine}
         </p>
       )}
 
@@ -804,6 +955,15 @@ function History() {
         ))}
       </div>
 
+      {hasMore && (
+        <div className="mt-3 flex justify-center">
+          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={busy}
+            onClick={() => void run(offset + PAGE_SIZE, true)}>
+            Load more results
+          </Button>
+        </div>
+      )}
+
       <MemoryModal
         open={Boolean(open)}
         onClose={() => setOpen(null)}
@@ -825,13 +985,12 @@ function History() {
   );
 }
 
-function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
+function Overview() {
   const [data, setData] = useState<MemoryOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<MemoryProviderStatus | null>(null);
   const [sessions, setSessions] = useState<ChatSessionRecord[]>([]);
-  const [reviews, setReviews] = useState<LearningReviewRecord[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -841,7 +1000,6 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
     // Default-view extras — each is best-effort so one failure cannot blank the page.
     memoryProviderStatus().then(setProvider).catch(() => setProvider(null));
     listChatSessions({ limit: 5 }).then(setSessions).catch(() => setSessions([]));
-    listLearningReviews(undefined, 5).then(setReviews).catch(() => setReviews([]));
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -849,18 +1007,15 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
   if (error) return <ErrorBox message={error} />;
   if (!data) return null;
 
-  const pendingReviews = reviews.filter((r) => r.status === "queued" || r.status === "running");
-  const rollbackAvailable = sessions.some((s) => s.sourceSessionId);
-
   const tiles = [
     { label: "Facts", value: data.memories.total, sub: `${Object.keys(data.memories.byType).length} types` },
     { label: "Active facts", value: data.memories.byStatus.active ?? 0, sub: "recallable now" },
     { label: "Skills", value: data.skills.installed, sub: "installed" },
-    { label: "Pending reviews", value: pendingReviews.length, sub: "learning queue" },
-    { label: "Recent sessions", value: sessions.length, sub: "session history" },
-    { label: "Providers", value: provider?.available?.length ?? 0, sub: `of ${provider?.providerCount ?? 0} available` },
+    { label: "Pending suggestions", value: data.suggestions, sub: "awaiting your review" },
     { label: "Learning changes", value: data.candidates, sub: "candidates in queue" },
-    { label: "Rollback availability", value: rollbackAvailable ? "yes" : "—", sub: rollbackAvailable ? "forked sessions" : "none" },
+    { label: "Corrections", value: data.corrections, sub: "captured corrections" },
+    { label: "Providers", value: provider?.available?.length ?? 0, sub: `of ${provider?.providerCount ?? 0} available` },
+    { label: "Recent sessions", value: sessions.length, sub: "last 5" },
   ];
 
   return (
@@ -869,7 +1024,6 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
         title="Eclipse Memory"
         hint="Dedicated persistence for agent memory, sessions, skills, learning and providers. Real counts only — nothing is fabricated."
       />
-      <MemoryModelLegend />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {tiles.map((tile) => (
           <div key={tile.label} className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-4">
@@ -885,8 +1039,8 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
           <Brain size={26} className="mx-auto text-muted-foreground/60" />
           <p className="mt-3 text-sm font-semibold text-foreground">No memory yet</p>
           <p className="mt-1 text-[11px] text-muted-foreground max-w-md mx-auto">
-            Memory is captured when you ask the agent to remember something, when you correct it, or when a
-            run produces a reusable lesson. Nothing is stored automatically.
+            Memory is learned selectively from explicit requests and strong, repeated signals. New durable
+            facts pass the memory gate; financial facts and secrets are never stored automatically.
           </p>
         </div>
       )}
@@ -914,20 +1068,27 @@ function Overview({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
 // ── Sessions (named, with lifecycle + export/fork) ──────────────────────────
 
 function Sessions({ isOperator }: { isOperator: boolean }) {
+  const PAGE_SIZE = 25;
   const [sessions, setSessions] = useState<ChatSessionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SessionSearchHit[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [detail, setDetail] = useState<{ session: ChatSessionRecord; runs: string[]; summary: Record<string, unknown> | null; messages: SessionSearchHit[] } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setSessions(await listChatSessions({ limit: 100 })); }
+    try {
+      const page = await listChatSessionsPage({ limit: PAGE_SIZE, offset });
+      setSessions(page.sessions);
+      setTotal(page.total);
+    }
     catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
-  }, []);
+  }, [offset]);
   useEffect(() => { void load(); }, [load]);
 
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(null), 4000); };
@@ -1034,6 +1195,16 @@ function Sessions({ isOperator }: { isOperator: boolean }) {
         </div>
       )}
 
+      <ServerPaginationFooter
+        total={total}
+        limit={PAGE_SIZE}
+        offset={offset}
+        count={sessions.length}
+        onOffset={(next) => setOffset(Math.max(0, next))}
+        label="sessions"
+        disabled={loading}
+      />
+
       <MemoryModal
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
@@ -1070,205 +1241,15 @@ function Sessions({ isOperator }: { isOperator: boolean }) {
                   <p className="mt-1 text-[11px] text-foreground/90 whitespace-pre-wrap">{m.content ?? m.snippet}</p>
                 </div>
               ))}
+              {detail.messages.length > 60 && (
+                <p className="text-[10px] text-muted-foreground/70">
+                  Showing the 60 most recent of {detail.messages.length} indexed message(s).
+                </p>
+              )}
             </div>
           </>
         )}
       </MemoryModal>
-    </div>
-  );
-}
-
-// ── Profiles (named + isolation + inheritance) ──────────────────────────────
-
-function Profiles({ isOperator }: { isOperator: boolean }) {
-  const [profiles, setProfiles] = useState<MemoryProfileRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [newId, setNewId] = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    try { setProfiles(await listProfiles()); }
-    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  const notify = (m: string) => { setToast(m); setTimeout(() => setToast(null), 4000); };
-
-  return (
-    <div className="animate-fade-in-up">
-      <Header title="Profiles" hint="Named profiles scope memory, sessions, skills and providers. A profile may read an inherited parent READ-ONLY; cross-profile memory never leaks." />
-      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
-      {isOperator && (
-        <div className="mb-3 flex gap-2">
-          <Input value={newId} onChange={(e) => setNewId(e.target.value)} placeholder="new profile id (e.g. research)" className="rounded-xl bg-background/60" />
-          <Button size="sm" className="rounded-xl cursor-pointer" onClick={async () => {
-            if (!newId.trim()) return;
-            try { await createProfile({ id: newId.trim() }); setNewId(""); notify("Profile created"); await load(); }
-            catch (err) { notify(err instanceof Error ? err.message : "create failed"); }
-          }}>Create</Button>
-        </div>
-      )}
-      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : (
-        <div className="space-y-2">
-          {profiles.map((profile) => (
-            <div key={profile.id} className="rounded-2xl border border-white/10 glass-card p-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-foreground">{profile.name} <span className="font-mono text-[11px] text-muted-foreground">({profile.id})</span></p>
-                  <p className="text-[10px] text-muted-foreground">
-                    memory ns {profile.memoryNamespace} · retention {profile.retentionDays}d
-                    {profile.inherits ? ` · inherits ${profile.inherits} (read-only)` : ""}
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground/70">{profile.directory}</p>
-                </div>
-                {isOperator && profile.id !== "default" && (
-                  <Button size="sm" variant="outline" className="shrink-0 rounded-xl cursor-pointer text-rose-300"
-                    onClick={async () => {
-                      try { await deleteProfile(profile.id); notify("Profile deleted"); await load(); }
-                      catch (err) { notify(err instanceof Error ? err.message : "delete failed"); }
-                    }}>Delete</Button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Providers (memory-provider health + fenced external search) ─────────────
-
-function Providers() {
-  const [status, setStatus] = useState<MemoryProviderStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [external, setExternal] = useState(false);
-  const [results, setResults] = useState<Array<{ provider: string; content: string; verified: boolean }>>([]);
-  const [testResult, setTestResult] = useState<string | null>(null);
-  const [testing, setTesting] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    try { setStatus(await memoryProviderStatus()); }
-    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const test = async (name: string) => {
-    setTesting(name); setTestResult(null);
-    try {
-      const r = await memoryProviderTest(name);
-      setTestResult(`${name}: ${r.state}${r.latencyMs != null ? ` · ${r.latencyMs}ms` : ""}${r.detail ? ` · ${r.detail}` : ""}${r.searchProbed ? ` · probe returned ${r.probeResultCount}` : ""}`);
-    } catch (err) { setTestResult(err instanceof Error ? err.message : "test failed"); }
-    finally { setTesting(null); setTimeout(() => setTestResult(null), 8000); }
-  };
-
-  const search = async () => {
-    if (!query.trim()) return;
-    try {
-      const body = await memoryProviderSearch({ query, allowExternal: external, limit: 10 });
-      const rows = [
-        ...body.native.results.map((r) => ({ provider: r.provider, content: r.content, verified: r.verified })),
-        ...body.external.flatMap((entry) => entry.response.results.map((r) => ({ provider: r.provider, content: r.content, verified: r.verified }))),
-      ];
-      setResults(rows);
-    } catch (err) { setError(err instanceof Error ? err.message : "search failed"); }
-  };
-
-  if (loading) return <Spinner />;
-  if (error) return <ErrorBox message={error} />;
-
-  return (
-    <div className="animate-fade-in-up">
-      <Header title="Memory Providers" hint="Native memory is authoritative. External providers are UNVERIFIED CONTEXT — labelled, fenced, never promoted, and never able to answer a current financial question." />
-      <div className="mb-3 flex gap-2">
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }}
-          placeholder="Search memory providers…" className="rounded-xl bg-background/60" />
-        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
-          <input type="checkbox" checked={external} onChange={(e) => setExternal(e.target.checked)} /> external
-        </label>
-        <Button size="sm" className="rounded-xl cursor-pointer" onClick={search}>Search</Button>
-      </div>
-      {status && (
-        <div className="mb-3 grid gap-2 sm:grid-cols-2">
-          {status.providers.map((p) => {
-            const caps = p.capabilities;
-            const capList = [
-              ["search", caps.search], ["write", caps.write], ["delete", caps.delete],
-              ["export", caps.export], ["read-only", caps.readOnly],
-            ] as Array<[string, boolean]>;
-            return (
-              <div key={p.name} className="rounded-2xl border border-white/10 glass-card p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className={cn("text-[12px] font-medium", p.health.ok ? "text-emerald-300" : "text-amber-300")}>{p.name}</span>
-                  <span className={cn("rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-wide",
-                    p.isNative ? "border-primary/40 text-primary" : "border-border/40 text-muted-foreground")}>
-                    {p.isNative ? "native" : "external"}
-                  </span>
-                </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {p.health.state}
-                  {p.health.latencyMs != null ? ` · ${p.health.latencyMs}ms` : ""}
-                  {p.health.version ? ` · v${p.health.version}` : ""}
-                </p>
-                {p.health.detail && <p className="mt-0.5 text-[10px] text-muted-foreground/80">{p.health.detail}</p>}
-                {p.capabilitySummary && <p className="mt-1 text-[10px] text-foreground/80">{p.capabilitySummary}</p>}
-                {p.dataLocation && (
-                  <p className={cn("mt-1 text-[10px]", p.isNative ? "text-emerald-300/80" : "text-amber-300/90")}>
-                    Data: {p.dataLocation}
-                  </p>
-                )}
-                {p.reliability && p.reliability.state !== "closed" && (
-                  <p className="mt-1 text-[10px] text-amber-300/90">
-                    Reliability: {p.reliability.state}
-                    {p.reliability.lastFailureCategory ? ` (${p.reliability.lastFailureCategory})` : ""}
-                    {p.reliability.failureRate != null ? ` · failure rate ${(p.reliability.failureRate * 100).toFixed(0)}%` : ""}
-                  </p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {capList.map(([label, on]) => (
-                    <span key={label} className={cn("rounded-md border px-1.5 py-0.5 text-[9px]",
-                      on ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-border/30 text-muted-foreground/60")}>
-                      {label}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <Button size="sm" variant="outline" className="rounded-lg cursor-pointer text-[10px] h-6 px-2" disabled={testing === p.name}
-                    onClick={() => void test(p.name)}>
-                    {testing === p.name ? <Loader2 size={10} className="animate-spin" /> : "Test"}
-                  </Button>
-                  {!p.isNative && <span className="text-[9px] text-muted-foreground">not Eclipse-verified</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {testResult && <p className="mb-3 text-[11px] text-primary">{testResult}</p>}
-      {status?.privacyNote && (
-        <p className="mb-3 rounded-xl border border-white/10 glass-card-subtle p-2.5 text-[10px] text-muted-foreground">{status.privacyNote}</p>
-      )}
-      <div className="space-y-2">
-        {results.map((r, i) => (
-          <div key={`${r.provider}-${i}`} className={cn("rounded-2xl border glass-card p-3", r.verified ? "border-emerald-400/20" : "border-amber-400/20")}>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {r.provider} · {r.verified ? "verified" : "unverified context"}
-            </p>
-            <p className="mt-1 text-[11px] text-foreground/90">{r.content}</p>
-          </div>
-        ))}
-      </div>
-      {!status?.externalEnabled && (
-        <p className="mt-3 text-[10px] text-amber-300/90">
-          External search is disabled by policy. Enable it in Policies to search configured MCP memory providers; results stay labelled and are never promoted to native memory.
-        </p>
-      )}
     </div>
   );
 }
@@ -1464,55 +1445,19 @@ function FilesTab({ isOperator }: { isOperator: boolean }) {
   );
 }
 
-// ── Skills (read-only index; full lifecycle lives in the Skills Control Room) ─
-
-function SkillsTab() {
-  const [skills, setSkills] = useState<SkillSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    listSkills()
-      .then((body) => setSkills(body.skills ?? []))
-      .catch((err) => setError(err instanceof Error ? err.message : "failed"))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <Spinner />;
-  if (error) return <ErrorBox message={error} />;
-  return (
-    <div className="animate-fade-in-up">
-      <Header title="Skills" hint="The installed skill index. Versioned patches, evaluation, canary and rollback live in the Skills Control Room." />
-      {skills.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">No skills installed.</p>
-      ) : (
-        <div className="space-y-2">
-          {skills.map((skill) => (
-            <div key={skill.id} className="rounded-2xl border border-white/10 glass-card p-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[12px] font-medium text-foreground">{skill.name}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">{skill.id}</span>
-                <span className="rounded-full border border-border/40 px-2 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{skill.status}</span>
-                {skill.version && <span className="text-[10px] text-muted-foreground">v{skill.version}</span>}
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">{skill.description}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Memories (explorer) ─────────────────────────────────────────────────────
 
 function Memories({ isOperator }: { isOperator: boolean }) {
+  const PAGE_SIZE = 50;
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [detail, setDetail] = useState<MemoryDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -1520,21 +1465,29 @@ function Memories({ isOperator }: { isOperator: boolean }) {
   const [conflictId, setConflictId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ content: "", memoryType: "semantic", scope: "general", subject: "" });
 
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => { setOffset(0); }, [type, status, searchTerm]);
+
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      setMemories(await listMemories({
+      const page = await listMemoriesPage({
         memoryType: type === "all" ? undefined : type,
         status: status === "all" ? undefined : status,
-      }));
+        search: searchTerm || undefined,
+        limit: PAGE_SIZE,
+        offset,
+      });
+      setMemories(page.memories);
+      setTotal(page.total);
     } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
-  }, [type, status]);
+  }, [type, status, searchTerm, offset]);
   useEffect(() => { void load(); }, [load]);
-
-  const filtered = query
-    ? memories.filter((m) => `${m.content} ${m.subject ?? ""}`.toLowerCase().includes(query.toLowerCase()))
-    : memories;
 
   const open = async (id: string) => { setDetail(await getMemory(id)); };
 
@@ -1609,11 +1562,11 @@ function Memories({ isOperator }: { isOperator: boolean }) {
         <FilterRow label="Status" options={STATUSES} value={status} onChange={setStatus} />
       </div>
 
-      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : filtered.length === 0 ? (
-        <EmptyBox title="No memories match" hint="Memory is only stored from explicit saves, corrections and validated lessons." />
+      {loading ? <Spinner /> : error ? <ErrorBox message={error} /> : memories.length === 0 ? (
+        <EmptyBox title="No memories match" hint="Memory comes from explicit saves, corrections and gated automatic learning. Financial facts and secrets are never stored." />
       ) : (
         <div className="space-y-2">
-          {filtered.map((memory) => (
+          {memories.map((memory) => (
             <button
               key={memory.id}
               onClick={() => open(memory.id)}
@@ -1638,6 +1591,16 @@ function Memories({ isOperator }: { isOperator: boolean }) {
           ))}
         </div>
       )}
+
+      <ServerPaginationFooter
+        total={total}
+        limit={PAGE_SIZE}
+        offset={offset}
+        count={memories.length}
+        onOffset={(next) => setOffset(Math.max(0, next))}
+        label="facts"
+        disabled={loading}
+      />
 
       <MemoryDrawer
         open={Boolean(detail)}
@@ -1901,13 +1864,20 @@ function Suggestions({ isOperator }: { isOperator: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const PAGE_SIZE = 25;
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setSuggestions(await listSuggestions("pending")); }
+    try {
+      const page = await listSuggestionsPage("pending", PAGE_SIZE, offset);
+      setSuggestions(page.items);
+      setTotal(page.total);
+    }
     catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
-  }, []);
+  }, [offset]);
   useEffect(() => { void load(); }, [load]);
 
   const act = async (fn: () => Promise<unknown>, message: string) => {
@@ -1951,6 +1921,15 @@ function Suggestions({ isOperator }: { isOperator: boolean }) {
           ))}
         </div>
       )}
+      <ServerPaginationFooter
+        total={total}
+        limit={PAGE_SIZE}
+        offset={offset}
+        count={suggestions.length}
+        onOffset={(next) => setOffset(Math.max(0, next))}
+        label="suggestions"
+        disabled={loading}
+      />
       {!isOperator && <p className="mt-3 text-[10px] text-amber-300/90">Read-only session — saving or dismissing requires operator authorization.</p>}
     </div>
   );
@@ -1965,15 +1944,24 @@ function ActivityView() {
   const [probe, setProbe] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const PAGE_SIZE = 10;
+  const [correctionsOffset, setCorrectionsOffset] = useState(0);
+  const [correctionsTotal, setCorrectionsTotal] = useState(0);
+  const [mistakesOffset, setMistakesOffset] = useState(0);
+  const [mistakesTotal, setMistakesTotal] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [c, m] = await Promise.all([listCorrections(), listMistakes()]);
-      setCorrections(c); setMistakes(m);
+      const [c, m] = await Promise.all([
+        listCorrectionsPage(PAGE_SIZE, correctionsOffset),
+        listMistakesPage(PAGE_SIZE, mistakesOffset),
+      ]);
+      setCorrections(c.items); setCorrectionsTotal(c.total);
+      setMistakes(m.items); setMistakesTotal(m.total);
     } catch (err) { setError(err instanceof Error ? err.message : "failed"); }
     finally { setLoading(false); }
-  }, []);
+  }, [correctionsOffset, mistakesOffset]);
   useEffect(() => { void load(); }, [load]);
 
   const runProbe = async () => {
@@ -2007,251 +1995,45 @@ function ActivityView() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Section title={`Corrections (${corrections.length})`} icon={Wrench}>
+        <Section title={`Corrections (${correctionsTotal})`} icon={Wrench}>
           {corrections.length === 0 ? <Muted>None recorded.</Muted> : corrections.map((c) => (
             <div key={c.id} className="rounded-xl border border-border/20 bg-background/30 p-2.5 mb-2">
               <p className="text-[11px] text-foreground">{c.subject ?? "general"}: {c.wrong} → {c.correction}</p>
               <p className="mt-1 text-[9px] text-muted-foreground">{c.providedBy} · {c.scope} · generalizable: {c.generalizable ? "yes" : "no"}</p>
             </div>
           ))}
+          <ServerPaginationFooter
+            total={correctionsTotal}
+            limit={PAGE_SIZE}
+            offset={correctionsOffset}
+            count={corrections.length}
+            onOffset={setCorrectionsOffset}
+            label="corrections"
+            disabled={loading}
+          />
         </Section>
-        <Section title={`Mistakes (${mistakes.length})`} icon={AlertCircle}>
+        <Section title={`Mistakes (${mistakesTotal})`} icon={AlertCircle}>
           {mistakes.length === 0 ? <Muted>None captured.</Muted> : mistakes.map((m) => (
             <div key={m.id} className="rounded-xl border border-border/20 bg-background/30 p-2.5 mb-2">
               <p className="text-[11px] text-foreground">{m.category} · {m.severity}</p>
               <p className="mt-1 text-[9px] text-muted-foreground">{m.expected} → {m.actual} · reusable: {m.reusable ? "yes" : "no"}</p>
             </div>
           ))}
+          <ServerPaginationFooter
+            total={mistakesTotal}
+            limit={PAGE_SIZE}
+            offset={mistakesOffset}
+            count={mistakes.length}
+            onOffset={setMistakesOffset}
+            label="mistakes"
+            disabled={loading}
+          />
         </Section>
       </div>
     </div>
   );
 }
 
-// ── Policies ────────────────────────────────────────────────────────────────
-
-const POLICY_LABELS: Record<string, string> = {
-  memory_mode: "Automatic memory learning",
-  skill_learning_mode: "Automatic skill learning",
-  candidate_confidence_threshold: "Candidate confidence threshold",
-  context_budget_chars: "Retrieval context budget (chars)",
-  retrieval_limit: "Max memories per retrieval",
-  max_memories: "Max active memories (0 = unlimited)",
-  retention_days: "Retention review window (days, 0 = never)",
-  include_proposed_in_retrieval: "Inject proposed memory without review",
-  audit_retention_rows: "Audit rows kept (0 = unlimited)",
-  auto_promote_low_risk: "Auto-promote low-risk skills (locked off)",
-  memory_enabled: "Memory enabled (hard off switch)",
-  memory_in_diagnostics: "Show memory in diagnostic views",
-  capture_policy: "Per-category capture policy",
-  recall_policy: "Per-category recall policy",
-  agent_scheduling_enabled: "Let Eclipse schedule work for you",
-  acquisition_enabled: "Let Eclipse collect datasets for you",
-};
-
-const LEARNING_MODE_OPTIONS: { value: string; label: string; hint: string }[] = [
-  {
-    value: "automatic_selective", label: "Automatic (selective)",
-    hint: "Save strong, durable, low-risk facts automatically — no per-run prompt. Requires recurrence for project-specific claims.",
-  },
-  {
-    value: "ask_before_saving", label: "Ask before saving",
-    hint: "Stage candidates and request approval (an inert suggestion); never save on your behalf.",
-  },
-  { value: "off", label: "Off", hint: "Do not learn automatically. Explicit “remember/forget/correct” requests still work." },
-];
-
-const LEARNING_MODE_KEYS = new Set(["memory_mode", "skill_learning_mode"]);
-
-// Legacy derived booleans are read-only projections of the learning modes; they
-// are not user-editable policy keys and must not render as controls.
-const DERIVED_POLICY_KEYS = new Set([
-  "auto_capture_enabled",
-  "auto_suggest_enabled",
-  "auto_candidate_detection",
-]);
-
-// Preference controls live on the Preferences tab, not the generic policy list.
-const PREFERENCE_POLICY_KEYS = new Set(["preference_learning_mode", "preference_min_observations",
-  "preference_min_distinct_runs", "preference_min_consistency", "preference_confidence_threshold",
-  "preference_suppression_days", "preference_dimensions"]);
-
-const POLICY_HINTS: Record<string, string> = {
-  memory_mode: "How durable user preferences and project facts are learned.",
-  skill_learning_mode: "How reusable procedures become learning candidates (always inert until reviewed).",
-  memory_enabled: "Hard local off switch: when off, no memory is stored at all — not even an explicit “remember this”.",
-  retention_days: "Days an automatically learned memory is kept before it becomes eligible for expiry review. 0 = never. Explicit memory is never auto-expired.",
-  memory_in_diagnostics: "Whether memory content appears in the Lifecycle and explanation views. Off hides it without deleting anything.",
-  capture_policy: "Per-category capture rule. “deny” refuses a category; it can never widen authorization.",
-  recall_policy: "Per-category recall rule. “deny” removes a category from recall; scope/privacy filtering stays authoritative.",
-  agent_scheduling_enabled: "When on, Eclipse can set up recurring finance jobs from a fixed list — each one saved switched off until you turn it on under Scheduled Jobs. Off by default.",
-  acquisition_enabled: "When on, Eclipse can pull whole datasets (price history, an economic series, company statements) from a fixed list of sources. Each pull is capped, saved as a file with a record of what it is, and a partial pull is always marked partial. Off by default.",
-};
-
-const CATEGORY_POLICY_KEYS = new Set(["capture_policy", "recall_policy"]);
-const CATEGORY_POLICY_OPTIONS = ["", "allow", "suggest", "deny"] as const;
-
-function Policies({ isOperator }: { isOperator: boolean }) {
-  const [data, setData] = useState<Awaited<ReturnType<typeof getPolicies>> | null>(null);
-  const [draft, setDraft] = useState<Record<string, unknown>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
-    try { const result = await getPolicies(); setData(result); setDraft(result.policies); }
-    catch (err) { setError(err instanceof Error ? err.message : "failed"); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const save = async () => {
-    if (!data) return;
-    setSaving(true); setToast(null);
-    const changed: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(draft)) {
-      if (value !== data.policies[key]) changed[key] = value;
-    }
-    if (Object.keys(changed).length === 0) { setToast("No changes"); setSaving(false); return; }
-    try {
-      const result = await updatePolicies(changed);
-      setData({ ...data, policies: result.policies });
-      setDraft(result.policies);
-      setToast("Policies saved");
-    } catch (err) {
-      setToast(err instanceof Error ? err.message : "save failed");
-    } finally {
-      setSaving(false);
-      setTimeout(() => setToast(null), 4000);
-    }
-  };
-
-  if (loading) return <Spinner />;
-  if (error) return <ErrorBox message={error} />;
-  if (!data) return null;
-
-  const lockedKeys = new Set(Object.keys(data.locked));
-
-  return (
-    <div className="animate-fade-in-up">
-      <Header title="Memory Policies" hint="Configurable behaviour with hard safety floors. Automatic skill promotion is locked off regardless of setting; values are bounded and validated server-side. Learned-preference mode, dimensions and thresholds live on the Preferences tab." />
-      {data.budget && !data.budget.unlimited && (
-        <p className={cn("mb-3 text-[11px]", data.budget.full ? "text-amber-400" : "text-muted-foreground")}>
-          {data.budget.full
-            ? `Memory is full — ${data.budget.active}/${data.budget.limit} active. Archive or review memories to free space; existing memory is never deleted automatically.`
-            : `Storage: ${data.budget.active}/${data.budget.limit} active memories (${data.budget.remaining} remaining).`}
-        </p>
-      )}
-      {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
-
-      <div className="space-y-2">
-        {Object.entries(draft)
-          .filter(([key]) => !DERIVED_POLICY_KEYS.has(key) && !PREFERENCE_POLICY_KEYS.has(key))
-          .map(([key, value]) => {
-          const locked = lockedKeys.has(key);
-          const isMode = LEARNING_MODE_KEYS.has(key);
-          const isBool = typeof data.defaults[key] === "boolean";
-          const numeric = typeof data.defaults[key] === "number";
-          const isCategory = CATEGORY_POLICY_KEYS.has(key);
-          if (isCategory) {
-            const table = (value && typeof value === "object" ? value : {}) as Record<string, string>;
-            return (
-              <div key={key} className="rounded-2xl border border-white/10 glass-card p-3.5">
-                <p className="text-[12px] text-foreground">{POLICY_LABELS[key] ?? key}</p>
-                <p className="font-mono text-[9px] text-muted-foreground">{key}</p>
-                {POLICY_HINTS[key] && <p className="mt-1 text-[10px] text-muted-foreground/80">{POLICY_HINTS[key]}</p>}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {MEMORY_TYPES.filter((t) => t !== "all").map((t) => (
-                    <label key={t} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <span>{t}</span>
-                      <select
-                        value={table[t] ?? ""}
-                        disabled={!isOperator || saving}
-                        onChange={(e) => {
-                          const next = { ...table };
-                          if (e.target.value) next[t] = e.target.value;
-                          else delete next[t];
-                          setDraft({ ...draft, [key]: next });
-                        }}
-                        className="rounded-lg border border-border/30 bg-background/60 px-1.5 py-0.5 text-[10px] outline-none focus:border-primary/40 disabled:opacity-60"
-                      >
-                        {CATEGORY_POLICY_OPTIONS.map((option) => (
-                          <option key={option || "unset"} value={option}>{option || "mode default"}</option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div key={key} className="rounded-2xl border border-white/10 glass-card p-3.5 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-[12px] text-foreground">{POLICY_LABELS[key] ?? key}</p>
-                <p className="font-mono text-[9px] text-muted-foreground">{key}{locked ? " · locked" : ""}</p>
-                {POLICY_HINTS[key] && <p className="mt-1 text-[10px] text-muted-foreground/80">{POLICY_HINTS[key]}</p>}
-                {isMode && (
-                  <p className="mt-1 text-[10px] text-muted-foreground/80">
-                    {LEARNING_MODE_OPTIONS.find((o) => o.value === value)?.hint}
-                  </p>
-                )}
-              </div>
-              {isMode ? (
-                <select
-                  value={String(value)}
-                  disabled={!isOperator || saving}
-                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                  className="shrink-0 rounded-xl border border-border/30 bg-background/60 px-2 py-1 text-[11px] outline-none focus:border-primary/40 disabled:opacity-60"
-                >
-                  {LEARNING_MODE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              ) : isBool ? (
-                <button
-                  disabled={!isOperator || locked || saving}
-                  onClick={() => setDraft({ ...draft, [key]: !value })}
-                  className={cn(
-                    "shrink-0 flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10px] font-bold cursor-pointer",
-                    value ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-border/40 text-muted-foreground",
-                    (locked || !isOperator) && "opacity-60 cursor-not-allowed"
-                  )}
-                >
-                  {locked && <Lock size={10} />}
-                  {value ? "on" : "off"}
-                </button>
-              ) : (
-                <input
-                  type="number"
-                  value={String(value)}
-                  step={numeric && data.defaults[key] !== undefined && !Number.isInteger(data.defaults[key] as number) ? 0.1 : 1}
-                  min={data.bounds[key]?.[0]}
-                  max={data.bounds[key]?.[1]}
-                  disabled={!isOperator || saving}
-                  onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
-                  className="shrink-0 w-28 rounded-xl border border-border/30 bg-background/60 px-2 py-1 text-[11px] text-right outline-none focus:border-primary/40 disabled:opacity-60"
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-4 flex items-center gap-3">
-        <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || saving} onClick={save}>
-          {saving ? <Loader2 size={13} className="mr-1 animate-spin" /> : null} Save changes
-        </Button>
-        <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || saving} onClick={load}>
-          <RefreshCcw size={13} className="mr-1" /> Reload
-        </Button>
-        {!isOperator && <span className="text-[10px] text-amber-300/90">Read-only session — policy changes require operator authorization.</span>}
-      </div>
-    </div>
-  );
-}
 
 // ── Health + Transfer ───────────────────────────────────────────────────────
 
@@ -2263,7 +2045,7 @@ function Health({ isOperator }: { isOperator: boolean }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [filePreview, setFilePreview] = useState<Record<string, string> | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [pendingImport, setPendingImport] = useState<MemoryExportDocument | null>(null);
   const [importPreview, setImportPreview] = useState<{
     imported?: number; importable?: number; skipped?: number;
@@ -2334,55 +2116,6 @@ function Health({ isOperator }: { isOperator: boolean }) {
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
-        <p className="text-[11px] font-semibold text-foreground">Markdown files</p>
-        <p className="mt-1 text-[10px] text-muted-foreground">An inspectable projection under <code>.black-eclipse/memory/</code> (USER.md, MEMORY.md, PROFILE.md, README.md). SQLite stays the source of truth; export/import is explicit and every imported entry passes the normal safety gate.</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const result = await getMemoryFiles();
-                setFilePreview(result.files);
-                setToast(`Files generated (${result.root})`);
-              } catch (err) { setToast(err instanceof Error ? err.message : "generation failed"); }
-              finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
-            }}>Preview files</Button>
-          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-            onClick={() => act(() => regenerateMemoryFiles(), "Files regenerated (backup taken)")}>
-            Regenerate files
-          </Button>
-          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const preview = await previewMarkdownImport();
-                setFilePreview({ "IMPORT PREVIEW": `${preview.entries.length} entries, ${preview.ignored.length} ignored\n\n` + preview.entries.map((e) => `- [${e.memoryType}/${e.scope}] ${e.content}`).join("\n") });
-                setToast("Import preview loaded");
-              } catch (err) { setToast(err instanceof Error ? err.message : "preview failed"); }
-              finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
-            }}>Preview import</Button>
-          <Button size="sm" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-            onClick={() => act(() => importMarkdown(), "Imported from Markdown (backup taken)")}>
-            Apply import
-          </Button>
-          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={!isOperator || busy}
-            onClick={() => act(() => restoreMemoryFiles(), "Restored previous files")}>
-            Restore previous
-          </Button>
-        </div>
-        {filePreview && (
-          <div className="mt-3 space-y-2">
-            {Object.entries(filePreview).map(([name, content]) => (
-              <details key={name} className="rounded-xl border border-border/20 bg-background/30 p-2">
-                <summary className="cursor-pointer text-[11px] font-semibold text-foreground">{name}</summary>
-                <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap text-[10px] text-foreground/80">{content}</pre>
-              </details>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
         <p className="text-[11px] font-semibold text-foreground">Export & Backup</p>
         <p className="mt-1 text-[10px] text-muted-foreground">A readable JSON export you own, plus a consistent copy of the database file. Backups never overwrite an existing file.</p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -2399,25 +2132,24 @@ function Health({ isOperator }: { isOperator: boolean }) {
       <div className="mt-4 rounded-2xl border border-white/10 glass-card p-4">
         <p className="text-[11px] font-semibold text-foreground">Import</p>
         <p className="mt-1 text-[10px] text-muted-foreground">Records are validated and written through the normal memory pipeline; secrets and unsafe content are rejected with reasons.</p>
-        <label className="mt-3 inline-flex">
-          <input type="file" accept="application/json,.json" className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file) return;
-              try {
-                const document = JSON.parse(await file.text()) as MemoryExportDocument;
-                setPendingImport(document);
-                setImportPreview(null);
-              } catch (err) {
-                setToast(err instanceof Error ? err.message : "invalid file");
-              }
-            }}
-          />
-          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer pointer-events-none" disabled={!isOperator || busy}>
-            Choose JSON file…
-          </Button>
-        </label>
+        <input ref={importInputRef} type="file" accept="application/json,.json" className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            try {
+              const document = JSON.parse(await file.text()) as MemoryExportDocument;
+              setPendingImport(document);
+              setImportPreview(null);
+            } catch (err) {
+              setToast(err instanceof Error ? err.message : "invalid file");
+            }
+          }}
+        />
+        <Button size="sm" variant="outline" className="mt-3 rounded-xl cursor-pointer" disabled={!isOperator || busy}
+          onClick={() => importInputRef.current?.click()}>
+          Choose JSON file…
+        </Button>
         {pendingImport && (
           <div className="mt-3 rounded-xl border border-primary/20 glass-card-subtle p-2.5">
             <p className="text-[10px] text-muted-foreground">Selected file — preview before applying (dry run validates and counts, writes nothing).</p>

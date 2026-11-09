@@ -122,7 +122,13 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 42960->43307 (2026-11-06) for the in-flight composer plan-mode
     # prompt block already present in the shared tree. May only shrink from here.
     # Matches the same test in `test_memory_tools.py`.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 43307
+    # Re-pinned 43307->44183 (2026-11-09) for the corrected execution guidance:
+    # the `<fiduciary_advice>` block said a demo mandate was the ONLY execution
+    # path, so a model that had just created an approval card concluded the card
+    # could not submit and reported a filled order as refused. The block now names
+    # both operator-gated paths and requires `order_ledger` evidence before saying
+    # an order failed. Matches the same test in `test_memory_tools.py`.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 44183
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

@@ -50,23 +50,17 @@ def memory_available() -> bool:
 
 @router.get("/eclipse-memory/overview")
 def eclipse_memory_overview() -> dict[str, Any]:
-    """Real counts only — never fabricated activity."""
+    """Real counts only — never fabricated activity, never a capped list length."""
     store = service.memory_store
-    memories = store.list_memories(limit=500, include_inactive=True)
-    by_type: dict[str, int] = {}
-    by_status: dict[str, int] = {}
-    for memory in memories:
-        by_type[memory["memoryType"]] = by_type.get(memory["memoryType"], 0) + 1
-        by_status[memory["status"]] = by_status.get(memory["status"], 0) + 1
     return {
         "success": True,
-        "memories": {"total": len(memories), "byType": by_type, "byStatus": by_status},
+        "memories": store.memory_counts(),
         "skills": {"installed": len(service.skill_registry.all_manifests())},
-        "candidates": len(store.list_candidates(limit=500)),
-        "corrections": len(store.list_corrections(limit=500)),
-        "mistakes": len(store.list_mistakes(limit=500)),
-        "retrievals": len(store.list_retrievals(limit=500)),
-        "suggestions": len(store.list_suggestions(status="pending", limit=500)),
+        "candidates": store.count_candidates(),
+        "corrections": store.count_corrections(),
+        "mistakes": store.count_mistakes(),
+        "retrievals": store.count_retrievals(),
+        "suggestions": store.count_suggestions(status="pending"),
         "health": service.memory.health(),
     }
 
@@ -75,12 +69,29 @@ def eclipse_memory_overview() -> dict[str, Any]:
 def list_memories(
     memoryType: Optional[str] = None, scope: Optional[str] = None,
     status: Optional[str] = None, subject: Optional[str] = None,
-    source: Optional[str] = None, scopeId: Optional[str] = None, limit: int = 100,
+    source: Optional[str] = None, scopeId: Optional[str] = None,
+    q: Optional[str] = None, limit: int = 50, offset: int = 0,
 ) -> dict[str, Any]:
-    return {"success": True, "memories": service.memory_store.list_memories(
-        memory_type=memoryType, scope=scope, scope_id=scopeId, status=status, subject=subject,
-        source=source, limit=limit, include_inactive=True,
-    )}
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    store = service.memory_store
+    memories = store.list_memories(
+        memory_type=memoryType, scope=scope, scope_id=scopeId, status=status,
+        subject=subject, source=source, search=q, limit=limit, offset=offset,
+        include_inactive=True,
+    )
+    total = store.count_memories(
+        memory_type=memoryType, scope=scope, scope_id=scopeId, status=status,
+        subject=subject, source=source, search=q, include_inactive=True,
+    )
+    return {
+        "success": True,
+        "memories": memories,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "hasMore": offset + len(memories) < total,
+    }
 
 
 @router.post("/eclipse-memory/conversations/{conversation_id}/forget")
@@ -115,7 +126,10 @@ def get_memory(memory_id: str) -> dict[str, Any]:
 
 
 @router.get("/eclipse-memory/lifecycle")
-def memory_lifecycle(view: Optional[str] = None, scopeId: Optional[str] = None, limit: int = 100) -> dict[str, Any]:
+def memory_lifecycle(
+    view: Optional[str] = None, scopeId: Optional[str] = None,
+    limit: int = 50, offset: int = 0,
+) -> dict[str, Any]:
     """Lifecycle overview + a named view (active/expired/superseded/never-used/…).
 
     Content is returned because this is the local operator's own memory; never
@@ -124,10 +138,20 @@ def memory_lifecycle(view: Optional[str] = None, scopeId: Optional[str] = None, 
     overview = service.memory.lifecycle_overview()
     payload: dict[str, Any] = {"success": True, **overview}
     if view:
-        payload["memories"] = service.memory_store.list_lifecycle_memories(
-            view, scope_id=scopeId, limit=limit,
+        limit = max(1, min(int(limit), 200))
+        offset = max(0, int(offset))
+        memories = service.memory_store.list_lifecycle_memories(
+            view, scope_id=scopeId, limit=limit, offset=offset,
         )
-        payload["view"] = view
+        total = service.memory_store.count_lifecycle_memories(view, scope_id=scopeId)
+        payload.update({
+            "memories": memories,
+            "view": view,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "hasMore": offset + len(memories) < total,
+        })
     return payload
 
 
@@ -493,13 +517,27 @@ def list_retrievals(limit: int = 50) -> dict[str, Any]:
 
 
 @router.get("/eclipse-memory/corrections")
-def list_corrections(limit: int = 100) -> dict[str, Any]:
-    return {"success": True, "corrections": service.memory_store.list_corrections(limit)}
+def list_corrections(limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    corrections = service.memory_store.list_corrections(limit, offset)
+    total = service.memory_store.count_corrections()
+    return {
+        "success": True, "corrections": corrections, "total": total,
+        "limit": limit, "offset": offset, "hasMore": offset + len(corrections) < total,
+    }
 
 
 @router.get("/eclipse-memory/mistakes")
-def list_mistakes(runId: Optional[str] = None, limit: int = 100) -> dict[str, Any]:
-    return {"success": True, "mistakes": service.memory_store.list_mistakes(runId, limit)}
+def list_mistakes(runId: Optional[str] = None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    mistakes = service.memory_store.list_mistakes(runId, limit, offset)
+    total = service.memory_store.count_mistakes(runId)
+    return {
+        "success": True, "mistakes": mistakes, "total": total,
+        "limit": limit, "offset": offset, "hasMore": offset + len(mistakes) < total,
+    }
 
 
 @router.post("/eclipse-memory/corrections")
@@ -756,7 +794,8 @@ def learn_preferences(
 
 @router.get("/eclipse-memory/suggestions")
 def list_suggestions(
-    status: Optional[str] = "pending", scopeId: Optional[str] = None, limit: int = 100,
+    status: Optional[str] = "pending", scopeId: Optional[str] = None,
+    limit: int = 50, offset: int = 0,
 ) -> dict[str, Any]:
     """Inert Save/Dismiss proposals.
 
@@ -765,11 +804,15 @@ def list_suggestions(
     filter is caller-supplied by design; the authoritative cross-user guard is
     the mismatch refusal in accept/dismiss below.
     """
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    suggestions = service.memory_store.list_suggestions(
+        status=status, scope_id=scopeId, limit=limit, offset=offset,
+    )
+    total = service.memory_store.count_suggestions(status=status, scope_id=scopeId)
     return {
-        "success": True,
-        "suggestions": service.memory_store.list_suggestions(
-            status=status, scope_id=scopeId, limit=limit,
-        ),
+        "success": True, "suggestions": suggestions, "total": total,
+        "limit": limit, "offset": offset, "hasMore": offset + len(suggestions) < total,
     }
 
 

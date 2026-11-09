@@ -11,7 +11,8 @@ export async function GET(request: Request) {
     const body = await memoryLifecycle(
       searchParams.get("view") ?? undefined,
       searchParams.get("scopeId") ?? undefined,
-      Number(searchParams.get("limit") ?? 100)
+      Number(searchParams.get("limit") ?? 50),
+      Number(searchParams.get("offset") ?? 0)
     );
     return NextResponse.json(body);
   } catch (err) {

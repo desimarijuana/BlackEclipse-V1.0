@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listSuggestions, acceptSuggestion, dismissSuggestion } from "@/lib/harness/eclipse-memory-client";
+import { listSuggestionsPage, acceptSuggestion, dismissSuggestion } from "@/lib/harness/eclipse-memory-client";
 import { isOperatorRequest } from "@/lib/harness/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
@@ -17,8 +17,10 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const status = url.searchParams.get("status") || "pending";
     const scopeId = url.searchParams.get("scopeId") || undefined;
-    const suggestions = await listSuggestions(status, scopeId);
-    return NextResponse.json({ success: true, suggestions });
+    const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50;
+    const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+    const page = await listSuggestionsPage(status, limit, offset, scopeId);
+    return NextResponse.json({ success: true, ...page });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
     return NextResponse.json(

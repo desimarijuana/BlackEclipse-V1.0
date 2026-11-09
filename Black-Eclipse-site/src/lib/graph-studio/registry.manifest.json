@@ -1741,6 +1741,229 @@
       "terminal": false
     },
     {
+      "type": "decision.ask",
+      "version": "1.0.0",
+      "category": "decision",
+      "label": "Typed decision",
+      "description": "Ask choice / score / yes-no questions about a state and get typed answers.",
+      "inputs": [
+        {
+          "id": "state",
+          "name": "State",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "answers",
+          "name": "Typed answers",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provider",
+          "name": "Provider",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "recordId",
+          "name": "Audit record",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "minConfidence",
+          "kind": "number",
+          "default": 0.6,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "minProbability",
+          "kind": "number",
+          "default": 0.6,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "provider",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "questionsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "stateJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "timeoutMs",
+          "kind": "number",
+          "default": 15000,
+          "constraints": {
+            "min": 100,
+            "max": 120000,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "decision.ask"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "decision.demo",
+      "version": "1.0.0",
+      "category": "decision",
+      "label": "Typed decision (demo)",
+      "description": "Zero-config demonstration of a typed judgment — no key, no network.",
+      "inputs": [
+        {
+          "id": "state",
+          "name": "State (optional)",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "answers",
+          "name": "Typed answers",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provider",
+          "name": "Provider",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "recordId",
+          "name": "Audit record",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "scenario",
+          "kind": "string",
+          "default": "risk_gate",
+          "constraints": {
+            "enum": [
+              "risk_gate",
+              "route_ticket"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "decision.ask"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "file.write",
       "version": "1.0.0",
       "category": "data",

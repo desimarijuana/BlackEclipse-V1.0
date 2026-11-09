@@ -37,6 +37,8 @@ export interface SkillSummary {
   id: string;
   name: string;
   version: string;
+  /** Stored timestamp for the "Recently updated" sort; absent on old rows. */
+  updatedAt?: string | null;
   description: string;
   category: SkillCategory;
   tags: string[];
@@ -720,4 +722,11 @@ export interface SkillListResponse {
   shadowed?: string[];
   contentFindings?: Record<string, SkillContentScan>;
   quarantined?: string[];
+  /** Unfiltered registry size (before `q`/facet filters). */
+  registryTotal?: number;
+  /** Filtered list size — the number `offset`/`hasMore` page through. */
+  total?: number;
+  limit?: number;
+  offset?: number;
+  hasMore?: boolean;
 }

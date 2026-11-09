@@ -1777,6 +1777,46 @@ step. A manual run with no input falls through to the journal bridge; passing a
 trades array as the run input uses that instead. The Journal learning panel is
 the remaining optional surface.
 
+## Typed decision pack (`decision.*`)
+
+The decision layer's workflow half. Two nodes expose the SAME
+`DecisionService.ask` path the `decision_ask` tool uses, so a graph can branch on
+a typed judgment without inventing a second provider path. An answer is
+**information, never authorization** — these nodes cannot place an order, move
+money, or widen a run's grants. Branch on the `status` output, never on the
+presence of an answer.
+
+| Node | Class | What it does |
+| --- | --- | --- |
+| `decision.ask` | model | Takes a `state` (wired input, or `stateJson`) plus a closed question template (`questionsJson`), asks the configured provider, applies the confidence policy, and returns typed `answers` + `status` + `summary` + `provider` + `recordId` + `reason`. |
+| `decision.demo` | local_write | The zero-config demonstration: a deterministic rules-only scenario, no key and no network, still written through the same request → policy → audit pipeline. A wired `state` overrides the built-in sample. |
+
+**Question template.** `questionsJson` is an object keyed by stable question id:
+`{id: {type: "choice" | "score" | "noul", instructions, criteria?, rule?}}`. A
+`rule` is the deterministic offline path used by the demo and by tests; remote
+providers ignore it. A partial answer, a type mismatch or a provider error
+becomes `status: "unavailable"` with an explicit `reason` — never a guess.
+
+**Status is the only branch.** `answered` cleared every policy threshold;
+`review` is inside the abstain band and is a hint, not a decision; `unavailable`
+means nothing was inferred. The same request is recorded on the immutable
+`DecisionRecord` trail on `agent-memory.db`, and `recordId` names it.
+
+**Privacy.** `ECLIPSE_PRIVACY=local-models` blocks any non-local provider before
+the call, so `decision.ask` fails closed to `unavailable` rather than reaching a
+remote model. The demo is always local.
+
+**Template.** `Typed decision (demo)` (`decision-demo`) wires trigger →
+`decision.demo` (`risk_gate`) → two result nodes (answers, summary). Pressing
+Run is the whole test: no key, no network, no setup beyond `npm install`.
+
+**Testing.** A workflow **test run** may execute both nodes: `decision.ask` is a
+model call (the reduced envelope already permits agent/model work) and the demo
+only writes its own audit record. The per-node "Test node" panel runs an even
+narrower envelope (`none`/`read`) and therefore refuses `decision.demo`; use the
+template's test run to exercise it. A test run can never trade, send or widen
+grants, so it cannot turn a judgment into an action.
+
 ## Next milestone
 
 **Post-phase hardening**: the ten phases are implemented, including external-cron

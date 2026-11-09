@@ -69,7 +69,22 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
     return () => clearInterval(timer);
   }, [load]);
 
-  if (approvals.length === 0) return null;
+  // A filled order consumes its approval, so the card unmounts. Keep the
+  // success line on screen briefly instead of silently disappearing - the
+  // operator must be able to see that the order really went through.
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  if (approvals.length === 0) {
+    return notice ? (
+      <div className="mb-2" aria-live="polite">
+        <p className="px-1 text-[11px] text-emerald-300">{notice}</p>
+      </div>
+    ) : null;
+  }
 
   const modeFor = (connectionId?: string | null) =>
     connections.find((connection) => connection.id === connectionId)?.mode;

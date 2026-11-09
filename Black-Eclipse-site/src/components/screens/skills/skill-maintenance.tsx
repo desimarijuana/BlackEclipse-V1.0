@@ -8,11 +8,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Pin, PinOff, RefreshCw, Wrench } from "@/lib/icons";
+import { Button } from "@/components/ui/button";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import {
   getSkillMaintenance, runSkillMaintenance, pinSkillVersion,
 } from "@/lib/harness/skills-browser";
 import type { SkillMaintenanceReport } from "@/lib/harness/skills-types";
-import { LoadingState, MetaRow, Panel, formatWhen } from "./skill-ui";
+import { ErrorState, LoadingState, MetaRow, Panel, PanelHeader, formatWhen } from "./skill-ui";
 
 export function SkillMaintenancePanel({ isOperator = false }: { isOperator?: boolean }) {
   const [report, setReport] = useState<SkillMaintenanceReport | null>(null);
@@ -54,40 +56,46 @@ export function SkillMaintenancePanel({ isOperator = false }: { isOperator?: boo
     } finally { setBusy(false); }
   }, [load]);
 
-  if (loading) return <LoadingState label="Loading maintenance…" />;
-  if (error && !report) return <p className="text-[11px] text-rose-300">{error}</p>;
-
   const items = report?.recommendations ?? [];
+  const recPager = usePagination(items, 25);
+  const dupPager = usePagination(report?.nearDuplicates ?? [], 10);
+
+  if (loading) return <LoadingState label="Loading maintenance…" />;
+  if (error && !report) return <ErrorState message={error} title="Could not load maintenance" />;
 
   return (
     <div className="space-y-2">
-      <Panel className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Wrench size={13} className="text-primary" />
-            <span className="text-xs font-semibold text-foreground">Skill maintenance</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
+      <PanelHeader
+        icon={Wrench}
+        title="Skill maintenance"
+        description="Stale skills, the reason each is stale, and the recommended action. Report-only by default: nothing is archived unless auto-archive is explicitly enabled."
+        actions={
+          <>
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl cursor-pointer"
               onClick={() => void load()}
-              className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
             >
-              <RefreshCw size={10} className="inline" /> Refresh
-            </button>
+              <RefreshCw size={12} className="mr-1" /> Refresh
+            </Button>
             {isOperator && (
-              <button
+              <Button
                 type="button"
+                size="sm"
+                className="rounded-xl cursor-pointer"
                 disabled={busy}
                 onClick={() => void runPass()}
-                className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary disabled:opacity-50"
               >
                 Run pass
-              </button>
+              </Button>
             )}
-          </div>
-        </div>
-        <p className="mt-1 text-[10px] text-muted-foreground">
+          </>
+        }
+      />
+      <Panel className="p-3">
+        <p className="text-[10px] text-muted-foreground">
           {report?.reportOnly
             ? "Report-only: recommendations are surfaced but nothing is transitioned."
             : "Auto-archive is enabled: qualifying stale, unpinned skills are retired (reversible)."}
@@ -114,8 +122,10 @@ export function SkillMaintenancePanel({ isOperator = false }: { isOperator?: boo
         <p className="px-1 text-[11px] text-muted-foreground">
           No stale skills. A skill is stale only after {report?.thresholds.staleAfterDays ?? 0} days without a successful execution.
         </p>
-      ) : (        <Panel className="divide-y divide-white/5 p-0">
-          {items.map((item) => (
+      ) : (
+        <>
+        <Panel className="divide-y divide-white/5 p-0">
+          {recPager.pageItems.map((item) => (
             <div key={`${item.skillId}@${item.version}`} className="flex items-start justify-between gap-3 px-3 py-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -148,6 +158,8 @@ export function SkillMaintenancePanel({ isOperator = false }: { isOperator?: boo
             </div>
           ))}
         </Panel>
+        <PaginationFooter pagination={recPager} label="recommendations" />
+        </>
       )}
 
       {(report?.nearDuplicates?.length ?? 0) > 0 && (
@@ -157,12 +169,13 @@ export function SkillMaintenancePanel({ isOperator = false }: { isOperator?: boo
             Skill ids that differ only by separators/case — likely a stale duplicate to merge or retire.
           </p>
           <ul className="mt-1 space-y-0.5">
-            {report?.nearDuplicates?.map((group) => (
+            {dupPager.pageItems.map((group) => (
               <li key={group.normalized} className="text-[10px] text-foreground/80">
                 {group.skillIds.join("  ·  ")}
               </li>
             ))}
           </ul>
+          <PaginationFooter pagination={dupPager} label="duplicate groups" />
         </Panel>
       )}
     </div>

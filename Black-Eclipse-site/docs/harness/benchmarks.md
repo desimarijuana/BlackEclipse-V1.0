@@ -97,7 +97,7 @@ named, and the run is reproducible from the provenance below.
 - git commit: `2b6df30a65289d51e9a7c8a3bcf825fb0b109af0`
 - grader version: `unknown`
 - config: `{'tier': 1, 'taskCount': 198, 'measuredTrials': 196}`
-- gate: **FAIL**
+- gate: **FAIL** against the unchanged 0.9 threshold. The v0.3.0 open-source release accepts this measured number as a version-scoped floor (ADR-071, ADR-H347); the target is not edited.
 
 Live-eligible re-score from this same run: 167/196 = 0.8520. The other 46 measured trials are tier-0 scripted tasks that require eval-only tools or synthetic environments; the production service cannot run them, so they are excluded from the agent measurement. Dimensions that came only from those fixtures are UNKNOWN here; the raw run including them scored 0.6901.
 
@@ -127,4 +127,8 @@ Live-eligible re-score from this same run: 167/196 = 0.8520. The other 46 measur
 
 ### Gate failures
 
-- task_success=0.8520 < 0.9
+- task_success=0.8520 < 0.9 — the target is **not** met and the gate stays FAIL.
+- **v0.3.0 release policy (ADR-071, ADR-H347):** the open-source, single-operator
+  release ships on this measured number as a version-scoped floor. The threshold is
+  not edited, the number is published with its provenance, and the next release must
+  either reach 0.9 or record a new ADR. A future run below 0.8520 fails the gate.

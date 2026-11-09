@@ -159,6 +159,25 @@ tools, boot).
    operator's configuration and key.
 4. Add contract tests with a recorded/golden response; keep the privacy test.
 
+## Workflow nodes
+
+Graph Studio exposes the same layer as two nodes
+(`python/harness/graph_runtime/decision_nodes.py`, editor contracts in
+`src/lib/graph-studio/registry-decisions.ts`):
+
+| Node | Class | Notes |
+| --- | --- | --- |
+| `decision.ask` | `model` | `state` + `questionsJson` in, typed `answers` / `status` / `summary` / `provider` / `recordId` / `reason` out. Honours the same provider preference, policy thresholds and privacy gate. |
+| `decision.demo` | `local_write` | Zero-config demo. Deterministic rules, built-in sample state (a wired `state` overrides it), no key or network; still audited. |
+
+They call `DecisionService.ask` directly — no second orchestration loop, no
+separate provider registry. Branch on `status` (`answered` / `review` /
+`unavailable`), never on whether `answers` is non-empty. The pack is registered
+in `node_packs.py`; `bootstrap.py` binds `service.decision` to it at boot, so a
+missing layer fails honestly instead of guessing. A workflow **test run** may
+execute both nodes (the capability is in the reduced envelope); the per-node
+"Test node" panel is narrower and refuses the demo's local audit write.
+
 ## Non-goals
 
 - No chat, tool-calling, streaming or free text.

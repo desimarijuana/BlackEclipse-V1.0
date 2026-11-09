@@ -37,6 +37,17 @@ gate, deployment configuration, and an unresolved quality bar**.
 R1–R5 are engineering work. R6 and the legal register are not; they need a
 person and (for hosted use) counsel. See §5.
 
+> **Open-source release scope (v0.3.0, ADR-071).** v0.3.0 ships as **source for a
+> single-operator, self-hosted install**, not a hosted service. For that artifact
+> the release gate is: clean tagged tree, green `check:all`, clean build, release
+> note, and the live number published with its provenance and a version-scoped
+> floor (ADR-H347). **C4 (container)** and **C5 (production secrets/auth
+> posture)** are documented operator steps, not gates for the source release -
+> the compose files ship as provided but are unverified on the release host, and
+> every operator must set `HARNESS_AUTH=required` + `HARNESS_AUTH_SECRET` before
+> any non-loopback bind (the preflight fails closed). **C11/C12** are hosted-only
+> and do not apply to this release.
+
 ---
 
 ## 1. Definition of production ready
@@ -281,6 +292,7 @@ below. Do not mark a phase done because the code side is finished.
 | 2026-11-08 | P0 | **done** | eslint 0 errors; `tsc --noEmit` pass; decisions+legal `cc5519ea`, roadmap `9785b485`, merged into `main` as `b48d3ba5`; `main` clean; `npm run check:all` → ALL GATES PASSED. Not pushed. |
 | 2026-11-08 | P1 | **in progress** | C3 clean build PASS (fresh `.next`, 255 s) and `next start` serves `GET /login` 200 in 2 s; C5 fail-closed verified and the `HARNESS_AUTH=required` preflight bug fixed (8 tests). Remaining: C4 container (no Docker on this host), real secrets + provider key (user input). |
 | 2026-11-08 | P2 | **in progress** | Isolated production-posture drill (separate port, temp `BE_DATA_DIR`, harness on 8770): unauth API → 401; first-run setup + login + authenticated session; runtime absent → 503 then recovery → 200; backup → destroy → restore, 4/4 DBs integrity ok. Found and fixed the container first-boot schema gap (`docker-entrypoint.sh` now runs `prisma db push`; 58 tables, 0 P2021 on a fresh dir). Remaining: a real frontier model journey (provider key) and the Docker/C4 container run. |
-| | P3 | not started | |
-| | P4 | not started | |
+| 2026-11-08 | P3 | **done (Option B)** | ADR-H347 + ADR-071: the 0.9 threshold is unchanged and the live gate still reports FAIL; v0.3.0 accepts the measured live-eligible `task_success` 0.8520 (167/196, run `live:f368f388...`) as a version-scoped floor. `docs/harness/benchmarks.md` publishes the number, the raw 0.6901 and the 0.9 target with the annotation. Next release must reach 0.9 or re-ADR. |
+| 2026-11-08 | P1/P2 scope | **amended** | For the v0.3.0 **source** release, C4 (container) and C5 (hosted secrets/auth posture) are documented operator steps, not release gates (ADR-071). Docker is not installed on the release host; the compose files remain provided but unverified. |
+| | P4 | in progress | Release note + tag + push/merge outstanding. |
 | | P5 | not started | |

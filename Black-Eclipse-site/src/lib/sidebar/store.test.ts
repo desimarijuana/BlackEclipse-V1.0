@@ -44,6 +44,28 @@ beforeEach(() => {
   });
 });
 
+describe('shortcut slots follow the default menu order', () => {
+  it('re-numbers F1..F12 after a move when the user has not customized keys', () => {
+    const store = useSidebarConfigStore.getState();
+    expect(store.config.sections.map((s) => s.id).slice(0, 3)).toEqual(['chat', 'home', 'dashboard']);
+
+    store.move(1, 0); // move Dashboard above ChatBot
+
+    const moved = useSidebarConfigStore.getState().config.sections;
+    expect(moved.slice(0, 3).map((s) => s.id)).toEqual(['home', 'chat', 'dashboard']);
+    expect(moved.slice(0, 3).map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3']);
+  });
+
+  it('keeps a custom key attached to its tab after a move', () => {
+    useSidebarConfigStore.getState().setShortcut('chat', 'F9');
+    useSidebarConfigStore.getState().move(1, 0);
+
+    const moved = useSidebarConfigStore.getState().config.sections;
+    expect(moved.find((s) => s.id === 'chat')!.shortcut).toBe('F9');
+    expect(useSidebarConfigStore.getState().config.shortcutsCustomized).toBe(true);
+  });
+});
+
 describe('per-tab nav mode', () => {
   it('ignores the mode in a remote nav update and keeps this tab mode', () => {
     useSidebarConfigStore.setState({ mode: 'agentic' });

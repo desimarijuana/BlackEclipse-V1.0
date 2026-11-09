@@ -139,6 +139,10 @@ export interface MemoryLifecycleOverview {
 export interface MemoryLifecycleResponse extends MemoryLifecycleOverview {
   view?: MemoryLifecycleView;
   memories?: MemoryRecord[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+  hasMore?: boolean;
 }
 
 export interface MemorySweepRecord {

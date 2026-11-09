@@ -90,6 +90,7 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
   research: 'Research',
   trading: 'Trading',
   learning: 'Learning',
+  decision: 'Decision',
   media: 'Media',
   output: 'Output',
 };

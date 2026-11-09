@@ -472,7 +472,7 @@ class AgentMemoryStore:
 
     def list_chat_sessions(
         self, *, profile_id: Optional[str] = None, user_id: Optional[str] = None,
-        status: Optional[str] = None, limit: int = 50,
+        status: Optional[str] = None, limit: int = 50, offset: int = 0,
     ) -> list[dict[str, Any]]:
         where: list[str] = []
         params: list[Any] = []
@@ -484,11 +484,29 @@ class AgentMemoryStore:
             where.append("status = ?"); params.append(status)
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         limit = max(1, min(int(limit), 200))
+        offset = max(0, int(offset))
         rows = self._db.execute(
-            f"SELECT * FROM ChatSession{clause} ORDER BY COALESCE(lastActivityAt, updatedAt) DESC LIMIT ?",
-            [*params, limit],
+            f"SELECT * FROM ChatSession{clause}"
+            " ORDER BY COALESCE(lastActivityAt, updatedAt) DESC, id DESC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
         return [_chat_session_row(r) for r in rows]
+
+    def count_chat_sessions(
+        self, *, profile_id: Optional[str] = None, user_id: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> int:
+        where: list[str] = []
+        params: list[Any] = []
+        if profile_id is not None:
+            where.append("profileId = ?"); params.append(profile_id)
+        if user_id is not None:
+            where.append("userId = ?"); params.append(user_id)
+        if status is not None:
+            where.append("status = ?"); params.append(status)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        row = self._db.execute(f"SELECT COUNT(*) FROM ChatSession{clause}", params).fetchone()
+        return int(row[0]) if row else 0
 
     def update_chat_session(self, session_id: str, **patch: Any) -> Optional[dict[str, Any]]:
         allowed = {"title", "status", "summary", "archivedAt", "lastActivityAt", "profileId", "userId"}
@@ -958,6 +976,7 @@ class AgentMemoryStore:
         memory_action: Optional[str] = None,
         kind: Optional[str] = None,
         limit: int = 10,
+        offset: int = 0,
     ) -> dict[str, Any]:
         """Full-text search over indexed session messages.
 
@@ -972,8 +991,13 @@ class AgentMemoryStore:
         """
         query = (query or "").strip()
         limit = max(1, min(int(limit), 50))
+        offset = max(0, int(offset))
         if not query:
-            return {"available": True, "engine": "none", "results": [], "hasMore": False}
+            return {"available": True, "engine": "none", "results": [], "hasMore": False, "offset": offset}
+        # Fetch one pool deep enough to rank then slice the requested page. The
+        # hybrid ranking happens in Python, so a plain SQL OFFSET would page the
+        # wrong order; ranking the pool and slicing preserves page semantics.
+        pool = max(50, min(2000, (offset + limit + 1) * 4))
         # Sanitize the FTS query: keep word tokens only, join with AND so a
         # quote/operator cannot produce a syntax error or a wildcard scan.
         tokens = re.findall(r"[A-Za-z0-9]+", query)[:12]
@@ -1040,7 +1064,7 @@ class AgentMemoryStore:
                     "ORDER BY score LIMIT ?"
                 )
                 rows = self._db.execute(
-                    sql, [" AND ".join(tokens), *params, max(limit * 4, 50)],
+                    sql, [" AND ".join(tokens), *params, pool],
                 ).fetchall()
                 # A natural-language query often has no single message containing
                 # every token. Retry with OR and let the hybrid rank the phrase
@@ -1048,16 +1072,16 @@ class AgentMemoryStore:
                 if not rows and len(tokens) > 1:
                     match_mode = "any"
                     rows = self._db.execute(
-                        sql, [" OR ".join(tokens), *params, max(limit * 4, 50)],
+                        sql, [" OR ".join(tokens), *params, pool],
                     ).fetchall()
                 engine = "fts5"
                 hits = [_session_result(r, score=-float(r["score"])) for r in rows]
                 hits.sort(key=_hybrid_key)
-                results = hits[:limit]
-                has_more = len(hits) > limit
+                results = hits[offset:offset + limit]
+                has_more = len(hits) > offset + limit
                 return {
                     "available": True, "engine": engine, "matchMode": match_mode,
-                    "results": results, "hasMore": has_more,
+                    "results": results, "hasMore": has_more, "offset": offset,
                 }
             except Exception:  # noqa: BLE001 - fall through to the LIKE scan
                 results = []
@@ -1070,7 +1094,7 @@ class AgentMemoryStore:
                     "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt"
                     f" FROM SessionMessage m WHERE {like}{filter_clause}"
                     " ORDER BY m.createdAt DESC LIMIT ?",
-                    [*(f"%{t}%" for t in tokens), *params, max(limit * 4, 50)],
+                    [*(f"%{t}%" for t in tokens), *params, pool],
                 ).fetchall()
 
             rows = _like_rows("all")
@@ -1079,11 +1103,11 @@ class AgentMemoryStore:
                 rows = _like_rows("any")
             hits = [_session_result(r, score=None) for r in rows]
             hits.sort(key=_hybrid_key)
-            results = hits[:limit]
-            has_more = len(hits) > limit
+            results = hits[offset:offset + limit]
+            has_more = len(hits) > offset + limit
         return {
             "available": True, "engine": engine, "matchMode": match_mode,
-            "results": results, "hasMore": has_more,
+            "results": results, "hasMore": has_more, "offset": offset,
         }
 
     def open_session(
@@ -1198,18 +1222,31 @@ class AgentMemoryStore:
             ).fetchone()
         return _learning_review_row(row) if row else None
 
-    def list_learning_reviews(self, *, status: Optional[str] = None, limit: int = 50) -> list[dict[str, Any]]:
+    def list_learning_reviews(
+        self, *, status: Optional[str] = None, limit: int = 50, offset: int = 0,
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 200))
+        offset = max(0, int(offset))
         if status:
             rows = self._db.execute(
-                "SELECT * FROM LearningReview WHERE status=? ORDER BY createdAt DESC LIMIT ?",
-                (status, limit),
+                "SELECT * FROM LearningReview WHERE status=? ORDER BY createdAt DESC LIMIT ? OFFSET ?",
+                (status, limit, offset),
             ).fetchall()
         else:
             rows = self._db.execute(
-                "SELECT * FROM LearningReview ORDER BY createdAt DESC LIMIT ?", (limit,)
+                "SELECT * FROM LearningReview ORDER BY createdAt DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             ).fetchall()
         return [_learning_review_row(r) for r in rows]
+
+    def count_learning_reviews(self, *, status: Optional[str] = None) -> int:
+        if status:
+            row = self._db.execute(
+                "SELECT COUNT(*) FROM LearningReview WHERE status=?", (status,)
+            ).fetchone()
+        else:
+            row = self._db.execute("SELECT COUNT(*) FROM LearningReview").fetchone()
+        return int(row[0]) if row else 0
 
     def mark_legacy_reviews(self, since: str) -> int:
         """Mark pre-contract reviews as legacy_unscored (history, not rewrites)."""

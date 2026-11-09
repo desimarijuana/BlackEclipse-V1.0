@@ -91,7 +91,7 @@ class EclipseMemoryStore:
         row = self._db.execute("SELECT * FROM MemoryRecord WHERE id=?", (memory_id,)).fetchone()
         return _memory_row(row) if row else None
 
-    def list_memories(
+    def _memory_filter_clause(
         self,
         *,
         memory_type: Optional[str] = None,
@@ -100,9 +100,14 @@ class EclipseMemoryStore:
         status: Optional[str] = None,
         subject: Optional[str] = None,
         source: Optional[str] = None,
-        limit: int = 100,
+        search: Optional[str] = None,
         include_inactive: bool = True,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[str, list[Any]]:
+        """The one memory filter definition shared by list and count.
+
+        Keeping these together means a paginated list and its `total` can never
+        disagree about which rows are in scope.
+        """
         where: list[str] = []
         params: list[Any] = []
         if memory_type:
@@ -119,13 +124,105 @@ class EclipseMemoryStore:
             where.append("status = ?"); params.append(status)
         elif not include_inactive:
             where.append("status = 'active'")
+        if search:
+            where.append("(content LIKE ? OR subject LIKE ?)")
+            like = f"%{search}%"
+            params.extend([like, like])
         clause = f"WHERE {' AND '.join(where)}" if where else ""
+        return clause, params
+
+    def list_memories(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        scope: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        status: Optional[str] = None,
+        subject: Optional[str] = None,
+        source: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_inactive: bool = True,
+    ) -> list[dict[str, Any]]:
+        clause, params = self._memory_filter_clause(
+            memory_type=memory_type, scope=scope, scope_id=scope_id, status=status,
+            subject=subject, source=source, search=search, include_inactive=include_inactive,
+        )
         limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
         rows = self._db.execute(
-            f"SELECT * FROM MemoryRecord {clause} ORDER BY updatedAt DESC LIMIT ?",
-            [*params, limit],
+            f"SELECT * FROM MemoryRecord {clause}"
+            " ORDER BY updatedAt DESC, rowid ASC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
         return [_memory_row(r) for r in rows]
+
+    def count_memories(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        scope: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        status: Optional[str] = None,
+        subject: Optional[str] = None,
+        source: Optional[str] = None,
+        search: Optional[str] = None,
+        include_inactive: bool = True,
+    ) -> int:
+        clause, params = self._memory_filter_clause(
+            memory_type=memory_type, scope=scope, scope_id=scope_id, status=status,
+            subject=subject, source=source, search=search, include_inactive=include_inactive,
+        )
+        row = self._db.execute(f"SELECT COUNT(*) FROM MemoryRecord {clause}", params).fetchone()
+        return int(row[0]) if row else 0
+
+    def memory_counts(self) -> dict[str, Any]:
+        """Exact totals for the Overview — never derived from a capped list."""
+        total_row = self._db.execute("SELECT COUNT(*) FROM MemoryRecord").fetchone()
+        by_type = {
+            str(row[0]): int(row[1])
+            for row in self._db.execute(
+                "SELECT memoryType, COUNT(*) FROM MemoryRecord GROUP BY memoryType"
+            ).fetchall()
+        }
+        by_status = {
+            str(row[0]): int(row[1])
+            for row in self._db.execute(
+                "SELECT status, COUNT(*) FROM MemoryRecord GROUP BY status"
+            ).fetchall()
+        }
+        return {
+            "total": int(total_row[0]) if total_row else 0,
+            "byType": by_type,
+            "byStatus": by_status,
+        }
+
+    def _count_where(self, table: str, where: str = "", params: tuple[Any, ...] = ()) -> int:
+        clause = f" WHERE {where}" if where else ""
+        row = self._db.execute(f"SELECT COUNT(*) FROM {table}{clause}", params).fetchone()
+        return int(row[0]) if row else 0
+
+    def count_corrections(self) -> int:
+        return self._count_where("CorrectionRecord")
+
+    def count_mistakes(self, run_id: Optional[str] = None) -> int:
+        return self._count_where("MistakeRecord", "runId = ?", (run_id,)) if run_id else self._count_where("MistakeRecord")
+
+    def count_retrievals(self) -> int:
+        return self._count_where("MemoryRetrievalEvent")
+
+    def count_suggestions(
+        self, status: Optional[str] = None, *, scope_id: Optional[str] = None,
+    ) -> int:
+        where: list[str] = []
+        params: list[Any] = []
+        if status:
+            where.append("status = ?"); params.append(status)
+        if scope_id:
+            where.append("scopeId = ?"); params.append(scope_id)
+        clause = " AND ".join(where)
+        return self._count_where("MemorySuggestion", clause, tuple(params))
 
     def memory_lifecycle_counts(self) -> dict[str, Any]:
         """Counts for the Control Room lifecycle views (expired, superseded,
@@ -176,16 +273,10 @@ class EclipseMemoryStore:
         except Exception:  # noqa: BLE001 - a pre-migration db has no such column
             return 0
 
-    def list_lifecycle_memories(
-        self,
-        view: str,
-        *,
-        scope_id: Optional[str] = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        """Return memories for a named lifecycle view. Content is included (the
-        Control Room needs to render it); this is a local operator surface."""
-        limit = max(1, min(int(limit), 500))
+    def _lifecycle_filter_clause(
+        self, view: str, *, scope_id: Optional[str] = None,
+    ) -> tuple[str, list[Any]]:
+        """One lifecycle-view definition shared by list and count."""
         where: list[str] = []
         params: list[Any] = []
         if view == "active":
@@ -217,12 +308,34 @@ class EclipseMemoryStore:
         if scope_id:
             where.append("(scopeId = ? OR scopeId IS NULL)")
             params.append(scope_id)
-        clause = " AND ".join(where)
+        return " AND ".join(where), params
+
+    def list_lifecycle_memories(
+        self,
+        view: str,
+        *,
+        scope_id: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Return memories for a named lifecycle view. Content is included (the
+        Control Room needs to render it); this is a local operator surface."""
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        clause, params = self._lifecycle_filter_clause(view, scope_id=scope_id)
         rows = self._db.execute(
-            f"SELECT * FROM MemoryRecord WHERE {clause} ORDER BY updatedAt DESC LIMIT ?",
-            [*params, limit],
+            f"SELECT * FROM MemoryRecord WHERE {clause}"
+            " ORDER BY updatedAt DESC, rowid ASC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
         return [_memory_row(r) for r in rows]
+
+    def count_lifecycle_memories(self, view: str, *, scope_id: Optional[str] = None) -> int:
+        clause, params = self._lifecycle_filter_clause(view, scope_id=scope_id)
+        row = self._db.execute(
+            f"SELECT COUNT(*) FROM MemoryRecord WHERE {clause}", params,
+        ).fetchone()
+        return int(row[0]) if row else 0
 
     def update_memory(self, memory_id: str, **patch: Any) -> Optional[dict[str, Any]]:
         allowed = {
@@ -338,7 +451,8 @@ class EclipseMemoryStore:
         return _suggestion_row(row) if row else None
 
     def list_suggestions(
-        self, status: Optional[str] = None, *, scope_id: Optional[str] = None, limit: int = 100
+        self, status: Optional[str] = None, *, scope_id: Optional[str] = None,
+        limit: int = 100, offset: int = 0,
     ) -> list[dict[str, Any]]:
         where: list[str] = []
         params: list[Any] = []
@@ -348,9 +462,10 @@ class EclipseMemoryStore:
             where.append("scopeId = ?"); params.append(scope_id)
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
         rows = self._db.execute(
-            f"SELECT * FROM MemorySuggestion {clause} ORDER BY createdAt DESC LIMIT ?",
-            [*params, limit],
+            f"SELECT * FROM MemorySuggestion {clause} ORDER BY createdAt DESC, rowid DESC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
         return [_suggestion_row(r) for r in rows]
 
@@ -503,15 +618,17 @@ class EclipseMemoryStore:
         self._db.commit()
         return mistake_id
 
-    def list_mistakes(self, run_id: Optional[str] = None, limit: int = 100) -> list[dict[str, Any]]:
+    def list_mistakes(self, run_id: Optional[str] = None, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        offset = max(0, int(offset))
         if run_id:
             rows = self._db.execute(
-                "SELECT * FROM MistakeRecord WHERE runId=? ORDER BY createdAt DESC LIMIT ?",
-                (run_id, max(1, limit)),
+                "SELECT * FROM MistakeRecord WHERE runId=? ORDER BY createdAt DESC LIMIT ? OFFSET ?",
+                (run_id, max(1, limit), offset),
             ).fetchall()
         else:
             rows = self._db.execute(
-                "SELECT * FROM MistakeRecord ORDER BY createdAt DESC LIMIT ?", (max(1, limit),)
+                "SELECT * FROM MistakeRecord ORDER BY createdAt DESC LIMIT ? OFFSET ?",
+                (max(1, limit), offset),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -536,9 +653,10 @@ class EclipseMemoryStore:
         self._db.commit()
         return correction_id
 
-    def list_corrections(self, limit: int = 100) -> list[dict[str, Any]]:
+    def list_corrections(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         rows = self._db.execute(
-            "SELECT * FROM CorrectionRecord ORDER BY createdAt DESC LIMIT ?", (max(1, limit),)
+            "SELECT * FROM CorrectionRecord ORDER BY createdAt DESC LIMIT ? OFFSET ?",
+            (max(1, limit), max(0, int(offset))),
         ).fetchall()
         return [dict(r) for r in rows]
 

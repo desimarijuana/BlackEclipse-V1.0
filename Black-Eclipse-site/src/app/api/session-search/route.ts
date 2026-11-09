@@ -21,6 +21,7 @@ export async function GET(request: Request) {
       dateFrom: url.searchParams.get("dateFrom") || undefined,
       dateTo: url.searchParams.get("dateTo") || undefined,
       limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+      offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : undefined,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {

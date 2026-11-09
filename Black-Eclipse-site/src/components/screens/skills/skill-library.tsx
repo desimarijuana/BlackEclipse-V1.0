@@ -4,20 +4,25 @@
 // The landing view of the Skill Control Room. Discovery metadata only; the
 // detailed instructions load on the Skill Detail view (progressive disclosure).
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  AlertCircle, Blocks, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
+  ArrowUpDown, Blocks, FolderGit2, Plus, RefreshCcw, Search, ShieldAlert, Sparkles, User,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { SkillSummary } from "@/lib/harness/skills-types";
-import { EvalBadge, LoadingState, RiskBadge, StatusBadge } from "./skill-ui";
-import { IconBadge } from "@/components/layout/page-header";
+import { libraryHref, parseLibraryView, type LibrarySort } from "@/lib/skills/library-view";
+import { EmptyState, ErrorState, EvalBadge, LoadingState, PanelHeader, RiskBadge, StatusBadge } from "./skill-ui";
 
-const CATEGORIES = ["all", "research", "quality", "finance", "system"] as const;
-const STATUSES = ["all", "enabled", "validated", "testing", "draft", "disabled", "deprecated", "archived", "rejected"] as const;
 const RISKS = ["all", "low", "medium", "high", "critical"] as const;
+const SORTS: { id: LibrarySort; label: string }[] = [
+  { id: "name", label: "Name" },
+  { id: "status", label: "Status" },
+  { id: "risk", label: "Risk" },
+  { id: "updated", label: "Updated" },
+];
 
 const CATEGORY_LABEL: Record<string, string> = {
   all: "All",
@@ -26,6 +31,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   finance: "Finance",
   system: "System",
 };
+
+const RISK_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
 export function SkillLibrary({
   skills,
@@ -38,6 +45,8 @@ export function SkillLibrary({
   onOpen,
   onRefresh,
   onAdd,
+  onStartHere,
+  onBulkLifecycle,
 }: {
   skills: SkillSummary[];
   loading: boolean;
@@ -49,11 +58,72 @@ export function SkillLibrary({
   onOpen: (id: string) => void;
   onRefresh: () => void;
   onAdd: () => void;
+  onStartHere?: () => void;
+  onBulkLifecycle?: (ids: string[], action: "enable" | "disable") => Promise<void>;
 }) {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>("all");
-  const [status, setStatus] = useState<string>("all");
-  const [risk, setRisk] = useState<string>("all");
+  // Hydrate from the URL so a reload / shared link / Cmd-click restores the
+  // exact view instead of dropping the user back on an unfiltered grid.
+  const initialView = useMemo(
+    () => parseLibraryView(typeof window === "undefined" ? "" : window.location.search),
+    [],
+  );
+  const [query, setQuery] = useState(initialView.query);
+  const [category, setCategory] = useState<string>(initialView.category);
+  const [status, setStatus] = useState<string>(initialView.status);
+  const [risk, setRisk] = useState<string>(initialView.risk);
+  const [sort, setSort] = useState<LibrarySort>(initialView.sort);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const selectedIds = useMemo(
+    () => Array.from(selected).filter((id) => skills.some((skill) => skill.id === id)),
+    [selected, skills],
+  );
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const runBulk = async (action: "enable" | "disable") => {
+    if (!onBulkLifecycle || selectedIds.length === 0) return;
+    setBulkBusy(true);
+    try {
+      await onBulkLifecycle(selectedIds, action);
+      setSelected(new Set());
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // Keep the URL in step with the view. `replaceState` avoids a history entry
+  // per keystroke; the shell preserves this URL while the Skills tab is active.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const href = libraryHref(
+      { query, category, status, risk, sort },
+      {},
+      window.location.pathname,
+    );
+    if (`${window.location.pathname}${window.location.search}` !== href) {
+      window.history.replaceState(null, "", href);
+    }
+  }, [query, category, status, risk, sort]);
+
+  // Derive the filter chips from the registry itself, so a status the runtime
+  // adds (canary, review, superseded…) can never become unreachable by filter.
+  const categories = useMemo(
+    () => ["all", ...Array.from(new Set(skills.map((s) => s.category))).sort()],
+    [skills],
+  );
+  const statuses = useMemo(
+    () => ["all", ...Array.from(new Set(skills.map((s) => s.status))).sort()],
+    [skills],
+  );
 
   const filtered = useMemo(() => {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -69,28 +139,47 @@ export function SkillLibrary({
     });
   }, [skills, query, category, status, risk]);
 
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    if (sort === "status") {
+      list.sort((a, b) => a.status.localeCompare(b.status) || a.name.localeCompare(b.name));
+    } else if (sort === "risk") {
+      list.sort(
+        (a, b) =>
+          (RISK_ORDER[a.riskLevel] ?? 9) - (RISK_ORDER[b.riskLevel] ?? 9) ||
+          a.name.localeCompare(b.name),
+      );
+    } else if (sort === "updated") {
+      list.sort(
+        (a, b) =>
+          (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "") ||
+          a.name.localeCompare(b.name),
+      );
+    } else {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return list;
+  }, [filtered, sort]);
+
+  const pagination = usePagination(sorted, 25);
+
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <IconBadge icon={Blocks} size="sm" />
-          <div>
-            <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Skills Library</h2>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">
-              Versioned financial procedures the agent executes through the same runtime as a chat turn.
-              Enable, evaluate and review them here — or write your own.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={onRefresh} disabled={loading}>
-            <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
-          </Button>
-          <Button size="sm" className="cursor-pointer rounded-xl" onClick={onAdd} disabled={!isOperator} title={isOperator ? undefined : "Requires operator authorization"}>
-            <Plus size={13} className="mr-1" /> Add skill
-          </Button>
-        </div>
-      </div>
+      <PanelHeader
+        icon={Blocks}
+        title="Skills Library"
+        description="Versioned financial procedures the agent executes through the same runtime as a chat turn. Enable, evaluate and review them here — or write your own."
+        actions={
+          <>
+            <Button variant="outline" size="sm" className="cursor-pointer rounded-xl" onClick={onRefresh} disabled={loading}>
+              <RefreshCcw className={cn("w-3.5 h-3.5 mr-1", loading && "animate-spin")} /> Refresh
+            </Button>
+            <Button size="sm" className="cursor-pointer rounded-xl" onClick={onAdd} disabled={!isOperator}>
+              <Plus size={13} className="mr-1" /> Add skill
+            </Button>
+          </>
+        }
+      />
 
       {(loadErrors.length > 0 || duplicates.length > 0) && (
         <div className="mb-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-[11px] text-amber-200">
@@ -122,34 +211,101 @@ export function SkillLibrary({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search skills by name, tag or capability…"
+            placeholder="Search skills by name, id, tag or description…"
+            aria-label="Search skills"
             className="pl-9 rounded-xl bg-background/60"
           />
         </div>
-        <div className="flex flex-wrap gap-4">
-          <FilterRow label="Category" options={CATEGORIES} value={category} onChange={setCategory} labels={CATEGORY_LABEL} />
-          <FilterRow label="Status" options={STATUSES} value={status} onChange={setStatus} />
+        <div className="flex flex-wrap items-center gap-4">
+          <FilterRow label="Category" options={categories} value={category} onChange={setCategory} labels={CATEGORY_LABEL} />
+          <FilterRow label="Status" options={statuses} value={status} onChange={setStatus} />
           <FilterRow label="Risk" options={RISKS} value={risk} onChange={setRisk} />
+          <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+              <ArrowUpDown size={11} /> Sort
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {SORTS.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => setSort(option.id)}
+                  aria-pressed={sort === option.id}
+                  className={cn(
+                    "rounded-lg px-2 py-0.5 text-[10px] font-semibold transition-colors cursor-pointer",
+                    sort === option.id
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {loading ? (
         <LoadingGrid />
       ) : error ? (
-        <Empty icon={AlertCircle} title="Could not load skills" hint={error} />
+        <ErrorState title="Could not load skills" message={error} />
       ) : filtered.length === 0 ? (
-        <Empty
+        <EmptyState
           icon={Search}
           title={skills.length === 0 ? "No skills installed" : "No skills match your filters"}
-          hint={skills.length === 0 ? "The runtime library is empty or the Python runtime is not ready." : "Adjust the search or filters."}
+          hint={skills.length === 0 ? "The runtime library is empty or the Python runtime is not ready. New here? Start with a short tour of what skills are." : "Adjust the search or filters."}
+          action={
+            skills.length === 0 && onStartHere ? (
+              <Button variant="outline" size="sm" className="mt-3 cursor-pointer rounded-xl" onClick={onStartHere}>
+                <Sparkles size={13} className="mr-1" /> Start here
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
+        <>
+        {selectedIds.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2">
+            <span className="text-[11px] font-semibold text-foreground">
+              {selectedIds.length} selected
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl cursor-pointer"
+                disabled={bulkBusy || !isOperator || !onBulkLifecycle}
+                onClick={() => void runBulk("enable")}
+              >
+                Enable
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl cursor-pointer text-amber-300"
+                disabled={bulkBusy || !isOperator || !onBulkLifecycle}
+                onClick={() => void runBulk("disable")}
+              >
+                Disable
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="rounded-xl cursor-pointer"
+                disabled={bulkBusy}
+                onClick={() => setSelected(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filtered.map((skill) => (
+          {pagination.pageItems.map((skill) => (
+            <div key={skill.id} className="relative">
             <button
-              key={skill.id}
               onClick={() => onOpen(skill.id)}
-              className="group text-left rounded-2xl border border-white/10 dark:border-white/5 glass-card p-4 transition-all hover:border-primary/30 cursor-pointer"
+              className="group w-full text-left rounded-2xl border border-white/10 dark:border-white/5 glass-card p-4 pb-10 transition-all hover:border-primary/30 cursor-pointer"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -187,8 +343,23 @@ export function SkillLibrary({
                 </div>
               )}
             </button>
+            <label
+              className="absolute bottom-2.5 right-2.5 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg border border-border/40 bg-background/80"
+              title={`Select ${skill.name}`}
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(skill.id)}
+                onChange={() => toggleSelected(skill.id)}
+                aria-label={`Select ${skill.name}`}
+                className="h-3.5 w-3.5 cursor-pointer accent-[var(--brand)]"
+              />
+            </label>
+            </div>
           ))}
         </div>
+        <PaginationFooter pagination={pagination} label="skills" />
+        </>
       )}
     </div>
   );
@@ -211,6 +382,7 @@ function FilterRow<T extends string>({
           <button
             key={option}
             onClick={() => onChange(option)}
+            aria-pressed={value === option}
             className={cn(
               "rounded-lg px-2 py-0.5 text-[10px] font-semibold transition-colors cursor-pointer",
               value === option ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -230,12 +402,4 @@ function LoadingGrid() {
   return <LoadingState label="Loading the skill library…" hint="First load starts the Python runtime, which can take a few seconds." />;
 }
 
-function Empty({ icon: Icon, title, hint }: { icon: React.ElementType; title: string; hint: string }) {
-  return (
-    <div className="rounded-2xl border border-border/20 glass-card-subtle p-10 text-center">
-      <Icon size={26} className="mx-auto text-muted-foreground/60" />
-      <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
-      <p className="mt-1 text-[11px] text-muted-foreground max-w-sm mx-auto">{hint}</p>
-    </div>
-  );
-}
+

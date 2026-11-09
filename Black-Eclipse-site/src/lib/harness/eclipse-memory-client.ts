@@ -94,21 +94,53 @@ export async function learnPreferences(userId?: string, runId?: string): Promise
   });
 }
 
-export async function listMemories(filters: {
+export interface MemoryListPage {
+  memories: MemoryRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export async function listMemoriesPage(filters: {
   memoryType?: string;
   scope?: string;
   status?: string;
   scopeId?: string;
+  search?: string;
   limit?: number;
-} = {}): Promise<MemoryRecord[]> {
+  offset?: number;
+} = {}): Promise<MemoryListPage> {
   const params = new URLSearchParams();
   if (filters.memoryType) params.set("memoryType", filters.memoryType);
   if (filters.scope) params.set("scope", filters.scope);
   if (filters.status) params.set("status", filters.status);
   if (filters.scopeId) params.set("scopeId", filters.scopeId);
+  if (filters.search) params.set("q", filters.search);
   params.set("limit", String(filters.limit ?? 100));
-  const body = await request<{ memories: MemoryRecord[] }>(`/eclipse-memory/memories?${params}`, { method: "GET" });
-  return body.memories ?? [];
+  params.set("offset", String(filters.offset ?? 0));
+  const body = await request<MemoryListPage & { memories: MemoryRecord[] }>(
+    `/eclipse-memory/memories?${params}`, { method: "GET" },
+  );
+  return {
+    memories: body.memories ?? [],
+    total: Number(body.total ?? (body.memories?.length ?? 0)),
+    limit: Number(body.limit ?? filters.limit ?? 50),
+    offset: Number(body.offset ?? filters.offset ?? 0),
+    hasMore: Boolean(body.hasMore),
+  };
+}
+
+export async function listMemories(filters: {
+  memoryType?: string;
+  scope?: string;
+  status?: string;
+  scopeId?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<MemoryRecord[]> {
+  return (await listMemoriesPage(filters)).memories;
 }
 
 /** Forget (archive) one conversation's private memory. Operator-gated in Python. */
@@ -183,11 +215,12 @@ export async function resolveMemoryConflict(
   );
 }
 
-export async function memoryLifecycle(view?: string, scopeId?: string, limit = 100): Promise<MemoryLifecycleResponse> {
+export async function memoryLifecycle(view?: string, scopeId?: string, limit = 50, offset = 0): Promise<MemoryLifecycleResponse> {
   const params = new URLSearchParams();
   if (view) params.set("view", view);
   if (scopeId) params.set("scopeId", scopeId);
   params.set("limit", String(limit));
+  params.set("offset", String(offset));
   return request<MemoryLifecycleResponse>(`/eclipse-memory/lifecycle?${params.toString()}`, { method: "GET" });
 }
 
@@ -263,6 +296,7 @@ export async function sessionSearch(params: {
   dateFrom?: string;
   dateTo?: string;
   limit?: number;
+  offset?: number;
 }): Promise<SessionSearchResult> {
   const qs = new URLSearchParams();
   qs.set("q", params.q);
@@ -272,6 +306,7 @@ export async function sessionSearch(params: {
   if (params.dateFrom) qs.set("dateFrom", params.dateFrom);
   if (params.dateTo) qs.set("dateTo", params.dateTo);
   if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
   return request<SessionSearchResult>(`/session-search?${qs.toString()}`, { method: "GET" });
 }
 
@@ -300,14 +335,35 @@ export async function learningReviewHealth(): Promise<LearningReviewHealth> {
 }
 
 export async function listLearningReviews(status?: string, limit = 50): Promise<LearningReviewRecord[]> {
+  return (await listLearningReviewsPage(status, limit, 0)).reviews;
+}
+
+export interface LearningReviewPage {
+  reviews: LearningReviewRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export async function listLearningReviewsPage(
+  status?: string, limit = 50, offset = 0,
+): Promise<LearningReviewPage> {
   const qs = new URLSearchParams();
   if (status) qs.set("status", status);
   qs.set("limit", String(limit));
-  const body = await request<{ reviews: LearningReviewRecord[] }>(
+  qs.set("offset", String(offset));
+  const body = await request<LearningReviewPage & { reviews: LearningReviewRecord[] }>(
     `/learning-review?${qs.toString()}`,
     { method: "GET" }
   );
-  return body.reviews ?? [];
+  return {
+    reviews: body.reviews ?? [],
+    total: Number(body.total ?? (body.reviews?.length ?? 0)),
+    limit: Number(body.limit ?? limit),
+    offset: Number(body.offset ?? offset),
+    hasMore: Boolean(body.hasMore),
+  };
 }
 
 export async function runLearningReview(operator: boolean, runId: string, model = false) {
@@ -421,9 +477,30 @@ export async function retrieveMemories(payload: {
   return request("/eclipse-memory/retrieve", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export async function listCorrections(): Promise<CorrectionRecord[]> {
-  const body = await request<{ corrections: CorrectionRecord[] }>("/eclipse-memory/corrections", { method: "GET" });
-  return body.corrections ?? [];
+export interface RecordPage<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export async function listCorrections(limit = 50, offset = 0): Promise<CorrectionRecord[]> {
+  return (await listCorrectionsPage(limit, offset)).items;
+}
+
+export async function listCorrectionsPage(limit = 50, offset = 0): Promise<RecordPage<CorrectionRecord>> {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const body = await request<{
+    corrections: CorrectionRecord[]; total?: number; limit?: number; offset?: number; hasMore?: boolean;
+  }>(`/eclipse-memory/corrections?${qs.toString()}`, { method: "GET" });
+  return {
+    items: body.corrections ?? [],
+    total: Number(body.total ?? (body.corrections?.length ?? 0)),
+    limit: Number(body.limit ?? limit),
+    offset: Number(body.offset ?? offset),
+    hasMore: Boolean(body.hasMore),
+  };
 }
 
 export async function createCorrection(payload: {
@@ -441,9 +518,22 @@ export async function createCorrection(payload: {
   );
 }
 
-export async function listMistakes(): Promise<MistakeRecord[]> {
-  const body = await request<{ mistakes: MistakeRecord[] }>("/eclipse-memory/mistakes", { method: "GET" });
-  return body.mistakes ?? [];
+export async function listMistakes(limit = 50, offset = 0): Promise<MistakeRecord[]> {
+  return (await listMistakesPage(limit, offset)).items;
+}
+
+export async function listMistakesPage(limit = 50, offset = 0): Promise<RecordPage<MistakeRecord>> {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const body = await request<{
+    mistakes: MistakeRecord[]; total?: number; limit?: number; offset?: number; hasMore?: boolean;
+  }>(`/eclipse-memory/mistakes?${qs.toString()}`, { method: "GET" });
+  return {
+    items: body.mistakes ?? [],
+    total: Number(body.total ?? (body.mistakes?.length ?? 0)),
+    limit: Number(body.limit ?? limit),
+    offset: Number(body.offset ?? offset),
+    hasMore: Boolean(body.hasMore),
+  };
 }
 
 export async function listMemoryEvents() {
@@ -498,13 +588,24 @@ export interface MemorySuggestion {
 }
 
 export async function listSuggestions(status = "pending", scopeId?: string): Promise<MemorySuggestion[]> {
-  const params = new URLSearchParams({ status });
+  return (await listSuggestionsPage(status, 50, 0, scopeId)).items;
+}
+
+export async function listSuggestionsPage(
+  status = "pending", limit = 50, offset = 0, scopeId?: string,
+): Promise<RecordPage<MemorySuggestion>> {
+  const params = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
   if (scopeId) params.set("scopeId", scopeId);
-  const body = await request<{ suggestions: MemorySuggestion[] }>(
-    `/eclipse-memory/suggestions?${params.toString()}`,
-    { method: "GET" }
-  );
-  return body.suggestions ?? [];
+  const body = await request<{
+    suggestions: MemorySuggestion[]; total?: number; limit?: number; offset?: number; hasMore?: boolean;
+  }>(`/eclipse-memory/suggestions?${params.toString()}`, { method: "GET" });
+  return {
+    items: body.suggestions ?? [],
+    total: Number(body.total ?? (body.suggestions?.length ?? 0)),
+    limit: Number(body.limit ?? limit),
+    offset: Number(body.offset ?? offset),
+    hasMore: Boolean(body.hasMore),
+  };
 }
 
 export async function acceptSuggestion(id: string, operator: boolean, userId?: string) {

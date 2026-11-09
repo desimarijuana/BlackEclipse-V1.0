@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Brain, Database, Loader2, Sparkles, Trash2 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import {
   archiveMemory, acceptSuggestion, dismissSuggestion, learnPreferences,
   memoryPreferences, updatePolicies,
@@ -38,6 +39,8 @@ function evidenceOf(suggestion: { structuredData?: Record<string, unknown> | nul
   return (suggestion.structuredData ?? {}) as Record<string, unknown>;
 }
 
+const NO_OBSERVATIONS: PreferenceSummary["observations"] = [];
+
 export function Preferences({ isOperator }: { isOperator: boolean }) {
   const [summary, setSummary] = useState<PreferenceSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +55,7 @@ export function Preferences({ isOperator }: { isOperator: boolean }) {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  const observationsPage = usePagination(summary?.observations ?? NO_OBSERVATIONS, 10);
 
   const act = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true);
@@ -296,7 +300,7 @@ export function Preferences({ isOperator }: { isOperator: boolean }) {
             <Muted>No behavioural evidence has been observed yet. Ask for a table, a short answer, or a deep dive a few times and it will appear here.</Muted>
           ) : (
             <div className="space-y-2">
-              {observations.map((group) => {
+              {observationsPage.pageItems.map((group) => {
                 const max = Math.max(thresholds.minObservations, group.observationCount);
                 const width = Math.max(6, Math.round((group.observationCount / max) * 100));
                 return (
@@ -321,6 +325,7 @@ export function Preferences({ isOperator }: { isOperator: boolean }) {
               })}
             </div>
           )}
+          <PaginationFooter pagination={observationsPage} label="evidence groups" />
           <p className="mt-2 text-[9px] text-muted-foreground/80">
             Evidence is a bounded excerpt of the trigger phrase, never the full transcript. Secrets and current financial facts are never inferred.
           </p>

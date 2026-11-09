@@ -131,3 +131,70 @@ export function PaginationFooter<T>({
     </div>
   );
 }
+
+/**
+ * Server-side pagination footer. Use when the API returns `total` and a page,
+ * rather than loading every row into the browser. `count` is the number of rows
+ * on the current page, so the "showing X–Y" range stays honest after a delete.
+ */
+export function ServerPaginationFooter({
+  total,
+  limit,
+  offset,
+  count,
+  onOffset,
+  label = "items",
+  disabled = false,
+  className,
+}: {
+  total: number;
+  limit: number;
+  offset: number;
+  count: number;
+  onOffset: (offset: number) => void;
+  label?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  if (total === 0) return null;
+  const pageCount = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  const page = Math.min(pageCount, Math.floor(offset / Math.max(1, limit)) + 1);
+  const from = count === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + count, total);
+
+  return (
+    <div className={cn("mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/10 pt-3", className)}>
+      <span className="text-[10px] text-muted-foreground">
+        Showing <span className="font-mono font-semibold text-foreground">{from}</span>–
+        <span className="font-mono font-semibold text-foreground">{to}</span> of{" "}
+        <span className="font-mono font-semibold text-foreground">{total}</span> {label}
+      </span>
+      {pageCount > 1 && (
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 cursor-pointer rounded-lg px-2"
+            onClick={() => onOffset(0)} disabled={disabled || page === 1} aria-label="First page">
+            <ChevronLeft size={12} /><ChevronLeft size={12} className="-ml-2" />
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 cursor-pointer rounded-lg px-2"
+            onClick={() => onOffset(Math.max(0, offset - limit))} disabled={disabled || page === 1}
+            aria-label="Previous page">
+            <ChevronLeft size={12} />
+          </Button>
+          <span className="px-2 font-mono text-[10px] font-bold text-foreground">
+            {page} / {pageCount}
+          </span>
+          <Button variant="outline" size="sm" className="h-7 cursor-pointer rounded-lg px-2"
+            onClick={() => onOffset(offset + limit)} disabled={disabled || page >= pageCount}
+            aria-label="Next page">
+            <ChevronRight size={12} />
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 cursor-pointer rounded-lg px-2"
+            onClick={() => onOffset((pageCount - 1) * limit)} disabled={disabled || page >= pageCount}
+            aria-label="Last page">
+            <ChevronRight size={12} /><ChevronRight size={12} className="-ml-2" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

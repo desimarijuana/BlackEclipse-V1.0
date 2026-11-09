@@ -11206,3 +11206,28 @@ fallback. The size ratchet, the per-project scorecard and the preview all key of
 the same recorded root, so "this project" means the same thing everywhere. New
 project-scoped state must be recorded on that row rather than inferred from the
 current selection.
+
+## ADR-H347 - The v0.3.0 open-source release ships on the measured live floor; the 0.9 target is not edited
+
+**Decision.** The v0.3.0 open-source, self-hosted release accepts the measured
+live-eligible `task_success` of **0.8520** (167/196, run
+`live:f368f388bb662ce717c19da715f0bb44`) as a **version-scoped release floor**.
+The live gate's 0.9 threshold and `DEFAULT_THRESHOLDS` are **unchanged**, the gate
+still reports **FAIL**, and `docs/harness/benchmarks.md` keeps publishing the
+measured number, the raw inclusive score (0.6901) and the 0.9 target beside it.
+The exception ends at the next release: it must either reach 0.9 or record a new
+ADR.
+
+**Why.** The artifact is source code for single-operator, self-hosted installs
+where the operator chooses the model, and the live score depends on that model.
+A fresh 0.9 run needs a provider key that is not available here; editing the
+threshold, raising the offline 1.0, or omitting the number would all be a
+fabricated pass. Shipping with the failure published and the target explicit is
+the honest option, and the safety/financial gates that do not depend on the live
+lane are green on the release commit.
+
+**Consequences.** The threshold stays a real gate: a run below 0.8520 fails, and
+raising the number needs a fresh run and a new ADR-H. `benchmarks.md` carries the
+version-scoped annotation, the release note states what is not met, and the
+readiness roadmap's C8 closes as Option B. This covers a single-operator
+self-hosted deployment, not a hosted multi-tenant service.

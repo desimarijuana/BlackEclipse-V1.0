@@ -1,6 +1,211 @@
 # Change Log
 
 ## 2026-11-08
+- **Skills Phase 8: surface promotion evidence, version comparison, and bundle
+  update preview/rollback.** Three capabilities already existed in the browser
+  client but had no UI. Skill Detail now has a **Promotion evidence** section
+  (evaluation status, execution metrics, CI, usefulness, deprecation advice,
+  sample warning) and a **Compare versions** section (older-vs-current success,
+  validation, duration, regressions, case-set deltas, low-sample honesty).
+  Locked bundles gained **Preview update** (member/version/hash deltas) and
+  **Rollback**. New `skill-evidence.tsx` + `skill-evidence.test.tsx`; read-only,
+  no API change. Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(harness): a cold start no longer reports 503 while it is still importing.**
+  The P2 drill saw the first authenticated harness call return 503 under a
+  concurrent build/test load, then succeed on the next call. Measured cause: the
+  runtime cold start is 36 s standalone and ~51 s alongside the app's own boot,
+  and can exceed the old 240 s budget when the host is saturated — the front door
+  then reports the runtime unavailable while it is still healthy. The default
+  `HARNESS_PY_START_TIMEOUT_MS` is now **300 s** (with margin over the measured
+  worst case), `waitForHealth` logs progress every 15 s instead of waiting
+  silently, and `_boot()` now logs per-subsystem timings so a slow start is
+  diagnosable from the log. Verified: a fresh isolated production app + data dir
+  returned the first `/api/harness/models` **200 in 51.4 s**; the boot marks show
+  every subsystem step under 200 ms, so the remaining time is the Python import
+  itself. Docs updated: `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+- **Skills Phase 7: execution runs are addressable.** `?tab=skills&sub=skills.activity&focus=<runId>`
+  now opens (and highlights/expands) that run. The Learning Queue's "View run"
+  is restored and routes there; a run older than the 100-row list window is
+  fetched by id from `/api/skill-executions/:runId`, and a missing run shows an
+  honest "Run not found" state. Collapsing the focused row clears the URL param.
+  Added the browser `getSkillExecution` helper and an SSR test
+  (`execution-activity.test.tsx`) pinning the expanded/collapsed states. Docs
+  updated: `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
+- **Skills Phase 6: bulk enable/disable in the Library.** Each skill card now has
+  a labelled selection checkbox and a selection toolbar ("Enable", "Disable",
+  "Clear"). Bulk actions call the existing operator-gated
+  `setSkillLifecycle` per skill in batches of five, count successes/failures,
+  report a partial-failure toast instead of claiming blanket success, then
+  refresh the list. Only reversible transitions are offered — no bulk
+  deprecate/delete. No API or data-shape change; the server remains the
+  authority for every transition. Docs updated:
+  `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
+- **Skills Phase 5: navigation + accessibility pass.** The primary group tab bar
+  now stays visible during a skill drill-down; choosing a group closes it (URL
+  replaced, not pushed), so detail is escapable without the Back button. Added
+  `aria-pressed` to Library filter/sort and Guided Learn source toggles,
+  `aria-expanded` to detail sections and execution rows, `aria-label`s to the
+  Library search and Evaluation skill picker, `role="status"`/`aria-live` to the
+  toast, and Escape-to-close + `aria-modal` to the author drawer. New SSR test
+  `src/components/screens/skills/skill-library.test.tsx` pins the filter state,
+  pagination range and empty-state action. Docs updated:
+  `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
+- **fix(deploy): the container applies the Prisma schema on first boot.**
+  `docker-entrypoint.sh` execs `next start` directly, bypassing
+  `scripts/doctor.js` (the `prestart` hook that runs `prisma db push`), so a
+  fresh `be-data` volume booted with an empty `jdds.db` and every Prisma table
+  failed with P2021 (`CronJob does not exist`, news-refresh cycle errors). The
+  entrypoint now runs `prisma db push` before `exec` — idempotent, and fail-soft
+  (a destructive schema change warns loudly instead of dropping data). Found by
+  the P2 production-posture drill. Verified on an isolated data dir: 58 tables
+  including `CronJob`, `PRAGMA integrity_check = ok`, and an app boot with zero
+  schema errors. The same drill confirmed: unauthenticated `/api/settings` 401;
+  first-run setup + login + authenticated `/api/auth/me`; a killed/absent
+  runtime reporting 503 then recovering to 200; and a backup → destroy →
+  restore with 4/4 databases passing `integrity_check`. Docs updated:
+  `docs/DEPLOYMENT.md`, `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
+- **Skills Phase 4: server-side list query contract + large-registry UX.**
+  `GET /skills` now accepts `q`/`category`/`status`/`risk`/`sort`/`limit`/`offset`
+  and returns an exact envelope (`registryTotal`, `total`, `offset`, `limit`,
+  `hasMore`); the old bare call still returns every skill. The pure semantics
+  live in `python/harness/skills/listing.py` with
+  `python/tests/test_skills_listing.py`; the front door and both TS clients
+  forward the query. Added `updatedAt` to summaries and an "Updated" sort to the
+  Library, and gave the Evaluation Center a searchable skill picker (a 90+ item
+  `<select>` was unusable). The UI intentionally stays client-side below ~500
+  rows for instant filtering; above that the same params drive server paging with
+  no API change. Docs updated: `docs/harness/phase-3-architecture.md`,
+  `docs/CHANGELOG.md`.
+- **fix(trading): the approval card IS an execution path — stop reporting fills as
+  refusals.** A demo XAUUSD order filled (`ord_a143a70d5baa`, ticket 11290511790,
+  0.1 lot @ 4071.91) through approval `appr_bca8be7bf25b44db`, yet the chat then
+  claimed the card "never sends" and that a demo mandate was the only way. Root
+  cause was contradictory guidance: `prompts.py` `<fiduciary_advice>` called the
+  demo mandate the ONLY execution path and told the model to call `order_submit`
+  directly, while the per-run trading directive says `order_preview` + the
+  operator's card. The system block now names both operator-gated paths (manual
+  approval card, unattended demo mandate), states that the card submits and needs
+  no mandate, and requires an `order_ledger`/`broker_positions` read before
+  reporting a failure. `trading_intent.py` says the same; `order_preview`'s result
+  names the card as the submit path; `order_submit`'s `MANDATE_REQUIRED` message
+  points at `order_preview` for a one-off trade. The approval banner also kept its
+  success line only while a pending approval existed — a fill consumed the
+  approval and the confirmation vanished — so the notice now survives the
+  unmount for 10 s. Prompt ceiling re-pinned 43307 → 44183 (measured). Tests:
+  `test_trading_intent.py`, `test_phase_s_stabilization.py`,
+  `test_memory_tools.py`, broker suite. Docs updated: `docs/trading.md`,
+  `docs/CHANGELOG.md`.
+- **Skills Phase 3: URL-addressable detail and persisted Library filters.** A
+  skill drill-down now has a real URL (`?tab=skills&sub=skills.detail&focus=<id>`)
+  and pushes a history entry, so browser Back closes it and a link/Cmd-click
+  opens the same skill. Library search/filters/sort live in the URL
+  (`q`/`cat`/`status`/`risk`/`sort`), are restored on reload, and survive the
+  detail round-trip; the pure parse/serialize pair is
+  `src/lib/skills/library-view.ts` with `library-view.test.ts`. Added shared
+  `EmptyState`/`ErrorState` to `skill-ui.tsx` and replaced the bespoke empty and
+  error panels across Library, Evaluation, Activity, Learning Queue, Bundles,
+  Project Skills, Maintenance and Journey. No API change; deep links use the
+  existing `focus` dispatch path. Docs updated:
+  `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
+- **Skills Control Room: 10 tabs → 5 groups, real pagination, and dead
+  controls removed.** The Skills screen flattened discovery, authoring, review
+  and monitoring into one ten-tab bar. It now renders five primary destinations
+  — Library · Learning · Journey · Collections · Operations — with sub-tabs;
+  `SKILLS_TABS` remains the deep-link/agent-surface inventory and Start Here is
+  `hidden` (first-run content in the Library empty state, still reachable at
+  `?tab=skills&sub=skills.start`). RSL Experiments moved out of Journey into
+  Operations. Added the shared `PaginationFooter` to the 91-skill Library
+  (25/page), Evaluation Center, all four Skill Detail histories, Project Skills
+  trust/approval history, Bundles, and Maintenance; added a Library sort control
+  and derived the status/category filter chips from the registry (the hardcoded
+  list omitted seven real statuses). Removed the Learning Queue "View run"
+  no-op, the unreachable read-only-operator banners, and the raw-JSON-only run
+  input (now a schema-driven form with a JSON fallback). Bundle delete now
+  confirms first. Docs updated: `docs/harness/phase-3-architecture.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **Memory Control Room follow-up: every remaining list is paged; diagnostics
+  moved out of Facts.** Sessions, automatic-learning reviews, suggestions,
+  corrections and mistakes now accept `offset` and return exact `total` /
+  `hasMore`, with the shared footer ("Showing X–Y of N") in each view. Added
+  `listChatSessionsPage`, `listLearningReviewsPage`, `listSuggestionsPage`,
+  `listCorrectionsPage` and `listMistakesPage` to both clients; the
+  array-returning wrappers remain for bounded batch callers. Preferences
+  evidence groups are paged client-side. Retention, contradiction-detection
+  prose, real-usage metrics and compaction now live in Maintenance →
+  Diagnostics (`diagnostics-panel.tsx`) instead of above the Facts lifecycle
+  list; Facts → Lifecycle keeps the state counts, view chips and paged list.
+  Tests: browser-client paging cases; Python suite re-run. Docs updated:
+  `docs/harness/personal-memory.md`, `docs/CHANGELOG.md`.
+- **Memory Control Room: 16 tabs → 7, exact counts, and real pagination.** The
+  screen had accumulated 16 top-level tabs that duplicated the same records
+  (Facts/Lifecycle, Sessions/Session Search, Preferences/Suggestions,
+  Files/Health) and pushed content below diagnostic prose. It now renders
+  Overview · Facts (Browse + Lifecycle) · Sessions (list + search) · Review
+  (suggestions + learning reviews) · Preferences (learned + context snapshot) ·
+  Settings (policies + providers + profiles) · Maintenance (diagnostics + files
+  + health/data), with every legacy slug kept as a deep-link alias. Removed the
+  redundant Skills tab, the three-card model legend, and the duplicate Markdown
+  actions in Health. Fixed the literal `{Math.round(...)}` that appeared in the
+  usage report, fixed the JSON import picker (a disabled button swallowed the
+  file dialog), and corrected the empty-state copy that claimed nothing is
+  learned automatically. Overview totals are now `COUNT(*)` queries instead of
+  `len(list(limit=500))`; `/eclipse-memory/memories`, `/lifecycle` and
+  `/session-search` accept `offset` and return exact `total`/`hasMore`.
+  Facts search is server-side and paged (50/page), Lifecycle is paged, and
+  Session Search has a working "Load more". The Settings cluster (profiles,
+  providers, policies) was extracted to `settings-panel.tsx` so the shell stays
+  under the source-size ratchet. Tests: new
+  `python/tests/test_memory_pagination.py`, browser-client pagination cases.
+  Docs updated: `docs/harness/personal-memory.md`,
+  `docs/harness/phase-3-memory-progress.md`, `docs/CHANGELOG.md`.
+- **fix(desktop): the right-click "Open" icon is the app icon.** Windows 11's
+  modern context menu draws the **target's** icon for "Open", so the desktop
+  shortcut to `wscript.exe` showed the colourful Windows Script Host icon there
+  even though its `IconLocation` pointed at `black-eclipse.ico` (setting
+  `IconLocation` can only fix the desktop/Start tile). New
+  `scripts/desktop-shortcut.js` (`npm run setup:desktop`, `black desktop`)
+  compiles `.black-eclipse/Black Eclipse.exe` with the .NET Framework `csc` that
+  ships with Windows, embeds `public/branding/black-eclipse.ico` in it, points
+  the shortcut (repairing an existing one under any name) at that exe with the
+  same icon, and asks the shell to refresh its icon cache. The exe just starts
+  `start-eclipse.vbs`, so boot/stop behaviour is unchanged. No new dependency:
+  `csc` is part of Windows and the generated exe is gitignored. Docs updated:
+  `docs/QUICKSTART.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(trading): attach to MetaTrader 5 instead of launching it in the
+  background.** `mt5.initialize(path=...)` starts `terminal64.exe` when it is
+  closed, so the 15 s dashboard broker snapshot and the journal auto-sync
+  reopened MT5 every time it was shut. The adapter now checks the OS process list
+  first (`trade/terminal.py` `terminal_running`, a dependency-free Toolhelp
+  snapshot kept separate from `terminal/proctree.py` so the broker layer does not
+  pull in the sandbox) and refuses before `initialize` with
+  `TERMINAL_NOT_RUNNING` unless the connection opts in with
+  `config.autoLaunchTerminal: true`. `probe()` reports the same honest code
+  without launching. `autoLaunchTerminal`/`openTerminalOnTrade` joined
+  `ALLOWED_CONFIG_KEYS`, and boolean config values now stay booleans
+  (`false` used to become the truthy string `"False"`, which also made
+  `portable` misbehave). New checkbox in Settings › Broker connection, off by
+  default. Tests: `python/tests/test_mt5_launch.py`; the simulated-terminal
+  fixture stubs the running check. Docs updated: `docs/trading.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph-studio): expose typed decisions as workflow nodes + a zero-config demo.**
+  New `decision.ask` (general: wired/`stateJson` state + a closed question
+  template, `model` side effect) and `decision.demo` (deterministic rules
+  scenario, `local_write` audit only) in `python/harness/graph_runtime/decision_nodes.py`,
+  registered through `node_packs.py` and bound to `service.decision` in
+  `graph_runtime/bootstrap.py`; editor contracts in
+  `src/lib/graph-studio/registry-decisions.ts` + `registry.manifest.json`; new
+  `decision` node category, inspector fields, `brain` icon and the
+  `decision-demo` starter template. Both nodes reuse `DecisionService.ask`, so
+  status stays the only branch (`answered` / `review` / `unavailable`), a
+  missing provider fails closed, and `ECLIPSE_PRIVACY=local-models` is still
+  enforced. The `decision.ask` capability joins `TEST_RUN_CAPABILITIES` (a
+  typed judgment is information, not a world effect), so the demo template is
+  runnable in a workflow test run. Tests:
+  `python/tests/test_graph_decision_nodes.py` (15) plus the regenerated manifest
+  parity. `scripts/size-budget.json` total re-pinned
+  463916 → 464234 for the new node adapter (deliberate; no per-file ratchet
+  changed). Docs updated: `docs/graph-studio.md`,
+  `docs/decision-models.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **docs(release): add the production-readiness roadmap.** New
   `docs/PRODUCTION-READINESS.md` records the measured 2026-11-08 baseline
   (typecheck, tests, secrets, ADRs and size are green; `npx eslint .` has 3
@@ -55,6 +260,22 @@
   build actually serves: `next start` on the fresh `.next` returned
   `GET /login` 200 in 2 s. Docs updated:
   `docs/PRODUCTION-READINESS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+- **fix(ui): a partial autonomy status no longer crashes the skills panel.**
+  `RslAutonomyCardView` read `status.killSwitch.paused` without guarding
+  `killSwitch`, so a proxy error envelope or an older payload threw during
+  render and blanked the whole panel. `npm run test:drift` had been red for this
+  reason (the fixture's broad `/api/evolution/rsl` mock matched the autonomy
+  route and returned the wrong shape). The field is guarded, a regression test
+  covers a missing `killSwitch`, and the fixture now mocks
+  `/api/evolution/rsl/autonomy` before the broader route. `npm run test:drift`
+  passes both smokes. Also documented why `useInView` intentionally has no
+  dependency list (a ref-only mount check that cannot loop), and corrected
+  `CONTRIBUTING.md`'s release-gate list to match `check-all.js`/CI (it omitted
+  the secret scan, preflight, ADR and size checks, the corpus gate and the drift
+  smokes). Also removed six dead `eslint-disable` directives (their rules are not
+  enabled) and one unused icon import, so the advisory warning count drops
+  without changing behaviour. Docs updated: `CONTRIBUTING.md`,
+  `docs/CHANGELOG.md`.
 
 ## 2026-11-07
 - **feat(decisions): typed decision models (System One-shaped) as a first-class

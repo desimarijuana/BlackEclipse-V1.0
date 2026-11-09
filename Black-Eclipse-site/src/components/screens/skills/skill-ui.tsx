@@ -5,8 +5,9 @@
 // Uses the existing frosted-glass classes (see the black-eclipse-ui skill) — no
 // new visual language.
 
-import { Loader2 } from "@/lib/icons";
+import { AlertCircle, Loader2 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import { IconBadge } from "@/components/layout/page-header";
 import type { EvaluationStatus, SkillRisk, SkillStatus } from "@/lib/harness/skills-types";
 
 const STATUS_STYLES: Record<SkillStatus, string> = {
@@ -129,6 +130,84 @@ export function SectionTitle({ icon: Icon, title, hint }: { icon: React.ElementT
         <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">{title}</h3>
       </div>
       {hint && <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * The single panel header for every Skills sub-page. Keeps the icon tile, the
+ * serif title, the supporting copy and the right-aligned actions in one place so
+ * the tab views cannot drift apart visually.
+ */
+export function PanelHeader({
+  icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <IconBadge icon={icon} size="sm" />
+        <div className="min-w-0">
+          <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+          {description && (
+            <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">{description}</p>
+          )}
+        </div>
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/** The single empty state for a Skills list, with an optional action. */
+export function EmptyState({
+  icon: Icon,
+  title,
+  hint,
+  action,
+  className,
+}: {
+  icon: React.ElementType;
+  title: string;
+  hint?: string;
+  action?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("rounded-2xl border border-border/20 glass-card-subtle p-10 text-center", className)}>
+      <Icon size={26} className="mx-auto text-muted-foreground/60" />
+      <p className="mt-3 text-sm font-semibold text-foreground">{title}</p>
+      {hint && <p className="mx-auto mt-1 max-w-sm text-[11px] text-muted-foreground">{hint}</p>}
+      {action}
+    </div>
+  );
+}
+
+/** The single error state for a Skills panel. */
+export function ErrorState({
+  message,
+  title = "Could not load",
+  action,
+  className,
+}: {
+  message: string;
+  title?: string;
+  action?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("rounded-2xl border border-rose-400/30 bg-rose-400/5 p-8 text-center", className)}>
+      <AlertCircle size={24} className="mx-auto text-rose-400" />
+      <p className="mt-2 text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">{message}</p>
+      {action}
     </div>
   );
 }

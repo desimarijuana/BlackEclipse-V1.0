@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { learnFromSource } from "@/lib/harness/skills-browser";
 import type { LearnDraftResult } from "@/lib/harness/skills-types";
+import { PanelHeader } from "./skill-ui";
 
 const SOURCE_KINDS = [
   { id: "run", label: "A run", hint: "A completed/failed run you want to make repeatable." },
@@ -67,18 +68,16 @@ export function GuidedLearn({
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-5">
-        <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Learn a skill</h3>
-        <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-          Turn something you already know into a reusable skill. The result is an inert draft:
-          it must pass evaluation and operator promotion before it can run. Secrets, raw
-          transcripts and issue numbers are stripped automatically.
-        </p>
-      </div>
+      <PanelHeader
+        icon={GraduationCap}
+        title="Learn a skill"
+        description="Turn something you already know into a reusable skill. The result is an inert draft: it must pass evaluation and operator promotion before it can run. Secrets, raw transcripts and issue numbers are stripped automatically."
+      />
 
       <div className="mb-4 flex flex-wrap gap-1.5">
         {SOURCE_KINDS.map((kind) => (
           <button key={kind.id} onClick={() => setSourceKind(kind.id)} title={kind.hint}
+            aria-pressed={sourceKind === kind.id}
             className={cn("rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer",
               sourceKind === kind.id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")}>
             {kind.label}
@@ -103,7 +102,6 @@ export function GuidedLearn({
           {busy ? <Loader2 size={13} className="mr-1 animate-spin" /> : <WandSparkles size={13} className="mr-1" />}
           Generate inert draft
         </Button>
-        {!isOperator && <span className="text-[10px] text-amber-300/90">Requires operator authorization.</span>}
       </div>
 
       {error && <p className="mt-3 text-[11px] text-rose-300">{error}</p>}

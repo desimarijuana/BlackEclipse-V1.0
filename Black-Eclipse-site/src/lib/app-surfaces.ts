@@ -50,7 +50,7 @@ export function appSurfaces(): AppSurface[] {
         id: tab,
         label: screen.label,
         deepLink: destinationToHref({ tab }),
-        tabs: screen.tabs.map((sub) => ({
+        tabs: screen.tabs.filter((sub) => !sub.hidden).map((sub) => ({
           id: `${tab}.${sub.id}`,
           label: sub.label,
           deepLink: destinationToHref({ tab, subroute: `${tab}.${sub.id}` }),

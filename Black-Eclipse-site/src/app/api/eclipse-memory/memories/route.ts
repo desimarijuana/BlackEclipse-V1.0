@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listMemories, createMemory } from "@/lib/harness/eclipse-memory-client";
+import { listMemoriesPage, createMemory } from "@/lib/harness/eclipse-memory-client";
 import { isOperatorRequest } from "@/lib/harness/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
@@ -10,14 +10,16 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const memories = await listMemories({
+    const page = await listMemoriesPage({
       memoryType: url.searchParams.get("memoryType") || undefined,
       scope: url.searchParams.get("scope") || undefined,
       status: url.searchParams.get("status") || undefined,
       scopeId: url.searchParams.get("scopeId") || undefined,
+      search: url.searchParams.get("q") || undefined,
       limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
+      offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : undefined,
     });
-    return NextResponse.json({ success: true, memories });
+    return NextResponse.json({ success: true, ...page });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
     return NextResponse.json(

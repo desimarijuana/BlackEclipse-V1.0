@@ -961,6 +961,17 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   'output.result': [
     { key: 'label', label: 'Result label', kind: 'text', inline: true },
   ],
+  'decision.ask': [
+    { key: 'provider', label: 'Provider', kind: 'text', inline: true, help: 'Optional provider name (e.g. rules). Empty lets the registry choose.' },
+    { key: 'questionsJson', label: 'Questions (JSON)', kind: 'json', group: 'Decision', help: '{id: {type: "choice"|"score"|"noul", instructions, criteria?}}. A question id must be stable: calibration is tracked per template.' },
+    { key: 'stateJson', label: 'State (JSON)', kind: 'json', group: 'Decision', help: 'Used when the `state` input is not wired. A wired state wins.' },
+    { key: 'minConfidence', label: 'Min confidence', kind: 'number', inline: true, min: 0, max: 1, step: 0.05 },
+    { key: 'minProbability', label: 'Min probability', kind: 'number', min: 0, max: 1, step: 0.05, help: 'For a yes/no answer, how far from 0.5 it must be. Inside the band → review, never a decision.' },
+    { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 100, max: 120_000 },
+  ],
+  'decision.demo': [
+    { key: 'scenario', label: 'Scenario', kind: 'select', inline: true, options: opts('risk_gate', 'route_ticket'), help: 'A zero-config demonstration: deterministic rules, no key, no network.' },
+  ],
   ...TRADING_FIELD_OVERRIDES,
   ...QUANT_FIELD_OVERRIDES,
 };

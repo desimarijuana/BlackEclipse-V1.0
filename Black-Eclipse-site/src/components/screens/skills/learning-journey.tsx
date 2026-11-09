@@ -13,10 +13,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { learningJourney } from "@/lib/harness/skills-browser";
 import type { JourneyNode, LearningJourney } from "@/lib/harness/skills-types";
-import { formatWhen, LoadingState } from "./skill-ui";
+import { EmptyState, ErrorState, formatWhen, LoadingState, PanelHeader } from "./skill-ui";
 import { FullPageButton, KIND_COLOR, LearningGraphChart } from "./learning-graph";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
-import { RslExperimentsPanel } from "./rsl-experiments-panel";
 import { RslDriftBadge } from "./rsl-drift-badge";
 
 const KIND_STYLE: Record<string, string> = {
@@ -90,7 +89,7 @@ export function LearningJourneyPanel() {
   if (loading) {
     return <LoadingState label="Loading the learning journey…" hint="First load can start the Python runtime." />;
   }
-  if (error) return <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-6 text-center text-sm text-foreground">{error}</div>;
+  if (error) return <ErrorState message={error} title="Could not load the journey" />;
   if (!graph) return null;
 
   const hasGraph = graph.nodes.length > 0;
@@ -107,33 +106,39 @@ export function LearningJourneyPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Learning journey</h3>
-            <RslDriftBadge />
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground max-w-2xl leading-relaxed">
-            How each skill and memory came to exist — created from, corrected by, superseded by, promoted from.
-            Derived from canonical records; read-only, scope-isolated, and never a second source of truth.
-          </p>
-          {graph.generatedAt && (
-            <p className="mt-1 text-[10px] text-muted-foreground/80">
-              Last updated {formatWhen(graph.generatedAt)}
-              {graph.watermark && graph.watermark !== graph.generatedAt && (
-                <> · newest record {formatWhen(graph.watermark)}</>
-              )}
-              {refreshing ? " · refreshing…" : " · refreshes on focus"}
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {hasGraph && <FullPageButton onClick={() => setExpanded(true)} />}
-          <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={refreshing} onClick={() => void load()}>
-            <RefreshCcw size={13} className={"mr-1" + (refreshing ? " animate-spin" : "")} /> Refresh
-          </Button>
-        </div>
-      </div>
+      <PanelHeader
+        icon={GitBranch}
+        title="Learning journey"
+        description={
+          <>
+            <span className="flex flex-wrap items-center gap-2">
+              <RslDriftBadge />
+              <span>
+                How each skill and memory came to exist — created from, corrected by, superseded by,
+                promoted from. Derived from canonical records; read-only, scope-isolated, and never a
+                second source of truth.
+              </span>
+            </span>
+            {graph.generatedAt && (
+              <span className="mt-1 block text-[10px] text-muted-foreground/80">
+                Last updated {formatWhen(graph.generatedAt)}
+                {graph.watermark && graph.watermark !== graph.generatedAt && (
+                  <> · newest record {formatWhen(graph.watermark)}</>
+                )}
+                {refreshing ? " · refreshing…" : " · refreshes on focus"}
+              </span>
+            )}
+          </>
+        }
+        actions={
+          <>
+            {hasGraph && <FullPageButton onClick={() => setExpanded(true)} />}
+            <Button size="sm" variant="outline" className="rounded-xl cursor-pointer" disabled={refreshing} onClick={() => void load()}>
+              <RefreshCcw size={13} className={"mr-1" + (refreshing ? " animate-spin" : "")} /> Refresh
+            </Button>
+          </>
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Kind</span>
@@ -148,13 +153,11 @@ export function LearningJourneyPanel() {
       </div>
 
       {!hasGraph ? (
-        <div className="rounded-2xl border border-border/20 glass-card-subtle p-10 text-center">
-          <GitBranch size={26} className="mx-auto text-muted-foreground/60" />
-          <p className="mt-3 text-sm font-semibold text-foreground">Nothing learned yet</p>
-          <p className="mt-1 text-[11px] text-muted-foreground max-w-sm mx-auto">
-            The journey grows as memories are saved, skills are drafted, evaluated and promoted.
-          </p>
-        </div>
+        <EmptyState
+          icon={GitBranch}
+          title="Nothing learned yet"
+          hint="The journey grows as memories are saved, skills are drafted, evaluated and promoted."
+        />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
           <div className="rounded-2xl border border-white/10 glass-card p-2">
@@ -221,8 +224,6 @@ export function LearningJourneyPanel() {
           </div>
         </div>
       )}
-
-      <RslExperimentsPanel />
 
       {/* Full-page graph — portaled to <body> so a transformed ancestor cannot
           trap the fixed overlay. */}

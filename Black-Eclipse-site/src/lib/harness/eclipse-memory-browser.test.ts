@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  clientIsOperator, listMemories, memoryHealth, memoryLifecycle, memoryPreferences,
+  clientIsOperator, listMemories, listMemoriesPage, memoryHealth, memoryLifecycle, memoryPreferences,
   learnPreferences, memoryProfile,
   memoryProviderSearch, memoryProviderStatus, memoryRetention,
   rebuildProfile, restoreMemory,
   sessionSearch, sessionSearchHealth,
-  listChatSessions, listProfiles, forkChatSession,
+  listChatSessions, listChatSessionsPage, listProfiles, forkChatSession,
+  listCorrectionsPage, listMistakesPage, listSuggestionsPage, listLearningReviewsPage,
 } from "./eclipse-memory-browser";
 
 // The browser client must stay client-safe (fetch only) and must surface API
@@ -44,6 +45,31 @@ describe("eclipse-memory browser client", () => {
     const url = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(url).toContain("memoryType=preference");
     expect(url).toContain("status=active");
+  });
+
+  it("listMemoriesPage sends search + paging and returns the server totals", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        memories: [{ id: "mem_1", content: "x" }],
+        total: 312,
+        limit: 50,
+        offset: 100,
+        hasMore: true,
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const page = await listMemoriesPage({
+      memoryType: "semantic", search: "currency", limit: 50, offset: 100,
+    });
+    const url = String(fetchMock.mock.calls[0]?.[0] ?? "");
+    expect(url).toContain("memoryType=semantic");
+    expect(url).toContain("q=currency");
+    expect(url).toContain("limit=50");
+    expect(url).toContain("offset=100");
+    expect(page.total).toBe(312);
+    expect(page.hasMore).toBe(true);
   });
 
   it("memoryPreferences passes the scope and reads the summary", async () => {
@@ -91,6 +117,19 @@ describe("eclipse-memory browser client", () => {
     const url = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(url).toContain("/api/eclipse-memory/lifecycle");
     expect(url).toContain("view=never-used");
+  });
+
+  it("memoryLifecycle sends limit + offset", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ counts: { active: 0 }, views: {}, budget: { limit: 0, active: 0, unlimited: true, full: false, remaining: null } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await memoryLifecycle("active", undefined, 25, 50);
+    const url = String(fetchMock.mock.calls[0]?.[0] ?? "");
+    expect(url).toContain("limit=25");
+    expect(url).toContain("offset=50");
   });
 
   it("restoreMemory posts to the restore action", async () => {
@@ -148,11 +187,12 @@ describe("eclipse-memory browser client", () => {
       json: async () => ({ available: true, engine: "fts5", results: [], hasMore: false }),
     }));
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
-    await sessionSearch({ q: "reporting currency", limit: 5 });
+    await sessionSearch({ q: "reporting currency", limit: 5, offset: 10 });
     const url = String(fetchMock.mock.calls[0]?.[0]);
     expect(url.startsWith("/api/session-search?")).toBe(true);
     expect(url).toContain("q=reporting+currency");
     expect(url).toContain("limit=5");
+    expect(url).toContain("offset=10");
   });
 
   it("sessionSearchHealth fetches the health route", async () => {
@@ -225,5 +265,53 @@ describe("eclipse-memory browser client", () => {
     const profiles = await listProfiles();
     expect(profiles[0].id).toBe("work");
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/profiles");
+  });
+
+  it("listChatSessionsPage sends paging and reads the server totals", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true, status: 200,
+      json: async () => ({ sessions: [{ id: "s1" }], total: 41, limit: 25, offset: 25, hasMore: true }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const page = await listChatSessionsPage({ limit: 25, offset: 25 });
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("limit=25");
+    expect(url).toContain("offset=25");
+    expect(page.total).toBe(41);
+    expect(page.hasMore).toBe(true);
+  });
+
+  it("listLearningReviewsPage sends status + paging", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true, status: 200,
+      json: async () => ({ reviews: [], total: 7, limit: 20, offset: 20, hasMore: false }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const page = await listLearningReviewsPage("completed", 20, 20);
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("status=completed");
+    expect(url).toContain("offset=20");
+    expect(page.total).toBe(7);
+  });
+
+  it("record pages send paging and normalize their payload key", async () => {
+    const cases = [
+      { fn: () => listCorrectionsPage(10, 10), key: "corrections" },
+      { fn: () => listMistakesPage(10, 10), key: "mistakes" },
+      { fn: () => listSuggestionsPage("pending", 10, 10), key: "suggestions" },
+    ] as const;
+    for (const { fn, key } of cases) {
+      const fetchMock = vi.fn(async (_url: string) => ({
+        ok: true, status: 200,
+        json: async () => ({ [key]: [{ id: "x" }], total: 3, limit: 10, offset: 10, hasMore: false }),
+      }));
+      vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+      const page = await fn();
+      const url = String(fetchMock.mock.calls[0]?.[0]);
+      expect(url).toContain("limit=10");
+      expect(url).toContain("offset=10");
+      expect(page.items).toHaveLength(1);
+      expect(page.total).toBe(3);
+    }
   });
 });

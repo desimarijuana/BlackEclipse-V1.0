@@ -16,6 +16,7 @@ from typing import Any
 
 from .agent_structured_nodes import build_structured_agent_nodes
 from .approval_nodes import build_approval_nodes
+from .decision_nodes import build_decision_nodes
 from .file_nodes import build_file_nodes
 from .image_nodes import build_image_nodes
 from .memory_nodes import build_memory_nodes
@@ -61,6 +62,9 @@ PACKS = (
     # The trade-learning loop: deterministic review, the ONE recurrence ledger,
     # and a bounded playbook climb. No broker path, no code edits.
     build_trade_learning_nodes,
+    # Typed decisions: a bounded choice/score/noul judgment behind the ONE
+    # provider registry + confidence policy. The demo is the zero-config path.
+    build_decision_nodes,
 )
 
 

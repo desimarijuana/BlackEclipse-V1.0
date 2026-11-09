@@ -700,7 +700,10 @@ class EclipseMemoryService:
         scope_id: Optional[str] = None,
         status: Optional[str] = None,
         subject: Optional[str] = None,
+        source: Optional[str] = None,
+        search: Optional[str] = None,
         limit: int = 100,
+        offset: int = 0,
         include_inactive: bool = True,
     ) -> list[dict[str, Any]]:
         """Browse memory records without a semantic query.
@@ -710,7 +713,8 @@ class EclipseMemoryService:
         """
         return self.store.list_memories(
             memory_type=memory_type, scope=scope, scope_id=scope_id,
-            status=status, subject=subject, limit=max(1, min(int(limit), 200)),
+            status=status, subject=subject, source=source, search=search,
+            limit=max(1, min(int(limit), 200)), offset=max(0, int(offset)),
             include_inactive=include_inactive,
         )
 
@@ -2146,7 +2150,7 @@ class EclipseMemoryService:
         """Counts + views for the Control Room. Content is local operator data."""
         counts = self.store.memory_lifecycle_counts()
         views = {
-            name: len(self.store.list_lifecycle_memories(name, limit=200))
+            name: self.store.count_lifecycle_memories(name)
             for name in (
                 "active", "expired", "superseded", "rejected", "archived",
                 "never-used", "frequently-recalled", "automatic", "stale", "conflicts",

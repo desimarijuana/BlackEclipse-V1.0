@@ -52,6 +52,7 @@ export function TradingSettingsPanel() {
   const [label, setLabel] = useState("MT5 demo");
   const [mode, setMode] = useState<"demo" | "live">("demo");
   const [terminalPath, setTerminalPath] = useState(DEFAULT_TERMINAL);
+  const [autoLaunch, setAutoLaunch] = useState(false);
   const [magic, setMagic] = useState("0");
   const [maxMargin, setMaxMargin] = useState("0");
   const [phrases, setPhrases] = useState<Record<string, string>>({});
@@ -102,7 +103,10 @@ export function TradingSettingsPanel() {
 
   const add = async () => {
     await run("create", async () => {
-      const config: Record<string, unknown> = { terminalPath: terminalPath.trim() };
+      const config: Record<string, unknown> = {
+        terminalPath: terminalPath.trim(),
+        autoLaunchTerminal: autoLaunch,
+      };
       const magicNumber = Number(magic);
       const marginNumber = Number(maxMargin);
       if (Number.isFinite(magicNumber) && magicNumber > 0) config.magic = magicNumber;
@@ -473,6 +477,7 @@ export function TradingSettingsPanel() {
             </Field>
           </div>
         </div>
+        <AutoLaunchToggle checked={autoLaunch} onChange={setAutoLaunch} />
         <button
           type="button"
           disabled={busy === "create"}
@@ -568,6 +573,7 @@ function ConnectionEditor({
   const [mode, setMode] = useState<"demo" | "live">(connection.mode === "live" ? "live" : "demo");
   const [magic, setMagic] = useState(String(config.magic ?? ""));
   const [maxMargin, setMaxMargin] = useState(String(config.maxMargin ?? ""));
+  const [autoLaunch, setAutoLaunch] = useState(configFlag(config.autoLaunchTerminal));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -575,7 +581,7 @@ function ConnectionEditor({
     setBusy(true);
     setError(null);
     try {
-      const next: Record<string, unknown> = { ...config };
+      const next: Record<string, unknown> = { ...config, autoLaunchTerminal: autoLaunch };
       const magicNumber = Number(magic);
       const marginNumber = Number(maxMargin);
       if (Number.isFinite(magicNumber) && magicNumber > 0) next.magic = magicNumber;
@@ -641,6 +647,7 @@ function ConnectionEditor({
               />
             </Field>
           </div>
+          <AutoLaunchToggle checked={autoLaunch} onChange={setAutoLaunch} />
           {mode === "live" && (
             <p className="text-[10px] text-rose-200/80">
               A live connection places real orders. A non-zero magic and a positive max margin are
@@ -654,6 +661,38 @@ function ConnectionEditor({
         </>
       )}
     </div>
+  );
+}
+
+/** Old configs stored flags as strings, so treat any truthy spelling as true. */
+function configFlag(value: unknown): boolean {
+  return value === true || value === 1 || ["true", "1", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+}
+
+function AutoLaunchToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border/20 p-3 text-[11px] text-muted-foreground">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 accent-primary"
+      />
+      <span>
+        Start MetaTrader 5 automatically when it is closed.
+        <span className="mt-0.5 block text-[10px] text-muted-foreground/70">
+          Off by default. Eclipse only attaches to a terminal that is already running and logged in,
+          so it never pops MT5 open in the background. Turning this on lets any broker read launch
+          terminal64.exe.
+        </span>
+      </span>
+    </label>
   );
 }
 

@@ -128,7 +128,6 @@ export function DraftReview({
               <XCircle size={13} className="mr-1" /> Reject
             </Button>
           </div>
-          {!isOperator && <p className="mt-2 text-[10px] text-amber-300/90">Read-only session — promotion requires operator authorization.</p>}
         </div>
       </Panel>
     </div>

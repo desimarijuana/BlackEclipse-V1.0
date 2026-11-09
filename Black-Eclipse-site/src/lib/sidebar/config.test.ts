@@ -16,7 +16,8 @@ beforeEach(() => {
 describe('defaultSidebarConfig', () => {
   it('assigns unique F1..F12 in canonical section order', () => {
     const config = defaultSidebarConfig();
-    expect(config.shortcutVersion).toBe(2);
+    expect(config.shortcutVersion).toBe(3);
+    expect(config.shortcutsCustomized).toBe(false);
     // 12 shortcut slots exist; sections past the 12th get no default. This is
     // the explicit expected list â€” not a count derived from the source under
     // test â€” so adding/removing a section fails here on purpose.
@@ -28,14 +29,17 @@ describe('defaultSidebarConfig', () => {
 });
 
 describe('persistence round-trip', () => {
-  it('stamps shortcutVersion 2 on save and loads it back', () => {
+  it('stamps shortcutVersion 3 on save and keeps an explicit custom key', () => {
     const config = defaultSidebarConfig();
+    // Mirrors the Settings path: assigning a key marks the config customized.
+    config.shortcutsCustomized = true;
     config.sections[2].shortcut = 'F11';
     saveSidebarConfig(config);
     const raw = JSON.parse(memory.get(SIDEBAR_CONFIG_KEY)!);
-    expect(raw.shortcutVersion).toBe(2);
+    expect(raw.shortcutVersion).toBe(3);
     const loaded = loadSidebarConfig();
     expect(loaded.sections[2].shortcut).toBe('F11');
+    expect(loaded.shortcutsCustomized).toBe(true);
   });
 });
 
@@ -114,7 +118,7 @@ describe('v1 migration', () => {
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(reordered));
     const loaded = loadSidebarConfig();
     expect(loaded.sections[0]).toEqual({ id: 'alerts', enabled: true, shortcut: 'F1' });
-    expect(loaded.shortcutVersion).toBe(2);
+    expect(loaded.shortcutVersion).toBe(3);
   });
 
   it('drops unknown and invalid entries instead of crashing', () => {
@@ -149,10 +153,55 @@ describe('v1 migration', () => {
     expect(loaded.sections.map((s) => s.id)).toHaveLength(DEFAULT_SIDEBAR_SECTIONS.length);
   });
 
+  it('repairs a drifted default scheme so the menu reads F1..F12 in order', () => {
+    // A pre-Dashboard-order save whose keys were shifted by one: slot 0 blank,
+    // slots 1..12 carrying F1..F12. The user never customized anything.
+    const drifted = {
+      shortcutVersion: 2,
+      sections: DEFAULT_SIDEBAR_SECTIONS.map((section, index) => ({
+        id: section.id,
+        enabled: true,
+        shortcut: index >= 1 && index <= 12 ? `F${index}` : '',
+      })),
+    };
+    memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(drifted));
+    const loaded = loadSidebarConfig();
+    expect(loaded.sections.map((s) => s.shortcut)).toEqual([
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
+    ]);
+    expect(loaded.shortcutsCustomized).toBe(false);
+  });
+
+  it('keeps the first binding and clears duplicate keys', () => {
+    const duplicated = {
+      shortcutVersion: 2,
+      sections: [
+        { id: 'chat', enabled: true, shortcut: 'F3' },
+        { id: 'dashboard', enabled: true, shortcut: 'F3' },
+      ],
+    };
+    memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(duplicated));
+    const loaded = loadSidebarConfig();
+    const byId = new Map(loaded.sections.map((s) => [s.id, s]));
+    expect(byId.get('chat')!.shortcut).toBe('F3');
+    expect(byId.get('dashboard')!.shortcut).toBe('');
+  });
+
+  it('re-numbers the default scheme after an order change', () => {
+    // A v3 default config with an item moved: keys follow the order, not the tab.
+    const reordered = defaultSidebarConfig();
+    const [first] = reordered.sections.splice(0, 1);
+    reordered.sections.splice(3, 0, first);
+    saveSidebarConfig(reordered);
+    const loaded = loadSidebarConfig();
+    expect(loaded.sections.slice(0, 4).map((s) => s.id)).toEqual(['home', 'dashboard', 'investor-eye', 'chat']);
+    expect(loaded.sections.slice(0, 4).map((s) => s.shortcut)).toEqual(['F1', 'F2', 'F3', 'F4']);
+  });
+
   it('falls back to defaults on corrupted JSON', () => {
     memory.set(SIDEBAR_CONFIG_KEY, '{not json');
     const loaded = loadSidebarConfig();
-    expect(loaded.shortcutVersion).toBe(2);
+    expect(loaded.shortcutVersion).toBe(3);
     expect(loaded.sections[0].shortcut).toBe('F1');
   });
 

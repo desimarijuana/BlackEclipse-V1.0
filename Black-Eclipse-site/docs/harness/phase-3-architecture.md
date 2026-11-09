@@ -1,7 +1,7 @@
 ---
 title: Harness Phase 3 — Skill System Architecture
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-11-08
 ---
 
 # Harness Phase 3 — Skill System Architecture
@@ -251,3 +251,94 @@ Routes added under `src/app/api/skills/**` and `src/app/api/learning/**` proxy t
 the runtime's `/skills/**` endpoints with the same `api-guard` policy as
 `/api/harness/*`. The UI is a new "Skills" tab in the existing sidebar, using the
 existing frosted-glass system.
+
+## Control Room information architecture
+
+The Skills screen renders **five primary destinations**, not one tab per panel.
+The grouping lives in `src/lib/app-screens.ts`:
+
+| Primary | Sub-tabs |
+| --- | --- |
+| Library | Skills Library (`library`) — detail is a drill-down inside it |
+| Learning | Learn a Skill (`learn`), Learning Queue (`learning`) |
+| Journey | Learning Journey (`journey`) |
+| Collections | Project Skills (`project`), Bundles (`bundles`) |
+| Operations | Evaluation Center (`evaluation`), Execution Activity (`activity`), Maintenance (`maintenance`), Experiments (`experiments`) |
+
+Two invariants matter when editing this screen:
+
+- **`SKILLS_TABS` is still the whole inventory** (deep links + the agent surface
+  map in `app-surfaces.ts`). `SKILLS_GROUPS` only decides what the primary tab
+  bar shows. A visible tab must belong to exactly one group.
+- **`hidden: true` means deep-link-only.** `start` (Start Here) is no longer a
+  tab; its content is reachable from the Library's first-run state and at
+  `/?tab=skills&sub=skills.start`. `app-surfaces.ts` filters hidden tabs so the
+  agent map matches what is rendered.
+
+Every panel uses the shared `PanelHeader` from
+`src/components/screens/skills/skill-ui.tsx` (plus `EmptyState`/`ErrorState`),
+and every bounded list uses the shared `PaginationFooter`/`usePagination` from
+`src/components/ui/pagination.tsx`. RSL experiments were moved out of Journey
+into Operations so the provenance graph is not buried under experimental
+controls.
+
+### URL state
+
+The SPA keeps screens mounted, so the URL is the only durable view state. Two
+shapes are used:
+
+- **Library view** — `?tab=skills&sub=skills.library&q=…&cat=…&status=…&risk=…&sort=…`.
+  `src/lib/skills/library-view.ts` is the single parse/serialize pair (covered by
+  `library-view.test.ts`). The Library writes it with `replaceState`, so typing
+  in search does not create history entries.
+- **Skill detail** — `?tab=skills&sub=skills.detail&focus=<skillId>` (plus the
+  Library filters). The shell already passes `focus` through the command store,
+  so `useSubroute('skills', …)` handles `detail` specially and calls `openSkill`.
+  Opening a skill from the grid pushes a history entry; closing it (or pressing
+  Back) returns to the Library URL and restores the filters.
+- **Execution run** — `?tab=skills&sub=skills.activity&focus=<runId>`.
+  `ExecutionActivity` expands and highlights that row; if the run is older than
+  the 100-row list window it fetches it by id (and shows "Run not found" when it
+  genuinely does not exist). The Learning Queue's "View run" pushes this URL;
+  collapsing the focused row or switching tabs clears the param.
+
+`detail` is deliberately **not** a `SKILLS_TABS` entry: it is a drill-down, not a
+tab, and must never appear in the primary or sub-tab bars. Adding a real view
+still means adding a `SKILLS_TABS` entry plus a `SKILLS_GROUPS` membership.
+
+The primary tab bar stays visible while a drill-down is open, and choosing any
+group closes it (the URL is replaced, not pushed). This keeps the drill-down
+escapable without hunting for the Back button. Interactive toggles expose
+`aria-pressed`/`aria-expanded`, the toast is a polite live region, and the
+author drawer closes on Escape (`aria-modal`).
+
+The Library supports **bulk enable/disable**: a per-card selection checkbox and
+a toolbar that calls the existing `setSkillLifecycle` endpoint once per skill
+(batches of five), counting successes and failures. Bulk actions are limited to
+reversible transitions (enable/disable); deprecate/delete stay single-skill.
+
+### List query contract (scale path)
+
+`GET /skills` accepts the Library's query, so the registry never has to ship an
+unbounded list:
+
+| Param | Meaning |
+| --- | --- |
+| `q` | whitespace-separated terms, all required, matched against id/name/description/tags |
+| `category`, `status`, `risk` | exact facet match; `all`/absent means no filter |
+| `sort` | `name` (default), `status`, `risk`, `updated` |
+| `limit`, `offset` | optional paging; omit `limit` for the historical "all skills" response |
+
+Filtering and sorting run **before** paging, and the response carries the exact
+envelope: `registryTotal` (before filters), `total` (filtered), `limit`,
+`offset`, `hasMore`. The pure logic lives in
+`python/harness/skills/listing.py` (`filter_summaries`, `sort_summaries`,
+`page_summaries`) and is covered by `python/tests/test_skills_listing.py`.
+`updatedAt` is included in each summary for the "Updated" sort.
+
+The UI deliberately stays on the **client-side** path while the filtered list is
+small (currently ~91 skills): filters feel instant, and there is no round-trip
+per keystroke. The documented switch point is ~500 rows; above it the same
+params can drive server paging without an API change. `PaginationFooter` already
+shows the exact `from–to of total`, so the client view and a future server view
+read the same.

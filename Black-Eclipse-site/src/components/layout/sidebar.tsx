@@ -416,7 +416,7 @@ export function Sidebar({
                   handleTabClick(tab.id);
                 }}
                 title={isCollapsed
-                  ? `${tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
+                  ? `${tab.shortcut ? `${tab.label} (${formatShortcutKeys(tab.shortcut)})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
                   : undefined}
                 className={`h-8 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
                   isSelected
@@ -444,7 +444,7 @@ export function Sidebar({
                 {tab.shortcut && !isCollapsed && (
                     <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
                       isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'
-                    }`}>{tab.shortcut}</span>
+                    }`}>{formatShortcutKeys(tab.shortcut)}</span>
                   )}
                 </a>
             );

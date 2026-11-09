@@ -749,6 +749,9 @@ class SkillRegistry:
             if record:
                 summary["status"] = record["status"]
                 summary["latestVersion"] = record["latestVersion"]
+                # Drives the Library's "Recently updated" sort. Older rows /
+                # store-less manifests read None and sort last.
+                summary["updatedAt"] = record.get("updatedAt")
             summary["versions"] = [v["version"] for v in self.store.list_versions(manifest.id)]
             summary["origin"] = manifest.origin
             summary["provenance"] = entry.provenance

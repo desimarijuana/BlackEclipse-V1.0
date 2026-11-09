@@ -17,6 +17,7 @@ const GLOBAL_SHORTCUTS = [
   { id: 'mode-terminal', label: 'Sidebar menu: Terminal', keys: 'Alt + T', context: 'Global, switches the sidebar menu mode' },
   { id: 'mode-agentic', label: 'Sidebar menu: Agentic', keys: 'Alt + A', context: 'Global, switches the sidebar menu mode' },
   { id: 'mode-bots', label: 'Sidebar menu: Bots', keys: 'Alt + B', context: 'Global, switches the sidebar menu mode and opens the Bots workspace' },
+  { id: 'mode-graph', label: 'Sidebar menu: Graph Studio', keys: 'Alt + G', context: 'Global, switches the sidebar menu mode and opens Overview' },
   { id: 'terminal', label: 'Toggle visible terminal', keys: 'Ctrl / Cmd + `', context: 'Global' },
   { id: 'workspace', label: 'Toggle Agent Workspace sidebar', keys: 'Ctrl / Cmd + Shift + E', context: 'Global, not while typing' },
   { id: 'focus-mode', label: 'Toggle focus mode (chat)', keys: 'Ctrl + Alt + X', context: 'ChatBot tab, hides header and sidebar for a full-width focus view' },
@@ -120,7 +121,11 @@ export function KeyboardShortcuts() {
                       <p>{row.label}{!row.enabled && <span className="ml-2 text-xs text-muted-foreground">Unavailable</span>}</p>
                       <p className="text-xs text-muted-foreground">{row.context}</p>
                     </div>
-                    <kbd className="shrink-0 rounded border border-border px-2 py-1 text-xs">{row.keys === t('common.none') ? row.keys : formatShortcutKeys(row.keys)}</kbd>
+                    {/* Rows are already display-formatted at build time (sidebar
+                        rows use formatShortcutKeys, scope rows too, global rows
+                        are human strings). Formatting twice uppercased labels
+                        like "Shift + E" into "SHIFT + E". */}
+                    <kbd className="shrink-0 rounded border border-border px-2 py-1 text-xs">{row.keys}</kbd>
                   </li>
                 ))}
               </ul>

@@ -1,6 +1,6 @@
 {
   "name": "black-eclipse",
-  "version": "0.2.1-rc.1",
+  "version": "0.3.0",
   "private": true,
   "bin": {
     "black": "bin/black.js",
@@ -11,6 +11,7 @@
     "setup:python": "node scripts/setup-python.js",
     "setup:pine": "npm --prefix pine-engine install --omit=dev --no-audit --no-fund",
     "setup:git": "node scripts/install-git-hooks.js",
+    "setup:desktop": "node scripts/desktop-shortcut.js",
     "setup:hostname": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hostname.ps1",
     "setup:tls": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-tls.ps1",
     "auth:setup": "node scripts/enable-auth.js",

@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-11-02
+last-verified: 2026-11-08
 ---
 
 # Quickstart
@@ -40,9 +40,17 @@ behind the local proxy) in a **hidden** window (boot/stop output goes to
 `.black-eclipse/desktop-launch.log`, the server's own output to
 `.black-eclipse/desktop-server.log`), waits until the app **and** the proxy
 answer, and opens `https://blackeclipse` (or `http://` when TLS is not
-configured). Create a shortcut to it (or run `wscript start-eclipse.vbs`) and
-set the shortcut's **Icon** to `public/branding/black-eclipse.ico` — without it
-Windows shows the generic script/Node icon.
+configured). To get the desktop icon, run `npm run setup:desktop` (or
+`black desktop`) once. It builds `.black-eclipse/Black Eclipse.exe` — a tiny
+launcher that carries `public/branding/black-eclipse.ico` as its embedded icon —
+and creates/repairs the **Black Eclipse** desktop shortcut to point at it, then
+refreshes the shell icon cache. Re-run it after the icon changes.
+
+The shortcut targets that exe rather than `wscript.exe` on purpose: Windows 11's
+right-click **Open** row draws the *target's* icon, so a shortcut to the script
+host shows the Script Host icon there no matter what its **IconLocation** says.
+The installer repairs an existing shortcut (any name) that still points at the
+VBS. `wscript start-eclipse.vbs` still works without a shortcut.
 
 A click always shows something immediately. Before the app is ready the launcher
 opens a loopback **progress page** (`http://127.0.0.1:3197/`, next free port if

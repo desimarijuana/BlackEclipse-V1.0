@@ -1,7 +1,7 @@
 ---
 title: Harness — Personal Memory (facts, transcript search, learned preferences)
 status: Current
-last-verified: 2026-10-28
+last-verified: 2026-11-08
 ---
 
 # Personal Memory
@@ -63,6 +63,65 @@ When memory is disabled (`memory_enabled=false`) or preference learning is
 preference prompts (even inert suggestions); an explicit "remember this" still
 works through the turn gate.
 
+## Control Room layout
+
+The Eclipse Memory screen renders **seven** top-level tabs. Each owns a related
+cluster of views; daily browsing is separated from configuration and one-off
+operations:
+
+| Tab | Contains |
+|---|---|
+| **Overview** | Exact totals only (facts, active, skills, pending suggestions, learning candidates, corrections, providers, recent sessions). |
+| **Facts** | Browse (filter/search/detail/save/archive) and Lifecycle (state counts + named views). |
+| **Sessions** | Named sessions and full-text transcript search. |
+| **Review** | Inert memory suggestions and the automatic-learning review queue. |
+| **Preferences** | Learned preferences and the compact context snapshot injected into runs. |
+| **Settings** | Policies, memory providers, and named profiles. |
+| **Maintenance** | Retention/usage/contradiction/compaction diagnostics, activity (retrieval probe, corrections, mistakes), Markdown files, and database health/export/import/reset. |
+
+Legacy deep links (`memory.lifecycle`, `memory.history`, `memory.health`, …) are
+kept as tab aliases and resolve to the correct tab + internal section. The
+screen previously exposed 16 top-level tabs, which duplicated the same records
+across Facts/Lifecycle, Sessions/Session Search, Preferences/Suggestions and
+Files/Health.
+
+### Pagination contract
+
+Every list route returns a page plus an exact total:
+
+```
+GET /eclipse-memory/memories?memoryType=&status=&q=&limit=&offset=
+→ { memories, total, limit, offset, hasMore }
+
+GET /eclipse-memory/lifecycle?view=&limit=&offset=
+→ { counts, views, budget, memories, total, limit, offset, hasMore }
+
+GET /session-search?q=&limit=&offset=
+→ { engine, results, hasMore, offset }
+
+GET /sessions?limit=&offset=
+→ { sessions, total, limit, offset, hasMore }
+
+GET /learning-review?limit=&offset=
+→ { reviews, total, limit, offset, hasMore }
+
+GET /eclipse-memory/suggestions?status=&scopeId=&limit=&offset=
+→ { suggestions, total, limit, offset, hasMore }
+GET /eclipse-memory/corrections?limit=&offset=
+→ { corrections, total, limit, offset, hasMore }
+GET /eclipse-memory/mistakes?runId=&limit=&offset=
+→ { mistakes, total, limit, offset, hasMore }
+```
+
+`list` and `total` share one filter definition server-side, so a page can never
+disagree with its count. The browser client exposes `listMemoriesPage()`,
+`listChatSessionsPage()`, `listLearningReviewsPage()`, `listSuggestionsPage()`,
+`listCorrectionsPage()` and `listMistakesPage()` for paged views, and keeps the
+array-returning wrappers for callers (files, graph memory nodes) that need a
+bounded batch. The shared `ServerPaginationFooter` renders "Showing X–Y of N" and
+prev/next controls; the Session Search tab uses a **Load more** control because
+its ranked result set has no cheap total.
+
 ## Surfaces
 
 - Agent tool: `memory` with `action="preferences"` returns active preferences,
@@ -74,9 +133,9 @@ works through the turn gate.
   inferences, remembered preferences with Forget, evidence groups, thresholds, a
   "Scan evidence" action, the learning-mode switch (off / ask / auto) and
   per-dimension on/off switches. Generic policy controls for these keys are
-  hidden from the Policies tab because the Preferences tab owns them.
+  hidden from the Settings → Policies view because Preferences owns them.
 - Durable facts and transcript search keep their existing surfaces
-  (Facts / Session Search).
+  (Facts / Sessions → Search history).
 
 ## Safety invariants
 

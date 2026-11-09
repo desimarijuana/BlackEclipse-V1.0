@@ -202,7 +202,9 @@ async def order_preview(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             "Order preview is valid and awaits an operator decision. "
             f"Approval {approval.get('id')} ({approval.get('status')}).\n"
             f"{approval.get('actionSummary') or ''}\n"
-            "No order was sent. Submission is an operator action.",
+            "No order was sent yet. The operator's approval card submits this exact "
+            "order through the normal submit route (no mandate needed); after they "
+            "confirm, read `order_ledger` and `broker_positions` to report the fill.",
             result,
         )
     reasons = "; ".join(result.get("reasons") or []) or "the order was refused"
@@ -351,8 +353,10 @@ async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         active = service.list_mandates(connection_id, active_only=True)
         return (
             "No single active demo mandate covers this symbol. Active mandates: "
-            f"{', '.join(m['id'] for m in active) or 'none'}. Ask the operator to "
-            "create one in Settings → Broker connection.",
+            f"{', '.join(m['id'] for m in active) or 'none'}. For a one-off manual "
+            "trade call `order_preview` instead: the operator's approval card submits "
+            "that exact order and needs no mandate. A mandate (Settings → Broker "
+            "connection) is only for unattended orders.",
             {"status": "MANDATE_REQUIRED", "mandates": active},
         )
     try:

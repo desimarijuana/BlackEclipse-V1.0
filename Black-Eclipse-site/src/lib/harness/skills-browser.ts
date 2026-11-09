@@ -43,6 +43,37 @@ export interface SkillListResult {
   shadowed: string[];
   contentFindings: Record<string, SkillContentScan>;
   quarantined: string[];
+  /** Unfiltered registry size (before `q`/facet filters). */
+  registryTotal?: number;
+  /** Filtered list size — the number `offset`/`hasMore` page through. */
+  total?: number;
+  limit?: number;
+  offset?: number;
+  hasMore?: boolean;
+}
+
+export interface SkillListQuery {
+  status?: string;
+  q?: string;
+  category?: string;
+  risk?: string;
+  sort?: "name" | "status" | "risk" | "updated";
+  limit?: number;
+  offset?: number;
+}
+
+function skillListQueryString(input?: string | SkillListQuery): string {
+  const query: SkillListQuery = typeof input === "string" ? { status: input } : (input ?? {});
+  const sp = new URLSearchParams();
+  if (query.status && query.status !== "all") sp.set("status", query.status);
+  if (query.q) sp.set("q", query.q);
+  if (query.category && query.category !== "all") sp.set("category", query.category);
+  if (query.risk && query.risk !== "all") sp.set("risk", query.risk);
+  if (query.sort) sp.set("sort", query.sort);
+  if (query.limit != null) sp.set("limit", String(query.limit));
+  if (query.offset != null) sp.set("offset", String(query.offset));
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "";
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -55,17 +86,27 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body;
 }
 
+/**
+ * Whether the browser UI may perform operator mutations.
+ *
+ * The deployed policy (`checkMutationAllowed`) trusts same-origin browser
+ * requests unconditionally, so the app's own UI is always an operator — the
+ * server still re-checks every mutation. This function used to read as a
+ * capability probe while always returning true; it now says what it means.
+ * A genuinely read-only surface would need a server-issued capability, which
+ * this single-user local app does not have.
+ */
 export function clientIsOperator(): boolean {
   return typeof window !== "undefined";
 }
 
-export async function listSkills(status?: string): Promise<SkillListResult> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+export async function listSkills(input?: string | SkillListQuery): Promise<SkillListResult> {
   const body = await api<{
     skills: SkillSummary[]; loadErrors?: string[]; duplicates?: string[];
     projectNotices?: string[]; projectDrift?: boolean; shadowed?: string[];
     contentFindings?: Record<string, SkillContentScan>; quarantined?: string[];
-  }>(`/api/skills${query}`);
+    registryTotal?: number; total?: number; limit?: number; offset?: number; hasMore?: boolean;
+  }>(`/api/skills${skillListQueryString(input)}`);
   return {
     skills: body.skills ?? [],
     loadErrors: body.loadErrors ?? [],
@@ -75,6 +116,11 @@ export async function listSkills(status?: string): Promise<SkillListResult> {
     shadowed: body.shadowed ?? [],
     contentFindings: body.contentFindings ?? {},
     quarantined: body.quarantined ?? [],
+    registryTotal: body.registryTotal,
+    total: body.total,
+    limit: body.limit,
+    offset: body.offset,
+    hasMore: body.hasMore,
   };
 }
 
@@ -180,6 +226,18 @@ export async function listCandidates(status?: string): Promise<LearningCandidate
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
   const body = await api<{ candidates: LearningCandidate[] }>(`/api/learning/candidates${query}`);
   return body.candidates ?? [];
+}
+
+/** One execution by run id. Returns null when it does not exist. */
+export async function getSkillExecution(runId: string): Promise<SkillExecutionRecord | null> {
+  try {
+    const body = await api<{ execution?: SkillExecutionRecord }>(
+      `/api/skill-executions/${encodeURIComponent(runId)}`,
+    );
+    return body.execution ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function listSkillExecutions(skillId?: string): Promise<SkillExecutionRecord[]> {

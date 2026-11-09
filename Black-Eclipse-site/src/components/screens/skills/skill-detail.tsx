@@ -12,11 +12,13 @@ import {
   Trash2, XCircle,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { SkillDetail as SkillDetailType, SkillVersionHistoryEntry } from "@/lib/harness/skills-types";
 import { getSkillVersionHistory, skillVersionAction } from "@/lib/harness/skills-browser";
 import { EvalBadge, formatDuration, formatWhen, LoadingState, MetaRow, Panel, RiskBadge, SectionTitle, StatusBadge } from "./skill-ui";
 import { SkillQualityPanel } from "./skill-quality";
+import { SkillPromotionEvidencePanel, SkillVersionComparisonPanel } from "./skill-evidence";
 
 function Collapsible({
   title, icon: Icon, defaultOpen = false, children, badge,
@@ -32,6 +34,7 @@ function Collapsible({
     <Panel>
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-accent/20 transition-colors"
       >
         <span className="flex items-center gap-2">
@@ -72,15 +75,27 @@ export function SkillDetailPanel({
   const [runInput, setRunInput] = useState("{}");
   const [runMode, setRunMode] = useState("interactive");
   const [inputError, setInputError] = useState<string | null>(null);
+  // Schema-driven mode: one control per declared input instead of raw JSON.
+  const [rawMode, setRawMode] = useState(false);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [boolValues, setBoolValues] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setRunInput("{}");
     setInputError(null);
+    setFieldValues({});
+    setBoolValues({});
+    setRawMode(false);
   }, [skill?.id]);
 
   const inputFields = useMemo(() => {
-    const props = (skill?.inputSchema?.properties ?? {}) as Record<string, { description?: string; type?: string }>;
+    const props = (skill?.inputSchema?.properties ?? {}) as Record<string, { description?: string; type?: string; required?: boolean }>;
     return Object.entries(props);
+  }, [skill]);
+
+  const requiredInputs = useMemo(() => {
+    const required = (skill?.inputSchema?.required as string[] | undefined) ?? [];
+    return new Set(required);
   }, [skill]);
 
   if (loading) {
@@ -103,11 +118,41 @@ export function SkillDetailPanel({
 
   const handleRun = () => {
     let parsed: Record<string, unknown>;
-    try {
-      parsed = runInput.trim() ? JSON.parse(runInput) : {};
-    } catch {
-      setInputError("Input must be valid JSON.");
-      return;
+    if (rawMode || inputFields.length === 0) {
+      try {
+        parsed = runInput.trim() ? JSON.parse(runInput) : {};
+      } catch {
+        setInputError("Input must be valid JSON.");
+        return;
+      }
+    } else {
+      parsed = {};
+      try {
+        for (const [name, spec] of inputFields) {
+          const type = spec.type ?? "string";
+          if (type === "boolean") {
+            if (boolValues[name]) parsed[name] = true;
+            continue;
+          }
+          const raw = fieldValues[name];
+          if (raw === undefined || raw.trim() === "") {
+            if (requiredInputs.has(name)) parsed[name] = raw === undefined ? "" : raw;
+            continue;
+          }
+          if (type === "number" || type === "integer") {
+            const value = Number(raw);
+            if (!Number.isFinite(value)) throw new Error(`${name} must be a number.`);
+            parsed[name] = type === "integer" ? Math.trunc(value) : value;
+          } else if (type === "array" || type === "object") {
+            parsed[name] = JSON.parse(raw);
+          } else {
+            parsed[name] = raw;
+          }
+        }
+      } catch (err) {
+        setInputError(err instanceof Error ? err.message : "Invalid input.");
+        return;
+      }
     }
     setInputError(null);
     onRun(skill.id, parsed, runMode);
@@ -176,43 +221,97 @@ export function SkillDetailPanel({
               </Button>
             )}
           </div>
-          {!isOperator && (
-            <p className="mt-2 flex items-center gap-1 text-[10px] text-amber-300/90">
-              <ShieldCheck size={11} /> Read-only operator session — enable/disable/deprecate require the runtime secret.
-            </p>
-          )}
 
           <div className="mt-4">
-            <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Run input (JSON)</label>
-            <div className="mt-1 flex gap-2 items-start">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+                Run input
+              </label>
+              <div className="flex items-center gap-2">
+                {inputFields.length > 0 && (
+                  <div className="flex items-center gap-1 rounded-lg border border-border/20 p-0.5">
+                    <button
+                      onClick={() => setRawMode(false)}
+                      className={cn("cursor-pointer rounded-md px-2 py-0.5 text-[10px] font-semibold",
+                        !rawMode ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      Form
+                    </button>
+                    <button
+                      onClick={() => setRawMode(true)}
+                      className={cn("cursor-pointer rounded-md px-2 py-0.5 text-[10px] font-semibold",
+                        rawMode ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      JSON
+                    </button>
+                  </div>
+                )}
+                <select
+                  value={runMode}
+                  onChange={(e) => setRunMode(e.target.value)}
+                  className="rounded-xl border border-border/30 bg-background/60 px-2 py-1.5 text-[11px] text-foreground outline-none focus:border-primary/40"
+                >
+                  {["interactive", "workflow", "agent", "scheduled", "evaluation"].map((mode) => (
+                    <option key={mode} value={mode}>{mode}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {rawMode || inputFields.length === 0 ? (
               <textarea
                 value={runInput}
                 onChange={(e) => setRunInput(e.target.value)}
                 rows={3}
                 spellCheck={false}
-                className="flex-1 rounded-xl border border-border/30 bg-background/60 px-3 py-2 font-mono text-[11px] text-foreground outline-none focus:border-primary/40"
+                className="mt-1 w-full rounded-xl border border-border/30 bg-background/60 px-3 py-2 font-mono text-[11px] text-foreground outline-none focus:border-primary/40"
                 placeholder='{"symbol": "AAPL", "market": "US"}'
               />
-              <select
-                value={runMode}
-                onChange={(e) => setRunMode(e.target.value)}
-                className="rounded-xl border border-border/30 bg-background/60 px-2 py-2 text-[11px] text-foreground outline-none focus:border-primary/40"
-              >
-                {["interactive", "workflow", "agent", "scheduled", "evaluation"].map((mode) => (
-                  <option key={mode} value={mode}>{mode}</option>
-                ))}
-              </select>
-            </div>
-            {inputError && <p className="mt-1 text-[10px] text-rose-300">{inputError}</p>}
-            {inputFields.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {inputFields.map(([name, spec]) => (
-                  <span key={name} className="rounded-md border border-border/30 bg-accent/30 px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                    <span className="text-foreground">{name}</span>{spec.type ? `: ${spec.type}` : ""}
-                  </span>
-                ))}
+            ) : (
+              <div className="mt-1 grid grid-cols-1 gap-2 md:grid-cols-2">
+                {inputFields.map(([name, spec]) => {
+                  const type = spec.type ?? "string";
+                  const required = requiredInputs.has(name);
+                  return (
+                    <label key={name} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
+                      <span className="flex items-center gap-1.5 text-[10px] font-semibold text-foreground">
+                        {name}
+                        <span className="font-mono text-[9px] font-normal text-muted-foreground">{type}</span>
+                        {required && <span className="text-rose-300">required</span>}
+                      </span>
+                      {spec.description && (
+                        <span className="mt-0.5 block text-[9px] text-muted-foreground">{spec.description}</span>
+                      )}
+                      {type === "boolean" ? (
+                        <input
+                          type="checkbox"
+                          checked={boolValues[name] ?? false}
+                          onChange={(e) => setBoolValues((v) => ({ ...v, [name]: e.target.checked }))}
+                          className="mt-1.5 h-3.5 w-3.5 cursor-pointer accent-[var(--brand)]"
+                        />
+                      ) : type === "array" || type === "object" ? (
+                        <textarea
+                          value={fieldValues[name] ?? ""}
+                          onChange={(e) => setFieldValues((v) => ({ ...v, [name]: e.target.value }))}
+                          rows={2}
+                          spellCheck={false}
+                          placeholder={type === "array" ? '["a", "b"]' : '{"key": "value"}'}
+                          className="mt-1 w-full rounded-lg border border-border/30 bg-background/60 px-2 py-1 font-mono text-[10px] text-foreground outline-none focus:border-primary/40"
+                        />
+                      ) : (
+                        <input
+                          type={type === "number" || type === "integer" ? "number" : "text"}
+                          value={fieldValues[name] ?? ""}
+                          onChange={(e) => setFieldValues((v) => ({ ...v, [name]: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-border/30 bg-background/60 px-2 py-1 text-[11px] text-foreground outline-none focus:border-primary/40"
+                        />
+                      )}
+                    </label>
+                  );
+                })}
               </div>
             )}
+            {inputError && <p className="mt-1 text-[10px] text-rose-300">{inputError}</p>}
           </div>
         </div>
       </Panel>
@@ -273,6 +372,21 @@ export function SkillDetailPanel({
       <Collapsible title="Quality over time" icon={LineChart}>
         <SkillQualityPanel skillId={skill.id} version={skill.latestVersion ?? skill.version} />
       </Collapsible>
+
+      <div className="mt-3">
+        <Collapsible title="Promotion evidence" icon={ShieldCheck}>
+          <SkillPromotionEvidencePanel skillId={skill.id} version={skill.latestVersion ?? skill.version} />
+        </Collapsible>
+      </div>
+      <div className="mt-3">
+        <Collapsible title="Compare versions" icon={GitBranch}>
+          <SkillVersionComparisonPanel
+            skillId={skill.id}
+            versions={skill.versions.map((version) => version.version)}
+            current={skill.latestVersion ?? skill.version}
+          />
+        </Collapsible>
+      </div>
 
       {/* Instructions */}
       <Collapsible title="Instructions (SKILL.md)" icon={BookOpen}>
@@ -463,8 +577,10 @@ function HistoryList({
   onRollback: (version: string) => void;
   isOperator: boolean;
 }) {
+  const pagination = usePagination(versions, 10);
   if (!versions.length) return <p className="text-[11px] text-muted-foreground">No versions recorded.</p>;
   return (
+    <>
     <div className="overflow-x-auto">
       <table className="w-full text-[11px]">
         <thead>
@@ -478,7 +594,7 @@ function HistoryList({
           </tr>
         </thead>
         <tbody>
-          {versions.map((version) => (
+          {pagination.pageItems.map((version) => (
             <tr key={version.version} className="border-t border-border/10">
               <td className="py-1.5 pr-3 font-mono text-foreground">{version.version}</td>
               <td className="py-1.5 pr-3"><StatusBadge status={version.status} /></td>
@@ -499,14 +615,18 @@ function HistoryList({
         </tbody>
       </table>
     </div>
+    <PaginationFooter pagination={pagination} label="versions" />
+    </>
   );
 }
 
 function EvaluationsList({ evaluations }: { evaluations: SkillDetailType["evaluations"] }) {
+  const pagination = usePagination(evaluations, 10);
   if (!evaluations.length) return <p className="text-[11px] text-muted-foreground">Not evaluated yet.</p>;
   return (
+    <>
     <div className="space-y-2">
-      {evaluations.map((evaluation) => (
+      {pagination.pageItems.map((evaluation) => (
         <div key={evaluation.id} className="rounded-xl border border-border/20 bg-background/30 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-semibold text-foreground">
@@ -534,12 +654,16 @@ function EvaluationsList({ evaluations }: { evaluations: SkillDetailType["evalua
         </div>
       ))}
     </div>
+    <PaginationFooter pagination={pagination} label="evaluations" />
+    </>
   );
 }
 
 function ExecutionsList({ executions }: { executions: SkillDetailType["executions"] }) {
+  const pagination = usePagination(executions, 10);
   if (!executions.length) return <p className="text-[11px] text-muted-foreground">No executions yet.</p>;
   return (
+    <>
     <div className="overflow-x-auto">
       <table className="w-full text-[11px]">
         <thead>
@@ -552,7 +676,7 @@ function ExecutionsList({ executions }: { executions: SkillDetailType["execution
           </tr>
         </thead>
         <tbody>
-          {executions.map((execution) => (
+          {pagination.pageItems.map((execution) => (
             <tr key={execution.id} className="border-t border-border/10">
               <td className="py-1.5 pr-3 font-mono text-muted-foreground truncate max-w-[160px]">{execution.runId}</td>
               <td className="py-1.5 pr-3 text-muted-foreground">{execution.executionMode}</td>
@@ -566,19 +690,25 @@ function ExecutionsList({ executions }: { executions: SkillDetailType["execution
         </tbody>
       </table>
     </div>
+    <PaginationFooter pagination={pagination} label="executions" />
+    </>
   );
 }
 
 function ReviewsList({ reviews }: { reviews: SkillDetailType["reviews"] }) {
+  const pagination = usePagination(reviews, 10);
   if (!reviews.length) return <p className="text-[11px] text-muted-foreground">No reviews yet.</p>;
   return (
+    <>
     <ul className="space-y-1.5">
-      {reviews.map((review) => (
+      {pagination.pageItems.map((review) => (
         <li key={review.id} className="text-[11px] flex items-start gap-2">
           <span className="font-semibold text-foreground shrink-0">{review.decision}</span>
           <span className="text-muted-foreground min-w-0">v{review.version} · {review.notes || "—"} · {formatWhen(review.createdAt)}</span>
         </li>
       ))}
     </ul>
+    <PaginationFooter pagination={pagination} label="reviews" />
+    </>
   );
 }

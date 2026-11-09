@@ -6,34 +6,22 @@
 // No data fetching and no business logic here — presentation only.
 
 import {
-  AlertCircle, Brain, Database, Loader2, MessageSquare, Wrench,
+  AlertCircle, Brain, Database, Loader2,
 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { IconBadge } from "@/components/layout/page-header";
 import type { MemoryRecord } from "@/lib/harness/eclipse-memory-types";
 
-// ── The three-part mental model (facts / session history / skills) ───────────
+// ── Shared memory vocabulary ────────────────────────────────────────────────
 
-export function MemoryModelLegend() {
-  const items = [
-    { icon: Database, title: "Facts", body: "Small, durable, declarative facts recalled on relevant turns (identity, preferences, conventions, environment). Nothing is stored automatically unless you ask." },
-    { icon: MessageSquare, title: "Session History", body: "Past conversations and run traces. Never injected every turn — searched on demand (\"what did we decide last week?\")." },
-    { icon: Wrench, title: "Skills", body: "Reusable procedures loaded only when relevant. A proposal stays inert until evaluated and approved by an operator." },
-  ];
-  return (
-    <div className="mb-6 grid gap-2 md:grid-cols-3">
-      {items.map((item) => (
-        <div key={item.title} className="rounded-2xl border border-white/10 dark:border-white/5 glass-card-subtle p-3">
-          <div className="flex items-center gap-2">
-            <item.icon size={13} className="text-primary shrink-0" />
-            <span className="text-[11px] font-semibold text-foreground">{item.title}</span>
-          </div>
-          <p className="mt-1 text-[10px] text-muted-foreground leading-relaxed">{item.body}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
+export const MEMORY_TYPES = [
+  "all", "preference", "semantic", "procedural", "episodic", "correction",
+  "constraint", "observation", "summary",
+];
+
+export const MEMORY_STATUSES = [
+  "all", "active", "proposed", "archived", "superseded", "rejected",
+];
 
 // ── How a memory came to exist (automatic / explicit / imported / external) ──
 
@@ -88,6 +76,43 @@ export function FilterRow({ label, options, value, onChange }: { label: string; 
           className={cn("rounded-lg px-2 py-0.5 text-[10px] font-semibold cursor-pointer",
             value === option ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground")}>
           {option}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A lightweight secondary switcher for merged Control Room tabs (Facts →
+ * Browse/Lifecycle, Sessions → List/Search, …). It deliberately looks like the
+ * lifecycle filter chips rather than a second top-level tab bar.
+ */
+export function SegmentedTabs({
+  items,
+  activeId,
+  onChange,
+}: {
+  items: Array<{ id: string; label: string }>;
+  activeId: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap gap-1.5" role="tablist">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          aria-selected={activeId === item.id}
+          onClick={() => onChange(item.id)}
+          className={cn(
+            "rounded-xl px-3 py-1 text-[11px] font-semibold border cursor-pointer",
+            activeId === item.id
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-white/10 text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {item.label}
         </button>
       ))}
     </div>

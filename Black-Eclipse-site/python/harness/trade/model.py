@@ -44,6 +44,9 @@ ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({
     "terminalPath", "portable", "login", "server", "magic", "symbolMap",
     "symbols", "bridgeUrl", "bridgeSecretRef", "baseUrl", "dataUrl", "accountId",
     "host", "port", "clientId", "credentialRef", "notes",
+    # Terminal launch policy: attach-only unless autoLaunchTerminal is true; the
+    # post-order focus can be switched off with openTerminalOnTrade: false.
+    "autoLaunchTerminal", "openTerminalOnTrade",
     # P1 demo-execution limits (all optional; 0/empty = off).
     "maxMargin", "maxVolume", "maxOpenPositions", "maxSpreadPoints",
     "symbolAllowlist",
@@ -58,6 +61,24 @@ class BrokerConfigError(ValueError):
 
 def _normalise_key(key: Any) -> str:
     return str(key or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+_TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
+_FALSE_WORDS = frozenset({"0", "false", "no", "off"})
+
+
+def _as_bool(name: str, value: Any) -> bool:
+    """Booleans stay booleans: the old string fallback made `false` truthy."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in _TRUE_WORDS:
+        return True
+    if text in _FALSE_WORDS:
+        return False
+    raise BrokerConfigError(f"{name} must be true or false")
 
 
 def validate_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
@@ -101,6 +122,8 @@ def validate_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
                 cleaned[name] = int(value)
             except (TypeError, ValueError) as exc:
                 raise BrokerConfigError("port must be an integer") from exc
+        elif name in ("portable", "autoLaunchTerminal", "openTerminalOnTrade"):
+            cleaned[name] = _as_bool(name, value)
         elif name in ("symbolMap", "symbols"):
             if not isinstance(value, (dict, list)):
                 raise BrokerConfigError(f"{name} must be an object or list")

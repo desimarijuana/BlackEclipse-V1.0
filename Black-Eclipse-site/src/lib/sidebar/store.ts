@@ -12,6 +12,8 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import {
+  assignDefaultShortcuts,
+  dedupeShortcuts,
   defaultSidebarConfig,
   isNavGroup,
   loadSidebarConfig,
@@ -152,17 +154,22 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
   applyRemoteState: (state) => {
     const nav = normalizeAppNav(state.nav);
     const current = useSidebarConfigStore.getState();
+    const customized = current.config.shortcutsCustomized === true;
     const shortcuts = new Map(current.config.sections.map((section) => [section.id, section.shortcut] as const));
-    const sections = nav.sections.map((section) => ({
+    const mapped = nav.sections.map((section) => ({
       id: section.id,
       enabled: section.enabled,
       shortcut: shortcuts.get(section.id) ?? '',
     }));
+    // The app-wide store orders sections but never ships shortcuts (those stay
+    // local). Re-number the default scheme against the order we just adopted so
+    // the menu still reads F1..F12; keep a deliberate custom mapping intact.
+    const sections = customized ? dedupeShortcuts(mapped) : assignDefaultShortcuts(mapped);
     // Sections are app-wide; the mode is not. Keep this shell's mode and only
     // refresh the shared seed a newly opened shell could inspect.
     const remoteMode: NavGroup = isNavGroup(nav.mode) ? nav.mode : current.mode;
     const mode = current.mode;
-    const config: SidebarConfig = { sections };
+    const config: SidebarConfig = { sections, shortcutVersion: 3, shortcutsCustomized: customized };
     saveSidebarConfig(config);
     writeStoredMode('local', remoteMode);
     writeStoredMode('session', mode);
@@ -193,7 +200,8 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
 
   toggleEnabled: (id) =>
     set((s) => {
-      const config = {
+      const config: SidebarConfig = {
+        ...s.config,
         sections: s.config.sections.map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x)),
       };
       saveSidebarConfig(config);
@@ -203,7 +211,10 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
   setShortcut: (id, shortcut) =>
     set((s) => {
       // A key can only open one tab — assigning it here clears it elsewhere.
-      const config = {
+      // The explicit choice opts the user out of the shipped F1..F12 re-numbering.
+      const config: SidebarConfig = {
+        ...s.config,
+        shortcutsCustomized: true,
         sections: s.config.sections.map((x) => {
           if (x.id === id) return { ...x, shortcut };
           return x.shortcut === shortcut && shortcut !== '' ? { ...x, shortcut: '' } : x;
@@ -221,7 +232,12 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
       }
       const [item] = sections.splice(from, 1);
       sections.splice(to, 0, item);
-      const config = { sections };
+      // The default scheme is positional: moving a row re-numbers the slots so
+      // the menu still reads F1..F12 top to bottom. Custom keys keep their tab.
+      const config: SidebarConfig = {
+        ...s.config,
+        sections: s.config.shortcutsCustomized ? sections : assignDefaultShortcuts(sections),
+      };
       saveSidebarConfig(config);
       return { config };
     }),

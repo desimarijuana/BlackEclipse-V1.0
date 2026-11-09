@@ -224,8 +224,10 @@ RATCHET_PY: dict[str, int] = {
     # falsifiable candidate method columns; 1765->1780 for superseding stale
     # same-version evaluations. May only shrink.
     # 1765->1780 ... Re-pinned 1780->1943 to the measured tree (pre-existing
-    # growth). May only shrink from here.
-    "eclipse_memory/store.py": 1943,
+    # growth). Re-pinned 1943->2049 for shared memory list/count filters, exact
+    # `COUNT(*)` overview totals and offset paging; 2049->2061 for suggestion/
+    # correction/mistake offset paging. May only shrink from here.
+    "eclipse_memory/store.py": 2061,
     # Grew with the `documents` run-blob column (schema + `_ADDED_COLUMNS` +
     # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
     # per-thread/autocommit pool lives in `harness/sqlite_pool.py`, leaving only
@@ -249,8 +251,10 @@ RATCHET_PY: dict[str, int] = {
     # review timestamp on re-review; 1498->1512 for the typed-lesson fields on
     # the review row. May only shrink.
     # Re-pinned 1498->1512 ... Re-pinned 1512->1549 to the measured tree
-    # (pre-existing growth). May only shrink.
-    "persistence.py": 1549,
+    # (pre-existing growth). Re-pinned 1549->1555 for ranked session-search
+    # page slicing (offset); 1555->1586 for session/review offset paging.
+    # May only shrink.
+    "persistence.py": 1586,
     # Pre-existing and unratcheted: the memory tool surface (inventory,
     # consolidation, review handlers). SPLIT CANDIDATE: the inventory handlers
     # belong beside `eclipse_memory/service.py`.

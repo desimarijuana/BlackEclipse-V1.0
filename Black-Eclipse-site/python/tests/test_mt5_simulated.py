@@ -24,6 +24,9 @@ def sim(monkeypatch):
     monkeypatch.setattr(mt5_module, "_MODULE", terminal)
     monkeypatch.setattr(mt5_module, "_IMPORT_ERROR", None)
     monkeypatch.setattr(mt5_module, "_terminal_path", lambda config: "sim-terminal")
+    # The simulated terminal stands in for a running one: the attach-only guard
+    # must not refuse before the scripted package gets a chance to answer.
+    monkeypatch.setattr(mt5_module, "terminal_running", lambda path=None: True)
     return terminal
 
 

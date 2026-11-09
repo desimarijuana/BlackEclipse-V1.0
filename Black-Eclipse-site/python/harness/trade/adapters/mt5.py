@@ -52,6 +52,7 @@ from .mt5_contract import (
     _terminal_dict,
 )
 from ..model import KIND_MT5
+from ..terminal import terminal_running
 
 _MODULE: Any = None
 _IMPORT_ERROR: Optional[str] = None
@@ -123,6 +124,27 @@ def _terminal_path(config: dict[str, Any]) -> Optional[str]:
             return candidate
     found = shutil.which("terminal64.exe")
     return found or None
+
+
+def _auto_launch(config: dict[str, Any]) -> bool:
+    """Whether this connection may START the terminal when it is closed.
+
+    Default is False: the documented mode is attach. `mt5.initialize(path=...)`
+    launches terminal64.exe whenever it is not running, so an unguarded call from
+    a background read pops the terminal open over and over.
+    """
+    value = config.get("autoLaunchTerminal")
+    if isinstance(value, bool):
+        return value
+    return str(value if value is not None else "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+_TERMINAL_CLOSED_REASON = (
+    "the MetaTrader 5 terminal is not running; start it and log in, or enable "
+    "'Start the terminal automatically' on this connection"
+)
 
 
 def _filling_mode(mt5: Any, info: Any, order_type: str = "market") -> tuple[int, list[str]]:
@@ -370,6 +392,9 @@ class MT5Adapter(TradingAdapter):
                 "no terminal64.exe was found; set the terminal path in Settings › "
                 "Trading (or MT5_TERMINAL_PATH)",
             )
+        if not _auto_launch(self.config) and not terminal_running(path):
+            # Guard BEFORE initialize: it would start terminal64.exe itself.
+            raise AdapterUnavailable("TERMINAL_NOT_RUNNING", _TERMINAL_CLOSED_REASON)
         kwargs: dict[str, Any] = {"path": path, "timeout": 10_000}
         if bool(self.config.get("portable")):
             kwargs["portable"] = True
@@ -444,6 +469,17 @@ class MT5Adapter(TradingAdapter):
                 "code": "TERMINAL_NOT_FOUND",
                 "reason": "no terminal64.exe was found on this machine",
                 "terminalPath": None,
+                "terminal": None,
+                "account": None,
+                "warnings": [],
+            }
+        if not _auto_launch(self.config) and not terminal_running(path):
+            return {
+                "available": False,
+                "connected": False,
+                "code": "TERMINAL_NOT_RUNNING",
+                "reason": _TERMINAL_CLOSED_REASON,
+                "terminalPath": path,
                 "terminal": None,
                 "account": None,
                 "warnings": [],

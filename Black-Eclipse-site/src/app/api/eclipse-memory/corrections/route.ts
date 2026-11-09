@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listCorrections, createCorrection } from "@/lib/harness/eclipse-memory-client";
+import { listCorrectionsPage, createCorrection } from "@/lib/harness/eclipse-memory-client";
 import { isOperatorRequest } from "@/lib/harness/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/eclipse-memory/corrections — recorded corrections.
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return NextResponse.json({ success: true, corrections: await listCorrections() });
+    const url = new URL(request.url);
+    const limit = url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50;
+    const offset = url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0;
+    const page = await listCorrectionsPage(limit, offset);
+    return NextResponse.json({ success: true, corrections: page.items, total: page.total, limit: page.limit, offset: page.offset, hasMore: page.hasMore });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
     return NextResponse.json(

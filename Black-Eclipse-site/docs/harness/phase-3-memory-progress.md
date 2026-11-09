@@ -1,7 +1,7 @@
 ---
 title: Harness Phase 3-M — Eclipse-Memory
 status: Complete
-last-verified: 2026-09-26
+last-verified: 2026-11-08
 ---
 
 # Phase 3-M — Eclipse-Memory: Dedicated Memory, Skills & Controlled Self-Improvement
@@ -219,10 +219,15 @@ actions re-checked server-side).
 
 ## UI
 
-`Eclipse Memory` tab (`src/components/screens/eclipse-memory/`): Overview
-(real counts), Memory Explorer (search/filter/detail/evidence/links,
-save/review/archive), Activity (retrieval probe diagnostics, corrections,
-mistakes), Health. Reuses the frosted-glass system + `TabBar`.
+`Eclipse Memory` tab (`src/components/screens/eclipse-memory/`). The screen was
+consolidated from 16 top-level tabs to seven: Overview, Facts (Browse +
+Lifecycle), Sessions (list + search), Review (suggestions + learning reviews),
+Preferences (learned preferences + context snapshot), Settings (policies +
+providers + profiles), and Maintenance (activity diagnostics + files + health/
+export/reset). Legacy slugs remain deep-link aliases. Facts, Lifecycle and
+Session Search are server-paginated with exact totals. Overview counts are
+`COUNT(*)`, never a capped list length. Reuses the frosted-glass system +
+`TabBar`.
 
 ## Follow-up phases (policy + mistake detection)
 

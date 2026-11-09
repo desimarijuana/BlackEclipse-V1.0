@@ -1,7 +1,7 @@
 ---
 title: Broker Connectivity
 status: Current
-last-verified: 2026-11-04
+last-verified: 2026-11-08
 ---
 
 # Broker Connectivity
@@ -88,7 +88,8 @@ Then the existing routes (`/trading/connections/{id}/...`), the read-only tools
 ## MetaTrader 5 setup (demo first)
 
 1. Install **MetaTrader 5** (Windows x64) and log the terminal into a **demo**
-   account. Leave the terminal running.
+   account. Leave the terminal running: Eclipse **attaches** to it and never
+   starts it on its own (see *Launch policy* below).
 2. Enable **Algo Trading** in the terminal toolbar. Reads work without it; the
    probe warns when it is off because execution will need it.
 3. Install the Python package in the Eclipse runtime:
@@ -101,7 +102,8 @@ Then the existing routes (`/trading/connections/{id}/...`), the read-only tools
    `POST /trading/connections`:
    ```json
    { "kind": "mt5", "label": "MT5 demo", "mode": "demo",
-     "config": { "terminalPath": "C:\\Program Files\\MetaTrader 5\\terminal64.exe" } }
+     "config": { "terminalPath": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+                 "autoLaunchTerminal": false } }
    ```
    `terminalPath` is optional; common install paths and `MT5_TERMINAL_PATH` are
    probed. `portable: true` is supported.
@@ -110,6 +112,28 @@ Then the existing routes (`/trading/connections/{id}/...`), the read-only tools
    available on the connection card.
 6. Optionally map broker-specific symbol suffixes:
    `"symbolMap": { "EURUSD": "EURUSD.a" }`.
+
+### Launch policy (attach-only by default)
+
+`mt5.initialize(path=...)` does not merely connect: if `terminal64.exe` is closed,
+the MetaTrader5 package **starts it**. Because the dashboard trading widgets and
+the journal auto-sync read the broker in the background (every 15 s / 300 s), an
+unguarded call reopened MT5 every time the operator closed it.
+
+So the adapter checks first. If no `terminal64.exe` (or `terminal.exe`) process is
+running and the connection has not opted in, it refuses **before** `initialize`
+with `TERMINAL_NOT_RUNNING` and a message telling the operator to start and log
+in. It never launches the terminal as a side effect of a read or a probe.
+
+- `config.autoLaunchTerminal: true` restores launching for that connection
+  (Settings › Broker connection › **Start MetaTrader 5 automatically when it is
+  closed**, off by default).
+- The one intentional launch left is the post-order reveal: focusing the running
+  terminal, or starting `terminalPath` when an order was just filled. Disable it
+  with `config.openTerminalOnTrade: false`.
+- `BE_MT5_PATH` still overrides the default `C:\Program Files\MetaTrader 5\terminal64.exe`.
+- If the process list cannot be read, the adapter lets `initialize` decide rather
+  than falsely refusing a terminal that is actually running.
 
 ### What the MT5 adapter reads
 
@@ -219,9 +243,23 @@ Endpoints (operator-gated):
 | `POST` | `/trading/approvals/{id}/decide` | approve or deny (operator only) |
 
 Agent tools add `order_preview` (creates an approval, never sends), `order_ledger`
-and — under an active demo mandate — `order_submit`. Submitting through the generic
-approval card remains the operator route; the agent's `order_submit` is admitted by
-the mandate itself (see the mandate section), never by the approval card.
+and `order_submit`. There are two operator-gated execution paths and they do not
+compete:
+
+1. **Manual approval.** The agent calls `order_preview`; the operator clicks the
+   card, which calls `/trading/connections/{id}/orders/submit` with the
+   `approvalId`. That card **does fill the order** (demo without a phrase, live
+   after the typed phrase) and needs **no mandate**. The agent never sends this
+   order itself.
+2. **Unattended demo mandate.** With an active operator-created demo mandate, the
+   agent calls `order_submit` once with `intent`; the mandate is the authorization
+   (see the mandate section). This is also the Graph Studio path.
+
+Because both paths return through `order_submit` in the ledger, an earlier
+`MANDATE_REQUIRED` refusal is not evidence that the order failed: after the
+operator confirms a card, `order_ledger` shows the filled ticket. The agent's
+guidance (system `<fiduciary_advice>` and the per-run trading directive) says so
+explicitly and requires a ledger read before reporting a failure.
 
 **Never retry an ambiguous send.** A timeout, a lost IPC reply or any exception
 after `order_send` marks the ledger `unknown` and tells the operator to check the
