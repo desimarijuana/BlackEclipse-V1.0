@@ -69,7 +69,19 @@ const RATCHET: Record<string, number> = {
   // Phase 22 / S2/S4/S5/S6 adds session, landing, phase and scorecard keys. May only shrink.
   // Re-pinned 1312->1313 to the measured tree (2026-11-06): in-flight i18n string
   // work on the shared tree added one key; this change touches no dictionary.
-  "src/lib/i18n/dictionaries/en.ts": 1317,
+  // Re-pinned 1317->1326: the command palette surface added nine
+  // `code.command.*` keys (dialog, pinned, recent, no-matches, aliases,
+  // examples, search placeholder, selection hint, suggestions). May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1326,
+  // The canonical command catalog crossed the hard ceiling when the P2
+  // read-only workspace commands (alerts/news/theses/journal/jobs/artifacts/
+  // sessions/git/stop) landed. Re-pinned 1379->1411 for `/history`, the
+  // `/usage --commands` flag and the `--confirm` token flags on high-risk
+  // commands. The standing split candidate is per-domain spec modules
+  // (`commands/*.ts`) re-exported by `command-registry.ts`. May only shrink.
+  // Re-pinned 1411->1444 (2026-11-09) for the new entries merged into the
+  // release tree; the split candidate is unchanged.
+  "src/lib/harness/command-registry.ts": 1444,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
