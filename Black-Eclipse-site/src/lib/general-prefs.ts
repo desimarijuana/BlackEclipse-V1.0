@@ -31,7 +31,7 @@ export const DEFAULT_GENERAL_PREFS: GeneralPrefs = {
 
 export const START_SCREEN_OPTIONS: { id: StartScreen; label: string; hint: string }[] = [
   { id: 'history', label: 'Last screen', hint: 'Resume where you left off' },
-  { id: 'chat', label: 'ChatBot', hint: 'The agent' },
+  { id: 'chat', label: 'Eclipse Agent', hint: 'The agent' },
   { id: 'home', label: 'Dashboard', hint: 'Daily market brief' },
   { id: 'dashboard', label: 'Command Center', hint: 'Dashboard widgets' },
   { id: 'portfolio', label: 'Portfolio', hint: 'Holdings & P&L' },

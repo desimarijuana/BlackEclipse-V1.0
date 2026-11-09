@@ -34,7 +34,7 @@ export interface AppNavManifestSection {
 }
 
 export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
-  { id: 'chat', label: 'ChatBot', group: 'both' },
+  { id: 'chat', label: 'Eclipse Agent', group: 'both' },
   { id: 'home', label: 'Dashboard', group: 'terminal' },
   { id: 'dashboard', label: 'Command Center', group: 'terminal' },
   { id: 'investor-eye', label: 'Investor Eye', group: 'terminal' },

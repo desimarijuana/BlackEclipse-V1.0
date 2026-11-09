@@ -8,7 +8,7 @@
 
 export const navigation = {
   // Navigation (sidebar primary menu)
-  'nav.chat': 'ChatBot',
+  'nav.chat': 'Eclipse Agent',
   'nav.home': 'Dashboard',
   'nav.dashboard': 'Command Center',
   'nav.investorEye': 'Investor Eye',

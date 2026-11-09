@@ -10,6 +10,12 @@ import {
 } from "@/lib/settings";
 import { guardMutation, checkOutboundUrl } from "@/lib/api-guard";
 import { PrivacyViolationError } from "@/lib/privacy";
+import {
+  getSettingsCache,
+  setSettingsCache,
+  isSettingsRebuildInFlight,
+  setSettingsRebuildInFlight,
+} from "@/lib/settings-route-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +33,6 @@ interface SettingsPayload {
   integrations: Awaited<ReturnType<typeof getIntegrationsStatus>>;
 }
 
-let settingsCache: { t: number; data: SettingsPayload } | null = null;
-let rebuildInFlight = false;
-
 async function buildSettingsPayload(): Promise<SettingsPayload> {
   const [llm, feeds, prefs, integrations] = await Promise.all([
     getLLMConfig(),
@@ -46,12 +49,12 @@ async function buildSettingsPayload(): Promise<SettingsPayload> {
 }
 
 function startBackgroundRebuild() {
-  if (rebuildInFlight) return;
-  rebuildInFlight = true;
+  if (isSettingsRebuildInFlight()) return;
+  setSettingsRebuildInFlight(true);
   buildSettingsPayload()
-    .then((data) => { settingsCache = { t: Date.now(), data }; })
+    .then((data) => setSettingsCache(data))
     .catch((err) => console.error("[api/settings] background rebuild error:", err))
-    .finally(() => { rebuildInFlight = false; });
+    .finally(() => setSettingsRebuildInFlight(false));
 }
 
 // Never send the stored API key back to any caller — only whether one exists.
@@ -78,17 +81,18 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
 // The LLM API key is intentionally omitted (masked as `hasApiKey`).
 export async function GET() {
   try {
-    if (settingsCache) {
-      if (Date.now() - settingsCache.t < CACHE_TTL_MS) {
-        return NextResponse.json(settingsCache.data);
+    const cached = getSettingsCache();
+    if (cached) {
+      if (Date.now() - cached.t < CACHE_TTL_MS) {
+        return NextResponse.json(cached.data);
       }
       // Stale — serve it now and refresh quietly.
       startBackgroundRebuild();
-      return NextResponse.json(settingsCache.data);
+      return NextResponse.json(cached.data);
     }
     // Cold process: build once, synchronously, then cache.
     const data = await buildSettingsPayload();
-    settingsCache = { t: Date.now(), data };
+    setSettingsCache(data);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[api/settings] GET error:", err);
@@ -145,16 +149,14 @@ export async function POST(request: Request) {
       preferences: prefs,
     };
     // Keep the GET cache coherent with what was just written.
-    if (settingsCache) {
-      settingsCache = {
-        t: Date.now(),
-        data: {
-          ...settingsCache.data,
-          llm: payload.llm,
-          newsFeeds: payload.newsFeeds,
-          preferences: payload.preferences,
-        },
-      };
+    const cached = getSettingsCache();
+    if (cached) {
+      setSettingsCache({
+        ...(cached.data as SettingsPayload),
+        llm: payload.llm,
+        newsFeeds: payload.newsFeeds,
+        preferences: payload.preferences,
+      });
     }
     return NextResponse.json({ success: true, ...payload });
   } catch (err) {

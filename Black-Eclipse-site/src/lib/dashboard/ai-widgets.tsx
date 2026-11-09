@@ -44,7 +44,7 @@ export function AgentActivityWidget() {
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader title="Agent Activity" hint={`${t.data?.activeRuns ?? 0} RUNNING`} />
-      {runs.length === 0 ? <EmptyNote>No agent runs yet — ask the ChatBot to research something.</EmptyNote> : (
+      {runs.length === 0 ? <EmptyNote>No agent runs yet — ask the Eclipse Agent to research something.</EmptyNote> : (
         <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-hide">
           {runs.slice(0, 8).map(r => (
             <div key={r.id} className="flex items-center justify-between text-[10px] py-0.5">

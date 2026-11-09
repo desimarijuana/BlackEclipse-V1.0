@@ -49,12 +49,14 @@ export function PlanModeControl({ disabled = false }: { disabled?: boolean }) {
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-56">
-        <DropdownMenuLabel>Plan before acting</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={mode}
           onValueChange={(value) => setPlanMode(value as PlanMode)}
           disabled={disabled}
         >
+          {/* GroupLabel must live inside a Group/RadioGroup or Base UI throws
+              "MenuGroupContext is missing" when the submenu mounts. */}
+          <DropdownMenuLabel>Plan before acting</DropdownMenuLabel>
           <DropdownMenuRadioItem value="auto">Auto — plan when it helps</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="on">On — plan, then wait</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="off">Off — act without a plan</DropdownMenuRadioItem>

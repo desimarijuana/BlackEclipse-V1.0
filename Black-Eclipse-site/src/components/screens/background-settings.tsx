@@ -153,7 +153,7 @@ export function BackgroundSettingsPanel() {
           <span>Background</span>
         </div>
 
-        <Field label="Type" hint="Wallpapers paint the ChatBot page only; Solid fills it with a color and your wordmark.">
+        <Field label="Type" hint="Wallpapers paint the Eclipse Agent page only; Solid fills it with a color and your wordmark.">
           <OptionGrid
             options={BACKGROUND_MODE_OPTIONS}
             value={prefs.mode}
@@ -260,7 +260,7 @@ export function BackgroundSettingsPanel() {
               </Field>
               <Field label="Applies to">
                 <p className="text-[11px] text-muted-foreground leading-relaxed pt-1.5">
-                  The ChatBot page only — it stays continuous behind the sidebar.
+                  The Eclipse Agent page only — it stays continuous behind the sidebar.
                 </p>
               </Field>
             </div>
@@ -460,7 +460,7 @@ export function BackgroundSettingsPanel() {
               <span className="absolute inset-0 bg-gradient-to-b from-primary/10 to-transparent" />
             )}
             <span className="absolute bottom-1.5 left-2 text-[10px] text-white/70">
-              ChatBot page
+              Eclipse Agent page
             </span>
           </div>
         )}
@@ -487,7 +487,7 @@ export function BackgroundSettingsPanel() {
               <>
                 <Field
                   label="Text"
-                  hint="A giant wordmark painted behind the ChatBot landing. Leave empty to hide it."
+                  hint="A giant wordmark painted behind the Eclipse Agent landing. Leave empty to hide it."
                 >
                   <Input
                     value={text}

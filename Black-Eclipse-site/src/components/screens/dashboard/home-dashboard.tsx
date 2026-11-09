@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useHomeData } from '@/lib/dashboard/use-home-data';
 import { useHomePrefs } from '@/lib/dashboard/home-prefs';
 import {
+  AlertsShortcutHint,
   AlertsStripCard,
   ActionListCard,
   DataFreshness,
@@ -21,6 +22,7 @@ import {
 } from './home-alpha-insights';
 import { TradingCard } from './home-trading-cards';
 import {
+  DailyBriefCard,
   FeedCard,
   GreetingHeader,
   HoldingsHealthCard,
@@ -32,15 +34,18 @@ import {
   ResultsSeasonCard,
   SectorExposureCard,
   TrackRecordCard,
+  WatchlistRadarCard,
   WeekCard,
 } from './home-alpha-cards';
 
 type SectionKey =
-  | 'feed' | 'health' | 'week' | 'pulse' | 'results' | 'leaders' | 'research'
+  | 'brief' | 'radar' | 'feed' | 'health' | 'week' | 'pulse' | 'results' | 'leaders' | 'research'
   | 'sector' | 'record' | 'attribution' | 'actions' | 'sessions' | 'risk'
   | 'fx' | 'rotation' | 'relative' | 'alerts' | 'trading';
 
 const SECTION_LABELS: Record<SectionKey, string> = {
+  brief: 'Daily brief',
+  radar: 'Watchlist radar',
   attribution: "What moved your book",
   actions: 'Needs a look',
   feed: 'My feed',
@@ -61,20 +66,20 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   alerts: 'Alerts',
 };
 
-const TRADER_ORDER: SectionKey[] = ['trading', 'pulse', 'rotation', 'actions', 'attribution', 'leaders', 'relative', 'feed', 'health', 'sessions', 'week', 'results', 'risk', 'research', 'sector', 'record', 'fx', 'alerts'];
-const INVESTOR_ORDER: SectionKey[] = ['attribution', 'feed', 'health', 'week', 'research', 'sector', 'results', 'pulse', 'rotation', 'risk', 'relative', 'leaders', 'record', 'fx', 'sessions', 'trading', 'alerts'];
-const BOTH_ORDER: SectionKey[] = ['attribution', 'feed', 'health', 'actions', 'trading', 'week', 'pulse', 'rotation', 'results', 'leaders', 'relative', 'research', 'sector', 'risk', 'fx', 'sessions', 'record', 'alerts'];
+const TRADER_ORDER: SectionKey[] = ['brief', 'trading', 'pulse', 'radar', 'rotation', 'actions', 'attribution', 'leaders', 'relative', 'feed', 'health', 'sessions', 'week', 'results', 'risk', 'research', 'sector', 'record', 'fx', 'alerts'];
+const INVESTOR_ORDER: SectionKey[] = ['brief', 'attribution', 'feed', 'health', 'radar', 'week', 'research', 'sector', 'results', 'pulse', 'rotation', 'risk', 'relative', 'leaders', 'record', 'fx', 'sessions', 'trading', 'alerts'];
+const BOTH_ORDER: SectionKey[] = ['brief', 'attribution', 'feed', 'health', 'actions', 'radar', 'trading', 'week', 'pulse', 'rotation', 'results', 'leaders', 'relative', 'research', 'sector', 'risk', 'fx', 'sessions', 'record', 'alerts'];
 
 export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
   const data = useHomeData(active);
-  const { prefs, toggleSection, moveSection } = useHomePrefs();
+  const { prefs, setLens, setName, toggleSection, moveSection } = useHomePrefs();
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
 
   const defaultOrder = prefs.lens === 'trader' ? TRADER_ORDER : prefs.lens === 'investor' ? INVESTOR_ORDER : BOTH_ORDER;
 
   const order = useMemo(() => {
-    const base = prefs.sectionOrder.length > 0 ? prefs.sectionOrder.filter((id): id is SectionKey => id in SECTION_LABELS) : defaultOrder;
+    const base = prefs.sectionOrder.length > 0 ? prefs.sectionOrder.filter((id): id is SectionKey => Object.prototype.hasOwnProperty.call(SECTION_LABELS, id)) : defaultOrder;
     const complete = [...base];
     for (const key of defaultOrder) if (!complete.includes(key)) complete.push(key);
     return complete.filter((key) => !prefs.hiddenSections.includes(key));
@@ -121,6 +126,8 @@ export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
   }, [data, selected, symbols]);
 
   const sections: Record<SectionKey, React.ReactNode> = {
+    brief: <DailyBriefCard data={data} />,
+    radar: <WatchlistRadarCard data={data} />,
     attribution: <PnlAttributionCard data={data} />,
     actions: <ActionListCard data={data} />,
     feed: <FeedCard data={data} />,
@@ -150,7 +157,7 @@ export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
       <div className="relative">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <GreetingHeader data={data} />
+            <GreetingHeader data={data} name={prefs.name} />
           </div>
         </div>
 
@@ -161,6 +168,7 @@ export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
                 Selected · {selected} <span className="text-muted-foreground/60">Enter open · A alert</span>
               </span>
             )}
+            <span className="hidden md:inline-flex"><AlertsShortcutHint /></span>
           </div>
           <button
             type="button"
@@ -173,7 +181,40 @@ export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
 
         {customizeOpen && (
           <div className="mb-3 rounded-2xl bg-white/[0.03] p-3">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">Sections</p>
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">Personalize</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,16rem)_1fr]">
+              <label className="flex flex-col gap-1">
+                <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60">Your name</span>
+                <input
+                  type="text"
+                  value={prefs.name}
+                  maxLength={40}
+                  placeholder="Shown in the greeting"
+                  onChange={(event) => setName(event.target.value)}
+                  className="h-8 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/40 focus:border-white/25"
+                />
+              </label>
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60">Default lens</span>
+                <div className="inline-flex w-fit rounded-lg border border-white/10 bg-white/[0.03] p-0.5">
+                  {(['investor', 'trader', 'both'] as const).map((lens) => (
+                    <button
+                      key={lens}
+                      type="button"
+                      onClick={() => setLens(lens)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-[10px] font-medium capitalize transition-colors',
+                        prefs.lens === lens ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {lens}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[9px] text-muted-foreground/50">Changes the card order for your workflow.</span>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">Sections</p>
             <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
               {defaultOrder.map((key, index) => {
                 const hidden = prefs.hiddenSections.includes(key);

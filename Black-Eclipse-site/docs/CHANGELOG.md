@@ -1,6 +1,51 @@
 # Change Log
 
 ## 2026-11-09
+- **refactor(setup): the onboarding shell is now literally the production
+  launch card.** Replaced the wide dashboard panel with the launch page's
+  580px centered card: masked 44px brand grid, top glow, 22/24/18 padding,
+  22px wordmark, 20px serif title, 13.5px phase line, 3px gradient progress
+  bar with the travelling shine (`be-setup-sweep`), 10.5px mono meta row,
+  compact text buttons and the `LOCAL SETUP · 127.0.0.1 / FIRST RUN` footer.
+  Step content is one decision per page, single-column, no accordions or
+  dropdowns. Docs updated: `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
+- **fix(chat): the composer "+" menu's mode submenus no longer throw.** The
+  Quant / Choices / Plan submenus in `src/components/chat/{quant,choices,plan}-mode-control.tsx`
+  rendered `DropdownMenuLabel` (Base UI `Menu.GroupLabel`) as a direct child of
+  the submenu popup. `Menu.GroupLabel` requires a `Menu.Group`/`Menu.RadioGroup`
+  context, so opening any of those submenus from the Eclipse Agent composer's
+  "+" menu threw `Base UI: MenuGroupContext is missing` and broke the menu. The
+  labels now live inside their `DropdownMenuRadioGroup` (which also labels the
+  radio group correctly for a11y). Also made the "+" trigger an explicit
+  `type="button"` with pointer feedback so it can never submit the composer
+  form. Docs updated: `docs/CHANGELOG.md`.
+- **docs(release): record the post-tag full live run.** The repaired lane ran the
+  full live-eligible set against local Ollama (`deepseek-v4.1-flash:cloud`, run
+  `evalrun-1794235655908`). `task_success` **0.9043** now clears the 0.9 task
+  floor, but `hallucination_rate` **0.1111** trips the critical 0.0 gate, so the
+  run FAILS. Repeated task misses were percentage-change sign, position sizing
+  and EPS; one adversarial task fabricated two PSX sources. v0.3.0 keeps the
+  ADR-071 floor; the next release's blocker is hallucination, not task success.
+  The published `benchmarks.md` is reverted to its reproducible pinned baseline
+  (a machine-local run is not a publishable artifact). Docs updated:
+  `docs/releases/v0.3.0.md`, `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
+- **fix(home): live time-of-day greeting + fill the Dashboard's production gaps.**
+  The header greeting was computed once per render from the browser clock, so a
+  keep-alive Dashboard tab could keep saying “Good morning/evening” long after
+  the day moved on; it also never distinguished night. `home-prefs.ts` now
+  exposes `timeOfDayFor` / a minute-ticking `useGreeting` hook (morning
+  05–11:59, afternoon 12–16:59, evening 17–21:59, night 22–04:59) and the
+  greeting shows the day label plus the optional saved name. The Dashboard
+  gains two previously unused data surfaces as first-class sections — a
+  “Daily brief” hero (personal brief, market bias/breadth, portfolio health and
+  value, demo-book disclosure) and a “Watchlist radar” card — plus working
+  Personalize controls (name + investor/trader/both lens, which reapplies that
+  lens's card order). The portfolio sparkline legend now uses the active
+  benchmark label instead of hard-coded “S&P 500”, and the J/K/Enter/A/R// key
+  hint is visible. New tests cover greeting boundaries. Also repaired the
+  in-progress settings route cache refactor's POST path, which still referenced
+  the removed module-local `settingsCache` and failed `npm test`/`tsc`. Docs
+  updated: `docs/CHANGELOG.md`.
 - **feat(chat): `/compact` compacts the conversation on demand.** Adds a
   routed slash command (registry `runtime.compact`, handler `native.compact`)
   that asks the Python runtime for a real compaction instead of waiting for the
@@ -18,7 +63,15 @@
   error when Python is unreachable. Tests: 3 Python cases + 2 router cases.
   Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`,
   `docs/CHANGELOG.md`.
-- **feat(ui): paginated Alert History and a real Saved-news library.** Alert History now pages the server archive with numbered pages and a typed per-page box (1–200) instead of always requesting the first 100 rows; filters/search reset to page 1, and the current page is clamped when the archive shrinks. `/api/alerts/history` widened its bounded union window 500→2000 and documents that `total` describes that window. News bookmarks now persist the full article snapshot (`be_news_saved_items_v1`) instead of only IDs, so Saved is its own searchable, category/sentiment/sort-filtered, paginated list that no longer depends on which feed page is loaded; legacy ID-only bookmarks migrate when their article next appears in the feed, and the detail dialog is extracted to `news-detail-dialog.tsx`. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+- **copy(nav): the chat page is now called "Eclipse Agent".** Renamed the
+  user-facing label everywhere it appeared: the sidebar/nav label, the
+  translation key `nav.chat` in all locales, the search palette title, the
+  start-screen option, the Customization tab ("Eclipse Agent Page") and its
+  backdrop/conversation copy, plus the keyboard-shortcut and dashboard hints.
+  Search aliases still include `chatbot`, and internal identifiers (`tab:
+  'chat'`, `ChatbotPageSettings`, file names, comments) are unchanged. No doc
+  change — copy/label-only edit with no contract or architecture impact. Docs
+  updated: `docs/CHANGELOG.md`.
 - **fix(eval): a subset smoke can no longer claim the live gate.**
   `Threshold.evaluate` ignored its `sample_size`, so the 12-task live smoke
   (11/12 = 0.9167) printed `gate PASS` against the 0.9 floor. The live lane now
@@ -71,7 +124,57 @@
   (`POST /api/setup/check`), a "definition of starts without issues", and the
   capability mapping modules. Docs updated: `docs/onboarding-plan.md`,
   `docs/CHANGELOG.md`.
+- **docs(setup): plan restarting onboarding and starting from scratch.** Adds
+  three explicit reset scopes (re-run onboarding, reset setup/keys, factory
+  reset), a Settings "Danger zone" with typed confirmation and optional backup,
+  a `POST /api/setup/reset` contract that schedules a factory reset rather than
+  deleting live SQLite from the web process, boot-time consumption in
+  `scripts/doctor.js`, and `black reset --onboarding|--setup|--factory` CLI
+  commands sharing `scripts/lib/reset.js` and the existing
+  `scripts/wipe-personal-data.js` primitive. Docs updated:
+  `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
+- **feat(setup): first-run onboarding, enforced source toggles, and reset
+  scopes.** New `src/lib/setup/` (source catalog, capabilities, bundles, safe vs
+  legacy defaults, state, existing-install probe, readiness check) and
+  `src/components/setup/` (boot-style gate + Welcome/AI/Data/Review) mounted in
+  the root layout. `GET/POST /api/setup`, `POST /api/setup/check`, and
+  `POST /api/setup/reset`. New installs get open data only (SEC/FRED/BEA/BLS/
+  World Bank/GDELT/USGS); connected providers need the user's key; community
+  sources (TradingView/Yahoo/Binance/CoinGecko Demo/DuckDuckGo/scrapers) are off
+  until acknowledged. Existing installs migrate to completed and keep the legacy
+  chain. `src/lib/data-source-preferences.ts` is now read by the scraper chain,
+  crypto connector and economics route, so toggles are real. Settings adds
+  General → Run setup again and Data & Storage → Reset setup/Factory reset.
+  `scripts/lib/reset.js`, `scripts/reset.js`, `black onboarding`,
+  `black reset --onboarding|--setup|--factory`, npm aliases, and the doctor boot
+  consumer complete the three reset scopes (factory reset is scheduled, not
+  deleted from the web process). Tests: `src/lib/setup/setup.test.ts` (12
+  passing). Docs updated: `docs/onboarding-plan.md`, `docs/QUICKSTART.md`,
+  `docs/NAVIGATION.md`, `docs/data-and-privacy.md`, `docs/DECISIONS.md`
+  (ADR-072), `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
+- **feat(setup): real reachability probes for included open sources.** The
+  readiness check no longer treats included data as merely "no account
+  required". `src/lib/setup/included-probes.ts` declares one documented,
+  bounded endpoint per included source (SEC, FRED public CSV, BEA/BLS via FRED
+  CSV, World Bank, Eurostat, GDELT, USGS, NASA FIRMS, official RSS), with a
+  contact-shaped User-Agent for SEC. `check.ts` probes each enabled source,
+  reports `ok`/`rate-limited`/`failed` with latency and HTTP status, and a unit
+  test now fails if a new included source is added without a probe. Docs
+  updated: `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
+- **refactor(setup): splash-style onboarding, no accordions or dropdowns.**
+  The gate is now a full-screen opaque page matching the production launch
+  screen: `app-page-bg` grid, soft brand glow, one centered glass card, wordmark
+  header, `01 / 05` counter and a 3px step-progress bar. It raised to
+  `z-[200]` so the sidebar/app shell is fully covered. The data step was split
+  into **Included data** (four flat cards with source switches) and **Connect
+  providers** (three live-prices radio cards + flat, sectioned provider cards).
+  Removed `steps/data-step.tsx` and `parts/capability-row.tsx`; added
+  `included-step.tsx`, `providers-step.tsx`, `parts/provider-card.tsx` and
+  `parts/switch.tsx`. Acknowledgements are now local to their section (prices,
+  crypto, search) instead of one hidden cross-step flag. Docs updated:
+  `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
 - **feat(ui): real, type-any page pagination for Artifacts and Market News; fix cards that silently vanished.** Artifacts now uses ServerPaginationFooter instead of an append-only "Load more": numbered pages, a typed per-page box (1–200, the runtime's real cap), current-page polling, and last-page clamping after deletes. Artifact cards fall back to the category icon when an image/video has no generated thumbnail instead of rendering a 404 `<img>` (a blank card); the failed-thumbnail state is per card. Market News gets the same typed per-page control in its pagination footer plus a typed "go to page" box, and the Customize panel accepts any cards-per-page value; `/api/news`'s `limit` cap rises 50→200 and the UI clamps to it. Fixed the card toggle bug where "Timestamp" was nested inside "Badges", so disabling Badges hid timestamps even though the Timestamp toggle said on. Clustering now uses a fixed 600-row window so `pagination.total`/`totalPages` stay consistent between pages. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+- **feat(ui): paginated Alert History and a real Saved-news library.** Alert History now pages the server archive with numbered pages and a typed per-page box (1–200) instead of always requesting the first 100 rows; filters/search reset to page 1, and the current page is clamped when the archive shrinks. `/api/alerts/history` widened its bounded union window 500→2000 and documents that `total` describes that window. News bookmarks now persist the full article snapshot (`be_news_saved_items_v1`) instead of only IDs, so Saved is its own searchable, category/sentiment/sort-filtered, paginated list that no longer depends on which feed page is loaded; legacy ID-only bookmarks migrate when their article next appears in the feed, and the detail dialog is extracted to `news-detail-dialog.tsx`. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-08
 - **docs(oss): make the repository publish-ready as MIT open source.** GitHub

@@ -211,7 +211,7 @@ function ChatBackgroundCard() {
             </Field>
           </div>
 
-          <p className="text-[10px] text-muted-foreground/60">Applies to the ChatBot page conversation. Changes apply instantly.</p>
+          <p className="text-[10px] text-muted-foreground/60">Applies to the Eclipse Agent page conversation. Changes apply instantly.</p>
         </>
       )}
     </Card>
@@ -289,7 +289,7 @@ export function ChatbotPageSettings() {
       <Card
         icon={Type}
         title="Backdrop & landing wordmark"
-        description="Wallpapers and solid fills paint the ChatBot page only. The giant wordmark sits behind the empty landing."
+        description="Wallpapers and solid fills paint the Eclipse Agent page only. The giant wordmark sits behind the empty landing."
       >
         <BackgroundSettingsPanel />
       </Card>

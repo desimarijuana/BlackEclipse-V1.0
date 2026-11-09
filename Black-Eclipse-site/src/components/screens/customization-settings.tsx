@@ -513,7 +513,7 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     { id: "glass", label: "Glass & Surfaces", icon: Layers },
     { id: "aurora", label: "Aurora", icon: Sparkles },
     { id: "charts", label: "Charts", icon: Activity },
-    { id: "chatbot", label: "ChatBot Page", icon: MessageSquareText },
+    { id: "chatbot", label: "Eclipse Agent Page", icon: MessageSquareText },
     { id: "access", label: "Language & Access", icon: Accessibility },
   ];
 

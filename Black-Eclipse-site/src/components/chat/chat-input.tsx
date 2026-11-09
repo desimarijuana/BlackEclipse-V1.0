@@ -639,10 +639,11 @@ export function ChatInput({
         <div className="flex min-w-0 items-end justify-between gap-2 px-0.5">
           <DropdownMenu>
             <DropdownMenuTrigger
+              type="button"
               disabled={attaching}
               title="Add context, media or a tool"
               aria-label="Add context, media or a tool"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-0 focus-visible:outline-none disabled:opacity-50"
+              className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-0 focus-visible:outline-none disabled:cursor-default disabled:opacity-50"
             >
               {attaching ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} />}
             </DropdownMenuTrigger>

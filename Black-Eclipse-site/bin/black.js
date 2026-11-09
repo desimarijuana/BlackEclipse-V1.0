@@ -12,7 +12,7 @@
 // Registered globally via `npm link` from the Black-Eclipse-site folder —
 // works in cmd, PowerShell, and Git Bash on Windows/macOS/Linux.
 
-const { execSync, spawn } = require("child_process");
+const { execSync, spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -211,6 +211,18 @@ function forceBuild() {
   log(`build done in ${((Date.now() - t0) / 1000).toFixed(0)}s — run "black eclipse" to start`);
 }
 
+// ─── reset / onboarding ────────────────────────────────────────────────────
+// One implementation lives in scripts/reset.js; the CLI only forwards flags so
+// Settings, `black`, and `npm run reset:*` cannot drift.
+function runReset(args) {
+  const result = spawnSync(
+    process.execPath,
+    [path.join(__dirname, "..", "scripts", "reset.js"), ...args],
+    { stdio: "inherit", cwd: path.join(__dirname, "..") },
+  );
+  process.exit(result.status ?? 1);
+}
+
 // ─── routing ───────────────────────────────────────────────────────────────
 async function main() {
   const [, , cmd, ...rest] = process.argv;
@@ -242,6 +254,13 @@ async function main() {
       if (result.status !== 0) process.exit(result.status || 1);
       break;
     }
+    case "onboarding":
+    case "onboard":
+      runReset(["--onboarding"]);
+      break;
+    case "reset":
+      runReset(rest);
+      break;
     case "doctor":
       if (argValue("--fix") !== undefined || rest.includes("--fix")) {
         // Reuse the self-healing script, then report.
@@ -264,6 +283,12 @@ Commands:
   build        force a production rebuild
   desktop      (re)install the desktop shortcut and its app icon
   doctor       check the environment (--fix to auto-repair)
+  onboarding   re-run the setup questions (keeps keys and data)
+  reset        reset setup or wipe data:
+                 black reset --list
+                 black reset --onboarding
+                 black reset --setup
+                 black reset --factory [--confirm=WIPE] [--no-backup]
 
 Options:
   -p <port>    use a custom port (production ${PORT}, development ${DEV_PORT})`);

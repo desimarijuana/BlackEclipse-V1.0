@@ -17,7 +17,7 @@
 // persist callback, keeping the merge additive and the parent shell thin.
 
 import { useEffect, useState } from "react";
-import { Monitor, RefreshCcw, RotateCcw, ShieldCheck } from "@/lib/icons";
+import { Loader2, Monitor, RefreshCcw, RotateCcw, ShieldCheck, Sparkles } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -80,6 +80,30 @@ export function GeneralSettingsPanel({
     if (!tz || !isValidTimeZone(tz)) return;
     setTimeZone(tz);
     setDisplayTimeZone(tz);
+  };
+
+  const [setupBusy, setSetupBusy] = useState(false);
+  const restartOnboarding = async () => {
+    if (general.confirmDestructive) {
+      const ok = window.confirm(
+        "Open the Eclipse setup questions again? Your API keys, chats and portfolio are kept.",
+      );
+      if (!ok) return;
+    }
+    setSetupBusy(true);
+    try {
+      const res = await fetch("/api/setup/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope: "onboarding" }),
+      });
+      const data = (await res.json()) as { reload?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not restart setup");
+      window.location.assign(data.reload || "/?setup=1");
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Could not restart setup");
+      setSetupBusy(false);
+    }
   };
 
   const resetAll = () => {
@@ -171,6 +195,31 @@ export function GeneralSettingsPanel({
               </SelectContent>
             </Select>
           </Field>
+        </Panel>
+      </SubSection>
+
+      {/* Setup — re-run the first-run questions without touching data. */}
+      <SubSection icon={Sparkles} title="Setup">
+        <Panel className="p-5 md:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Label className="text-xs text-muted-foreground font-medium">Run setup again</Label>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                Reopens the welcome, AI and data questions. Keys, chats, portfolio and research
+                are kept; you can change any answer.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer rounded-xl"
+              disabled={setupBusy}
+              onClick={() => void restartOnboarding()}
+            >
+              {setupBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              Run setup again
+            </Button>
+          </div>
         </Panel>
       </SubSection>
 

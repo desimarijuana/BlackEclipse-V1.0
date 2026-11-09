@@ -16,6 +16,7 @@
 # repo root instead of Black-Eclipse-site/; it is build cache, never committed.
 node_modules/
 /_backups/
+/reset-backups/
 /opencode/
 
 # Root-level runtime state written by a launcher started at the repository root

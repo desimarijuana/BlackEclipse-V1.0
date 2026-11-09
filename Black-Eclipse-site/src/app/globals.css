@@ -1843,6 +1843,17 @@ html:not(.dark) [data-aurora-glow] {
   animation: beBootOverlayDismiss 1.1s ease forwards;
 }
 
+/* Setup progress shine — the same travelling highlight as the production
+ * launch page. Reduced motion drops it; the bar still advances. */
+@keyframes beSetupSweep {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(260%); }
+}
+.be-setup-sweep { animation: beSetupSweep 2.1s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .be-setup-sweep { display: none; }
+}
+
 /* Graph Studio â€” running edges march so a live run is legible on the canvas. */
 @keyframes graphEdgeDash {
   to {

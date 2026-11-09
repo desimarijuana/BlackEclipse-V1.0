@@ -3,6 +3,16 @@ import { createHash } from "crypto";
 import { prisma } from "@/lib/db";
 import { ECON_SOURCES, getSource } from "@/lib/economics/sources";
 import { normalizeEconomicSeries, sortByDate, type EconPoint } from "@/lib/economics/fetch";
+import { isDataSourceEnabled } from "@/lib/data-source-preferences";
+import type { SourceId } from "@/lib/setup/types";
+
+const ECON_PREF_SOURCE: Record<string, SourceId> = {
+  fred: "fred",
+  worldbank: "worldbank",
+  bea: "bea",
+  bls: "bls",
+  eurostat: "eurostat",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +101,13 @@ async function fetchRows(sourceId: string, params: Record<string, string>): Prom
 async function fetchFresh(sourceId: string, params: Record<string, string>): Promise<{ rows: EconPoint[]; asOf: string | null }> {
   const source = getSource(sourceId);
   if (!source) throw new Error(`Unknown source: ${sourceId}`);
+  const prefId = ECON_PREF_SOURCE[sourceId];
+  if (prefId && !(await isDataSourceEnabled(prefId))) {
+    const err = new Error(`SOURCE_DISABLED:${sourceId}`);
+    (err as Error & { disabled?: boolean; sourceId?: string }).disabled = true;
+    (err as Error & { disabled?: boolean; sourceId?: string }).sourceId = sourceId;
+    throw err;
+  }
   if (source.keyRequired && source.keyEnv && !process.env[source.keyEnv]) {
     const err = new Error(`KEY_REQUIRED:${source.keyEnv}`);
     (err as Error & { keyRequired?: boolean; keyEnv?: string }).keyRequired = true;
@@ -123,9 +140,15 @@ export async function GET(request: Request) {
     const { rows, asOf } = await fetchRows(sourceId, params);
     return NextResponse.json({ source: sourceId, seriesKey: seriesKey(sourceId, params), rows, asOf, count: rows.length });
   } catch (err) {
-    const e = err as Error & { keyRequired?: boolean; keyEnv?: string };
+    const e = err as Error & { keyRequired?: boolean; keyEnv?: string; disabled?: boolean; sourceId?: string };
     if (e.keyRequired) {
       return NextResponse.json({ keyRequired: true, keyEnv: e.keyEnv });
+    }
+    if (e.disabled) {
+      return NextResponse.json(
+        { disabled: true, source: e.sourceId, error: "This source is disabled in setup." },
+        { status: 503 },
+      );
     }
     console.error("[api/economics] GET error:", e.message);
     return NextResponse.json({ error: e.message || "Fetch failed" }, { status: 500 });

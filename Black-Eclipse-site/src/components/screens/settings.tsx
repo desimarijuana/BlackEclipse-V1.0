@@ -25,6 +25,7 @@ import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { AnalyticsSettingsPanel } from "./analytics-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { SetupDangerZone } from "./setup-danger-zone";
 import { FinancialDataConsole } from "./financial-data-console";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { SecuritySettingsPanel } from "./security-settings";
@@ -472,7 +473,7 @@ export function Settings({
     group: "Personalize" | "Intelligence" | "System";
     terms: string[];
   }[] = [
-    { id: "general", label: "General", desc: "Startup, theme, branding & preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety", "theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "chatbot", "chat bot", "chat page", "conversation font", "chat font", "background", "wallpaper", "wordmark", "backdrop"] },
+    { id: "general", label: "General", desc: "Startup, theme, branding & preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety", "theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "chatbot", "chat bot", "chat page", "eclipse agent", "agent page", "conversation font", "chat font", "background", "wallpaper", "wordmark", "backdrop"] },
     { id: "persona", label: "Persona", desc: "Tone, style & chat instructions", icon: UsersThree, group: "Personalize", terms: ["persona", "personas", "personality", "system prompt", "prompt", "instructions", "tone", "voice", "style", "format", "draft", "active", "activate", "reset", "customize", "chat behavior", "behaviour"] },
     { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
     { id: "voice", label: "Voice", desc: "Read aloud & dictation", icon: Volume2, group: "Personalize", terms: ["voice", "tts", "text to speech", "text-to-speech", "read aloud", "read out loud", "speak", "speech", "narration", "audio", "rate", "pitch", "auto speak", "accessibility", "dictation", "microphone", "mic", "whisper", "transcribe", "transcription", "voice input"] },
@@ -989,6 +990,7 @@ export function Settings({
                     <CircleDashed className="w-3 h-3" /> Cleared data is removed from this browser only.
                   </p>
                 </Panel>
+                <SetupDangerZone />
               </div>
             )}
 

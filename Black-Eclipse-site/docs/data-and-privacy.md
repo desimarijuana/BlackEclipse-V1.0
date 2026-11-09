@@ -1,7 +1,7 @@
 ---
 title: Data & Privacy — where your personal data lives and how it is protected
 status: Current
-last-verified: 2026-11-04
+last-verified: 2026-11-09
 ---
 
 # Data & privacy
@@ -122,6 +122,23 @@ ECLIPSE_PRIVACY=local-models
 servers still contact their own endpoints. For a true air gap, disable those
 integrations or disconnect the network; `ECLIPSE_PRIVACY=local-models` will not
 pretend otherwise.
+
+## Resetting vs deleting everything
+
+Pick the smallest scope that solves the problem:
+
+| Scope | Where | What it removes | What it keeps |
+|---|---|---|---|
+| Re-run onboarding | Settings → General, or `black reset --onboarding` | `onboarding_v1` | Keys, AI config, chats, portfolio, research |
+| Reset setup & keys | Settings → Data & Storage, or `black reset --setup` | onboarding, `data_source_prefs_v1`, `llm_config`, the provider-key vault | Chats, portfolio, journal, research, artifacts |
+| Factory reset | Settings → Data & Storage, or `black reset --factory` | everything below under "Deleting everything" | Source code only |
+
+A factory reset started from Settings is **scheduled**, not run in the web
+process: it writes `.black-eclipse/reset-request.json`, and `scripts/doctor.js`
+consumes it on the next start **before** opening `jdds.db`. A backup is taken by
+default to `reset-backups/<timestamp>/` (outside the wipe targets); `.env` is
+only removed with the explicit `--include-env` / checkbox. `black reset --list`
+prints every path first.
 
 ## Deleting everything
 

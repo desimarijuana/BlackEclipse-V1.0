@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-11-08
+last-verified: 2026-11-09
 ---
 
 # Quickstart
@@ -281,6 +281,27 @@ files small. See the constraints in
 [`../skills/REMEMBER.md`](../skills/REMEMBER.md).
 
 **"Which page am I editing?"** Find it in [`NAVIGATION.md`](./NAVIGATION.md).
+
+## Starting over
+
+There are three scopes; pick the smallest one that solves the problem.
+
+| I want to… | Settings | CLI |
+|---|---|---|
+| Answer the setup questions again (keep keys, chats, portfolio) | General → Setup → **Run setup again** | `black onboarding` or `black reset --onboarding` |
+| Clear setup, source choices, AI config and API keys (keep chats/portfolio/research) | Data & Storage → **Reset setup & API keys** (type `RESET`) | `black reset --setup` |
+| Erase all local Eclipse data and boot as a new install | Data & Storage → **Factory reset** (type `WIPE`) | `black reset --factory --confirm=WIPE` |
+
+Factory reset from Settings is **scheduled**: the web process cannot safely
+delete live SQLite files on Windows, so it writes a marker and the reset runs on
+the next start (before the database is opened). The CLI stops the servers first.
+A backup is created by default at `reset-backups/<timestamp>/` (outside every
+wipe target); pass `--no-backup` to skip it. `.env` is not deleted unless you
+pass `--include-env` or tick the box.
+
+Dry run: `black reset --list` (or `npm run reset:list`) prints every path a
+factory reset would touch. See §13 of
+[`onboarding-plan.md`](./onboarding-plan.md) for the full contract.
 
 ## Next
 

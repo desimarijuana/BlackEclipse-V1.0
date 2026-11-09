@@ -50,7 +50,9 @@ export function useHomePrefs() {
 
   const setLens = useCallback((lens: HomeLens) => {
     setPrefs((prev) => {
-      const next = { ...prev, lens };
+      // Picking a lens applies that workflow's default card order; a custom
+      // arrangement from the previous lens would otherwise mask the change.
+      const next = { ...prev, lens, sectionOrder: [] };
       write(next);
       return next;
     });
@@ -94,9 +96,54 @@ export function useHomePrefs() {
   return { prefs, setLens, setName, toggleSection, moveSection };
 }
 
-export function greetingFor(date = new Date()): string {
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
+
+/**
+ * Local-wall-clock part of day. Boundaries are intentionally user-facing:
+ * morning 05:00–11:59, afternoon 12:00–16:59, evening 17:00–21:59, night
+ * 22:00–04:59. Computed from the *browser's* clock, never the server's, so a
+ * user in another time zone is not told it is evening at noon.
+ */
+export function timeOfDayFor(date = new Date()): TimeOfDay {
   const hour = date.getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 22) return 'evening';
+  return 'night';
+}
+
+const GREETING: Record<TimeOfDay, string> = {
+  morning: 'Good morning',
+  afternoon: 'Good afternoon',
+  evening: 'Good evening',
+  night: 'Good night',
+};
+
+export function greetingFor(date = new Date()): string {
+  return GREETING[timeOfDayFor(date)];
+}
+
+/**
+ * Live greeting for the Dashboard header.
+ *
+ * The greeting used to be computed once during render, so a keep-alive tab
+ * left open all day kept saying "Good morning" (or "Good evening") until a
+ * manual refresh. This ticks once a minute against the browser clock and
+ * re-derives both the greeting and the day label, so the header stays truthful
+ * across noon, sunset and midnight.
+ */
+export function useGreeting(): { greeting: string; timeOfDay: TimeOfDay; today: string } {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    setNow(new Date());
+    const id = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return {
+    greeting: greetingFor(now),
+    timeOfDay: timeOfDayFor(now),
+    today: now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+  };
 }

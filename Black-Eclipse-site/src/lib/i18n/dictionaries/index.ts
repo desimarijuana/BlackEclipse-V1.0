@@ -10,7 +10,7 @@ import type { Dictionary } from '../types';
 import { en } from './en';
 
 const zh: Dictionary = {
-  'nav.chat': '聊天机器人',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': '指挥中心',
   'nav.investorEye': '投资者之眼',
   'nav.marketWorkspace': '图表工作区',
@@ -83,7 +83,7 @@ const zh: Dictionary = {
 };
 
 const hi: Dictionary = {
-  'nav.chat': 'चैटबॉट',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'कमांड सेंटर',
   'nav.investorEye': 'निवेशक नेत्र',
   'nav.marketWorkspace': 'चार्ट कार्यक्षेत्र',
@@ -156,7 +156,7 @@ const hi: Dictionary = {
 };
 
 const es: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Centro de Mando',
   'nav.investorEye': 'Ojo del Inversor',
   'nav.marketWorkspace': 'Área de Gráficos',
@@ -229,7 +229,7 @@ const es: Dictionary = {
 };
 
 const ar: Dictionary = {
-  'nav.chat': 'روبوت الدردشة',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'مركز التحكم',
   'nav.investorEye': 'عين المستثمر',
   'nav.marketWorkspace': 'مساحة الرسوم البيانية',
@@ -302,7 +302,7 @@ const ar: Dictionary = {
 };
 
 const fr: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Centre de commande',
   'nav.investorEye': 'Œil de l’investisseur',
   'nav.marketWorkspace': 'Espace graphiques',
@@ -375,7 +375,7 @@ const fr: Dictionary = {
 };
 
 const bn: Dictionary = {
-  'nav.chat': 'চ্যাটবট',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'কমান্ড সেন্টার',
   'nav.investorEye': 'বিনিয়োগকারীর চোখ',
   'nav.portfolio': 'পোর্টফোলিও',
@@ -448,7 +448,7 @@ const bn: Dictionary = {
 };
 
 const pt: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Centro de Comando',
   'nav.investorEye': 'Olho do Investidor',
   'nav.marketWorkspace': 'Área de Gráficos',
@@ -521,7 +521,7 @@ const pt: Dictionary = {
 };
 
 const ru: Dictionary = {
-  'nav.chat': 'Чат-бот',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Командный центр',
   'nav.investorEye': 'Глаз инвестора',
   'nav.marketWorkspace': 'Рабочая область графиков',
@@ -594,7 +594,7 @@ const ru: Dictionary = {
 };
 
 const ur: Dictionary = {
-  'nav.chat': 'چیٹ بوٹ',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'کمانڈ سینٹر',
   'nav.investorEye': 'سرمایہ کار کی نظر',
   'nav.marketWorkspace': 'چارٹ ورک اسپیس',
@@ -667,7 +667,7 @@ const ur: Dictionary = {
 };
 
 const id: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Pusat Komando',
   'nav.investorEye': 'Mata Investor',
   'nav.marketWorkspace': 'Ruang Kerja Grafik',
@@ -740,7 +740,7 @@ const id: Dictionary = {
 };
 
 const de: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Kommandozentrale',
   'nav.investorEye': 'Investorenauge',
   'nav.marketWorkspace': 'Chart-Arbeitsbereich',
@@ -813,7 +813,7 @@ const de: Dictionary = {
 };
 
 const ja: Dictionary = {
-  'nav.chat': 'チャットボット',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'コマンドセンター',
   'nav.investorEye': '投資家の目',
   'nav.marketWorkspace': 'チャートワークスペース',
@@ -886,7 +886,7 @@ const ja: Dictionary = {
 };
 
 const tr: Dictionary = {
-  'nav.chat': 'Sohbet Botu',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Komuta Merkezi',
   'nav.investorEye': 'Yatırımcı Gözü',
   'nav.marketWorkspace': 'Grafik Çalışma Alanı',
@@ -959,7 +959,7 @@ const tr: Dictionary = {
 };
 
 const ko: Dictionary = {
-  'nav.chat': '챗봇',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': '커맨드 센터',
   'nav.investorEye': '투자자의 눈',
   'nav.marketWorkspace': '차트 워크스페이스',
@@ -1032,7 +1032,7 @@ const ko: Dictionary = {
 };
 
 const it: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Centro di Comando',
   'nav.investorEye': 'Occhio dell’Investitore',
   'nav.marketWorkspace': 'Area Grafici',
@@ -1105,7 +1105,7 @@ const it: Dictionary = {
 };
 
 const nl: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Commandocentrum',
   'nav.investorEye': 'Investeerdersoog',
   'nav.marketWorkspace': 'Grafiekwerkruimte',
@@ -1178,7 +1178,7 @@ const nl: Dictionary = {
 };
 
 const fa: Dictionary = {
-  'nav.chat': 'چت‌بات',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'مرکز فرمان',
   'nav.investorEye': 'چشم سرمایه‌گذار',
   'nav.portfolio': 'سبد سرمایه',
@@ -1251,7 +1251,7 @@ const fa: Dictionary = {
 };
 
 const pl: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Centrum dowodzenia',
   'nav.investorEye': 'Oko inwestora',
   'nav.marketWorkspace': 'Obszar wykresów',
@@ -1324,7 +1324,7 @@ const pl: Dictionary = {
 };
 
 const vi: Dictionary = {
-  'nav.chat': 'Chatbot',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'Trung tâm Điều khiển',
   'nav.investorEye': 'Mắt Nhà đầu tư',
   'nav.marketWorkspace': 'Không gian Biểu đồ',
@@ -1397,7 +1397,7 @@ const vi: Dictionary = {
 };
 
 const th: Dictionary = {
-  'nav.chat': 'แชทบอท',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'ศูนย์ควบคุม',
   'nav.investorEye': 'ดวงตานักลงทุน',
   'nav.marketWorkspace': 'พื้นที่กราฟ',
@@ -1470,7 +1470,7 @@ const th: Dictionary = {
 };
 
 const he: Dictionary = {
-  'nav.chat': 'צ׳אטבוט',
+  'nav.chat': 'Eclipse Agent',
   'nav.dashboard': 'מרכז שליטה',
   'nav.investorEye': 'עין המשקיע',
   'nav.marketWorkspace': 'סביבת גרפים',

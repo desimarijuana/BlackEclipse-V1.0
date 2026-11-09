@@ -1,7 +1,7 @@
 ---
 title: Navigation â€” Where Things Live
 status: Current
-last-verified: 2026-11-06
+last-verified: 2026-11-09
 ---
 
 # Navigation â€” Where Things Live
@@ -591,6 +591,18 @@ When a change touches one of these, update the listed doc in the same change:
 | `python/harness/scraper/`, the `scraper_run` tool, the `web_page` sandbox binding, `POST /api/scraper/datasets` | `harness/scraper-lane.md`, `harness/web-research-engine.md`, `DECISIONS.md` (ADR-051) |
 | A new architectural decision | app-level: `skills/ARCHITECT.md` first, mirrored into `DECISIONS.md`; harness/runtime: `docs/harness/decisions.md` (`ADR-HNN`, not mirrored) |
 | Review a shipped-phase plan status or add a plan note | Repository root `agentic-plan-implementaion.md` (the MCP Phases 5Aâ€“5I statuses live there; phase progress logs are the source of truth) |
+
+## First-run setup and reset
+
+| I want to… | Open |
+|---|---|
+| Change the onboarding questions, the included/connected/advanced split, or the commercial-use matrix | `src/lib/setup/source-catalog.ts` (the one source registry), `src/lib/setup/capabilities.ts` (capability grouping), `src/lib/setup/bundles.ts`, `src/lib/setup/defaults.ts`; plan `docs/onboarding-plan.md` |
+| Change the setup screen (welcome/AI/data/review) | `src/components/setup/onboarding-gate.tsx` (mount + fetch), `onboarding-shell.tsx` (step machine + finish), `steps/`, `parts/`; mounted in `src/app/layout.tsx` |
+| Change what onboarding persists or how an upgraded install is detected | `src/lib/setup/state.ts` (`onboarding_v1`, `data_source_prefs_v1`), `src/lib/setup/existing-install.ts`; API `src/app/api/setup/route.ts` |
+| Change the readiness check | `src/lib/setup/check.ts`, `src/app/api/setup/check/route.ts` |
+| Enforce a source toggle in the fetch path | `src/lib/data-source-preferences.ts`; consumers `src/lib/scraper/fetchers/index.ts`, `src/lib/connectors/providers/crypto.ts`, `src/app/api/economics/route.ts` |
+| Re-run onboarding or reset Eclipse | Settings → General ("Run setup again"), Settings → Data & Storage ("Reset setup", "Factory reset"), `src/app/api/setup/reset/route.ts`, `scripts/lib/reset.js`, `scripts/reset.js`, `bin/black.js` (`black onboarding`, `black reset --onboarding|--setup|--factory`), boot hook `scripts/doctor.js`, primitive `scripts/wipe-personal-data.js` |
+| Read the reset scopes and safety rules | `docs/onboarding-plan.md` §13; `docs/data-and-privacy.md` |
 
 ## Retired / do not build on
 

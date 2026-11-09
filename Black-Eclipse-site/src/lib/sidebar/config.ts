@@ -44,7 +44,7 @@ export interface SidebarSectionDef {
  *  Search, Research, Backtest) are deliberately NOT sidebar tabs â€” ChatBot
  *  reaches them through its tools. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
-  { id: 'chat', label: 'ChatBot', icon: Bot, group: 'both' },
+  { id: 'chat', label: 'Eclipse Agent', icon: Bot, group: 'both' },
   { id: 'home', label: 'Dashboard', icon: Home, group: 'terminal' },
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard, group: 'terminal' },
   { id: 'investor-eye', label: 'Investor Eye', icon: ScanEye, group: 'terminal' },

@@ -11,6 +11,7 @@ import type { FetchResult, Quote } from "../../scraper/types";
 import { toErrorLike } from "../../scraper/types";
 import { safeGet, OutboundError } from "../security";
 import type { ConnectorRequest, ConnectorResult, DataConnector, TestResult } from "../types";
+import { isDataSourceEnabled } from "@/lib/data-source-preferences";
 
 export const CRYPTO_CONNECTOR_ID = "builtin:crypto";
 
@@ -47,6 +48,9 @@ export function parseBinanceTicker(symbol: string, data: BinanceTicker | null | 
 }
 
 async function run(symbol: string): Promise<FetchResult> {
+  if (!(await isDataSourceEnabled("binance"))) {
+    return { status: "blocked", error: "Binance is disabled in setup", source: "crypto" };
+  }
   const pair = toBinancePair(symbol);
   try {
     const res = await safeGet({ url: `${BINANCE_TICKER}?symbol=${pair}`, timeoutMs: 8_000 });

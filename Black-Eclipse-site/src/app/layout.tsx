@@ -5,6 +5,7 @@ import './katex.css';
 import { cn } from "@/lib/utils";
 import { AgentationMount } from "@/components/layout/agentation-mount";
 import { GlobalLoader } from "@/components/ui/global-loader";
+import { OnboardingGate } from "@/components/setup/onboarding-gate";
 import { GlobalSearchMount } from "@/components/layout/global-search-mount";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
@@ -51,6 +52,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           }}
         />
         <GlobalLoader />
+        <OnboardingGate />
         {children}
         <AgentationMount />
         <GlobalSearchMount />

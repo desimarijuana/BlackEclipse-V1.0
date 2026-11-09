@@ -10,14 +10,18 @@ import {
   ChevronDown,
   FileText,
   Layers,
+  Moon,
   RefreshCw,
+  Sparkles,
+  Star,
+  Sun,
   TrendingUp,
 } from '@/lib/icons';
 import { navigateTo } from '@/lib/sdk/navigate';
 import { cn } from '@/lib/utils';
 import type { HomeData } from '@/lib/dashboard/use-home-data';
 import type { HoldingState } from '@/lib/dashboard/home-model';
-import { greetingFor } from '@/lib/dashboard/home-prefs';
+import { useGreeting } from '@/lib/dashboard/home-prefs';
 import {
   ChangeText,
   DualSpark,
@@ -35,6 +39,7 @@ import {
   formatCompactMoney,
   formatMoney,
   formatPct,
+  formatPrice,
   formatSignedPct,
   toneForChange,
 } from './home-primitives';
@@ -53,6 +58,13 @@ const STATE_TONE: Record<HoldingState, string> = {
   broken: 'text-zinc-400',
   falling: 'text-rose-400',
   unknown: 'text-muted-foreground',
+};
+
+const TONE_LABEL: Record<string, string> = {
+  bullish: 'Bullish',
+  bearish: 'Bearish',
+  neutral: 'Neutral',
+  unavailable: 'Unavailable',
 };
 
 function openChart(symbol: string) {
@@ -94,14 +106,20 @@ function SectionTitle({ title, right }: { title: string; right?: ReactNode }) {
   );
 }
 
-export function GreetingHeader({ data }: { data: HomeData }) {
+export function GreetingHeader({ data, name }: { data: HomeData; name?: string }) {
+  const { greeting, timeOfDay, today } = useGreeting();
+  const salutation = name?.trim() ? `${greeting}, ${name.trim()}` : greeting;
+  const TimeIcon = timeOfDay === 'night' || timeOfDay === 'evening' ? Moon : Sun;
   return (
     <header className="flex flex-col gap-4 pb-1">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Eyebrow>Today</Eyebrow>
+          <Eyebrow className="inline-flex items-center gap-1.5">
+            <TimeIcon size={11} className="text-white/45" />
+            {today}
+          </Eyebrow>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground md:text-[2rem]">
-            {greetingFor()}
+            {salutation}
           </h1>
           <p className="mt-1 max-w-[42rem] text-xs leading-relaxed text-muted-foreground">
             Your book, the market and the news that matter — read from the JDDS vault.
@@ -137,6 +155,100 @@ export function GreetingHeader({ data }: { data: HomeData }) {
         </div>
       </div>
     </header>
+  );
+}
+
+export function DailyBriefCard({ data }: { data: HomeData }) {
+  const bias = TONE_LABEL[data.tone] ?? 'Neutral';
+  const trackedWord = data.trackedLabel === 'markets' ? 'markets' : 'sectors';
+  const healthTone = data.health.score == null ? 'unavailable' : data.health.score >= 70 ? 'bullish' : data.health.score >= 55 ? 'neutral' : 'bearish';
+  return (
+    <HomeCard accent>
+      <SectionTitle
+        title="Daily brief"
+        right={(
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {data.includesDemo && <Pill tone="neutral">{data.demoOnly ? 'Demo book' : 'Includes demo'}</Pill>}
+            <Pill tone={data.tone}>{bias}</Pill>
+          </div>
+        )}
+      />
+      <p className="mt-3 max-w-[46rem] text-lg font-medium leading-snug tracking-tight text-foreground md:text-xl">
+        {data.brief.headline}
+      </p>
+      <p className="mt-1 max-w-[52rem] text-[11px] leading-relaxed text-muted-foreground">
+        {data.brief.detail}
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <StatTile
+          label="Market bias"
+          value={bias}
+          tone={data.tone}
+          sub={data.weatherSource === 'regime' ? data.regime?.label ?? 'regime' : 'breadth-derived'}
+        />
+        <StatTile
+          label={`${trackedWord} up`}
+          value={`${data.breadth.advancing}/${data.breadth.tracked || '—'}`}
+          tone={data.breadth.tracked > 0 && data.breadth.advancing > data.breadth.tracked / 2 ? 'bullish' : 'neutral'}
+          sub={data.breadth.tracked > 0 ? `${data.breadth.beating} beating benchmark` : 'breadth unavailable'}
+        />
+        <StatTile
+          label="Portfolio health"
+          value={data.historyLoading ? '…' : data.health.score == null ? '—' : `${data.health.score}`}
+          tone={data.historyLoading ? 'neutral' : healthTone}
+          sub={data.historyLoading ? 'loading trend history' : data.health.score == null ? 'history missing' : `${data.health.label} · ${data.holdingsCount} holdings`}
+        />
+        <StatTile
+          label="Portfolio value"
+          value={data.positionsLoading ? '…' : formatCompactMoney(data.portfolioValue, data.displayCurrency)}
+          tone={data.positionsLoading ? 'neutral' : toneForChange(data.portfolioChangePct)}
+          sub={data.positionsLoading ? 'loading live quotes' : `${formatSignedPct(data.portfolioChangePct)} today`}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Action onClick={() => navigateTo({ tab: 'portfolio' })} variant="primary">Open portfolio</Action>
+        <Action onClick={() => navigateTo({ tab: 'heatmap' })}>Market pulse</Action>
+        <span className="ml-auto inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground/40">
+          <Sparkles size={10} /> JDDS · {data.marketLabel}
+        </span>
+      </div>
+    </HomeCard>
+  );
+}
+
+export function WatchlistRadarCard({ data }: { data: HomeData }) {
+  return (
+    <HomeCard>
+      <SectionTitle title="Watchlist radar" right={<Star size={14} className="text-white/50" />} />
+      {data.radar.length === 0 ? (
+        <div className="mt-3">
+          <UnavailableNote>No saved names yet. Add symbols to track unheld movers.</UnavailableNote>
+        </div>
+      ) : (
+        <div className="mt-3 divide-y divide-white/5">
+          {data.radar.slice(0, 5).map((row) => (
+            <button
+              key={row.symbol}
+              type="button"
+              onClick={() => openChart(row.symbol)}
+              className="flex w-full items-center gap-3 py-2.5 text-left"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-medium text-foreground">{row.symbol}</span>
+                <span className="block truncate text-[10px] text-muted-foreground/70">{row.name} · {row.marketId}</span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block text-[10px] tabular-nums text-foreground/80">{formatPrice(row.price, row.currency)}</span>
+                <ChangeText value={row.changePercent} className="text-[10px]" digits={2} />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mt-2">
+        <Action onClick={() => navigateTo({ tab: 'portfolio' })}>Manage watchlist</Action>
+      </div>
+    </HomeCard>
   );
 }
 
@@ -207,7 +319,7 @@ export function PortfolioValueCard({ data }: { data: HomeData }) {
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50">
         <span className="inline-flex items-center gap-3">
           <span className="inline-flex items-center gap-1"><span className="h-1.5 w-4 rounded-full bg-emerald-400" />You</span>
-          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-4 rounded-full bg-white/35" />S&amp;P 500</span>
+          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-4 rounded-full bg-white/35" />{data.benchmark?.label ?? 'Benchmark'}</span>
         </span>
         <span>{series.length > 0 ? `${series[0].date.slice(5)} → ${series[series.length - 1].date.slice(5)}` : 'benchmark unavailable'}</span>
       </div>

@@ -51,12 +51,14 @@ export function ChoicesModeControl({ disabled = false }: { disabled?: boolean })
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-52">
-        <DropdownMenuLabel>Clarifying questions</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={mode}
           onValueChange={(value) => setChoicesMode(value as ChoicesMode)}
           disabled={disabled}
         >
+          {/* GroupLabel must live inside a Group/RadioGroup or Base UI throws
+              "MenuGroupContext is missing" when the submenu mounts. */}
+          <DropdownMenuLabel>Clarifying questions</DropdownMenuLabel>
           <DropdownMenuRadioItem value="auto">Auto — only when it matters</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="on">On — every run</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="off">Off — never ask</DropdownMenuRadioItem>

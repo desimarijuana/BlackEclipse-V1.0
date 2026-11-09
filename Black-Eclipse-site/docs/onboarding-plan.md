@@ -1,10 +1,19 @@
 ---
 title: First-Run Onboarding — Implementation Plan
-status: Proposed
+status: Implemented (v1)
 last-verified: 2026-11-09
 ---
 
 # First-Run Onboarding — Implementation Plan
+
+> **Implemented 2026-11-09.** The catalog/capabilities/bundles/state layer, the
+> `/api/setup` routes, the boot-style gate and five splash-style steps, the source-preference
+> enforcement in the scraper/crypto/economics paths, the Settings entries, and
+> the three reset scopes (`black onboarding`, `black reset --onboarding|--setup|
+> --factory`) are in the tree. See ADR-072. `/api/setup/check` now runs a real,
+> bounded reachability probe for every included open source (see
+> `src/lib/setup/included-probes.ts`) and reports rate-limited/failed honestly.
+> Remaining future scope: per-user onboarding if multi-tenant use is ever added.
 
 **Goal:** A boot-style, full-screen setup experience shown once, on a brand-new
 installation, before the user lands in the app. It asks how the user will use
@@ -66,19 +75,24 @@ connected, and can fix anything later.**
 
 ```
 Boot loader (existing, z-40)
-  └─ Onboarding (z-50) ─ 4 steps + handoff
-       1. Welcome & mode          (one choice)
+  └─ Onboarding (z-200) ─ 5 splash-style steps + handoff
+       1. Welcome & mode          (one choice + bundle)
        2. AI & Chat               (one choice + test)
-       3. Data & capabilities     (capability rows, progressive disclosure)
-       4. Review & readiness      (status table + Run check + Finish)
+       3. Included data           (open sources, flat toggles, no accordions)
+       4. Connect providers       (live prices choice + provider cards)
+       5. Review & readiness      (status table + Run check + Finish)
   └─ App (loader finishes behind the overlay)
 ```
 
-Shared frame: full-screen `bg-background/98 backdrop-blur-md`, centered
-`glass-card-strong` panel (max ~880px, max-height `calc(100dvh - 2rem)`,
-internal scroll), Eclipse mark + `DotGrid` top-left, `01 / 04` top-right,
-`Back` / `Continue` bottom. Escape does not close it. Focus-trapped, keyboard
-accessible, reduced-motion aware. Only step 1 has `Skip for now`.
+Shared frame: **the exact production launch card** — a masked 44px brand grid,
+a soft top glow, and one centered `glass-card-strong` card at **580px max**
+(`max-h-[calc(100dvh-4rem)]`, internal scroll), with the launch page's
+22/24/18 padding, 22px wordmark, 20px serif title, 13.5px phase line, 3px
+gradient progress bar with the travelling shine, 10.5px mono meta row, compact
+text buttons, and the mono `LOCAL SETUP · 127.0.0.1 / FIRST RUN` footer. The app
+shell (sidebar included) is fully covered; `z-[200]` clears the shell's `z-50`.
+Escape does not close it. Focus-trapped, keyboard accessible, reduced-motion
+aware. Only step 1 has `Skip for now`.
 
 ### Step 1 — Welcome & how you'll use Eclipse
 
@@ -122,92 +136,52 @@ avoids re-asking inside each capability.
 - `Set this up later` is allowed; the app then runs `mock` and the final review
   says so. Never claim a provider is connected without a real test or saved key.
 
-### Step 3 — Data & capabilities (the screen that must be organized well)
+### Step 3 — Included data (flat, no accordions)
 
-**Purpose:** let the user choose outcomes, not vendors. This is one screen with
-three stacked sections, only one expanded at a time.
+**Purpose:** show exactly what ships with Eclipse and let the user turn any
+included source off. There are no expand/collapse rows and no dropdowns.
 
-Header: "Choose what Eclipse can use. Nothing here is charged. Keys stay on this
-machine."
+- Bundle chips at the top (Research / Personal trader / Commercial / Crypto /
+  Custom) apply a starting point only.
+- Four flat cards: **Company research**, **Macro & economics**, **World events**,
+  **News headlines**. Each card lists its source rows with a label, commercial
+  badge, note and an accessible switch.
+- A count line ("N included sources enabled") and a note that live prices,
+  crypto and search are configured on the next step.
+- A short community-sources note explains that those live on the next step and
+  stay off unless accepted. It does **not** hide a checkbox in an accordion.
 
-#### 3A. Bundle chips (optional shortcut)
+| Capability | Included (no account) | Default |
+|---|---|---|
+| **Company research** | SEC EDGAR | ON |
+| **Macro & economics** | FRED public CSV, BEA, BLS, World Bank, Eurostat/ECB | ON |
+| **World events** | GDELT, USGS, NASA FIRMS (verify) | ON |
+| **News headlines** | Official regulator/central-bank RSS | ON |
 
-At the top, four chips apply a sensible starting point; the user can still edit
-everything below:
+### Step 4 — Connect providers (flat, sectioned)
 
-| Bundle | What it applies |
-|---|---|
-| **Research (no keys)** | Included open data on; live prices off; AI already chosen in step 2 |
-| **Personal trader** | Included open data + community market sources (with acknowledgement) |
-| **Commercial** | Included open data + "connect a licensed provider"; community sources off |
-| **Custom** | Nothing pre-selected; user picks rows |
+**Purpose:** make the one legally-sensitive decision — live prices — explicit,
+then offer optional providers in plain sections. No accordions.
 
-The selected bundle is only a starting point. Changing a row switches the chip
-to **Custom**.
+- Header: "Eclipse does not include exchange price data."
+- **Live prices** — three radio cards:
+  1. **Licensed provider** — provider cards (Polygon, Twelve Data, Alpha
+     Vantage, Marketstack, Finnhub) with a key field and Save.
+  2. **Community sources** — one acknowledgement checkbox, then flat toggles for
+     TradingView / Yahoo / HTTP / Browser / Scrapling. Personal use only.
+  3. **Skip for now** — charts show `UNAVAILABLE`; everything else works.
+- **Crypto (optional)** — CoinMarketCap and CoinGecko paid provider cards; a
+  separate acknowledgement + flat toggles for Binance/Kraken/CoinGecko Demo.
+- **Research search (optional)** — Tavily/Brave/Exa/Serper cards; a separate
+  acknowledgement + toggle for the keyless DuckDuckGo source.
+- **More macro & company** — Trading Economics, FMP, Finnhub cards.
+- Every provider card has `Connected` status, a masked key field, Save and a
+  Terms link. Keys are saved through the existing encrypted vault.
 
-#### 3B. Capability rows (the main organization)
+Acknowledgements are **local to their section** (prices, crypto, search), never
+a hidden cross-step flag.
 
-Each row shows a capability, its current status, and a `Configure` expander.
-Statuses: **Ready**, **Needs a key**, **Off**, **Unavailable**.
-
-| Capability | Included (no account) | Connect your own | Default |
-|---|---|---|---|
-| **Company research** (filings, fundamentals) | SEC EDGAR | FMP, Finnhub | Included ON |
-| **US macro** | FRED, BEA, BLS | Trading Economics | Included ON |
-| **Global macro** | World Bank, Eurostat/ECB | — | Included ON |
-| **World events** | GDELT, USGS; NASA FIRMS (verify) | — | Included ON |
-| **Live prices & charts** | *None* | Polygon.io (US), Twelve Data (global), Finnhub, Alpha Vantage, Marketstack, FMP | **Decision required** |
-| **News & research search** | keyless fallback (DuckDuckGo) | Finnhub, Tavily, Brave, Exa, Serper | Included ON / key optional |
-| **Crypto** | *None* | CoinMarketCap, CoinGecko paid; community exchange sources in Advanced | Off |
-| **Advanced / community** | TradingView, Yahoo, Binance, CoinGecko Demo, scraper | — | **Off, collapsed** |
-
-Expanding a row shows only that capability's sources, what each powers, the
-commercial badge, and the key/test UI. No vendor dump on first paint.
-
-#### 3C. Live prices decision card (the important one)
-
-Because this is where a new user most often gets stuck, make it one explicit
-choice with three radio options:
-
-1. **Connect a licensed provider — recommended** (especially Commercial)
-   - Quick-connect: Polygon.io (US), Twelve Data (global), Finnhub (news +
-     quotes), Alpha Vantage, Marketstack, FMP.
-   - Each opens key + `Test`; on success the row becomes **Ready**.
-   - Copy: "Live exchange prices require a provider you are licensed to use.
-     Eclipse does not include them."
-2. **Use community sources — personal use only**
-   - Shows TradingView / Yahoo / Binance / CoinGecko Demo with their terms.
-   - Off by default. Enabling requires checking **"I understand these are for
-     personal use and I accept each provider's terms."**
-   - Recorded as `acceptedRestrictedSources`, never silent.
-   - In Commercial mode this option is hidden unless the user opens Advanced and
-     explicitly acknowledges; the normal commercial path is option 1.
-3. **Skip live prices for now**
-   - Copy: "Charts and quote pages will show UNAVAILABLE until you connect a
-     provider. Filings, macro, news and chat still work."
-   - This is a valid, honest first-run state.
-
-#### 3D. Advanced accordion (collapsed)
-
-"Community sources (personal use)" — the sources we do **not** recommend as
-built-ins for a paid product: TradingView scanner, Yahoo/yfinance, Binance,
-CoinGecko keyless, HTTP/browser scraper, DuckDuckGo HTML search. Each has:
-- `PERSONAL ONLY` / `VERIFY TERMS` badge,
-- a one-line reason,
-- terms link,
-- toggle (off, requires acknowledgement).
-
-If the user never opens this accordion, the app never uses these sources.
-
-#### 3E. Summary strip (sticky above the footer)
-
-Always shows the outcome, so the user never has to infer it:
-
-> **Ready:** Chat, filings, US/global macro, world events, news search.
-> **Needs setup:** live prices (connect a provider or skip).
-> **Off:** crypto, community sources.
-
-### Step 4 — Review & readiness
+### Step 5 — Review & readiness
 
 **Purpose:** prove the app will work before the user lands in it.
 
@@ -423,10 +397,11 @@ src/lib/data-source-preferences.ts   # SERVER enforcement helper (no React)
 src/components/setup/
   onboarding-gate.tsx    # mount point; fetches state, renders overlay or null
   onboarding-shell.tsx   # full-screen frame, step machine, footer, focus trap
-  steps/welcome-step.tsx # mode + bundle
-  steps/ai-step.tsx      # local / own key / custom / later
-  steps/data-step.tsx    # capability rows + live-prices decision + advanced
-  steps/review-step.tsx  # capability checklist + Run check + finish
+  steps/welcome-step.tsx  # mode + bundle
+  steps/ai-step.tsx       # local / own key / custom / later
+  steps/included-step.tsx # flat open-data cards + switches (no accordions)
+  steps/providers-step.tsx# live-prices choice + section-local provider cards
+  steps/review-step.tsx   # capability checklist + Run check + finish
   parts/capability-row.tsx
   parts/source-row.tsx
   parts/license-badge.tsx
@@ -654,7 +629,7 @@ POST round-trips; check reports real statuses.
 fetcher runs, with no fabricated data.
 
 ### Phase 3 — Onboarding UI
-9. Build `OnboardingGate` + `OnboardingShell` + the four steps:
+9. Build `OnboardingGate` + `OnboardingShell` + the five splash-style steps:
    welcome/mode, AI, data/capabilities (with the three-way live-prices decision
    and the collapsed Advanced section), review/readiness.
 10. Build the capability-row and readiness-table components; reuse
@@ -762,7 +737,7 @@ matches what Run check reports; existing install never sees the gate.
 |---|---|---|
 | 1 | Catalog, capabilities, bundles, state, routes, check, migration, tests | 1–1.5 days |
 | 2 | Enforcement across scraper/connectors/econ/investor-eye + tests | 1–1.5 days |
-| 3 | Gate, shell, 4 steps, capability rows, provider/key reuse, mounting | 2–2.5 days |
+| 3 | Gate, splash shell, 5 flat steps, provider/key reuse, mounting | 2-2.5 days |
 | 4 | Polish, error states, accessibility, full test pass | 0.5–1 day |
 
 Total: ~4.5–6.5 engineering days. Phase 1+2 must land before the UI so the
@@ -796,3 +771,199 @@ Ship in this order:
 8. **Ask a lawyer before charging money** for a build that enables non-open
    sources. The labels in this plan are engineering guidance, not a legal
    opinion.
+
+---
+
+## 13. Restarting onboarding and starting over
+
+Three different user intents must not share one destructive button. Each scope
+is explicit about what it removes and what it keeps.
+
+| Scope | Use when | Removes | Keeps |
+|---|---|---|---|
+| **Re-run onboarding** | "I want to redo the setup questions" | `onboarding_v1` only (the wizard opens prefilled from current prefs) | Keys, AI config, chats, portfolio, journal, research, everything else |
+| **Reset setup & connections** | "I want a clean configuration but keep my data" | `onboarding_v1`, `data_source_prefs_v1`, `llm_config`, provider-key vault, MCP server config | Chats, portfolio, journal, research, artifacts, skills |
+| **Factory reset (start from scratch)** | "Clear Eclipse and begin as a new user" | All three databases (`jdds.db`, `agent-memory.db`, `eclipse-memory.db`) + sidecars, `.black-eclipse/` runtime state, backups, connector key, MCP config, provider keys, configs, chats, portfolio, journal, research, skills, artifacts, recordings. Optionally `.env`. | Source code only |
+
+The existing `scripts/wipe-personal-data.js` is already the low-level primitive
+for the factory scope (it refuses paths outside the repo/vault roots and never
+touches source). Do **not** write a second deletion implementation.
+
+### 13.1 Settings UI
+
+**General → Onboarding (new card)**
+
+- Title: **Setup**
+- `Run setup again` — calls the API with `scope:"onboarding"`, then opens
+  `/?setup=1` (the gate treats that query as "show even if completed").
+- Copy: "Opens the welcome questions again. Your API keys, chats and portfolio
+  are not changed."
+
+**Data & Storage → Danger zone (extend the existing section)**
+
+- **Reset setup & API keys** — moderate.
+  - Lists exactly what is removed/kept (the table above).
+  - Requires typing `RESET`.
+  - `Cancel` / `Reset setup`.
+- **Factory reset — start from scratch** — destructive.
+  - Lists exactly what is removed.
+  - Requires typing `WIPE`.
+  - Checkbox `Create a backup first` (default ON). Backup goes to
+    `backups/reset-<timestamp>/` and the path is shown after the reset.
+  - Checkbox `Also delete .env` (default OFF, with a warning that it removes
+    host configuration and secrets).
+  - Because the running Next process cannot safely delete live SQLite files on
+    Windows, this does **not** delete in-process. It writes a reset request
+    marker and shows:
+    - "Reset scheduled. Restart Eclipse to finish."
+    - the exact command: `black reset --factory` (or simply restarting with
+      `black eclipse` / `npm run dev`, which consumes the marker at boot).
+  - If the user is already in a terminal-only environment, the CLI path is the
+    primary path; the UI is the discoverable path.
+
+Styling follows the existing frosted-glass system; the destructive cards use
+the existing rose tone and the `confirmDestructive` preference from
+`general-prefs.ts`.
+
+### 13.2 Shared reset module
+
+```
+scripts/lib/reset.js
+  listScopes()                 # dry-run summary of what each scope touches
+  resetOnboarding({ dataDir }) # remove onboarding_v1 only
+  resetSetup({ dataDir })      # onboarding + prefs + llm_config + key vault
+  requestFactoryReset(opts)    # write .black-eclipse/reset-request.json
+  consumeFactoryReset(opts)    # boot-time: backup (optional) -> wipe -> remove marker
+  runFactoryReset(opts)        # CLI: stop servers -> backup -> wipe -> optional start
+```
+
+Marker shape (`.black-eclipse/reset-request.json`):
+```json
+{ "scope": "factory", "requestedAt": "...", "backup": true,
+  "includeEnv": false, "requestedBy": "settings" }
+```
+
+**Boot consumption:** `scripts/doctor.js` runs before every `black eclipse`,
+`npm run dev` (`predev`), and `npm run start` (`prestart`). Add
+`consumeFactoryReset()` near the top, **before** the DB guard creates or opens
+`jdds.db`, so a pending reset never leaves an empty DB behind. It:
+1. Reads the marker.
+2. If `backup`, copies the DBs + config to `backups/reset-<timestamp>/` (the app
+   is not running at this point, so the copy is consistent).
+3. Runs the existing wipe script with `--confirm=WIPE` (+ `--include-env`).
+4. Deletes the marker and logs one line per removed root.
+5. Continues boot; the app sees no data and shows onboarding.
+
+If the marker is malformed or outside the allowed roots, doctor logs and
+ignores it — never guesses.
+
+### 13.3 CLI
+
+Add to `bin/black.js`:
+
+```
+black onboarding                 # re-run onboarding on next start (non-destructive)
+black reset --onboarding         # remove onboarding_v1 only
+black reset --setup              # onboarding + prefs + AI config + provider keys
+black reset --factory            # stop servers, backup, wipe, then start
+black reset --factory --no-backup
+black reset --factory --include-env
+black reset --factory --no-start
+black reset --list               # dry run: show every path that would change
+```
+
+Rules:
+- `--factory` without `--confirm=WIPE` prompts for the literal word `WIPE` in an
+  interactive terminal; non-interactive shells require `--confirm=WIPE`.
+- `--factory` stops production and development first (`black stop --all`),
+  otherwise the delete can fail on Windows file locks.
+- `black onboarding` is intentionally different from `black reset --factory`:
+  it only re-asks the questions. It prints the URL and starts the app if it is
+  not running.
+- Exit codes: `0` success, `1` refused/failed, `2` bad usage.
+- Help text and `black help` updated.
+
+npm aliases (so users who never link the CLI still have one-liners):
+
+```json
+"reset:onboarding": "node scripts/reset.js --onboarding",
+"reset:setup":      "node scripts/reset.js --setup",
+"reset:factory":    "node scripts/reset.js --factory",
+"reset:list":       "node scripts/reset.js --list"
+```
+
+`data:wipe` stays as the low-level primitive and is documented as the same
+operation as `--factory` without the server stop/start wrapper.
+
+### 13.4 API
+
+`POST /api/setup/reset`
+
+```ts
+{
+  scope: "onboarding" | "setup" | "factory";
+  confirm: "RESET" | "WIPE";      // required for setup/factory
+  backup?: boolean;                // factory, default true
+  includeEnv?: boolean;            // factory, default false
+}
+```
+
+Behavior:
+- `guardMutation` + rate limit.
+- `onboarding`: delete `onboarding_v1`; return
+  `{ ok: true, reload: "/?setup=1" }`.
+- `setup`: delete `onboarding_v1`, `data_source_prefs_v1`, `llm_config`, all
+  provider-key vault entries; invalidate the settings cache; return
+  `{ ok: true, reload: "/?setup=1" }`.
+- `factory`: do **not** delete live files. Write the marker with
+  `requestedBy:"settings"`; return
+  `{ ok: true, scheduled: true, command: "black reset --factory" }`.
+- Never echo key values or file contents. Log only scope + timestamp.
+- If `HARNESS_AUTH=required`, require a valid session; a future enhancement can
+  re-ask for the password.
+
+### 13.5 Safety rules
+
+1. **No silent reset.** Every scope names exactly what is removed and requires a
+   typed confirmation (UI) or `--confirm=WIPE` (CLI).
+2. **Backup before factory by default.** Print the backup path. `--no-backup`
+   must be explicit.
+3. **Never delete source, `node_modules`, or files outside the repo/vault
+   roots.** The existing wipe guard stays authoritative.
+4. **Do not delete `.env` by default.** It holds host configuration; require
+   `--include-env` / the checkbox.
+5. **Do not delete live SQLite files from the web process.** Schedule + consume
+   at boot, or run the CLI with the server stopped.
+6. **Idempotent.** Re-running a scope on a clean install is a no-op with a clear
+   message.
+7. **Audit line.** Append `{scope, at, backupPath}` to
+   `.black-eclipse/reset.log` (no secrets). The log itself is removed by a
+   later factory reset.
+8. **Auth-aware.** If auth is enabled, the API requires a session; the CLI
+   refuses to run `--factory` while the app is serving unless it can stop it.
+
+### 13.6 Tests
+
+- `reset.test.ts`: scope boundaries (onboarding keeps keys/chats; setup keeps
+  chats but removes keys; factory marker contains the right flags).
+- `api/setup/reset/route.test.ts`: confirmation required; factory never deletes
+  in-process; onboarding/setup return the reload path; cache invalidation.
+- `scripts/lib/reset.test.js`: allowed-root guard; dry run lists only owned
+  paths; malformed marker ignored; backup path created; no source path matched.
+- CLI smoke: `black reset --list` on a temp fixture; `--factory --no-start`
+  removes only fixtures; `--confirm` required in non-interactive mode.
+- Boot test: doctor consumes a marker before DB creation, wipes, and leaves the
+  app in a new-install state (onboarding gate appears).
+
+### 13.7 Docs
+
+- `docs/QUICKSTART.md` → "Starting over" with the three scopes and commands.
+- `docs/data-and-privacy.md` → reset vs wipe, backup, `.env` caveat, unencrypted
+  disk caveat (already documented for wipe).
+- `docs/NAVIGATION.md` → a row for reset/onboarding: `bin/black.js`,
+  `scripts/lib/reset.js`, `scripts/wipe-personal-data.js`,
+  `src/app/api/setup/reset/route.ts`, Settings "Danger zone".
+- `docs/CHANGELOG.md` on implementation.
+- `docs/DECISIONS.md` (app ADR) for the three-scope reset contract and the
+  "schedule + consume at boot" decision, because it changes how the app handles
+  destructive data operations.

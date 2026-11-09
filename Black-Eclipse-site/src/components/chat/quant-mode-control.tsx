@@ -50,12 +50,14 @@ export function QuantModeControl({ disabled = false }: { disabled?: boolean }) {
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-52">
-        <DropdownMenuLabel>Quant protocol</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={mode}
           onValueChange={(value) => setQuantMode(value as QuantMode)}
           disabled={disabled}
         >
+          {/* GroupLabel must live inside a Group/RadioGroup or Base UI throws
+              "MenuGroupContext is missing" when the submenu mounts. */}
+          <DropdownMenuLabel>Quant protocol</DropdownMenuLabel>
           <DropdownMenuRadioItem value="auto">Auto — classifier decides</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="on">On — every run</DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="off">Off — never add it</DropdownMenuRadioItem>

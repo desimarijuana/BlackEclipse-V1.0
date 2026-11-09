@@ -4,6 +4,7 @@
 const { execSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { consumeFactoryReset } = require("./lib/reset");
 
 const root = path.join(__dirname, "..");
 
@@ -61,6 +62,21 @@ const jddsPath = path.join(dataDir, "jdds.db");
     process.exit(1);
   }
 }
+// ── Pending factory reset ───────────────────────────────────────────────────
+// The Settings danger zone writes a marker instead of deleting live SQLite from
+// the web process. Consume it here, BEFORE the DB guard opens/creates jdds.db,
+// so the app boots as a genuinely new install. The vault must be mounted first
+// (the guard above), otherwise we would wipe the wrong disk.
+{
+  try {
+    const result = consumeFactoryReset({ log: (m) => console.log(m) });
+    if (result) console.log("[setup] factory reset consumed; continuing with a fresh install.");
+  } catch (err) {
+    console.error(`[setup] factory reset failed: ${err && err.message ? err.message : err}`);
+    process.exit(1);
+  }
+}
+
 let fixed = 0;
 
 function run(cmd, opts = {}) {

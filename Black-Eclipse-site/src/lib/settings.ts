@@ -39,6 +39,15 @@ export async function setConfig(key: string, value: string): Promise<void> {
   });
 }
 
+/** Remove a config row entirely (used by the setup reset scopes). */
+export async function deleteConfig(key: string): Promise<void> {
+  try {
+    await prisma.systemConfig.delete({ where: { key } });
+  } catch {
+    // Absent row = already clean; reset is idempotent.
+  }
+}
+
 export async function getConfigJSON<T>(key: string, fallback: T): Promise<T> {
   const raw = await getConfig(key);
   if (!raw) return fallback;

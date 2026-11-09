@@ -15,6 +15,7 @@ import { fetchScraplingQuote } from "./scrapling";
 import { fetchYfinanceQuote } from "./yfinance";
 import { fetchTradingViewQuote, isTradingViewMarket } from "./tradingview";
 import { prisma } from "@/lib/db";
+import { isDataSourceEnabled } from "@/lib/data-source-preferences";
 
 export type Strategy = "tradingview" | "http" | "browser" | "crypto" | "scrapling" | "yfinance";
 
@@ -27,43 +28,55 @@ export async function fetchQuoteWithFallback(
   market: string
 ): Promise<FetchResult> {
   // Crypto uses its own endpoint first (dedicated free ticker, no key).
-  if (market === "CRYPTO") {
+  if (market === "CRYPTO" && (await isDataSourceEnabled("binance"))) {
     const cryptoResult = await tryStrategy("crypto", () => fetchCryptoQuote(symbol));
     if (cryptoResult.status === "ok") return cryptoResult;
     // Fall through to web fetch for crypto if the endpoint fails.
   }
 
   // TradingView whole-market scan — the PRIMARY strategy for covered markets.
-  if (isTradingViewMarket(market) && (await shouldUseStrategy("tradingview", market))) {
+  if (
+    (await isDataSourceEnabled("tradingview")) &&
+    isTradingViewMarket(market) &&
+    (await shouldUseStrategy("tradingview", market))
+  ) {
     const tvResult = await tryStrategy("tradingview", () => fetchTradingViewQuote(symbol, market));
     if (tvResult.status === "ok") return tvResult;
   }
 
   // yfinance bridge (batched, session-reusing) — the primary strategy for
   // markets not covered by TradingView (e.g. US).
-  if (await shouldUseStrategy("yfinance", market)) {
+  if ((await isDataSourceEnabled("yfinance")) && (await shouldUseStrategy("yfinance", market))) {
     const yfResult = await tryStrategy("yfinance", () => fetchYfinanceQuote(symbol, market));
     if (yfResult.status === "ok") return yfResult;
   }
 
   // HTTP + cheerio (cheapest, works on static pages)
-  const httpResult = await tryStrategy("http", () => fetchHttpQuote(symbol, market));
-  if (httpResult.status === "ok") return httpResult;
+  let httpResult: FetchResult | null = null;
+  if (await isDataSourceEnabled("http")) {
+    httpResult = await tryStrategy("http", () => fetchHttpQuote(symbol, market));
+    if (httpResult.status === "ok") return httpResult;
+  }
 
   // Scrapling (best anti-bot bypass) — preferred when Python + Scrapling are available.
-  if (await shouldUseStrategy("scrapling", market)) {
+  if ((await isDataSourceEnabled("scrapling")) && (await shouldUseStrategy("scrapling", market))) {
     const scraplingResult = await tryStrategy("scrapling", () => fetchScraplingQuote(symbol, market));
     if (scraplingResult.status === "ok") return scraplingResult;
   }
 
   // Browser (playwright) escalation as a final fallback.
-  if (await shouldUseStrategy("browser", market)) {
+  if ((await isDataSourceEnabled("browser")) && (await shouldUseStrategy("browser", market))) {
     const browserResult = await tryStrategy("browser", () => fetchBrowserQuote(symbol, market));
     if (browserResult.status === "ok") return browserResult;
   }
 
-  // Return the best failure (http result is usually most informative)
-  return httpResult;
+  // Return the most informative failure, or an honest "disabled" result when
+  // every source was turned off in setup — never a fabricated quote.
+  return httpResult ?? {
+    status: "blocked",
+    error: "All price sources are disabled in setup",
+    source: "none",
+  };
 }
 
 async function tryStrategy(
