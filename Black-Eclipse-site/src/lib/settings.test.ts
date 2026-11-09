@@ -107,4 +107,29 @@ describe("setLLMConfig / getLLMConfig", () => {
     await setLLMConfig({ reasoningEffort: null });
     expect((await getLLMConfig()).reasoningEffort).toBeUndefined();
   });
+
+  it("persists sampling defaults and clamps them to what providers accept", async () => {
+    await setLLMConfig({ provider: "ollama", baseUrl: "http://localhost:11434/v1", model: "llama3.1", apiKey: "" });
+
+    await setLLMConfig({ temperature: 1.4, maxTokens: 512.9 });
+    const saved = await getLLMConfig();
+    expect(saved.temperature).toBe(1.4);
+    expect(saved.maxTokens).toBe(512);
+
+    // Out-of-range values are sanitized, never persisted raw.
+    await setLLMConfig({ temperature: 9, maxTokens: 0 });
+    const clamped = await getLLMConfig();
+    expect(clamped.temperature).toBe(2);
+    expect(clamped.maxTokens).toBeUndefined();
+  });
+
+  it("clears sampling defaults back to Auto on explicit null", async () => {
+    await setLLMConfig({ provider: "ollama", baseUrl: "http://localhost:11434/v1", model: "llama3.1", apiKey: "" });
+    await setLLMConfig({ temperature: 0.3, maxTokens: 1024 });
+
+    await setLLMConfig({ temperature: null, maxTokens: null });
+    const cfg = await getLLMConfig();
+    expect(cfg.temperature).toBeUndefined();
+    expect(cfg.maxTokens).toBeUndefined();
+  });
 });

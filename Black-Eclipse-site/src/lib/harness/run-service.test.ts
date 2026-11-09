@@ -161,6 +161,30 @@ describe("startRun", () => {
     expect("contextWindow" in runViaRuntime.mock.calls[0][0].modelSettings).toBe(false);
   });
 
+  it("forwards saved sampling defaults to the runtime", async () => {
+    getLLMConfig.mockResolvedValue({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "test-key",
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_s", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    const ms = runViaRuntime.mock.calls[0][0].modelSettings;
+    expect(ms.temperature).toBe(0.2);
+    expect(ms.maxTokens).toBe(2048);
+  });
+
+  it("omits sampling defaults on Auto so the payload is unchanged", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_sa", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    const ms = runViaRuntime.mock.calls[0][0].modelSettings;
+    expect("temperature" in ms).toBe(false);
+    expect("maxTokens" in ms).toBe(false);
+  });
+
   it("forwards a user routing preference as input.context.modelPolicy", async () => {
     getLLMConfig.mockResolvedValue({
       provider: "openai",

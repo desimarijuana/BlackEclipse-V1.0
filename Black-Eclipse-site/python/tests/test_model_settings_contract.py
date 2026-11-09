@@ -61,3 +61,16 @@ def test_declared_context_window_is_accepted_camel_case():
 def test_context_window_is_optional_and_unset_by_default():
     settings = ModelSettings(provider="ollama", model="llama3.1")
     assert settings.context_window is None
+
+
+def test_sampling_defaults_accept_camel_case_and_default_to_none():
+    settings = ModelSettings.model_validate({
+        "provider": "openai", "model": "gpt-4o-mini", "apiKey": "k",
+        "temperature": 0.2, "maxTokens": 512,
+    })
+    assert settings.temperature == 0.2
+    assert settings.max_tokens == 512
+
+    auto = ModelSettings(provider="ollama", model="llama3.1")
+    assert auto.temperature is None
+    assert auto.max_tokens is None

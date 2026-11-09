@@ -1,6 +1,16 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(settings): add global temperature and max-output-tokens controls.**
+  Settings › AI gains an opt-in sampling block: temperature (Auto / Precise /
+  Balanced / Creative plus a 0–2 slider) and a blank-by-default output cap.
+  Both persist as `LLMConfig.temperature`/`maxTokens` (null clears back to Auto,
+  values clamped in `setLLMConfig`), round-trip through `/api/settings`, and are
+  forwarded by `resolveModelSettings` only when set — an untouched install sends
+  a byte-identical payload. The runtime maps the cap per provider
+  (OpenAI-compatible/Anthropic/Mistral/Groq `max_tokens`, Gemini
+  `max_output_tokens`) and omits both when absent. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 - **feat(keyboard): audit the global shortcut surface, add four reliable chords,
   and rebuild the help dialog.** The catalogue moved to `src/lib/shortcuts.ts`
   (single source for labels, groups and predicate helpers) and the dialog now

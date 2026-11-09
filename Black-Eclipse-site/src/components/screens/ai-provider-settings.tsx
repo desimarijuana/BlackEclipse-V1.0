@@ -409,6 +409,17 @@ function ActiveSetup({
         onChange={(v) => updateLlm({ reasoningEffort: v }, 0)}
       />
 
+      <div className="grid gap-4 sm:grid-cols-2">
+        <TemperatureControl
+          value={llm.temperature ?? null}
+          onChange={(v) => updateLlm({ temperature: v }, 0)}
+        />
+        <MaxTokensControl
+          value={llm.maxTokens ?? null}
+          onChange={(v) => updateLlm({ maxTokens: v }, 0)}
+        />
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <Label className="text-xs text-muted-foreground font-medium">
           {t('settings.ai.codingModel')}

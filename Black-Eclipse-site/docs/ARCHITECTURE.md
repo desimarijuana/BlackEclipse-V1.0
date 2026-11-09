@@ -1285,6 +1285,17 @@ attaches as context and the answers the agent produces:
     24576 (up from 8192 at High); native OpenAI's `reasoning_effort` has no tier
     above `high`, so its adapter caps Ultra at `high` (honest, not a silent
     downgrade that looks stronger than it is).
+- **Sampling defaults are global and opt-in.** Settings › AI also pins optional
+  `LLMConfig.temperature` (0–2, clamped in `setLLMConfig`) and
+  `LLMConfig.maxTokens` (1…1M). Both are `null`-clearable back to **Auto** and
+  round-tripped through `/api/settings`. `resolveModelSettings` forwards them as
+  `modelSettings.temperature` / `modelSettings.maxTokens` **only when set**, so
+  an untouched install sends the same payload as before. The Python
+  `ModelSettings` contract maps the cap per provider (OpenAI-compatible,
+  Anthropic, Mistral, Groq → `max_tokens`; Gemini → `max_output_tokens`);
+  `build_chat_model` omits both when absent. Temperature applies to every model
+  call in a run and is ignored by some reasoning models — the UI says so rather
+  than implying a guarantee.
 
 ### ChatDock (the Command Center assistant composer)
 

@@ -56,3 +56,36 @@ def test_ollama_is_keyless_and_builds_offline():
 def test_custom_requires_base_url_and_model():
     with pytest.raises(ValueError):
         models.build_chat_model(ModelSettings(provider="custom", model=""))
+
+
+def test_sampling_defaults_reach_the_openai_client(monkeypatch):
+    captured: dict = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import langchain_openai
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChatOpenAI)
+
+    models.build_chat_model(ModelSettings(
+        provider="openai", model="gpt-4o-mini", api_key="k",
+        temperature=0.2, max_tokens=512,
+    ))
+    assert captured["temperature"] == 0.2
+    assert captured["max_tokens"] == 512
+
+
+def test_auto_sampling_defaults_are_not_sent(monkeypatch):
+    captured: dict = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import langchain_openai
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChatOpenAI)
+
+    models.build_chat_model(ModelSettings(provider="openai", model="gpt-4o-mini", api_key="k"))
+    assert "temperature" not in captured
+    assert "max_tokens" not in captured
