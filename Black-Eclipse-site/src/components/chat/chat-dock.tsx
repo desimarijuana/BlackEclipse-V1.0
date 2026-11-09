@@ -57,6 +57,7 @@ import { ApprovalCard } from './approval-card';
 import { ClarificationCard } from './clarification-card';
 import { MessageQueue } from './message-queue';
 import { useMessageQueue } from '@/lib/chat/use-message-queue';
+import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Stable workspace-folder id for the dock, so its runs also persist output. */
@@ -901,6 +902,7 @@ export function ChatDock({
             />
           ) : null}
         </div>
+        <AiOutputNotice variant="composer" className="mt-1.5" />
         {pendingApproval && (
           <ApprovalCard approval={pendingApproval} anchor={composerEl} onDecide={agentRun.decide} />
         )}

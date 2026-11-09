@@ -26,9 +26,9 @@ placement change cannot drift apart.
 
 | Form | Where | Behavior |
 |---|---|---|
-| Label + short sentence | Under every settled assistant answer (`chat-history.tsx`) and in Canvas reports (`response-view.tsx`, opt-in `showNotice`) | Always visible; expands to the full notice. Not dismissible. |
+| Label + short clause | Under every settled assistant answer (`chat-history.tsx`) and in Canvas reports (`response-view.tsx`, opt-in `showNotice`) | One short responsibility clause, not the whole paragraph; the full notice is one click away. Not dismissible. |
 | Composer one-liner | Inside the shared composer (`chat-input.tsx`) and the floating Assistant dock (`chat-dock.tsx`) | Always visible; expands to the full notice. |
-| Full notice + checkbox | New install: first-run wizard, first step (`welcome-step.tsx`). Existing install: one-time `risk-ack-gate.tsx` modal mounted in the root layout. | Required before Continue/Skip (wizard) or before the app is usable (gate); acceptance is recorded. |
+| Full notice + checkbox | New install: first-run wizard, first step (`welcome-step.tsx`). Existing install: `risk-ack-gate.tsx` in the root layout. | Required before Continue/Skip (wizard). On an existing install: a **dismissible banner** on local self-hosted, a **blocking modal** on a hosted/remote deployment. Acceptance is recorded either way. |
 | Order ownership | Trade approval card (`trade-approval-banner.tsx`) | Required checkbox before Confirm & send: the order is the user's decision, verified with the broker. The existing typed live phrase is still required. |
 
 The full text also appears in the chat surfaces via the expandable `<details>`
@@ -49,6 +49,18 @@ in SystemConfig:
 wizard and the in-app gate re-ask after a version bump. Resetting setup deletes
 the record. An install migrated before this feature keeps its onboarding state;
 the gate presents the current notice once instead of forcing a full re-setup.
+
+## Intensity follows the deployment
+
+- **Local self-hosted** (auth off on loopback): the upgrade notice is a
+  dismissible bottom banner with a "Review" action. Dismissal is per-session and
+  records nothing; only checking the box and accepting writes `risk_ack_v1`.
+- **Hosted / remote** (auth required and the request is not loopback): the same
+  notice is a blocking modal, because every user of a multi-user service must
+  accept explicitly.
+- **Every answer** carries only a short clause ("Verify with your broker;
+  decisions are yours"). Repeating the full paragraph every turn causes banner
+  blindness and weakens the conspicuousness the notice is meant to create.
 
 ## Why these words
 

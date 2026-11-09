@@ -11,9 +11,13 @@ export const RISK_DISCLOSURE_VERSION = "2026-11-09";
 /** The one-line label shown with every settled AI answer. */
 export const AI_OUTPUT_LABEL = "AI-generated · not financial advice";
 
-/** The compact sentence under an answer (expandable to the full notice). */
-export const AI_OUTPUT_SHORT =
-  "Output can be wrong, outdated or incomplete. Verify prices, orders and positions with your broker before acting. You are responsible for your decisions.";
+/**
+ * The compact responsibility clause under an answer. One short phrase, not a
+ * paragraph: repeating the whole notice every turn causes banner blindness,
+ * which weakens the conspicuousness it is meant to create. The full text is
+ * always one click away in the expander.
+ */
+export const AI_OUTPUT_INLINE = "Verify with your broker; decisions are yours.";
 
 /** The shortest form, kept permanently near the composer. */
 export const AI_COMPOSER_NOTICE =

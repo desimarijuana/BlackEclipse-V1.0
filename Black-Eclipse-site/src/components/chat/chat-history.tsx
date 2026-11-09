@@ -23,6 +23,7 @@ import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ComputedResultPanel } from './computed-result-panel';
 import { CanvasInlineNotice } from '@/components/screens/canvas/canvas-banner';
+import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 
 import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
@@ -619,6 +620,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   ) : null}
                   {msg.documents ? (
                     <DocumentPanel documents={msg.documents} compact={compact} />
+                  ) : null}
+                  {/* Point-of-use notice: the short responsibility clause,
+                      not the whole paragraph (which causes banner blindness). */}
+                  {!working && msg.content && !restatesError(msg.content, msg.error) ? (
+                    <AiOutputNotice className={compact ? 'text-[9.5px]' : undefined} />
                   ) : null}
                     </>
                   )}

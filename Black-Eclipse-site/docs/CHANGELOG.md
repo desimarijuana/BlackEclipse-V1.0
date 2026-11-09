@@ -1,6 +1,25 @@
 # Change Log
 
 ## 2026-11-09
+- **refine(legal): restore the short per-answer clause and make gate intensity
+  deployment-aware.** The per-answer notice is back as ONE responsibility clause
+  ("Verify with your broker; decisions are yours") with the full text behind the
+  expander — not the whole paragraph every turn. The composer one-liner and the
+  Canvas `showNotice` footer return too. The upgrade notice is a dismissible
+  bottom banner on local self-hosted (auth off on loopback) and a blocking modal
+  only on hosted/remote requests (`GET /api/setup` now reports `hosted` from the
+  auth config + request Host). This supersedes the chat-removal entries below.
+  Docs: `docs/legal/disclosures.md`, ADR-075 in `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md`.
+- **feat(economics): official schedules for BLS/BEA/ECB/BoE/BoJ + cached
+  last-known-good.** `src/lib/economics/calendars/` now parses the institutions'
+  own pages (BLS CPI and Employment Situation, BEA GDP/PCE, ECB decision days,
+  BoE MPC dates, BoJ MPM dates) alongside the FOMC adapter, and release-family
+  matching merges a mirror row with its official counterpart even when titles
+  differ. Snapshot and calendar persist a last-known-good payload in
+  `SystemConfig` and serve it as `CACHED` (with its confirmation date) when
+  providers are briefly unreachable. Docs: `docs/DATA-FLOW.md`,
+  `docs/NAVIGATION.md`.
 - **fix(chat): remove the AI notice from chat entirely.** The composer one-liner,
   the per-answer footer, and the response-view footer are gone; the
   `AiOutputNotice` component and its test were deleted so no chat surface can

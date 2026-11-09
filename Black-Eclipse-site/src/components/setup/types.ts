@@ -63,6 +63,8 @@ export interface SetupState {
   mode: SetupMode;
   /** Recorded acceptance of the current risk notice (see lib/legal). */
   riskAck: SetupRiskAck;
+  /** True when this request is remote/multi-user, so the notice gate blocks. */
+  hosted?: boolean;
   ai: SetupAiStatus;
   bundles: SetupBundleRow[];
   capabilities: SetupCapabilityRow[];

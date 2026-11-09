@@ -22,6 +22,7 @@ import {
 import { probeInstall } from "@/lib/setup/existing-install";
 import { riskAcknowledgementStatus } from "@/lib/legal/acceptance";
 import { RISK_DISCLOSURE_VERSION } from "@/lib/legal/disclosure";
+import { authRequired } from "@/lib/auth/config";
 import type {
   SetupCompleteInput,
   SetupMode,
@@ -47,7 +48,24 @@ async function resolveOnboarding(): Promise<{ completed: boolean; mode: SetupMod
   return { completed: false, mode: "personal", isNewInstall: true };
 }
 
-export async function GET() {
+function isLoopbackHost(host: string | null): boolean {
+  const name = (host ?? "")
+    .toLowerCase()
+    .replace(/:\d+$/, "")
+    .replace(/^\[|\]$/g, "");
+  return name === "localhost" || name === "127.0.0.1" || name === "::1" || name === "blackeclipse";
+}
+
+/**
+ * Whether this request is served to a remote/multi-user deployment. Auth-off on
+ * loopback is the local self-hosted case; there the risk notice is a dismissible
+ * banner. Anything reachable off-machine (or auth-gated) gets the blocking gate.
+ */
+function isHostedRequest(request: Request): boolean {
+  return authRequired() && !isLoopbackHost(request.headers.get("host"));
+}
+
+export async function GET(request: Request) {
   try {
     const resolved = await resolveOnboarding();
     const savedPrefs = await readSourcePreferences();
@@ -117,6 +135,7 @@ export async function GET() {
       isNewInstall: resolved.isNewInstall,
       mode,
       riskAck,
+      hosted: isHostedRequest(request),
       ai,
       bundles: BUNDLES.map((b) => ({
         ...b,
