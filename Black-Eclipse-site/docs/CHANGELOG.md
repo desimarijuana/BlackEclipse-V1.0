@@ -1,9 +1,44 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(economics): real refresh + data-health summary.** Snapshot Refresh now
+  sends `?refresh=1` and actually bypasses the SWR cache (it previously returned
+  the same cached payload); the calendar gained a refresh button with the same
+  bypass. The snapshot header shows how many metrics are LIVE / WEB / CACHED /
+  UNAVAILABLE, and the provenance copy explains each state. Docs:
+  `docs/DATA-FLOW.md`.
+- **feat(economics): calendar time horizon.** `/api/economics/calendar` now
+  accepts `days=7|30|90|all` (default 30) and filters out past mirror rows
+  (12-hour overnight grace) via `filterUpcoming`; the cached payload stays the
+  full feed and filtering runs per request. The Calendar UI gained 7d/30d/90d/All
+  controls without dropping the importance filters. Docs: `docs/DATA-FLOW.md`.
+- **feat(commands): confirmations, durable audit, `/history`, `/usage
+  --commands` and rate limits.** High/critical-risk commands (`/terminal`,
+  `/code`) no longer run on first invocation: they return `pending` with the
+  exact re-run command and a single-use `--confirm <token>` bound to the command,
+  arguments/flags, actor and operator, expiring after five minutes
+  (`command-confirm.ts`). Every terminal result — completed, failed, denied,
+  pending, invalid or unknown — is appended as a redacted JSONL row to
+  `.black-eclipse/command-audit.jsonl` (2 MB rotation), with the sink injected
+  through `CommandDeps.audit` so tests never touch the real file. `/history
+  [limit]` reads it newest-first and `/usage --commands` aggregates status
+  counts, runs per command, p50/p95 duration and high-risk count
+  (`command-audit.ts`). The router also enforces a sliding window per
+  actor+command (`command-rate-limit.ts`, risk-based: 4/6/20/60/120 per minute,
+  overridable per spec). The confirm flag is now a contract-test invariant for
+  every high-risk command. The command-registry ratchet moved 1379→1411 for
+  `/history`, the usage flag and the confirm flags.
+  Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
+- **fix(company): filing list no longer disappears with fundamentals.** The
+  company detail rendered Filings only inside the fundamentals tabs, so a symbol
+  with no statement data could not reach its SEC/PSX filing list. The detail now
+  renders a standalone **Filings** section when fundamentals are unavailable or
+  empty; the filing index is independent of statement data. Docs:
+  `docs/DATA-FLOW.md`.
 - **fix(eval): make the release gate honest again.** The hallucination grader now
-  counts every source the release gate withheld as fabricated — grading only the
-  redacted answer let a fabrication pass — while `test_graph` asserts the
+  counts a source the release gate withheld as fabricated when it falls outside
+  the task's declared source contract — grading only the redacted answer let a
+  fabrication pass — while `test_graph` asserts the
   documented redaction (`unverified source` + withheld note, no pointer). The
   live-baseline pin follows the newest recorded `live:7e9d…` run (task_success
   **0.9574**, superseding the 0.8520 ADR-071 pin), and the corpus manifest is
