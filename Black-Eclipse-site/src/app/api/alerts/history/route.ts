@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   const range = searchParams.get("range") || "30d";
   const limit = Math.min(200, Math.max(1, parseInt(searchParams.get("limit") || "100", 10)));
   const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10));
-  const take = Math.min(500, limit + offset);
+  const take = Math.min(2000, limit + offset);
 
   const since = RANGE_HOURS[range] ? new Date(Date.now() - RANGE_HOURS[range] * 3600_000) : null;
 

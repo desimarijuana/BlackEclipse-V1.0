@@ -326,8 +326,11 @@ The product rule stands: **never present stale or simulated data as live.**
   `alert|task|approval|agent|bot`; unknown kinds fall back to `alert`.
 - `/api/alerts/history` → `{ alerts, total, capped, range }`. Query: `q`
   (title/body/symbol contains), `kind`, `tab`, `range` (`24h|7d|30d|all`),
-  `limit`, `offset`. The rows union `AppNotification` with the price engine's
-  `PriceAlertEvent` log (deduped by id) and are returned newest-first.
+  `limit` (1–200), `offset`. The rows union `AppNotification` with the price
+  engine's `PriceAlertEvent` log (deduped by id) and are returned newest-first.
+  The union is computed inside a bounded window (up to 2000 rows), and `total`
+  is that window's row count, so offset paging never promises rows it cannot
+  return.
 - DataHub entry → `{ data, source: DataSource, updatedAt, error?, sourceId? }`
   where `DataSource` is
   `LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED | CUSTOM | UNAVAILABLE`

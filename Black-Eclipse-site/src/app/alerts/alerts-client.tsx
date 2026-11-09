@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { TabBar } from "@/components/ui/tab-bar";
+import { ServerPaginationFooter } from "@/components/ui/pagination";
 import { PageHeader } from "@/components/layout/page-header";
 import { useSubroute } from "@/hooks/use-subroute";
 import { sound } from "@/lib/sounds";
@@ -120,9 +121,9 @@ const HISTORY_KIND_STYLE: Record<string, string> = {
   bot: "text-emerald-300 bg-emerald-400/10 border-emerald-400/30",
 };
 
-/** Map the UI scope onto the API's kind/tab filters. */
-function historyQueryString(scope: HistoryScope, range: HistoryRange, q: string): string {
-  const p = new URLSearchParams({ range, limit: "100" });
+/** Map the UI scope onto the API's kind/tab filters and paging window. */
+function historyQueryString(scope: HistoryScope, range: HistoryRange, q: string, limit: number, offset: number): string {
+  const p = new URLSearchParams({ range, limit: String(limit), offset: String(offset) });
   if (q) p.set("q", q);
   if (scope === "news") p.set("tab", "news");
   else if (scope === "price") p.set("tab", "alerts");
@@ -170,6 +171,8 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
   const [historyRange, setHistoryRange] = useState<HistoryRange>("all");
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyQueryDraft, setHistoryQueryDraft] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(50);
 
   // Global search: 'alerts.watches' | 'alerts.create' | 'alerts.history'.
   useSubroute('alerts', (req) => {
@@ -209,7 +212,10 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const qs = historyQueryString(historyScope, historyRange, historyQuery);
+      const qs = historyQueryString(
+        historyScope, historyRange, historyQuery,
+        historyPageSize, (historyPage - 1) * historyPageSize,
+      );
       const res = await fetch(`/api/alerts/history?${qs}`, { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
@@ -220,7 +226,13 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
     } finally {
       setHistoryLoading(false);
     }
-  }, [historyScope, historyRange, historyQuery]);
+  }, [historyScope, historyRange, historyQuery, historyPage, historyPageSize]);
+
+  // If a filter/delete shrinks the archive below the current page, clamp.
+  useEffect(() => {
+    const pages = Math.max(1, Math.ceil(historyTotal / Math.max(1, historyPageSize)));
+    if (historyPage > pages) setHistoryPage(pages);
+  }, [historyTotal, historyPageSize, historyPage]);
 
   useEffect(() => {
     loadAll();
@@ -452,13 +464,17 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
           total={historyTotal}
           loading={historyLoading}
           scope={historyScope}
-          onScopeChange={setHistoryScope}
+          onScopeChange={(v) => { setHistoryScope(v); setHistoryPage(1); }}
           range={historyRange}
-          onRangeChange={setHistoryRange}
+          onRangeChange={(v) => { setHistoryRange(v); setHistoryPage(1); }}
           queryDraft={historyQueryDraft}
           onQueryDraftChange={setHistoryQueryDraft}
-          onSearch={() => setHistoryQuery(historyQueryDraft.trim())}
-          onClear={() => { setHistoryQueryDraft(""); setHistoryQuery(""); }}
+          onSearch={() => { setHistoryQuery(historyQueryDraft.trim()); setHistoryPage(1); }}
+          onClear={() => { setHistoryQueryDraft(""); setHistoryQuery(""); setHistoryPage(1); }}
+          page={historyPage}
+          pageSize={historyPageSize}
+          onPage={setHistoryPage}
+          onPageSize={(n) => { setHistoryPageSize(n); setHistoryPage(1); }}
           tableRef={listRef}
           rowAttributes={historyNav.rowAttributes}
           isSelected={historyNav.isSelected}
@@ -556,6 +572,7 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete, tableRef, rowA
 function HistoryTable({
   rows, total, loading, scope, onScopeChange, range, onRangeChange,
   queryDraft, onQueryDraftChange, onSearch, onClear,
+  page, pageSize, onPage, onPageSize,
   tableRef, rowAttributes, isSelected,
 }: {
   rows: HistoryRow[];
@@ -569,6 +586,10 @@ function HistoryTable({
   onQueryDraftChange: (v: string) => void;
   onSearch: () => void;
   onClear: () => void;
+  page: number;
+  pageSize: number;
+  onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
   tableRef: React.RefObject<HTMLDivElement | null>;
   rowAttributes: (id: string) => { 'data-list-id': string };
   isSelected: (id: string) => boolean;
@@ -672,6 +693,19 @@ function HistoryTable({
           </table>
         )}
       </div>
+
+      <ServerPaginationFooter
+        total={total}
+        limit={pageSize}
+        offset={(page - 1) * pageSize}
+        count={rows.length}
+        onOffset={(next) => onPage(Math.max(1, Math.floor(next / Math.max(1, pageSize)) + 1))}
+        onLimit={onPageSize}
+        maxPageSize={200}
+        numbered
+        disabled={loading}
+        label="archived alerts"
+      />
     </div>
   );
 }

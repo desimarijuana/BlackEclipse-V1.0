@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star, AlertTriangle, Bell } from '@/lib/icons';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -11,7 +10,11 @@ import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
 import { loadPortfolioSymbols } from '@/lib/news/client-context';
 import { NewsPagination } from '@/components/screens/news-pagination';
+import { NewsSavedView } from '@/components/screens/news-saved-view';
+import { NewsDetailDialog } from '@/components/screens/news-detail-dialog';
 import { PageSizeInput } from '@/components/ui/pagination';
+import { adoptLegacySaves, loadSaved, saveSaved, saveLegacyIds } from '@/lib/news/saved';
+import { relativeTime } from '@/lib/news/relative-time';
 import {
   clearCardSettings,
   DEFAULT_CARD_SETTINGS,
@@ -55,19 +58,7 @@ export interface NewsPulse {
   neutral?: number;
 }
 
-// Relative time formatter for DB timestamps ("12m ago", "3h ago", "2d ago").
-function relativeTime(iso: string): string {
-  const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return 'recent';
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+// Relative time comes from `lib/news/relative-time` (shared with saved view).
 
 interface MarketNewsProps {
   onDiscussNews?: (news: NewsItem) => void;
@@ -184,13 +175,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   const [myStocksOnly, setMyStocksOnly] = useState(false);
   const [watchTickers, setWatchTickers] = useState<string[]>([]);
   const [savedView, setSavedView] = useState(false);
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [savedItems, setSavedItems] = useState<NewsItem[]>([]);
+  const [legacySavedIds, setLegacySavedIds] = useState<Set<string>>(new Set());
+  const savedIds = useMemo(
+    () => new Set([...savedItems.map((item) => item.id), ...legacySavedIds]),
+    [savedItems, legacySavedIds],
+  );
   const [highAlertOnly, setHighAlertOnly] = useState(false);
   const [portfolioTickers, setPortfolioTickers] = useState<string[]>([]);
   const [alertNotice, setAlertNotice] = useState<string | null>(null);
   const [actingAlertId, setActingAlertId] = useState<string | null>(null);
-
-  const SAVED_IDS_KEY = 'be_news_saved_ids';
 
   // Guards against out-of-order responses when the user clicks categories /
   // filters quickly. Each fetchNews() call bumps this counter; only the
@@ -209,9 +203,9 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
         setWatchTickers(syms.slice(0, 100));
       }
     } catch { /* ignore */ }
-    try {
-      setSavedIds(new Set(JSON.parse(window.localStorage.getItem(SAVED_IDS_KEY) || '[]')));
-    } catch { /* ignore */ }
+    const saved = loadSaved();
+    setSavedItems(saved.items);
+    setLegacySavedIds(new Set(saved.legacyIds));
     // Portfolio holdings are best-effort (Python engine may be unavailable).
     // When present they raise relevance for stories touching a real position.
     void loadPortfolioSymbols().then((syms) => { if (syms.length > 0) setPortfolioTickers(syms); });
@@ -239,7 +233,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     pageNum = 1,
     f: FilterState = filters,
     c: CardSettings = cards,
-    opts?: { myStocks?: boolean; saved?: boolean; highAlert?: boolean },
+    opts?: { myStocks?: boolean; highAlert?: boolean },
   ) => {
     const seq = ++fetchSeqRef.current;
     setLoading(true);
@@ -272,12 +266,20 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
       const data = await res.json();
       // Drop stale responses: a newer fetch has already started.
       if (seq !== fetchSeqRef.current) return;
-      let news: NewsItem[] = data.news || [];
-      if (opts?.saved) news = news.filter((n: NewsItem) => savedIds.has(n.id));
+      const news: NewsItem[] = data.news || [];
       setNewsList(news);
+      // Move any ID-only legacy bookmark whose article just arrived into the
+      // snapshot store so the Saved view can actually render it.
+      if (legacySavedIds.size > 0) {
+        const adopted = adoptLegacySaves(news, savedItems, legacySavedIds);
+        if (adopted.items !== savedItems) {
+          setSavedItems(adopted.items);
+          setLegacySavedIds(adopted.legacyIds);
+        }
+      }
       setPage(pageNum);
       setTotalPages(data.pagination?.totalPages || 1);
-      setTotalItems(opts?.saved ? news.length : (data.pagination?.total || news.length));
+      setTotalItems(data.pagination?.total || news.length);
       if (data.pulse) setPulse(data.pulse);
       if (data.lastIngestAt) setLastIngestAt(data.lastIngestAt);
       // Overall news sentiment: tier-weighted score from the API when present,
@@ -442,13 +444,31 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     setNewCount(0);
   };
 
-  const toggleSaved = (id: string) => {
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      try { window.localStorage.setItem(SAVED_IDS_KEY, JSON.stringify([...next])); } catch { /* private mode */ }
+  const toggleSaved = (item: NewsItem) => {
+    setSavedItems((prev) => {
+      const exists = prev.some((s) => s.id === item.id);
+      const next = exists ? prev.filter((s) => s.id !== item.id) : [item, ...prev];
+      saveSaved(next);
       return next;
     });
+    setLegacySavedIds((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      saveLegacyIds(next);
+      return next;
+    });
+  };
+
+  const openSavedView = () => {
+    setSavedView(true);
+    setMyStocksOnly(false);
+    setHighAlertOnly(false);
+  };
+
+  const closeSavedView = () => {
+    setSavedView(false);
+    void fetchNews(1);
   };
 
   const openNews = (item: NewsItem) => {
@@ -505,135 +525,13 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
 
   // News Details / AI Briefing Modal — shared by widget + full-page views.
   const newsDialog = selectedNews ? (
-    <Dialog open={!!selectedNews} onOpenChange={open => !open && setSelectedNews(null)}>
-      <DialogContent className="sm:max-w-2xl glass-card-strong border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
-        {/* Ambient Background Blur Glow */}
-        <div
-          className={`absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-72 h-72 rounded-full blur-[70px] pointer-events-none ${
-            selectedNews.sentiment === 'bullish'
-              ? 'bg-emerald-500/10'
-              : selectedNews.sentiment === 'bearish'
-              ? 'bg-rose-500/10'
-              : 'bg-primary/10'
-          }`}
-        />
-
-        <DialogHeader className="text-left relative z-10 pt-2">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-[10px] font-bold text-muted-foreground font-mono bg-accent px-2 py-1 rounded">
-              {selectedNews.source}
-            </span>
-            {selectedNews.category && (
-              <span className="text-[10px] font-bold text-primary/80 font-mono uppercase bg-primary/5 border border-primary/15 px-2 py-1 rounded">
-                {selectedNews.category}
-              </span>
-            )}
-            {selectedNews.ticker && (
-              <span className="text-[10px] font-extrabold text-primary font-mono bg-primary/10 border border-primary/20 px-2 py-1 rounded">
-                {selectedNews.ticker}
-              </span>
-            )}
-            <span className="text-[10px] text-muted-foreground font-mono ml-auto">{relativeTime(selectedNews.timestamp)}</span>
-          </div>
-          <DialogTitle className="text-lg font-serif font-semibold leading-snug">
-            {selectedNews.url ? (
-              <a
-                href={selectedNews.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-primary hover:underline decoration-primary transition-all cursor-pointer"
-              >
-                {selectedNews.headline}
-              </a>
-            ) : (
-              selectedNews.headline
-            )}
-          </DialogTitle>
-          <div className="flex items-center gap-3 mt-3 border-b border-border/20 pb-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              Sentiment:
-              <span
-                className={`font-semibold capitalize px-2.5 py-0.5 rounded-full text-[10px] ${
-                  selectedNews.sentiment === 'bullish'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : selectedNews.sentiment === 'bearish'
-                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                    : 'bg-neutral-500/10 text-neutral-400 border border-neutral-500/20'
-                }`}
-              >
-                {selectedNews.sentiment}
-              </span>
-              {selectedNews.tier && (
-                <span className="text-[10px] text-muted-foreground font-mono">Tier {selectedNews.tier}</span>
-              )}
-            </div>
-            {selectedNews.url && (
-              <div className="text-xs text-muted-foreground ml-auto">
-                <a href={selectedNews.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
-                  Open source article ↗
-                </a>
-              </div>
-            )}
-          </div>
-        </DialogHeader>
-
-        <div className="relative z-10 py-4 space-y-3.5 text-left text-xs leading-relaxed text-muted-foreground">
-          <div>
-            <span className="text-[10px] uppercase font-bold text-foreground tracking-wider block mb-1">Briefing Overview</span>
-            <p>{selectedNews.summary || 'Open the source article for the full story.'}</p>
-          </div>
-          {(selectedNews.sourceCount ?? 1) > 1 && (
-            <div className="p-2.5 bg-amber-400/5 border border-amber-400/20 rounded-xl">
-              <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider block mb-1">Story Coverage</span>
-              <p className="text-[11px] text-foreground">{(selectedNews.clusterSources || []).join(' · ')}</p>
-            </div>
-          )}
-          {selectedNews.importanceReasons && selectedNews.importanceReasons.length > 0 && (
-            <div className="p-2.5 bg-primary/5 border border-primary/20 rounded-xl">
-              <span className="text-[10px] uppercase font-bold text-primary tracking-wider block mb-1">
-                Why this is flagged · signal, not advice
-              </span>
-              <p className="text-[11px] text-foreground">{selectedNews.importanceReasons.join(' · ')}</p>
-              <p className="text-[10px] text-muted-foreground mt-1 font-mono">
-                {selectedNews.direction || selectedNews.sentiment} bias · {selectedNews.confidence || 'low'} confidence · {selectedNews.horizon || 'days'} horizon
-              </p>
-              {selectedNews.invalidates && selectedNews.invalidates[0] && (
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  What would change this: {selectedNews.invalidates[0]}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2 mt-4 relative z-10 border-t border-border/20 pt-4 flex-wrap">
-          <Button
-            variant="outline"
-            onClick={() => setSelectedNews(null)}
-            className="flex-1 min-w-[80px] rounded-xl text-xs py-2.5 h-auto border border-border/40 cursor-pointer"
-          >
-            Close
-          </Button>
-          <Button
-            onClick={() => { toggleSaved(selectedNews.id); setSelectedNews({ ...selectedNews }); }}
-            className={`flex-1 min-w-[60px] rounded-xl border text-xs py-2.5 h-auto cursor-pointer ${
-              savedIds.has(selectedNews.id)
-                ? 'bg-amber-400/10 text-amber-400 border-amber-400/40'
-                : 'bg-accent hover:bg-accent/80 text-accent-foreground border-border/40'
-            }`}
-          >
-            <Bookmark size={13} className="mr-1.5" weight={savedIds.has(selectedNews.id) ? 'fill' : 'regular'} />
-            {savedIds.has(selectedNews.id) ? 'Saved' : 'Save'}
-          </Button>
-          <Button
-            onClick={() => handleDiscuss()}
-            className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 text-xs py-2.5 h-auto rounded-xl font-semibold cursor-pointer transition-all hover:scale-105"
-          >
-            <Sparkles size={13} /> Discuss
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <NewsDetailDialog
+      item={selectedNews}
+      saved={savedIds.has(selectedNews.id)}
+      onClose={() => setSelectedNews(null)}
+      onToggleSaved={() => toggleSaved(selectedNews)}
+      onDiscuss={() => handleDiscuss()}
+    />
   ) : null;
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -662,6 +560,35 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     { id: 'news.customize', label: 'Customize news cards', keys: 'Shift+C', run: () => setShowCustomize((v) => !v), enabled: fullPage && !loading },
     { id: 'news.refresh', label: 'Refresh news', keys: 'R', run: handleRefresh, enabled: fullPage && !loading && !refreshing },
   ]);
+
+  // Saved is its own searchable/filterable/paginated list backed by persisted
+  // snapshots — not a filter over whichever feed page happens to be loaded.
+  if (fullPage && savedView) {
+    return (
+      <div ref={rootRef} data-keyboard-scope="Saved news" className="w-full flex flex-col gap-6 select-none">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-lg font-serif font-semibold text-foreground flex items-center gap-2">
+              <Bookmark size={16} className="text-amber-400" weight="fill" /> Saved articles
+            </h2>
+            <p className="text-xs text-muted-foreground">Bookmarked snapshots — search, filter and page independently of the live feed.</p>
+          </div>
+          <button onClick={closeSavedView}
+            className="h-9 px-3 rounded-lg bg-accent/30 border border-border/30 text-[12px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer">
+            Back to feed
+          </button>
+        </div>
+        <NewsSavedView
+          items={savedItems}
+          onOpen={openNews}
+          onRemove={toggleSaved}
+          onDiscuss={(item) => handleDiscuss(item)}
+          onBack={closeSavedView}
+        />
+        {newsDialog}
+      </div>
+    );
+  }
 
   if (loading) {
     const loadingBar = <TopLoader />;
@@ -778,7 +705,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 setHighAlertOnly(next);
                 setMyStocksOnly(false);
                 setSavedView(false);
-                fetchNews(1, filters, cards, { highAlert: next, myStocks: false, saved: false });
+                fetchNews(1, filters, cards, { highAlert: next, myStocks: false });
               }}
               title="Only market-moving stories (importance score ≥ 55), strongest first"
               className={`h-9 px-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors border ${
@@ -795,7 +722,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 setMyStocksOnly(next);
                 setSavedView(false);
                 setHighAlertOnly(false);
-                fetchNews(1, filters, cards, { myStocks: next, saved: false, highAlert: false });
+                fetchNews(1, filters, cards, { myStocks: next, highAlert: false });
               }}
               disabled={watchTickers.length === 0}
               title={watchTickers.length === 0 ? 'Add tickers to your watchlist first' : `Articles matching your ${watchTickers.length} watchlist tickers`}
@@ -809,11 +736,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
             </button>
             <button
               onClick={() => {
-                const next = !savedView;
-                setSavedView(next);
-                setMyStocksOnly(false);
-                setHighAlertOnly(false);
-                fetchNews(1, filters, cards, { myStocks: false, saved: next, highAlert: false });
+                if (savedView) closeSavedView(); else openSavedView();
               }}
               title={savedIds.size === 0 ? 'Bookmark articles with the ribbon icon' : `${savedIds.size} bookmarked articles`}
               className={`h-9 px-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors border ${
@@ -1280,7 +1203,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 {cards.showButtons && (
                   <div className="flex items-center gap-2 border-t border-border/40 pt-3 relative z-10">
                     <button
-                      onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
+                      onClick={(e) => { e.stopPropagation(); toggleSaved(item); }}
                       className={`h-8 w-8 rounded-lg border inline-flex items-center justify-center cursor-pointer transition-colors ${
                         savedIds.has(item.id)
                           ? 'bg-amber-400/10 border-amber-400/40 text-amber-400'
