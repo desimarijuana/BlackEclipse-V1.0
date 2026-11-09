@@ -1,6 +1,10 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(chat): remove the repeated AI notice below every answer.** The point-of-use
+  disclosure remains in the persistent composer one-liner and the first-run risk
+  acknowledgement; the output placement now renders nothing. No doc change —
+  copy/placement only, contracts unchanged.
 - **fix(lint): clear the three release-gate errors.** `fomc.ts` used `let` for two
   variables it never reassigns, and the AI-provider settings copy had an
   unescaped apostrophe (`provider&apos;s`). `npx eslint .` is back to 0 errors
