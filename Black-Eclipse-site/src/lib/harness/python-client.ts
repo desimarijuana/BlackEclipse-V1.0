@@ -163,6 +163,33 @@ export async function getUsageSummaryFromRuntime(days = 30): Promise<UsageSummar
   return request<UsageSummary>(`/usage?days=${days}`, { method: "GET" });
 }
 
+export interface RuntimeHistoryCompaction {
+  ok: boolean;
+  block: string;
+  droppedTurns: number;
+  keptTurns: number;
+  chars: number;
+  reason?: string | null;
+}
+
+/**
+ * Compact an explicit conversation history through the ONE runtime
+ * implementation (`python/harness/compaction.py`). This is the `/compact`
+ * command's endpoint: the front door already owns the conversation, so it
+ * sends the turns and receives the fenced summary block. It never calls a
+ * model, and `ok: false` means there was nothing older than `keepTurns`.
+ */
+export async function compactHistoryInRuntime(
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+  keepTurns = 6,
+): Promise<RuntimeHistoryCompaction> {
+  return request<RuntimeHistoryCompaction>("/history/compact", {
+    method: "POST",
+    body: JSON.stringify({ history, keepTurns }),
+    timeoutMs: 30_000,
+  });
+}
+
 export async function getEventsFromRuntime(
   runId: string
 ): Promise<{ events: HarnessEvent[]; toolExecutions: Array<Record<string, unknown>> }> {

@@ -1,6 +1,23 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(chat): `/compact` compacts the conversation on demand.** Adds a
+  routed slash command (registry `runtime.compact`, handler `native.compact`)
+  that asks the Python runtime for a real compaction instead of waiting for the
+  automatic history bound. `POST /history/compact` calls the new deterministic
+  `compact_history()` (`python/harness/compaction.py`): the older turns become
+  the fenced `<compacted-conversation>` block and the latest `--keep N` turns
+  (default 6, clamped 0-50) stay verbatim; no model call, so it works when no
+  provider is reachable. The chat and stream routes now parse history/chatId
+  before command routing, pass them to the router, and persist a successful
+  result as `compaction.json` beside the transcript; later runs prepend the
+  block and slice history at the stored boundary, so the effect survives a
+  reload while the visible transcript stays intact. Honest failure states:
+  `NO_HISTORY` when there is nothing to compact, "Nothing to compact" when the
+  history is within the keep window (nothing stored), and the normal runtime
+  error when Python is unreachable. Tests: 3 Python cases + 2 router cases.
+  Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
 - **feat(ui): paginated Alert History and a real Saved-news library.** Alert History now pages the server archive with numbered pages and a typed per-page box (1–200) instead of always requesting the first 100 rows; filters/search reset to page 1, and the current page is clamped when the archive shrinks. `/api/alerts/history` widened its bounded union window 500→2000 and documents that `total` describes that window. News bookmarks now persist the full article snapshot (`be_news_saved_items_v1`) instead of only IDs, so Saved is its own searchable, category/sentiment/sort-filtered, paginated list that no longer depends on which feed page is loaded; legacy ID-only bookmarks migrate when their article next appears in the feed, and the detail dialog is extracted to `news-detail-dialog.tsx`. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
 - **fix(eval): a subset smoke can no longer claim the live gate.**
   `Threshold.evaluate` ignored its `sample_size`, so the 12-task live smoke

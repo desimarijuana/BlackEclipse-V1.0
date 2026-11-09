@@ -163,6 +163,33 @@ const HELP: CommandSpec = {
   examples: ["/help"],
 };
 
+const COMPACT: CommandSpec = {
+  id: "runtime.compact",
+  name: "compact",
+  aliases: [],
+  summary: "Compact the conversation so it fits the context window.",
+  description:
+    "Replace older turns with a fenced, DATA-labelled summary and keep the most recent turns verbatim. " +
+    "The summary is deterministic (no model call), so it works even when no provider is reachable. " +
+    "The visible transcript is unchanged; later runs send the summary instead of the older turns.",
+  category: "runtime",
+  tags: ["core", "context", "history"],
+  version: V,
+  status: "available",
+  args: [],
+  flags: [
+    { name: "keep", alias: "k", description: "How many recent turns to keep verbatim.", type: "number", default: 6 },
+  ],
+  handler: { type: "native", target: "native.compact" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 30_000,
+  idempotent: false,
+  output: { type: "response", summary: "The compaction summary and how many turns it replaced." },
+  examples: ["/compact", "/compact --keep 10"],
+};
+
 const STATUS: CommandSpec = {
   id: "runtime.status",
   name: "status",
@@ -333,7 +360,7 @@ const SKILL: CommandSpec = {
   aliases: [],
   summary: "Create a new reusable Eclipse skill.",
   description:
-    "Tell Eclipse to author a new reusable skill from your description. The chatbot generates the " +
+    "Tell Eclipse to author a new reusable skill from your description. The Eclipse Agent generates the " +
     "procedure and metadata, saves it in the Skills library (so it appears on the Skills page where you " +
     "can view, edit, enable, or run it), and creation is approval-gated. This is a normal chat turn: " +
     "describe what the skill should do. To RUN an existing skill, use `/skills run <id>`.",
@@ -352,7 +379,7 @@ const SKILL: CommandSpec = {
   permissions: { approval: "user" },
   risk: "medium",
   executionMode: "async",
-  output: { type: "markdown", summary: "The chatbot authors the skill and confirms the created id." },
+  output: { type: "markdown", summary: "The Eclipse Agent authors the skill and confirms the created id." },
   examples: [
     "/skill crypto-onchain-research Research tokenomics and on-chain activity for a token",
     "/skill risk-review Review a portfolio for concentration risk and flag the worst offenders",
@@ -916,6 +943,7 @@ const TERMINAL: CommandSpec = {
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   HELP,
   STATUS,
+  COMPACT,
   SKILLS,
   SKILL,
   SKILL_EXPLAIN,

@@ -520,6 +520,42 @@ def usage(days: int = 30) -> dict[str, Any]:
     return {"success": True, **service.usage_summary(days)}
 
 
+@app.post("/history/compact")
+async def history_compact(payload: dict[str, Any]) -> dict[str, Any]:
+    """Compact an explicit conversation history (the `/compact` command).
+
+    The front door already holds the conversation; this endpoint only derives
+    the summary so the same compaction rules are used in one place. It never
+    calls a model: the deterministic skeleton is the result, and a history with
+    nothing older than `keepTurns` returns `ok: false` with a reason instead of
+    inventing a summary.
+    """
+    raw = payload.get("history")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="history must be an array")
+    turns: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").lower()
+        content = item.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str):
+            continue
+        turns.append({"role": role, "content": content})
+    raw_keep = payload.get("keepTurns", 6)
+    try:
+        keep = int(raw_keep)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="keepTurns must be an integer")
+    if keep < 0 or keep > 50:
+        raise HTTPException(status_code=400, detail="keepTurns must be between 0 and 50")
+
+    from .compaction import compact_history  # noqa: PLC0415 - keep startup light
+
+    result = await compact_history(turns, keep_turns=keep)
+    return {"success": True, **result.to_dict()}
+
+
 @app.get("/runs/{run_id}/stream")
 async def stream_run(run_id: str) -> StreamingResponse:
     """Server-Sent Events for one run: live status + token deltas.

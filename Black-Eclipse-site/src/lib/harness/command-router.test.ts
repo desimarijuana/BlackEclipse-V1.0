@@ -118,6 +118,13 @@ function makeDeps(overrides: Partial<CommandDeps["skills"]> = {}): CommandDeps {
       health: vi.fn(async () => ({ ok: true, tools: ["a", "b"], providers: ["openai"] })),
       models: vi.fn(async () => [{ id: "openai", label: "OpenAI", models: ["gpt-4"], available: true }]),
       agents: vi.fn(async () => ({ agents: [{ id: "eclipse-agent", name: "Eclipse" }], defaultAgentId: "eclipse-agent" })),
+      compact: vi.fn(async (history: Array<{ role: string; content: string }>, keepTurns: number) => ({
+        ok: true,
+        block: `<compacted-conversation>\nSUMMARY\nTurns compacted: ${Math.max(0, history.length - keepTurns)}\n</compacted-conversation>`,
+        droppedTurns: Math.max(0, history.length - keepTurns),
+        keptTurns: keepTurns,
+        chars: 100,
+      })),
     },
     market: {
       providers: vi.fn(async () => ({
@@ -366,6 +373,29 @@ describe("executeCommandFromText", () => {
     const res = (await executeCommandFromText("/status", ctx, deps))!;
     expect(res.status).toBe("completed");
     expect(res.output).toContain("Runtime unavailable");
+  });
+
+  it("compacts the conversation and returns the real block", async () => {
+    const deps = makeDeps();
+    const history = [
+      { role: "user" as const, content: "q1" },
+      { role: "assistant" as const, content: "a1" },
+      { role: "user" as const, content: "q2" },
+      { role: "assistant" as const, content: "a2" },
+    ];
+    const res = (await executeCommandFromText("/compact --keep 2", { operator: false, history }, deps))!;
+    expect(res.status).toBe("completed");
+    expect(res.compaction).toBeDefined();
+    expect(res.compaction?.droppedTurns).toBe(2);
+    expect(res.compaction?.keptTurns).toBe(2);
+    expect(deps.runtime.compact).toHaveBeenCalledWith(history, 2);
+    expect(res.output).toContain("Conversation compacted");
+  });
+
+  it("refuses /compact honestly when there is no history", async () => {
+    const res = (await executeCommandFromText("/compact", ctx, makeDeps()))!;
+    expect(res.status).toBe("invalid");
+    expect(res.error?.code).toBe("NO_HISTORY");
   });
 });
 

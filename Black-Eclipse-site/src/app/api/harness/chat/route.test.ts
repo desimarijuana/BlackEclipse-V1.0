@@ -16,6 +16,12 @@ vi.mock("@/lib/harness/run-service", async (importOriginal) => {
 vi.mock("@/lib/chat/session-store", () => ({
   loadContextDocuments: vi.fn(async () => []),
   writeSessionFile: vi.fn(async () => undefined),
+  readSessionWorkspaceRootId: vi.fn(async () => undefined),
+  readStoredCompaction: vi.fn(async () => null),
+  writeStoredCompaction: vi.fn(async () => undefined),
+  applyStoredCompaction: (
+    history: Array<{ role: "user" | "assistant"; content: string }>,
+  ) => history,
 }));
 
 import { POST } from "@/app/api/harness/chat/route";

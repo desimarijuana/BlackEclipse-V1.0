@@ -9,7 +9,7 @@ import {
 } from "@/lib/harness";
 import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile } from "@/lib/chat/session-store";
+import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile, readStoredCompaction, writeStoredCompaction, applyStoredCompaction } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 import { parseCommandInvocation } from "@/lib/harness/command-parser";
 import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
@@ -60,6 +60,22 @@ export async function POST(request: Request) {
     );
   }
 
+  // The conversation BEFORE this turn. Parsed before command handling because
+  // `/compact` needs it and a compaction is persisted against this chat id.
+  const rawHistory = body.history;
+  const history = Array.isArray(rawHistory)
+    ? rawHistory
+        .filter(
+          (t): t is { role: "user" | "assistant"; content: string } =>
+            t !== null &&
+            typeof t === "object" &&
+            ((t as { role?: unknown }).role === "user" || (t as { role?: unknown }).role === "assistant") &&
+            typeof (t as { content?: unknown }).content === "string"
+        )
+        .map((t) => ({ role: t.role, content: t.content }))
+    : [];
+  const chatId = typeof body.chatId === "string" ? body.chatId : "";
+
   // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the
   // shared command router and streamed back as a synthetic terminal frame — no
   // LLM provider is needed. Profile commands (`/eclipsesdk`) and ordinary prose
@@ -70,8 +86,24 @@ export async function POST(request: Request) {
     const result = await executeCommandFromText(query, {
       operator: isOperatorRequest(request),
       origin: new URL(request.url).origin,
+      history,
+      chatId: chatId || undefined,
     });
     if (result) {
+      // A real `/compact` result is stored beside the transcript so later runs
+      // send the summary instead of the replaced turns.
+      if (result.compaction && chatId) {
+        try {
+          await writeStoredCompaction(chatId, {
+            through: history.length,
+            block: result.compaction.block,
+            droppedTurns: result.compaction.droppedTurns,
+            keptTurns: result.compaction.keptTurns,
+          });
+        } catch (err) {
+          console.warn("[api/harness/chat/stream] could not persist compaction:", err);
+        }
+      }
       const cmdRunId = newRunId();
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
@@ -99,20 +131,6 @@ export async function POST(request: Request) {
     }
   }
 
-  const rawHistory = body.history;
-  const history = Array.isArray(rawHistory)
-    ? rawHistory
-        .filter(
-          (t): t is { role: "user" | "assistant"; content: string } =>
-            t !== null &&
-            typeof t === "object" &&
-            ((t as { role?: unknown }).role === "user" || (t as { role?: unknown }).role === "assistant") &&
-            typeof (t as { content?: unknown }).content === "string"
-        )
-        .map((t) => ({ role: t.role, content: t.content }))
-    : [];
-
-  const chatId = typeof body.chatId === "string" ? body.chatId : "";
   // Phase 23: this conversation's approved project folder, read SERVER-SIDE so
   // the browser cannot point a run at an arbitrary directory.
   const workspaceRootId = chatId
@@ -175,7 +193,12 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
+    // A stored `/compact` replaces the older turns before they reach the model.
+    const effectiveHistory = applyStoredCompaction(
+      history,
+      chatId ? await readStoredCompaction(chatId) : null,
+    );
+    id = await startChatRun(query, effectiveHistory, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

@@ -403,7 +403,104 @@ export async function deleteTranscript(chatId: string): Promise<void> {
   } catch {
     // Already absent — nothing to do.
   }
+  await clearStoredCompaction(chatId);
   invalidateTranscriptList();
+}
+
+// ── Conversation compaction (/compact) ──────────────────────────────────────
+//
+// A compaction is NOT a transcript rewrite. The browser still shows every
+// message, but the older turns are no longer sent to the model: the chat route
+// prepends this summary and slices the client history at `through`. Storing it
+// beside the transcript makes the effect survive a reload, exactly like the
+// transcript itself.
+//
+// `through` is the conversation length AT compaction time. If the client
+// history is shorter (the user cleared or rewrote the chat), the stored
+// compaction is ignored rather than applied to the wrong turns.
+
+const COMPACTION_FILE = "compaction.json";
+
+export interface StoredCompaction {
+  /** How many turns (before the `/compact` turn) the summary replaces. */
+  through: number;
+  /** The fenced `<compacted-conversation>` block. */
+  block: string;
+  droppedTurns: number;
+  keptTurns: number;
+  at: number;
+}
+
+function compactionPath(chatId: string): string {
+  return path.join(sessionDir(chatId), COMPACTION_FILE);
+}
+
+/** Read the active compaction for a conversation, or null when absent/unusable. */
+export async function readStoredCompaction(chatId: string): Promise<StoredCompaction | null> {
+  try {
+    const raw = await fs.readFile(compactionPath(chatId), "utf8");
+    const parsed = JSON.parse(raw) as Partial<StoredCompaction> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (
+      typeof parsed.through !== "number" ||
+      !Number.isInteger(parsed.through) ||
+      parsed.through < 1 ||
+      typeof parsed.block !== "string" ||
+      !parsed.block.trim()
+    ) {
+      return null;
+    }
+    return {
+      through: parsed.through,
+      block: parsed.block,
+      droppedTurns: typeof parsed.droppedTurns === "number" ? parsed.droppedTurns : 0,
+      keptTurns: typeof parsed.keptTurns === "number" ? parsed.keptTurns : 0,
+      at: typeof parsed.at === "number" ? parsed.at : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist a compaction for a conversation (creates the session dir if needed). */
+export async function writeStoredCompaction(
+  chatId: string,
+  data: Omit<StoredCompaction, "at">,
+): Promise<StoredCompaction> {
+  await ensureSessionDirs(chatId);
+  const stored: StoredCompaction = {
+    through: data.through,
+    block: data.block,
+    droppedTurns: data.droppedTurns,
+    keptTurns: data.keptTurns,
+    at: Date.now(),
+  };
+  await fs.writeFile(compactionPath(chatId), JSON.stringify(stored), "utf8");
+  return stored;
+}
+
+/** Remove a stored compaction (a new/cleared conversation must not keep it). */
+export async function clearStoredCompaction(chatId: string): Promise<void> {
+  try {
+    await fs.unlink(compactionPath(chatId));
+  } catch {
+    // Already absent — nothing to do.
+  }
+}
+
+/**
+ * Apply a stored compaction to the history a client sent: the summary replaces
+ * the first `through` turns and everything after them is kept. Returns the
+ * history unchanged when no compaction exists or the client history is shorter
+ * than the compaction's boundary.
+ */
+export function applyStoredCompaction(
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+  stored: StoredCompaction | null,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  if (!stored || stored.through < 1) return history;
+  if (history.length < stored.through) return history;
+  return [{ role: "assistant", content: stored.block }, ...history.slice(stored.through)];
 }
 
 export async function loadContextDocuments(chatId: string): Promise<

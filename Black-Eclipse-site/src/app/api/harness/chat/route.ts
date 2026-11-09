@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson, MAX_QUERY_LENGTH } from "@/lib/harness";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile } from "@/lib/chat/session-store";
+import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile, readStoredCompaction, writeStoredCompaction, applyStoredCompaction } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 import { parseCommandInvocation } from "@/lib/harness/command-parser";
 import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
@@ -49,26 +49,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the
-    // shared command router. Profile commands (`/eclipsesdk`) and ordinary prose
-    // fall through to the normal agent path; an unknown `/token` falls through too.
-    const commandInvocation = parseCommandInvocation(query);
-    if (commandInvocation?.spec && isRoutedCommand(commandInvocation.spec)) {
-      const cmdResult = await executeCommandFromText(query, {
-        operator: isOperatorRequest(request),
-        origin: new URL(request.url).origin,
-      });
-      if (cmdResult) {
-        return NextResponse.json({
-          success: cmdResult.ok,
-          content: cmdResult.output,
-          runId: newRunId(),
-          command: cmdResult.command,
-          documentsUsed: [],
-        });
-      }
-    }
-
+    // The conversation BEFORE this turn. Parsed here (not after command
+    // handling) because `/compact` needs it, and a compaction must be persisted
+    // against the same chat id the run will use.
     const rawHistory = (body as Record<string, unknown>).history;
     const history = Array.isArray(rawHistory)
       ? rawHistory
@@ -81,10 +64,46 @@ export async function POST(request: Request) {
           )
           .map((t) => ({ role: t.role, content: t.content }))
       : [];
-
     const chatId = typeof (body as Record<string, unknown>).chatId === "string"
       ? ((body as Record<string, unknown>).chatId as string)
       : "";
+
+    // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the
+    // shared command router. Profile commands (`/eclipsesdk`) and ordinary prose
+    // fall through to the normal agent path; an unknown `/token` falls through too.
+    const commandInvocation = parseCommandInvocation(query);
+    if (commandInvocation?.spec && isRoutedCommand(commandInvocation.spec)) {
+      const cmdResult = await executeCommandFromText(query, {
+        operator: isOperatorRequest(request),
+        origin: new URL(request.url).origin,
+        history,
+        chatId: chatId || undefined,
+      });
+      if (cmdResult) {
+        // A real `/compact` result is stored beside the transcript so later
+        // runs send the summary instead of the replaced turns.
+        if (cmdResult.compaction && chatId) {
+          try {
+            await writeStoredCompaction(chatId, {
+              through: history.length,
+              block: cmdResult.compaction.block,
+              droppedTurns: cmdResult.compaction.droppedTurns,
+              keptTurns: cmdResult.compaction.keptTurns,
+            });
+          } catch (err) {
+            console.warn("[api/harness/chat] could not persist compaction:", err);
+          }
+        }
+        return NextResponse.json({
+          success: cmdResult.ok,
+          content: cmdResult.output,
+          runId: newRunId(),
+          command: cmdResult.command,
+          documentsUsed: [],
+        });
+      }
+    }
+
     // Phase 23: this conversation's approved project folder. Read SERVER-SIDE
     // (the browser never supplies it), so a chat is bound to a folder the user
     // chose in the picker. An absent binding keeps the existing default.
@@ -154,6 +173,12 @@ export async function POST(request: Request) {
       : undefined;
 
     const identityHeaders = await runtimeIdentityHeaders(request);
+    // A stored `/compact` replaces the older turns before they reach the model.
+    // The visible transcript is untouched; only the prompt history changes.
+    const effectiveHistory = applyStoredCompaction(
+      history,
+      chatId ? await readStoredCompaction(chatId) : null,
+    );
     // One-shot chat is bounded by the front door's `maxDuration` (180 s), but a
     // writable turn is budgeted far longer (80 steps / 2,700 s). Rather than be
     // killed mid-run with no handle, stop WAITING before that ceiling and hand
@@ -162,7 +187,7 @@ export async function POST(request: Request) {
     const softDeadlineMs = Number(process.env.HARNESS_CHAT_SOFT_DEADLINE_MS || 150_000);
     const running = { status: "running" as const };
     const result = await Promise.race([
-      chatWithAgent(query, history, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode),
+      chatWithAgent(query, effectiveHistory, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode),
       new Promise<typeof running>((resolve) => {
         const timer = setTimeout(() => resolve(running), Math.max(1, softDeadlineMs));
         // Never keep the process alive for a deadline we stopped waiting on.

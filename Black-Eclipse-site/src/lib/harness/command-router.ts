@@ -40,10 +40,12 @@ import type {
 import { tasksClient } from "./tasks-client";
 import { listWorkflows } from "./workflows-client";
 import {
+  compactHistoryInRuntime,
   getUsageSummaryFromRuntime,
   listAgentsFromRuntime,
   listModelProviders,
   runtimeHealth,
+  type RuntimeHistoryCompaction,
 } from "./python-client";
 import { listPortfolios } from "./portfolio-client";
 import { listMemories, memoryOverview } from "./eclipse-memory-client";
@@ -72,6 +74,14 @@ export interface CommandAuditEvent {
   errorCode?: string;
 }
 
+/** The result of a real conversation compaction (`/compact`). */
+export interface CompactionPayload {
+  /** The fenced `<compacted-conversation>` block that replaces the older turns. */
+  block: string;
+  droppedTurns: number;
+  keptTurns: number;
+}
+
 export interface CommandResult {
   ok: boolean;
   command: string;
@@ -80,6 +90,8 @@ export interface CommandResult {
   /** Markdown and/or an `eclipse-response` fence, ready for the chat renderer. */
   output: string;
   error?: { code: string; message: string };
+  /** A real compaction produced by `/compact`; persisted by the chat route. */
+  compaction?: CompactionPayload;
   meta?: {
     skillId?: string;
     skillVersion?: string;
@@ -98,6 +110,13 @@ export interface CommandContext {
   actor?: "user" | "agent";
   /** The requesting app origin, for same-origin front-door calls (e.g. `/api/quote`). */
   origin?: string;
+  /**
+   * The conversation BEFORE the new user message. Present only on chat
+   * surfaces; `/compact` needs it, and its absence is reported honestly.
+   */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** The conversation id, so a successful compaction can be persisted. */
+  chatId?: string;
 }
 
 export interface FrontDoorResult {
@@ -140,6 +159,10 @@ export interface CommandDeps {
     health(): Promise<{ ok: boolean; tools?: string[]; providers?: string[] }>;
     models(): Promise<Array<Record<string, unknown>>>;
     agents(): Promise<{ agents: Array<Record<string, unknown>>; defaultAgentId: string }>;
+    compact(
+      history: Array<{ role: "user" | "assistant"; content: string }>,
+      keepTurns: number,
+    ): Promise<RuntimeHistoryCompaction>;
   };
   market: {
     providers(): Promise<{
@@ -221,6 +244,7 @@ export function defaultCommandDeps(origin?: string): CommandDeps {
       health: () => runtimeHealth(),
       models: () => listModelProviders(),
       agents: () => listAgentsFromRuntime(),
+      compact: (history, keepTurns) => compactHistoryInRuntime(history, keepTurns),
     },
     market: {
       providers: async () => {
@@ -275,6 +299,7 @@ function buildResult(
     status: output.status,
     output: "",
     error: output.error,
+    compaction: output.compaction,
     meta: output.meta,
     audit: {
       commandId,

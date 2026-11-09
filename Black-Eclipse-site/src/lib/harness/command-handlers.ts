@@ -14,13 +14,14 @@ import type { BoundArgs } from "./command-parser";
 import { callout, dataTable, heading, keyValue, markdown } from "./command-render";
 import type { ResponseBlock } from "@/lib/response/contract";
 import type { LearnDraftResult, SkillDetail, SkillExecutionResult, SkillSummary } from "./skills-types";
-import type { CommandContext, CommandDeps, CommandResult, CommandRunStatus } from "./command-router";
+import type { CommandContext, CommandDeps, CommandResult, CommandRunStatus, CompactionPayload } from "./command-router";
 
 export interface HandlerOutput {
   status: CommandRunStatus;
   blocks?: ResponseBlock[];
   markdownText?: string;
   error?: { code: string; message: string };
+  compaction?: CompactionPayload;
   meta?: CommandResult["meta"];
 }
 
@@ -94,6 +95,57 @@ export const handlers: Record<string, Handler> = {
       blocks.push(markdown(`Providers: ${health.providers.join(", ")}`));
     }
     return { status: "completed", blocks };
+  },
+
+  "native.compact": async (ctx, _spec, args, deps) => {
+    const history = ctx.history ?? [];
+    if (!history.length) {
+      return invalid(
+        "NO_HISTORY",
+        "There is no conversation history in this request to compact. Open a chat with earlier turns and run `/compact` there.",
+      );
+    }
+    const rawKeep = args.flags.keep;
+    const parsedKeep =
+      typeof rawKeep === "number" ? rawKeep
+      : typeof rawKeep === "string" && rawKeep.trim() ? Number(rawKeep)
+      : NaN;
+    const keepTurns =
+      Number.isFinite(parsedKeep) ? Math.max(0, Math.min(50, Math.round(parsedKeep))) : 6;
+    const result = await deps.runtime.compact(history, keepTurns);
+    if (!result.ok || !result.block) {
+      return {
+        status: "completed",
+        blocks: [
+          heading("Nothing to compact", 2),
+          markdown(
+            result.reason === "nothing to compact"
+              ? `The conversation has ${history.length} turn${history.length === 1 ? "" : "s"}, which is within the ${keepTurns}-turn keep window. Nothing was replaced.`
+              : "The runtime could not derive a summary from the older turns. Nothing was replaced.",
+          ),
+        ],
+      };
+    }
+    return {
+      status: "completed",
+      compaction: {
+        block: result.block,
+        droppedTurns: result.droppedTurns,
+        keptTurns: result.keptTurns,
+      },
+      blocks: [
+        heading("Conversation compacted", 2),
+        keyValue("Compaction", [
+          { label: "Turns replaced", value: result.droppedTurns },
+          { label: "Turns kept verbatim", value: result.keptTurns },
+          { label: "Method", value: "deterministic summary (no model call)" },
+        ]),
+        markdown(
+          "Later turns will send the summary below instead of the older turns. The visible transcript is unchanged, and the original turns are never deleted.",
+        ),
+        markdown(result.block),
+      ],
+    };
   },
 
   "native.tasks.list": async (_ctx, _spec, args, deps) => {

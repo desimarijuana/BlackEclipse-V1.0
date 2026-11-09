@@ -65,6 +65,33 @@ MODEL_POLICY_KEY = "history_compaction_model"
 
 
 @dataclass(frozen=True)
+class HistoryCompaction:
+    """The result of an explicit, user-requested compaction of a history.
+
+    Unlike the automatic path, this is NOT tied to a run: the caller (the
+    `/compact` slash command) hands over the conversation it already has and
+    gets back the block that should replace the older turns. The deterministic
+    skeleton is used; no model call is made.
+    """
+
+    ok: bool = True
+    block: str = ""
+    dropped_turns: int = 0
+    kept_turns: int = 0
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "block": self.block,
+            "droppedTurns": self.dropped_turns,
+            "keptTurns": self.kept_turns,
+            "chars": len(self.block),
+            "reason": self.reason or None,
+        }
+
+
+@dataclass(frozen=True)
 class CompactionResult:
     """What a compaction produced, and how."""
 
@@ -275,6 +302,48 @@ async def compact_dropped(
     )
 
 
+async def compact_history(
+    turns: list[Any], *, keep_turns: int = 6,
+) -> HistoryCompaction:
+    """Compact an explicit conversation history for a user-requested `/compact`.
+
+    Keeps the most recent `keep_turns` turns VERBATIM and compacts everything
+    older into the same fenced, DATA-labelled block the automatic path uses.
+    The deterministic skeleton always runs; this never calls a model, so a
+    manual compaction cannot fail because a provider is unreachable.
+
+    `ok=False` with a reason when there is nothing to compact - the caller must
+    report that honestly rather than pretend a summary was made.
+    """
+    history = [
+        turn for turn in (turns or [])
+        if str(getattr(turn, "role", "") or "").lower() in ("user", "assistant")
+        and str(getattr(turn, "content", "") or "").strip()
+    ]
+    keep = max(0, int(keep_turns))
+    if len(history) <= keep:
+        return HistoryCompaction(
+            ok=False,
+            kept_turns=len(history),
+            reason="nothing to compact",
+        )
+    dropped = history[:-keep] if keep else list(history)
+    result = await compact_dropped(dropped, use_model=False)
+    block = render_compaction_block(result)
+    if not block:
+        return HistoryCompaction(
+            ok=False,
+            kept_turns=keep,
+            reason="the dropped turns produced no summary",
+        )
+    return HistoryCompaction(
+        ok=True,
+        block=block,
+        dropped_turns=len(dropped),
+        kept_turns=min(keep, len(history)),
+    )
+
+
 __all__ = [
     "MAX_ITEM_CHARS",
     "MAX_NARRATIVE_CHARS",
@@ -282,8 +351,10 @@ __all__ = [
     "MODEL_POLICY_KEY",
     "MODEL_TIMEOUT_S",
     "CompactionResult",
+    "HistoryCompaction",
     "build_compaction_prompt",
     "build_skeleton",
     "compact_dropped",
+    "compact_history",
     "render_compaction_block",
 ]

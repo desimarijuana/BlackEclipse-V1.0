@@ -109,8 +109,8 @@ unit-testable without a live runtime.
 
 Backed by real handlers/endpoints:
 
-- Runtime: `/help`, `/status` (alias `/health`), `/tasks` (alias `/plans`),
-  `/workflows`, `/agents`, `/models` (alias `/providers`), `/tools`,
+- Runtime: `/help`, `/status` (alias `/health`), `/compact`, `/tasks` (alias
+  `/plans`), `/workflows`, `/agents`, `/models` (alias `/providers`), `/tools`,
   `/usage` (alias `/cost`).
 - Markets / portfolio / memory / MCP: `/market` (gateway providers + health),
   `/quote` (`/quotes` — JDdS quotes with honest freshness), `/portfolio` (real
@@ -144,6 +144,36 @@ Commands that call a subsystem (research, quant, code, terminal, quotes) reuse
 the **same front-door APIs the UI uses** — the router makes a loopback call to
 `/api/...`, so a command never re-implements an engine. `/terminal` requires the
 operator gate; a non-operator is refused before anything runs.
+
+## Manual compaction — `/compact`
+
+The chat already compacts automatically when the runtime bounds history
+(`python/harness/compaction.py`, `history.py`). `/compact` is the **manual**
+counterpart: the user asks for room now, without waiting for a limit.
+
+- **What is replaced.** The turns older than `--keep N` (default 6) are replaced
+  by the fenced `<compacted-conversation>` block. The most recent N turns stay
+  verbatim. `--keep` is clamped to 0–50.
+- **The transcript is not rewritten.** Every message stays visible in the chat.
+  Only the history sent to the model changes — the same behaviour as automatic
+  compaction.
+- **It is deterministic.** `/compact` calls `compact_history()` in
+  `python/harness/compaction.py`, which builds the skeleton and **never calls a
+  model**. It therefore works when no provider is reachable. The model narrative
+  remains an opt-in policy (`history_compaction_model`) on the automatic path.
+- **It persists.** The chat routes store the result as `compaction.json` beside
+  the conversation transcript (`src/lib/chat/session-store.ts`). On every later
+  turn, `applyStoredCompaction()` prepends the block and slices the client
+  history at the stored `through` boundary, so the effect survives a reload.
+  A stored compaction is ignored when the client history is shorter (the
+  conversation was cleared or rewritten).
+- **It fails honestly.** No history in the request → `NO_HISTORY`; fewer turns
+  than the keep window → "Nothing to compact" and nothing is stored; runtime
+  unreachable → the normal runtime-unavailable error is surfaced.
+- **Endpoint.** `POST /history/compact` on the Python runtime
+  (`{"history": [...], "keepTurns": 6}`) returns
+  `{ok, block, droppedTurns, keptTurns, chars, reason}`. The TS command handler
+  (`native.compact`) is the only caller.
 
 ## Skill integration
 

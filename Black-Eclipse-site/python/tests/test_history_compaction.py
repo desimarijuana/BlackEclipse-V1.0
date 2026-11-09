@@ -38,6 +38,7 @@ from harness.compaction import (  # noqa: E402
     CompactionResult,
     build_skeleton,
     compact_dropped,
+    compact_history,
     render_compaction_block,
 )
 
@@ -219,3 +220,39 @@ def test_a_history_that_fits_produces_no_block() -> None:
     )
     assert block == ""
     assert dropped == []
+
+
+# -- the manual `/compact` path ---------------------------------------------
+
+
+def test_manual_compaction_keeps_the_recent_turns_verbatim() -> None:
+    turns = [_Turn("user" if i % 2 == 0 else "assistant", f"turn {i}") for i in range(10)]
+    result = asyncio.run(compact_history(turns, keep_turns=2))
+    assert result.ok is True
+    assert result.dropped_turns == 8
+    assert result.kept_turns == 2
+    assert result.block.startswith("<compacted-conversation>")
+    assert "turn 0" in result.block
+    # The two most recent turns are kept verbatim, not put in the summary.
+    assert "turn 8" not in result.block
+    assert "turn 9" not in result.block
+
+
+def test_manual_compaction_is_honest_when_nothing_is_older() -> None:
+    result = asyncio.run(compact_history([_Turn("user", "hi")], keep_turns=6))
+    assert result.ok is False
+    assert result.block == ""
+    assert result.reason == "nothing to compact"
+
+
+def test_manual_compaction_never_calls_a_model(monkeypatch) -> None:
+    from harness import compaction
+
+    async def _boom(*args, **kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("manual compaction must not call the model")
+
+    monkeypatch.setattr(compaction, "_model_narrative", _boom)
+    turns = [_Turn("user", f"ask {i}") for i in range(8)]
+    result = asyncio.run(compact_history(turns, keep_turns=3))
+    assert result.ok is True
+    assert result.dropped_turns == 5
