@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Loader2 } from "@/lib/icons";
 import { safeSourceDefaults } from "@/lib/setup/defaults";
 import { bundleSources } from "@/lib/setup/bundles";
@@ -16,6 +16,7 @@ import { ReviewStep, type CheckItemView } from "./steps/review-step";
 const STEPS = ["Welcome", "AI", "Included", "Providers", "Review"];
 
 const PRICE_ADVANCED = ["tradingview", "yfinance", "http", "browser", "scrapling"];
+const PRICE_CONNECTED = ["polygon", "twelvedata", "alphavantage", "marketstack", "finnhub"];
 
 function initialDraft(state: SetupState): SetupDraft {
   return {
@@ -23,12 +24,23 @@ function initialDraft(state: SetupState): SetupDraft {
     mode: state.mode,
     bundleId: state.mode === "commercial" ? "commercial" : "research",
     sources: Object.fromEntries(state.sources.map((s) => [s.id, s.enabled])),
-    accepted: [],
-    priceMode: PRICE_ADVANCED.some(
-      (id) => state.sources.find((source) => source.id === id)?.enabled === true,
-    )
-      ? "community"
-      : "skip",
+    accepted: state.acceptedRestrictedSources ?? [],
+    priceMode:
+      state.mode === "commercial"
+        ? PRICE_CONNECTED.some(
+              (id) => state.sources.find((source) => source.id === id)?.keyConfigured === true,
+            )
+          ? "licensed"
+          : "skip"
+        : PRICE_ADVANCED.some(
+              (id) => state.sources.find((source) => source.id === id)?.enabled === true,
+            )
+          ? "community"
+          : PRICE_CONNECTED.some(
+                (id) => state.sources.find((source) => source.id === id)?.keyConfigured === true,
+              )
+            ? "licensed"
+            : "skip",
     aiKind: state.ai.configured ? "keep" : "skip",
     aiPreset: "openai",
     aiBaseUrl: "",
@@ -48,7 +60,9 @@ export function OnboardingShell({
   const [draft, setDraft] = useState<SetupDraft>(() => initialDraft(state));
   const [keyStatuses, setKeyStatuses] = useState<SetupKeyStatuses>({});
   const [checking, setChecking] = useState(false);
-  const [checkItems, setCheckItems] = useState<CheckItemView[] | null>(null);
+  const [checkItems, setCheckItems] = useState<CheckItemView[] | null>(
+    () => state.lastCheck?.items ?? null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +93,36 @@ export function OnboardingShell({
     };
   }, []);
 
+  // Focus trap: the app behind the overlay must not be reachable by Tab.
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = cardRef.current;
+    if (!root) return;
+    const focusables = () =>
+      Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const list = focusables();
+      if (list.length === 0) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    root.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const updateDraft = (patch: Partial<SetupDraft>) => {
     setDraft((current) => {
       const next = { ...current, ...patch };
@@ -86,6 +130,7 @@ export function OnboardingShell({
         next.sources = safeSourceDefaults(patch.mode);
         next.accepted = [];
         next.bundleId = patch.mode === "commercial" ? "commercial" : "research";
+        next.priceMode = "skip";
       }
       if (patch.bundleId && patch.bundleId !== current.bundleId) {
         next.sources = bundleSources(patch.bundleId, next.mode);
@@ -234,7 +279,11 @@ export function OnboardingShell({
 
       <div className="relative flex min-h-full items-center justify-center p-4">
         <main className="w-full max-w-[720px]">
-          <div className="glass-card-strong relative flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-xl border border-white/15 px-6 pb-[18px] pt-[22px]">
+          <div
+            ref={cardRef}
+            tabIndex={-1}
+            className="glass-card-strong relative flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-xl border border-white/15 px-6 pb-[18px] pt-[22px] outline-none"
+          >
             {/* Top brand hairline, same as the launch card. */}
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent opacity-80" />
 

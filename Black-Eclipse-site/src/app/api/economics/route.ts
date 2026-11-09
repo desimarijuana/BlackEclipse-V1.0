@@ -43,6 +43,13 @@ function seriesKey(sourceId: string, params: Record<string, string>): string {
 }
 
 async function fetchRows(sourceId: string, params: Record<string, string>): Promise<{ rows: EconPoint[]; asOf: string | null }> {
+  const prefId = ECON_PREF_SOURCE[sourceId];
+  if (prefId && !(await isDataSourceEnabled(prefId))) {
+    const err = new Error(`SOURCE_DISABLED:${sourceId}`);
+    (err as Error & { disabled?: boolean; sourceId?: string }).disabled = true;
+    (err as Error & { disabled?: boolean; sourceId?: string }).sourceId = sourceId;
+    throw err;
+  }
   const key = cacheKey(sourceId, params);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t > CACHE_TTL_MS && !rebuildInFlight.has(key)) {

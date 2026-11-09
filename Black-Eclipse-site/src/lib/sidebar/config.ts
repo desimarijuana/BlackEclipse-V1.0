@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
+import { isReservedSidebarShortcut } from '@/lib/shortcuts';
 
 /** The top-level sidebar modes. A section belongs to one, or to both. `bots` is
  *  a mode with no nav SECTIONS â€” it renders its own panel (the bot list) instead
@@ -110,10 +111,15 @@ export interface SidebarConfig {
   shortcutsCustomized?: boolean;
 }
 
-/** Shortcut choices offered in Settings. Keyboard codes (not labels). */
+/** Shortcut choices offered in Settings. Keyboard codes (not labels).
+ *  Reserved keys stay selectable — the user may prefer them even though the
+ *  browser owns them — but the label says so instead of failing silently. */
 export const SHORTCUT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'None' },
-  ...Array.from({ length: 12 }, (_, i) => ({ value: `F${i + 1}`, label: `F${i + 1}` })),
+  ...Array.from({ length: 12 }, (_, i) => {
+    const value = `F${i + 1}`;
+    return { value, label: isReservedSidebarShortcut(value) ? `${value} (browser)` : value };
+  }),
 ];
 
 /** The number of function-key slots the menu ships with (F1..F12). */

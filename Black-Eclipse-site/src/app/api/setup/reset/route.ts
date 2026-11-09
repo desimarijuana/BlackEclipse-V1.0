@@ -12,11 +12,44 @@ const DATA_DIR = process.env.BE_DATA_DIR
   ? path.resolve(process.env.BE_DATA_DIR)
   : process.cwd();
 
+function markerPath(): string {
+  return path.join(DATA_DIR, ".black-eclipse", "reset-request.json");
+}
+
+async function readMarker(): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await fs.readFile(markerPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 const SCOPE = ["onboarding", "setup", "factory"] as const;
 type Scope = (typeof SCOPE)[number];
 
 function isScope(value: unknown): value is Scope {
   return typeof value === "string" && (SCOPE as readonly string[]).includes(value);
+}
+
+/** GET /api/setup/reset — is a factory reset scheduled? */
+export async function GET() {
+  const marker = await readMarker();
+  return NextResponse.json({ scheduled: Boolean(marker), marker });
+}
+
+/** DELETE /api/setup/reset — cancel a scheduled factory reset. */
+export async function DELETE(request: Request) {
+  const blocked = guardMutation(request, "setup-reset-cancel");
+  if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
+  try {
+    await fs.rm(markerPath(), { force: true });
+    return NextResponse.json({ ok: true, scheduled: false });
+  } catch (err) {
+    console.error("[api/setup/reset] cancel error:", err);
+    return NextResponse.json({ error: "Failed to cancel the scheduled reset" }, { status: 500 });
+  }
 }
 
 /**
@@ -93,13 +126,8 @@ export async function POST(request: Request) {
   };
 
   try {
-    const dir = path.join(DATA_DIR, ".black-eclipse");
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(
-      path.join(dir, "reset-request.json"),
-      JSON.stringify(marker, null, 2),
-      "utf8",
-    );
+    await fs.mkdir(path.dirname(markerPath()), { recursive: true });
+    await fs.writeFile(markerPath(), JSON.stringify(marker, null, 2), "utf8");
     return NextResponse.json({
       ok: true,
       scheduled: true,

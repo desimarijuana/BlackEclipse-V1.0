@@ -186,6 +186,12 @@ class EvaluationTask:
         tools = (*self.required_tools, *self.expected_tools)
         if any(str(name).startswith("eval_") for name in tools):
             return False
+        # A task may opt OUT of the live lane when its prompt is only complete
+        # WITH the scripted answer (a deterministic fixture, not a live task).
+        # Tier 0 alone is not the signal: the finance tasks are tier 0 but their
+        # prompts carry all inputs, so they are fair live measurements.
+        if self.metadata.get("live_eligible") is False:
+            return False
         env_type = str((self.environment or {}).get("type") or "").strip().lower()
         return env_type not in {"mock_services", "filesystem", "database"}
 

@@ -28,6 +28,11 @@ import { normalizeAppNav, type AppNavMode, type AppShellState } from '@/lib/sdk/
 export interface SidebarConfigStore {
   config: SidebarConfig;
   hydrated: boolean;
+  /** Desktop icon-rail preference. Shared so the Ctrl/Cmd+B shortcut and the
+   *  in-sidebar chevrons are one control; the mobile drawer ignores it. */
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+  toggleCollapsed: () => void;
   /** Active top-level menu mode (Terminal / Agentic / Bots / Graph). Per shell:
    *  other open tabs keep their own mode, and a remote nav update never
    *  overrides it. Keyboard shortcuts and navigation still switch it locally. */
@@ -51,6 +56,26 @@ export interface SidebarConfigStore {
 export const SIDEBAR_MODE_KEY = 'be_sidebar_mode_v1';
 /** This tab's own mode. `sessionStorage` is per browser tab/window. */
 export const SIDEBAR_TAB_MODE_KEY = 'be_sidebar_tab_mode_v1';
+/** Desktop sidebar collapse preference (presentation only, localStorage). */
+export const SIDEBAR_COLLAPSED_KEY = 'be_sidebar_collapsed_v1';
+
+function readStoredCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredCollapsed(collapsed: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  } catch {
+    /* private mode / storage disabled — the in-memory value still works */
+  }
+}
 
 function readStoredMode(storage: 'local' | 'session'): NavGroup | null {
   if (typeof window === 'undefined') return null;
@@ -139,6 +164,7 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
   // hydration mismatch warnings).
   config: defaultSidebarConfig(),
   hydrated: false,
+  collapsed: false,
   mode: 'terminal',
 
   hydrate: () => {
@@ -147,8 +173,19 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
     // This tab's own mode wins; a fresh shell always starts in Terminal.
     const mode = readStoredMode('session') ?? 'terminal';
     writeStoredMode('session', mode);
-    set({ config, hydrated: true, mode });
+    set({ config, hydrated: true, mode, collapsed: readStoredCollapsed() });
     void loadRemoteNav(config, mode);
+  },
+
+  setCollapsed: (collapsed) => {
+    writeStoredCollapsed(collapsed);
+    set({ collapsed });
+  },
+
+  toggleCollapsed: () => {
+    const collapsed = !get().collapsed;
+    writeStoredCollapsed(collapsed);
+    set({ collapsed });
   },
 
   applyRemoteState: (state) => {

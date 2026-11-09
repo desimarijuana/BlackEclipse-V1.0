@@ -1,6 +1,40 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(keyboard): audit the global shortcut surface, add four reliable chords,
+  and rebuild the help dialog.** The catalogue moved to `src/lib/shortcuts.ts`
+  (single source for labels, groups and predicate helpers) and the dialog now
+  has Essentials / Navigation & panels / Focused chart / Sidebar sections,
+  platform-aware ⌘ labels, search auto-focus, an inline “browser-reserved”
+  warning for F1/F5/F11/F12, and the previously unused i18n group keys. Fixed
+  Ctrl/Cmd+Alt+N and Ctrl+Alt+X failing on AltGr/non-US layouts by falling back
+  to `event.code`, and added the `?` alias for help. New chords: Ctrl/Cmd+B
+  (collapse sidebar, now a shared persisted sidebar-store preference),
+  Ctrl/Cmd+, (Settings) and Ctrl/Cmd+Shift+L (light/dark). Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(shell): every launch opens the Eclipse Agent first.** With no explicit
+  tab deep link, the boot effect now always lands on `chat` instead of resolving
+  a saved start screen / resuming the last visited tab, so opening the app never
+  shows a different page first. Removed the now-contradictory Start screen
+  control from Settings › General and dropped `startScreen` /
+  `resolveStartTab` / `recordLastTab` from `general-prefs` (legacy stored
+  `startScreen` JSON is ignored; explicit `?tab=` deep links still work). Docs
+  updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **fix(setup): make every setup toggle real, fix saved state, and close the
+  reset/attribution gaps.** Enforcement now covers Investor Eye
+  (GDELT/USGS/FIRMS), news ingestion + `/api/news`, the economics cache, and
+  the web-search provider chain — not just the scraper/crypto path. The
+  readiness check runs probes in parallel, persists `setup_check_v1`, and uses
+  a real SEC contact. `GET /api/setup` returns `acceptedRestrictedSources` and
+  the last check; the draft restores accepted sources and derives price mode
+  from a configured provider. Custom endpoint keys are stored in the encrypted
+  vault (`CUSTOM_LLM_API_KEY`) and old plaintext keys are cleared. Commercial
+  mode hides community price/crypto/search sources. Reset setup now clears the
+  MCP config; a scheduled factory reset can be cancelled (`GET`/`DELETE
+  /api/setup/reset` + Settings banner). Added a focus trap, styled
+  acknowledgement checkboxes, `DataAttribution` strips on Economics, Market
+  News and Market Discover, and a `data-source-preferences` test. Docs updated:
+  `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
 - **refactor(setup): the onboarding shell is now literally the production
   launch card.** Replaced the wide dashboard panel with the launch page's
   580px centered card: masked 44px brand grid, top glow, 22/24/18 padding,

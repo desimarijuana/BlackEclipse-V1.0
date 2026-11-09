@@ -153,5 +153,4 @@ export interface SetupCompleteInput {
   sources: Record<string, boolean>;
   acceptedRestrictedSources?: string[];
   ai?: AiChoice;
-  extraKeys?: Array<{ envVar: string; value: string }>;
 }

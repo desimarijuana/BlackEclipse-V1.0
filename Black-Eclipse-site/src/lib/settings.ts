@@ -16,8 +16,9 @@ import { storedProviderKey } from "@/lib/provider-keys";
  * known preset. Used so a key pasted in the provider-key vault is honoured by
  * the LLM runtime without re-entering it in the LLM config.
  */
-function llmKeyEnvVar(baseUrl: string): string | undefined {
-  return presetForBaseUrl(baseUrl)?.envVar;
+function llmKeyEnvVar(baseUrl: string, provider?: string): string | undefined {
+  return presetForBaseUrl(baseUrl)?.envVar ??
+    (provider === "custom" ? "CUSTOM_LLM_API_KEY" : undefined);
 }
 
 // ─── Low-level key/value helpers ───────────────────────────────────────
@@ -87,6 +88,19 @@ export interface LLMConfig {
    * the conservative ceiling applies — it is never fabricated.
    */
   contextWindow?: number;
+  /**
+   * Optional sampling temperature (0–2). 0 is the most consistent, higher is
+   * more varied. Absent means "Auto": the runtime sends nothing, so the
+   * provider's own default applies. Applied to every model call in a run on a
+   * provider that accepts it; some reasoning models ignore it.
+   */
+  temperature?: number;
+  /**
+   * Optional max output tokens for one model response. Absent means the
+   * provider's default. Applied per provider (OpenAI/Mistral/Groq/Anthropic
+   * `max_tokens`, Gemini `max_output_tokens`).
+   */
+  maxTokens?: number;
   /**
    * Optional reasoning-effort override ("model variant"). Sent to the runtime as
    * the `reasoning` routing requirement + applied to native reasoning controls.
@@ -186,16 +200,18 @@ export async function getLLMConfig(): Promise<LLMConfig> {
   const cfg = await readLLMConfigRaw();
   const hasRealKey = Boolean(cfg.apiKey) && cfg.apiKey !== LOCAL_KEY_SENTINEL;
   if (hasRealKey) return cfg;
-  const envVar = llmKeyEnvVar(cfg.baseUrl);
+  const envVar = llmKeyEnvVar(cfg.baseUrl, cfg.provider);
   if (!envVar) return { ...cfg, apiKey: isLocalBaseUrl(cfg.baseUrl) ? LOCAL_KEY_SENTINEL : cfg.apiKey };
   const apiKey = process.env[envVar] || (await storedProviderKey(envVar)) || "";
   return { ...cfg, apiKey };
 }
 
 export async function setLLMConfig(
-  config: Omit<Partial<LLMConfig>, "contextWindow" | "reasoningEffort"> & {
+  config: Omit<Partial<LLMConfig>, "contextWindow" | "reasoningEffort" | "temperature" | "maxTokens"> & {
     contextWindow?: number | null;
     reasoningEffort?: LLMConfig["reasoningEffort"] | null;
+    temperature?: number | null;
+    maxTokens?: number | null;
     codingModel?: string | null;
   },
 ): Promise<LLMConfig> {
@@ -213,6 +229,26 @@ export async function setLLMConfig(
   if ((config as { reasoningEffort?: unknown }).reasoningEffort === null) {
     delete merged.reasoningEffort;
   }
+  // Sampling controls: an explicit `null` clears back to Auto, and a stored
+  // value is clamped to what every provider accepts. Invalid numbers are
+  // dropped rather than persisted — the runtime is never handed a surprise.
+  if (config.temperature === null) delete merged.temperature;
+  if (config.maxTokens === null) delete merged.maxTokens;
+  if (merged.temperature !== undefined) {
+    if (typeof merged.temperature !== "number" || !Number.isFinite(merged.temperature)) {
+      delete merged.temperature;
+    } else {
+      merged.temperature = Math.min(2, Math.max(0, merged.temperature));
+    }
+  }
+  if (merged.maxTokens !== undefined) {
+    const tokens = Math.floor(merged.maxTokens);
+    if (!Number.isFinite(tokens) || tokens < 1) {
+      delete merged.maxTokens;
+    } else {
+      merged.maxTokens = Math.min(1_000_000, tokens);
+    }
+  }
   // An explicit `null` clears the routing preference similarly.
   if ((config as { routingPolicy?: unknown }).routingPolicy === null) delete merged.routingPolicy;
   // An explicit `null` clears the coding model back to the chat model.
@@ -228,7 +264,7 @@ export async function setLLMConfig(
   if (merged.provider !== "mock" && !merged.apiKey && !isLocalBaseUrl(merged.baseUrl)) {
     // The key may legitimately live in the provider-key vault or the environment
     // (the single key home for a preset). Only refuse when neither holds one.
-    const envVar = llmKeyEnvVar(merged.baseUrl);
+    const envVar = llmKeyEnvVar(merged.baseUrl, merged.provider);
     const vaultKey = envVar ? process.env[envVar] || (await storedProviderKey(envVar)) : "";
     if (!vaultKey) {
       throw new Error("An API key is required for a remote LLM provider");

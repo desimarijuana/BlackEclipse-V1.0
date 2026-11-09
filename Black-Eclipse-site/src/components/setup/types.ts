@@ -59,7 +59,16 @@ export interface SetupState {
   bundles: SetupBundleRow[];
   capabilities: SetupCapabilityRow[];
   sources: SetupSourceRow[];
+  acceptedRestrictedSources: string[];
+  lastCheck?: { at: string; items: CheckItemView[] } | null;
   warnings: string[];
+}
+
+export interface CheckItemView {
+  id: string;
+  label: string;
+  status: "ok" | "failed" | "rate-limited" | "unavailable" | "skipped";
+  message: string;
 }
 
 export interface SetupDraft {

@@ -29,7 +29,9 @@ import {
   KeyRound,
   Loader2,
   Plug,
+  Ruler,
   Server,
+  SlidersHorizontal,
   Trash2,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
@@ -157,6 +159,132 @@ function ReasoningEffortPicker({
         })}
       </div>
       <p className="text-[10px] text-muted-foreground leading-relaxed">{selected.hint}</p>
+    </div>
+  );
+}
+
+/**
+ * Sampling temperature for the saved default. `null` is Auto: nothing is sent,
+ * so the provider's own default applies — an untouched install behaves exactly
+ * as before. The presets are a convenience, not a closed vocabulary; any value
+ * from 0 to 2 is allowed. Some reasoning models ignore temperature, and the
+ * caption says so rather than implying a guarantee.
+ */
+const TEMPERATURE_PRESETS: { label: string; value: number | null; hint: string }[] = [
+  { label: "Auto", value: null, hint: "Use the provider's own default temperature." },
+  { label: "Precise", value: 0, hint: "Most consistent — best for analysis and repeat runs." },
+  { label: "Balanced", value: 0.7, hint: "A middle ground for everyday chat." },
+  { label: "Creative", value: 1.2, hint: "More varied wording — not for financial analysis." },
+];
+
+function TemperatureControl({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const explicit = value != null;
+  // The slider needs a position even while Auto; it is disabled in that state.
+  const shown = value ?? TEMPERATURE_PRESETS[2].value ?? 0.7;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+          <SlidersHorizontal size={12} className="text-primary" />
+          Temperature
+        </Label>
+        <span className="text-xs font-mono font-semibold text-foreground">
+          {explicit ? value.toFixed(1) : "Auto"}
+        </span>
+      </div>
+
+      <div role="radiogroup" aria-label="Temperature preset" className="flex flex-wrap gap-1.5">
+        {TEMPERATURE_PRESETS.map((preset) => {
+          const active =
+            preset.value == null
+              ? !explicit
+              : explicit && Math.abs((value as number) - preset.value) < 0.05;
+          return (
+            <button
+              key={preset.label}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(preset.value)}
+              title={preset.hint}
+              className={cn(
+                "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer",
+                active
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-border/40 text-muted-foreground hover:border-border/60 hover:text-foreground",
+              )}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <input
+        type="range"
+        min={0}
+        max={2}
+        step={0.1}
+        value={shown}
+        disabled={!explicit}
+        aria-label="Temperature"
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-primary disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      />
+      <div className="flex justify-between text-[10px] text-muted-foreground/60">
+        <span>0 · Precise</span>
+        <span>2 · Wild</span>
+      </div>
+      <p className="text-[10px] text-muted-foreground leading-relaxed">
+        Lower is more consistent, higher more varied. Auto sends nothing and keeps
+        the provider default. Some reasoning models ignore temperature.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The per-response output cap. Blank is Auto: the runtime sends nothing and the
+ * provider's default applies. Mapped per provider by the runtime.
+ */
+function MaxTokensControl({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+        <Ruler size={12} className="text-primary" />
+        Max output tokens
+      </Label>
+      <Input
+        type="number"
+        min={1}
+        value={value ?? ""}
+        onChange={(e) => {
+          const raw = e.target.value.trim();
+          const parsed = raw ? Number(raw) : null;
+          onChange(
+            parsed != null && Number.isFinite(parsed) && parsed >= 1
+              ? Math.floor(parsed)
+              : null,
+          );
+        }}
+        placeholder="Auto — provider default"
+        className="font-mono !border-white/12"
+      />
+      <p className="text-[10px] text-muted-foreground">
+        Caps the length of each model response. Leave blank to use the provider's default.
+      </p>
     </div>
   );
 }

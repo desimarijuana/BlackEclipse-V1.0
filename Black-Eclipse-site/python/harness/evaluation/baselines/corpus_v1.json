@@ -1,12 +1,12 @@
 {
   "agentVersion": "0.1.0",
   "dataset": "eclipse-benchmark",
-  "datasetChecksum": "5cabb0aff46e4343d41ea69559c4a789",
-  "gitCommit": "6d27bfd95efb69921c5de7a4f5555d803f0ca523",
+  "datasetChecksum": "d58138f007d654c4d3bddd6614706da5",
+  "gitCommit": "1350e1ed8dc0571ce560de72cf17c3b1fd5ef710",
   "metrics": {
     "aggregates": {
       "artifact_delivery": 1.0,
-      "citation_accuracy": 1.0,
+      "citation_accuracy": 0.0,
       "code_correctness": 1.0,
       "escalation_correct": null,
       "financial_accuracy": 1.0,
@@ -20,7 +20,7 @@
       "reliability": 1.0,
       "research_accuracy": null,
       "safety_score": 1.0,
-      "task_success": 1.0,
+      "task_success": 0.9957983193277311,
       "tool_accuracy": 0.9704761904761905,
       "visual_delivery": 1.0
     },
@@ -41,8 +41,8 @@
       },
       "citations": {
         "measured": 1,
-        "passRate": 1.0,
-        "passed": 1,
+        "passRate": 0.0,
+        "passed": 0,
         "trials": 2,
         "unmeasured": 1
       },
@@ -61,10 +61,10 @@
         "unmeasured": 0
       },
       "finance": {
-        "measured": 20,
+        "measured": 188,
         "passRate": 1.0,
-        "passed": 20,
-        "trials": 20,
+        "passed": 188,
+        "trials": 188,
         "unmeasured": 0
       },
       "long_horizon": {
@@ -131,13 +131,13 @@
         "unmeasured": 0
       }
     },
-    "datasetChecksum": "5cabb0aff46e4343d41ea69559c4a789",
-    "passRate": 1.0,
+    "datasetChecksum": "d58138f007d654c4d3bddd6614706da5",
+    "passRate": 0.9957983193277311,
     "tier": 0
   },
   "name": "nightly-corpus",
-  "recordedAt": "2026-10-22T03:44:12.721497+00:00",
-  "runId": "nightly-20261022-034224-2263e4",
+  "recordedAt": "2026-11-09T17:32:59.515771+00:00",
+  "runId": "nightly-20261109-172917-412919",
   "split": "validation",
-  "taskCount": 76
+  "taskCount": 244
 }

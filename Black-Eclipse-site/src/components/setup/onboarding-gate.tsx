@@ -44,8 +44,10 @@ export function OnboardingGate() {
   }, []);
 
   const done = () => {
-    // Drop the forced query so a refresh does not reopen a completed setup.
-    window.location.assign("/");
+    // Drop the forced setup query, but keep an existing tab deep link.
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    window.location.assign(tab ? `/?tab=${encodeURIComponent(tab)}` : "/");
   };
 
   if (!checked) return null;

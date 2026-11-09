@@ -67,6 +67,10 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
     // The declared context window is not a secret; it round-trips so the UI can
     // show/edit it. Absent = unknown.
     contextWindow: llm.contextWindow,
+    // Sampling defaults are not secrets; round-trip them so the controls
+    // reflect the saved values. Absent = Auto (the provider's own default).
+    temperature: llm.temperature,
+    maxTokens: llm.maxTokens,
     // The reasoning-effort override ("model variant") is not a secret either;
     // round-trip it so the picker reflects the saved choice. Absent = Auto.
     reasoningEffort: llm.reasoningEffort,

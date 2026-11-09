@@ -154,6 +154,8 @@ export const usgsSource: EventSource = {
   isConfigured: () => true,
 
   async fetch(query: SourceQuery): Promise<RawEvent[]> {
+    const { isDataSourceEnabled } = await import('@/lib/data-source-preferences');
+    if (!(await isDataSourceEnabled('usgs'))) return [];
     const url = feedForHours(query.hours);
     const res = await safeGet({ url, timeoutMs: query.timeoutMs ?? 10_000 });
     if (res.status < 200 || res.status >= 300) {

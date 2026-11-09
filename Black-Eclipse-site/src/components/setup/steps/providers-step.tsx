@@ -7,6 +7,7 @@ import { commercialSentence } from "@/lib/setup/source-catalog";
 import type { SetupDraft, SetupKeyStatuses, SetupState } from "../types";
 import { ProviderCard } from "../parts/provider-card";
 import { Toggle } from "../parts/switch";
+import { CheckRow } from "../parts/check-row";
 
 const ADVANCED_PRICE = CAPABILITY_BY_ID.prices.advanced;
 const ADVANCED_CRYPTO = CAPABILITY_BY_ID.crypto.advanced;
@@ -89,6 +90,7 @@ export function ProvidersStep({
   onSaveKey: (envVar: string, value: string) => Promise<string>;
 }) {
   const byId = Object.fromEntries(state.sources.map((s) => [s.id, s]));
+  const isCommercial = draft.mode === "commercial";
   const advancedAccepted = (ids: string[]) => ids.every((id) => draft.accepted.includes(id));
 
   const toggle = (id: string, next: boolean) =>
@@ -160,7 +162,9 @@ export function ProvidersStep({
             body: "Charts show UNAVAILABLE. Everything else still works.",
             icon: CircleSlash,
           },
-        ].map((option) => {
+        ]
+          .filter((option) => !isCommercial || option.id !== "community")
+          .map((option) => {
           const active = draft.priceMode === option.id;
           const Icon = option.icon;
           return (
@@ -220,14 +224,12 @@ export function ProvidersStep({
             These sources do not grant commercial redistribution rights. Do not enable them for a
             product you charge for.
           </p>
-          <label className="mt-2 flex items-start gap-2 text-[10px] text-muted-foreground">
-            <input
-              type="checkbox"
-              className="mt-0.5"
+          <div className="mt-2">
+            <CheckRow
               checked={communityAck}
-              onChange={(e) => {
+              onChange={(next) => {
                 const sources = { ...draft.sources };
-                if (e.target.checked) {
+                if (next) {
                   for (const id of ADVANCED_PRICE) sources[id] = true;
                   setDraft({
                     accepted: [...new Set([...draft.accepted, ...ADVANCED_PRICE])],
@@ -243,9 +245,10 @@ export function ProvidersStep({
                   });
                 }
               }}
-            />
-            <span>I accept each provider&apos;s terms for personal use.</span>
-          </label>
+            >
+              I accept each provider&apos;s terms for personal use.
+            </CheckRow>
+          </div>
           <div className="mt-2 grid gap-2">
             {ADVANCED_PRICE.map((id) => {
               const source = byId[id];
@@ -288,36 +291,42 @@ export function ProvidersStep({
             />
           );
         })}
-        <label className="flex items-start gap-2 text-[10px] text-muted-foreground">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={cryptoAck}
-            onChange={(e) => setGroupAccepted(ADVANCED_CRYPTO, e.target.checked)}
-          />
-          <span>I accept the community crypto sources&apos; terms for personal use.</span>
-        </label>
-        <div className="grid gap-2">
-          {ADVANCED_CRYPTO.map((id) => {
-            const source = byId[id];
-            if (!source) return null;
-            return (
-              <AdvancedToggle
-                key={id}
-                id={id}
-                label={source.label}
-                note={source.note ?? ""}
-                status={source.commercial}
-                enabled={draft.sources[id] === true}
-                accepted={cryptoAck}
-                onToggle={(next) => toggle(id, next)}
-              />
-            );
-          })}
-        </div>
-        {!cryptoAck && (
+        {!isCommercial ? (
+          <>
+            <CheckRow
+              checked={cryptoAck}
+              onChange={(next) => setGroupAccepted(ADVANCED_CRYPTO, next)}
+            >
+              I accept the community crypto sources&apos; terms for personal use.
+            </CheckRow>
+            <div className="grid gap-2">
+              {ADVANCED_CRYPTO.map((id) => {
+                const source = byId[id];
+                if (!source) return null;
+                return (
+                  <AdvancedToggle
+                    key={id}
+                    id={id}
+                    label={source.label}
+                    note={source.note ?? ""}
+                    status={source.commercial}
+                    enabled={draft.sources[id] === true}
+                    accepted={cryptoAck}
+                    onToggle={(next) => toggle(id, next)}
+                  />
+                );
+              })}
+            </div>
+            {!cryptoAck && (
+              <p className="text-[9px] text-muted-foreground">
+                Community crypto sources stay locked until you accept their terms.
+              </p>
+            )}
+          </>
+        ) : (
           <p className="text-[9px] text-muted-foreground">
-            Community crypto sources stay locked until you accept their terms.
+            Community crypto sources are hidden in Commercial mode. Connect CoinMarketCap or
+            CoinGecko above.
           </p>
         )}
       </Section>
@@ -336,33 +345,39 @@ export function ProvidersStep({
             />
           );
         })}
-        <label className="flex items-start gap-2 text-[10px] text-muted-foreground">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={searchAck}
-            onChange={(e) => setGroupAccepted(ADVANCED_SEARCH, e.target.checked)}
-          />
-          <span>I accept the keyless community search source&apos;s terms for personal use.</span>
-        </label>
-        <div className="grid gap-2">
-          {ADVANCED_SEARCH.map((id) => {
-            const source = byId[id];
-            if (!source) return null;
-            return (
-              <AdvancedToggle
-                key={id}
-                id={id}
-                label={source.label}
-                note={source.note ?? ""}
-                status={source.commercial}
-                enabled={draft.sources[id] === true}
-                accepted={searchAck}
-                onToggle={(next) => toggle(id, next)}
-              />
-            );
-          })}
-        </div>
+        {!isCommercial ? (
+          <>
+            <CheckRow
+              checked={searchAck}
+              onChange={(next) => setGroupAccepted(ADVANCED_SEARCH, next)}
+            >
+              I accept the keyless community search source&apos;s terms for personal use.
+            </CheckRow>
+            <div className="grid gap-2">
+              {ADVANCED_SEARCH.map((id) => {
+                const source = byId[id];
+                if (!source) return null;
+                return (
+                  <AdvancedToggle
+                    key={id}
+                    id={id}
+                    label={source.label}
+                    note={source.note ?? ""}
+                    status={source.commercial}
+                    enabled={draft.sources[id] === true}
+                    accepted={searchAck}
+                    onToggle={(next) => toggle(id, next)}
+                  />
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="text-[9px] text-muted-foreground">
+            The keyless community search source is hidden in Commercial mode. Connect Tavily,
+            Brave, Exa or Serper above.
+          </p>
+        )}
       </Section>
 
       <Section title="More macro & company" hint="Optional add-ons for global macro, fundamentals and news.">

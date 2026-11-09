@@ -7,7 +7,7 @@
 //     web process cannot safely delete live SQLite on Windows. doctor.js runs
 //     the wipe on the next boot, before it opens jdds.db.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Database, Loader2, RotateCcw, Trash2 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,37 @@ export function SetupDangerZone() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scheduled, setScheduled] = useState<Record<string, unknown> | null>(null);
+
+  const refreshScheduled = async () => {
+    try {
+      const res = await fetch("/api/setup/reset", { cache: "no-store" });
+      const data = (await res.json()) as { scheduled?: boolean; marker?: Record<string, unknown> | null };
+      setScheduled(data.scheduled ? data.marker ?? {} : null);
+    } catch {
+      setScheduled(null);
+    }
+  };
+
+  useEffect(() => {
+    void refreshScheduled();
+  }, []);
+
+  const cancelScheduled = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/setup/reset", { method: "DELETE" });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not cancel");
+      setScheduled(null);
+      setMessage("Scheduled factory reset cancelled. Nothing will be deleted.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not cancel");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const close = () => {
     setMode(null);
@@ -64,6 +95,7 @@ export function SetupDangerZone() {
         data.message ||
           "Reset scheduled. Restart Eclipse to finish (or run `black reset --factory`).",
       );
+      if (data.scheduled) setScheduled({});
       setMode(null);
       setConfirm("");
     } catch (err) {
@@ -83,6 +115,23 @@ export function SetupDangerZone() {
           These actions change Eclipse itself, not just this browser. Read the scope before
           confirming.
         </p>
+
+        {scheduled && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-2.5">
+            <span className="text-[10px] text-amber-200">
+              A factory reset is scheduled and will run on the next start.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto cursor-pointer rounded-lg border-amber-500/30 text-[10px] text-amber-200 hover:bg-amber-500/10"
+              disabled={busy}
+              onClick={() => void cancelScheduled()}
+            >
+              Cancel scheduled reset
+            </Button>
+          </div>
+        )}
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">

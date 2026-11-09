@@ -384,6 +384,8 @@ export const firmsSource: EventSource = {
   isConfigured: () => true,
 
   async fetch(query: SourceQuery): Promise<RawEvent[]> {
+    const { isDataSourceEnabled } = await import('@/lib/data-source-preferences');
+    if (!(await isDataSourceEnabled('firms'))) return [];
     const url = feedForHours(query.hours);
     // MEASURED FLAKINESS: the 24h global CSV is ~1.6 MB and normally lands in
     // ~3 s, but the shared transport hard-caps timeouts at 10 s (`MAX_TIMEOUT_MS`)

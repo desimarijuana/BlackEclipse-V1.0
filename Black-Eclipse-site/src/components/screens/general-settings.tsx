@@ -4,9 +4,9 @@
 // The "General" tab of the merged General/Customization surface. Grouped into
 // titled sections so related preferences sit together instead of one long mix:
 //
-//   * Startup & Display — which screen the app opens on (start screen), the
-//     server-backed default market / refresh interval and the local-only
-//     display currency / timezone.
+//   * Startup & Display — the server-backed default market / refresh interval
+//     and the local-only display currency / timezone. (The app always boots on
+//     the Eclipse Agent page, so there is no start-screen control.)
 //   * Live Data         — how often dashboards re-fetch prices.
 //   * Safety            — destructive-action confirmation (localStorage via
 //     `general-prefs`).
@@ -25,8 +25,7 @@ import { DISPLAY_CURRENCIES, getDisplayCurrency, setDisplayCurrency } from "@/li
 import { DISPLAY_TIMEZONES, browserTimeZone, getDisplayTimeZone, isValidTimeZone, setDisplayTimeZone } from "@/lib/timezone";
 import { HEATMAP_MARKETS } from "@/lib/heatmap";
 import {
-  DEFAULT_GENERAL_PREFS, START_SCREEN_OPTIONS, loadGeneralPrefs, saveGeneralPrefs,
-  type GeneralPrefs, type StartScreen,
+  DEFAULT_GENERAL_PREFS, loadGeneralPrefs, saveGeneralPrefs, type GeneralPrefs,
 } from "@/lib/general-prefs";
 import { Field, Panel, SubSection, Toggle } from "./settings-ui";
 
@@ -121,21 +120,6 @@ export function GeneralSettingsPanel({
       <SubSection icon={Monitor} title="Startup & Display">
         <Panel className="p-5 md:p-6 space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Start screen" hint="Which screen the app opens on. “Last screen” resumes where you left off.">
-              <Select
-                value={general.startScreen}
-                onValueChange={(v) => v && updateGeneral({ startScreen: v as StartScreen })}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {START_SCREEN_OPTIONS.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.label} — {s.hint}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
             <Field label="Default Market">
               <Select value={prefs.defaultMarket} onValueChange={(v) => onPrefsChange({ defaultMarket: v ?? "US" })}>
                 <SelectTrigger className="w-full">

@@ -4,6 +4,7 @@ import React, { useRef, useState } from 'react';
 import { Globe, LineChart, Activity, CalendarDays } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { PageHeader } from '@/components/layout/page-header';
+import { DataAttribution } from '@/components/screens/data-attribution';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { useSubroute } from '@/hooks/use-subroute';
@@ -74,6 +75,9 @@ export function EconomicsScreen() {
             description="Snapshot, explore and calendar the global macro picture. Every value carries its source and vintage — nothing fabricated."
             size="lg"
           />
+          <div className="mt-3">
+            <DataAttribution />
+          </div>
         </section>
 
         {/* ── Section tabs ─────────────────────────────────────── */}

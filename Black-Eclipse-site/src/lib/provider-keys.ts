@@ -90,6 +90,8 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     test: { url: 'https://api.perplexity.ai/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'FIREWORKS_API_KEY', label: 'Fireworks AI', provider: 'Fireworks', category: 'ai', description: 'Open-model inference.', docsUrl: 'https://fireworks.ai/account/api-keys',
     test: { url: 'https://api.fireworks.ai/inference/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
+  { envVar: 'CUSTOM_LLM_API_KEY', label: 'Custom LLM endpoint key', provider: 'Custom endpoint', category: 'ai',
+    description: 'Optional key for a custom OpenAI-compatible endpoint (setup stores it in the encrypted vault).' },
   { envVar: 'TRANSCRIBE_API_KEY', label: 'Custom transcription key', provider: 'Voice input', category: 'ai',
     description: 'Optional bearer key for a custom OpenAI-compatible /audio/transcriptions endpoint. Local whisper.cpp needs none.',
     docsUrl: 'https://platform.openai.com/docs/guides/speech-to-text' },

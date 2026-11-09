@@ -15,7 +15,7 @@ export interface Probe {
 
 // SEC (and some other agencies) reject a generic User-Agent. A contact-shaped
 // value is required by their fair-access policy.
-const UA = "BlackEclipse setup-check admin@blackeclipse.local";
+const UA = "BlackEclipse setup-check setup@blackeclipse.app";
 
 export const INCLUDED_PROBES: Partial<Record<SourceId, Probe>> = {
   sec: {

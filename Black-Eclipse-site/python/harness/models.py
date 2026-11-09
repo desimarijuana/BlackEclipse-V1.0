@@ -409,6 +409,7 @@ def build_chat_model(settings: ModelSettings) -> Any:
 
     api_key = _resolve_key(settings, spec)
     temperature = settings.temperature
+    max_tokens = settings.max_tokens
 
     if spec.kind == "openai":
         from langchain_openai import ChatOpenAI
@@ -424,6 +425,8 @@ def build_chat_model(settings: ModelSettings) -> Any:
         kwargs: dict[str, Any] = {"model": model, "base_url": base_url, "api_key": api_key}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         # Token analytics require usage on the streamed response. langchain-openai
         # disables this by default when a custom base_url is set (our case for
         # every OpenAI-compatible endpoint, incl. Ollama), so a streaming run
@@ -441,6 +444,8 @@ def build_chat_model(settings: ModelSettings) -> Any:
         kwargs = {"model": settings.model or spec.default_model, "api_key": api_key}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         return ChatAnthropic(**kwargs)
 
     if spec.kind == "google":
@@ -451,6 +456,9 @@ def build_chat_model(settings: ModelSettings) -> Any:
         kwargs = {"model": settings.model or spec.default_model, "api_key": api_key}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            # Gemini names the output cap differently from OpenAI.
+            kwargs["max_output_tokens"] = max_tokens
         return ChatGoogleGenerativeAI(**kwargs)
 
     if spec.kind == "mistral":
@@ -461,6 +469,8 @@ def build_chat_model(settings: ModelSettings) -> Any:
         kwargs = {"model": settings.model or spec.default_model, "api_key": api_key}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         return ChatMistralAI(**kwargs)
 
     if spec.kind == "groq":
@@ -471,6 +481,8 @@ def build_chat_model(settings: ModelSettings) -> Any:
         kwargs = {"model": settings.model or spec.default_model, "api_key": api_key}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         return ChatGroq(**kwargs)
 
     raise ValueError(f"Provider '{spec.id}' has unsupported kind '{spec.kind}'")

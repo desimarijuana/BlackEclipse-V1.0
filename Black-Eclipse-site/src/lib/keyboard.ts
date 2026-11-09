@@ -15,6 +15,21 @@ export function matchesShortcut(event: KeyboardModifiers, keys: string): boolean
   return primary && !!event.altKey === modifiers.has('alt') && !!event.shiftKey === modifiers.has('shift') && event.key.toLowerCase() === key;
 }
 
+type KeyboardWithCode = KeyboardModifiers & Pick<KeyboardEvent, 'code'>;
+
+/**
+ * Like {@link matchesShortcut}, but also accepts the physical key `code` when
+ * the layout-dependent `event.key` disagrees (e.g. AltGr turns Ctrl+Alt+N into
+ * `ń`, or a non-US layout reports a different character for the `/` key).
+ * The modifier set is still matched exactly, so this can never widen the chord.
+ */
+export function matchesShortcutOrCode(event: KeyboardWithCode, keys: string, code: string): boolean {
+  if (matchesShortcut(event, keys)) return true;
+  if (event.code !== code) return false;
+  const key = keys.toLowerCase().split('+').pop() ?? '';
+  return matchesShortcut({ ...event, key }, keys);
+}
+
 const MODIFIER_LABELS: Record<string, string> = {
   mod: 'Ctrl / Cmd',
   ctrl: 'Ctrl',

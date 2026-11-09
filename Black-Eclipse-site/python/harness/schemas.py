@@ -135,6 +135,10 @@ class ModelSettings(BaseModel):
     api_key: Optional[str] = None
     model: str
     temperature: Optional[float] = None
+    # Optional max output tokens for one response. Absent = the provider's own
+    # default (the runtime sends nothing). Mapped per provider: OpenAI-compatible
+    # / Anthropic / Mistral / Groq `max_tokens`, Gemini `max_output_tokens`.
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=1_000_000)
     # Optional operator-declared context window (tokens) for this run. Used ONLY
     # when the catalog cannot resolve one (a local server, a router, a custom
     # endpoint). Never fabricated: absent/None leaves the window unknown and the

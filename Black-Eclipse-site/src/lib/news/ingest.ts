@@ -260,6 +260,10 @@ export async function getFeedHealth(): Promise<FeedHealth> {
 /** Run a full news ingestion cycle. Guards against concurrent runs. */
 export async function runNewsIngest(): Promise<IngestSummary> {
   if (ingesting) return { feeds: 0, ok: 0, failed: 0, created: 0, total: 0 };
+  const { isDataSourceEnabled } = await import("@/lib/data-source-preferences");
+  if (!(await isDataSourceEnabled("news-rss"))) {
+    return { feeds: 0, ok: 0, failed: 0, created: 0, total: 0 };
+  }
   ingesting = true;
   try {
     const feeds = (await getNewsFeeds()).filter(

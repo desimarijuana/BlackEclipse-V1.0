@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { shortcutTab, DEFAULT_SIDEBAR_SECTIONS, type SidebarConfig, type NavGroup } from '@/lib/sidebar/config';
 import { canHandleKeyboardEvent, matchesShortcut } from '@/lib/keyboard';
+import { isSidebarToggleShortcut } from '@/lib/shortcuts';
 import { useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import type { AppTab } from '@/components/layout/sidebar';
 
@@ -77,6 +78,11 @@ export function useSidebarKeybinds(onNavigate: (tab: AppTab) => void, activeTab?
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!useKeyboardShortcutsStore.getState().helpOpen && canHandleKeyboardEvent(event) && isSidebarToggleShortcut(event)) {
+        event.preventDefault();
+        useSidebarConfigStore.getState().toggleCollapsed();
+        return;
+      }
       // Dedicated modes (bots / graph) mirror the switcher click and open their
       // workspace, so the panel and the page never disagree.
       if (handleSidebarModeShortcut(event, navigateRef.current, activeTabRef.current)) return;

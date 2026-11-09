@@ -17,21 +17,21 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1794189449278`
-- dataset: `eclipse-benchmark` @ `1` (checksum `7e4a3d9264445b9c4050b78d7abf05d1`)
+- run: `evalrun-1794245636109`
+- dataset: `eclipse-benchmark` @ `1` (checksum `7b701a93ce4706def8de154fd6a311b9`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `216277a2771a71713000ce739f91c4ef43240747`
+- git commit: `1350e1ed8dc0571ce560de72cf17c3b1fd5ef710`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
 
 | dimension | value |
 |---|---|
-| task_success | 1.0000 |
+| task_success | 0.9969 |
 | tool_accuracy | 0.9712 |
 | research_accuracy | UNKNOWN |
-| citation_accuracy | 1.0000 |
+| citation_accuracy | 0.0000 |
 | code_correctness | 1.0000 |
 | financial_accuracy | 1.0000 |
 | memory_accuracy | 1.0000 |
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1463 |
+| latency | 0.0764 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -56,7 +56,7 @@ A deterministic script replaces the model, so this measures the
 |---|---|---|---|
 | adversarial | 14/14 | 0 | 100.0% |
 | browser | 0/0 | 1 | UNKNOWN |
-| citations | 1/1 | 1 | 100.0% |
+| citations | 0/1 | 1 | 0.0% |
 | coding | 4/4 | 0 | 100.0% |
 | core | 4/4 | 0 | 100.0% |
 | finance | 270/270 | 0 | 100.0% |

@@ -96,6 +96,8 @@ def test_live_eligible_excludes_eval_only_tools_and_synthetic_environments():
     dataset = load_all_builtin()
     assert dataset.by_id("adversarial.unavailable.001").live_eligible is False
     assert dataset.by_id("tools.memory_roundtrip.001").live_eligible is False
+    # Tier 0 is still live-measurable when the prompt carries its own inputs
+    # (the finance fixtures do); an explicit opt-out is the only exclusion.
     assert dataset.by_id("finance.pe.001").live_eligible is True
 
     eligible = [task for task in dataset.tasks if task.live_eligible]

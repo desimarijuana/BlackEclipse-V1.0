@@ -406,6 +406,8 @@ export const gdeltSource: EventSource = {
   isConfigured: () => true,
 
   async fetch(query: SourceQuery): Promise<RawEvent[]> {
+    const { isDataSourceEnabled } = await import('@/lib/data-source-preferences');
+    if (!(await isDataSourceEnabled('gdelt'))) return [];
     // Primary: the bulk export (fast, complete, not rate-limited). One bounded
     // retry for a transient transport failure, matching `firms.ts`/`eonet.ts`.
     for (let attempt = 0; attempt < GDELT_ATTEMPTS; attempt++) {

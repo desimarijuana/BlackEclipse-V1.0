@@ -13,6 +13,8 @@ last-verified: 2026-11-09
 > --factory`) are in the tree. See ADR-072. `/api/setup/check` now runs a real,
 > bounded reachability probe for every included open source (see
 > `src/lib/setup/included-probes.ts`) and reports rate-limited/failed honestly.
+> Enforcement now covers the scraper chain, crypto connector, economics,
+> Investor Eye, news ingestion + `/api/news`, and the web-search provider chain.
 > Remaining future scope: per-user onboarding if multi-tenant use is ever added.
 
 **Goal:** A boot-style, full-screen setup experience shown once, on a brand-new

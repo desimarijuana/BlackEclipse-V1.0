@@ -177,8 +177,8 @@ import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
-import { loadGeneralPrefs, recordLastTab, resolveStartTab } from '@/lib/general-prefs';
-import { hasBlockingKeyboardDialog, isKeyboardEventAvailable, matchesShortcut } from '@/lib/keyboard';
+import { canHandleKeyboardEvent, hasBlockingKeyboardDialog, isKeyboardEventAvailable } from '@/lib/keyboard';
+import { isFocusModeShortcut, isNewChatShortcut, isSettingsShortcut, isThemeShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
 import { cn } from '@/lib/utils';
@@ -343,9 +343,7 @@ function StockChatContent() {
 
   useEffect(() => {
     setNavHistory((prev) => recordVisit(prev, activeTab));
-    // Remember the last visited tab so `startScreen: 'history'` can resume it.
-    if (mounted) recordLastTab(activeTab);
-  }, [activeTab, mounted]);
+  }, [activeTab]);
 
   // Deep-link boot + history: /?tab=portfolio or /?tab=chart&symbol=AAPL opens
   // that page directly. Powers Ctrl/Cmd-click, middle-click and "open in new
@@ -433,15 +431,14 @@ function StockChatContent() {
       if (dest) apply(dest);
     };
 
-    // Boot from the URL; otherwise honor the saved start screen after mount, so
-    // the server and first client render stay identical.
+    // Boot from the URL; otherwise always land on the Eclipse Agent (chat). The
+    // agent is the product's front door, so a launch never opens some other
+    // screen the user left behind. An explicit deep link still wins. Applied
+    // after mount so the server and first client render stay identical.
     try {
       const boot = parseDeepLink(window.location.search);
       if (boot) apply(boot);
-      else {
-        const start = resolveStartTab(loadGeneralPrefs());
-        if (start && start !== 'chat') setActiveTab(start);
-      }
+      else setActiveTab('chat');
     } catch { /* ignore malformed URLs */ }
     bootDoneRef.current = true;
 
@@ -1009,7 +1006,7 @@ function StockChatContent() {
   // Ctrl+Alt+X toggles focus mode anywhere in the app shell (chat tab only).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!matchesShortcut(event, 'ctrl+alt+x') || !isKeyboardEventAvailable(event)) return;
+      if (!isFocusModeShortcut(event) || !isKeyboardEventAvailable(event)) return;
       if (useKeyboardShortcutsStore.getState().helpOpen || hasBlockingKeyboardDialog()) return;
       if (activeTabRef.current !== 'chat') return;
       event.preventDefault();
@@ -1026,13 +1023,35 @@ function StockChatContent() {
   newChatRef.current = handleNewChat;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!matchesShortcut(event, 'mod+alt+n') || !isKeyboardEventAvailable(event)) return;
+      if (!isNewChatShortcut(event) || !isKeyboardEventAvailable(event)) return;
       if (useKeyboardShortcutsStore.getState().helpOpen || hasBlockingKeyboardDialog()) return;
       event.preventDefault();
       setActiveTab('chat');
       newChatRef.current();
       // The composer mounts on the next paint; focus it once it is on screen.
       setTimeout(() => window.dispatchEvent(new CustomEvent('be:focus-chat')), 0);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+  // Ctrl/Cmd+, opens Settings; Ctrl/Cmd+Shift+L flips the colour scheme. Both
+  // stay out of text fields and other blocking dialogs like every page chord.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isKeyboardEventAvailable(event) || useKeyboardShortcutsStore.getState().helpOpen) return;
+      if (!canHandleKeyboardEvent(event)) return;
+      if (isSettingsShortcut(event)) {
+        event.preventDefault();
+        setSettingsSection(undefined);
+        setSettingsAnchor(undefined);
+        setSettingsOpen(true);
+        return;
+      }
+      if (isThemeShortcut(event)) {
+        event.preventDefault();
+        const theme = useThemeStore.getState().theme;
+        useThemeStore.getState().setTheme({ scheme: theme.scheme === 'light' ? 'dark' : 'light' });
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

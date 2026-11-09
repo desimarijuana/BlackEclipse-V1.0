@@ -186,6 +186,8 @@ export const newsSource: EventSource = {
   isConfigured: () => true,
 
   async fetch(query: SourceQuery): Promise<RawEvent[]> {
+    const { isDataSourceEnabled } = await import('@/lib/data-source-preferences');
+    if (!(await isDataSourceEnabled('news-rss'))) return [];
     return readRecentNews(query.hours);
   },
 

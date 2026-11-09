@@ -151,6 +151,9 @@ export function SidebarSettingsPanel() {
         <p className="text-[10px] text-muted-foreground px-5 py-3.5 border-t border-border/10 flex items-center gap-1.5">
           <Keyboard size={11} /> Shortcuts work anywhere in the app. Hidden items stay in this list but leave the sidebar.
         </p>
+        <p className="text-[10px] text-amber-500/90 px-5 pb-3.5 flex items-start gap-1.5">
+          <Keyboard size={11} className="mt-0.5 shrink-0" /> Keys marked “(browser)” — F1, F5, F11 and F12 — are owned by some browsers and may not reach Eclipse. Reassign them if they do not work.
+        </p>
       </div>
     </div>
   );

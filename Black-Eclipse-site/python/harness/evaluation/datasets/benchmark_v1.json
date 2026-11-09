@@ -533,7 +533,7 @@
       "description": "The answer cites only allowed sources and asserts no unsupported numbers.",
       "category": "adversarial",
       "difficulty": "hard",
-      "input": {"prompt": "Summarize the company's latest filing."},
+      "input": {"prompt": "Summarize Apple's latest 10-K filing and cite the SEC source."},
       "environment": {"type": "none"},
       "graders": [{"name": "hallucination", "config": {"hallucination": {"allowed_domains": ["sec.gov"], "requires_tool_evidence": false, "max_hallucination_rate": 0.0}}}],
       "expected_output": {"contains": ["sec.gov"]},

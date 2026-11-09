@@ -101,7 +101,6 @@ export function Sidebar({
   onCloseMobile,
   hidden = false,
 }: SidebarProps) {
-  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const prefetchSettings = useSettingsPrefetch();
   // Quick launchers below the mode switcher: the Channel Gateway (Telegram,
   // Discord, WhatsApp, …) and the learning-journey graph browser.
@@ -111,6 +110,10 @@ export function Sidebar({
   // always full-width (expanded) and is dismissed with its own close (X) button,
   // so it never shows the collapse chevron alongside the cross.
   const isMobile = useIsMobile();
+  // The collapse preference lives in the shared store so Ctrl/Cmd+B and the
+  // header chevrons drive the same state.
+  const desktopCollapsed = useSidebarConfigStore((s) => s.collapsed);
+  const setDesktopCollapsed = useSidebarConfigStore((s) => s.setCollapsed);
   const isCollapsed = desktopCollapsed && !isMobile;
   const t = useT();
   // Centralized branding (Settings › Customization). Falls back to the shipped

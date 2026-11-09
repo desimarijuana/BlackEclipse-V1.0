@@ -9,6 +9,7 @@ import {
   type NewsHorizon,
 } from "@/lib/news/importance";
 import { clusterNewsRows } from "@/lib/news/cluster";
+import { isDataSourceEnabled } from "@/lib/data-source-preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -166,6 +167,12 @@ async function queryNews(opts: {
 }
 
 export async function GET(request: Request) {
+  if (!(await isDataSourceEnabled("news-rss"))) {
+    return NextResponse.json(
+      { error: "News feeds are disabled in setup. Enable News headlines to see them." },
+      { status: 503 },
+    );
+  }
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.min(200, Math.max(1, parseInt(searchParams.get("limit") || "10", 10)));

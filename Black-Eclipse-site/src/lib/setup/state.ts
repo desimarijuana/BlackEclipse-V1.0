@@ -10,6 +10,8 @@
 //   - effectiveSourcePreferences(): what the fetchers honor (legacy behavior
 //     when unset, so an upgrade never breaks live data)
 
+import path from "node:path";
+import { existsSync, rmSync } from "node:fs";
 import {
   getConfig,
   setConfig,
@@ -196,8 +198,25 @@ export async function resetSetup(): Promise<void> {
   await resetOnboarding();
   await deleteConfig(SOURCE_PREFS_CONFIG_KEY);
   await deleteConfig("llm_config");
+  await deleteConfig("setup_check_v1");
   for (const def of PROVIDER_KEYS) {
     await deleteProviderKey(def.envVar);
+  }
+  // MCP servers are operator setup too. Delete only the config file (never a
+  // directory) and only the known locations; source files are untouched.
+  const mcpCandidates = new Set<string>();
+  if (process.env.HARNESS_MCP_CONFIG) mcpCandidates.add(path.resolve(process.env.HARNESS_MCP_CONFIG));
+  mcpCandidates.add(path.resolve(process.cwd(), "mcp-servers.json"));
+  mcpCandidates.add(path.resolve(process.cwd(), "..", "mcp-servers.json"));
+  mcpCandidates.add(path.resolve(process.cwd(), "..", "..", "mcp-servers.json"));
+  mcpCandidates.add(path.resolve(process.cwd(), "..", "..", "..", "mcp-servers.json"));
+  for (const file of mcpCandidates) {
+    if (path.basename(file) !== "mcp-servers.json") continue;
+    try {
+      if (existsSync(file)) rmSync(file, { force: true });
+    } catch {
+      /* best-effort: a locked config must not fail the reset */
+    }
   }
   // Reset the applied-key memory so the next boot re-reads the now-empty vault.
   // `deleteProviderKey` already removes vault-applied vars.

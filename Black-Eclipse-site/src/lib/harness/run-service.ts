@@ -208,6 +208,11 @@ async function resolveModelSettings(modelOverride?: string, role?: "code") {
     // A composer-picked model overrides only the model; provider/key/URL stay
     // the operator's configured ones. Absent = the saved model.
     model: chosen || cfg.model,
+    // Sampling defaults are model-agnostic, so they ride along even when the
+    // composer picked a different model. Auto (unset) sends nothing, keeping
+    // the payload byte-identical for an operator who never touched them.
+    ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
+    ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : {}),
     // A declared context window belongs to (provider, model); if the model was
     // overridden the saved window may not apply, so drop it and let the runtime
     // resolve the new model's window from its catalog.

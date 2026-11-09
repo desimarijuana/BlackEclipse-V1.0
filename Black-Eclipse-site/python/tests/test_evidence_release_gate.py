@@ -7,10 +7,14 @@ These tests exercise the pure gate and the SourceCollector accessor it reads.
 
 from __future__ import annotations
 
+import pytest
+
 from harness.research.release_gate import (
     CitationIntegrity,
+    apply,
     enforce_evidence_answer,
     extract_urls,
+    redact_unverified,
 )
 from harness.source_collector import SourceCollector
 
@@ -140,6 +144,35 @@ def test_credentials_are_stripped_from_the_persisted_verdict():
     joined = " ".join(verdict.unverified) + (verdict.disclosure or "")
     assert "secret" not in joined and "user:" not in joined
     assert "madeup.example/report" in joined
+
+
+def test_redact_unverified_removes_the_pointer_and_keeps_the_label():
+    text = "Per the filing [PSX](https://bad.example/x) and https://bad.example/y."
+    out = redact_unverified(
+        text, ["https://bad.example/x", "https://bad.example/y"]
+    )
+    assert "bad.example" not in out
+    assert "PSX (unverified source)" in out
+    assert "https://" not in out
+
+
+@pytest.mark.asyncio
+async def test_apply_withholds_an_unretrieved_url_and_keeps_the_prose():
+    answer = "Per https://made-up.example/report, margins rose."
+    out, verdict = await apply(answer, SourceCollector())
+    assert "made-up.example" not in out
+    assert "margins rose" in out
+    assert "unverified" in out.lower()
+    assert verdict["unverified"] == ["https://made-up.example/report"]
+
+
+@pytest.mark.asyncio
+async def test_apply_leaves_a_retrieved_url_untouched():
+    collector = _collector_with_web(SEC_URL)
+    answer = f"See {SEC_URL}."
+    out, verdict = await apply(answer, collector)
+    assert out == answer
+    assert verdict["status"] == "ok"
 
 
 def test_gate_tolerates_a_broken_collector():

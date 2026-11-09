@@ -6,7 +6,7 @@
 // Every network probe has a hard timeout and is bounded. The caller rate-limits
 // the route, so this module never spins in the background.
 
-import { getLLMConfig, LOCAL_KEY_SENTINEL } from "@/lib/settings";
+import { getLLMConfig, setConfig, LOCAL_KEY_SENTINEL } from "@/lib/settings";
 import { isLocalBaseUrl } from "@/lib/agent/presets";
 import { assertModelAllowed } from "@/lib/privacy";
 import { providerKeyDef, resolveProviderKey } from "@/lib/provider-keys";
@@ -221,33 +221,43 @@ export async function runSetupCheck(options: CheckOptions = {}): Promise<{
     ? options.sources.filter((id): id is SourceId => id in SOURCE_BY_ID)
     : Object.keys(SOURCE_BY_ID).filter((id): id is SourceId => prefs[id] === true);
 
-  const items: CheckItem[] = [];
-  if (options.ai !== false) items.push(await testAi(options.aiConfig));
+  // Run every probe in parallel. A serial loop can exceed the route's
+  // maxDuration when several included sources are slow (each has a 12s cap).
+  const tasks: Array<Promise<CheckItem>> = [];
+  if (options.ai !== false) tasks.push(testAi(options.aiConfig));
 
   for (const id of requested) {
     const def = SOURCE_BY_ID[id];
     if (!def) continue;
     if (prefs[id] !== true) {
-      items.push({
+      tasks.push(Promise.resolve({
         id, label: def.label, kind: "source", status: "skipped",
         message: "Disabled in setup.",
-      });
+      }));
       continue;
     }
     if (def.tier === "included") {
-      items.push(await testIncludedSource(id));
+      tasks.push(testIncludedSource(id));
       continue;
     }
     if (def.tier === "advanced") {
-      items.push({
+      tasks.push(Promise.resolve({
         id, label: def.label, kind: "source", status: "ok",
         message: "Community source enabled (personal use).",
-      });
+      }));
       continue;
     }
-    items.push(await testKeyedSource(id));
+    tasks.push(testKeyedSource(id));
   }
 
+  const items = await Promise.all(tasks);
   const ok = items.every((i) => i.status === "ok" || i.status === "skipped");
+  // Persist the last result so Settings/Review can show it after the modal is
+  // closed. Best-effort: a failed write must not fail the check.
+  try {
+    await setConfig("setup_check_v1", JSON.stringify({ at: new Date().toISOString(), items }));
+  } catch {
+    /* non-fatal */
+  }
   return { ok, items };
 }

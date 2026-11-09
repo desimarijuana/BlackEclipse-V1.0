@@ -103,11 +103,18 @@ or `data-keyboard-overlay="true"` to participate in this guard. Chart drawing
 commands additionally require ownership by the focused chart.
 
 The root-mounted `src/components/layout/keyboard-shortcuts.tsx` exposes Ctrl/Cmd+/
-help using the sidebar settings and registered action metadata. Page groups
-reflect mounted screens, so visiting a screen registers its contextual commands.
-Handlers reuse existing UI actions; creation shortcuts open forms rather than
-submit financial mutations. Browser/OS-reserved function keys cannot be
-guaranteed by a web app and remain user-reassignable in Sidebar settings.
+(and the conventional `?`) help using the sidebar settings and registered action
+metadata. The global catalogue lives in `src/lib/shortcuts.ts` so the dialog and
+its predicate helpers cannot drift; page groups reflect mounted screens, so
+visiting a screen registers its contextual commands. Handlers reuse existing UI
+actions; creation shortcuts open forms rather than submit financial mutations.
+Global additions alongside the existing help/search/terminal/workspace chords are
+Ctrl/Cmd+B (collapse the sidebar, shared through the sidebar store), Ctrl/Cmd+,
+(Settings) and Ctrl/Cmd+Shift+L (light/dark scheme). Matching for chords whose
+`event.key` differs under AltGr or non-US layouts falls back to the physical key
+`code`. Browser/OS-reserved function keys cannot be guaranteed by a web app and
+remain user-reassignable in Sidebar settings; F1/F5/F11/F12 are labelled as
+browser-owned in the help dialog and Settings rather than failing silently.
 
 Three other keyboard affordances build on the same dispatcher rather than adding
 listeners:
@@ -137,10 +144,12 @@ whose `href` is `destinationToHref(destination)`, so **Ctrl/Cmd-click,
 middle-click and "open in new tab"** work everywhere a page or instrument is
 listed; plain left-clicks stay in-page. The screener's symbol pivot builds its
 new-tab URL through the same helper (`/?tab=chart&symbol=…`). When the URL has
-no explicit destination, the boot tab comes from the **start-screen** preference
-(`src/lib/general-prefs.ts`, edited in Settings › General): a fixed tab, or
-`history` which restores the last visited tab recorded in localStorage. An
-explicit deep link always wins over the preference.
+no explicit destination, the app always boots on the **Eclipse Agent** (`chat`)
+tab: the agent is the front door, so a launch never resumes whatever screen was
+last open. An explicit deep link is the only way to open another screen
+directly. There is no saved start-screen preference (`src/lib/general-prefs.ts`
+keeps only the destructive-action confirmation; a legacy `startScreen` value in
+stored JSON is ignored).
 
 ## Layer 1 — Screens & components
 

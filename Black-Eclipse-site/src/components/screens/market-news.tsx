@@ -13,6 +13,7 @@ import { NewsPagination } from '@/components/screens/news-pagination';
 import { NewsSavedView } from '@/components/screens/news-saved-view';
 import { NewsDetailDialog } from '@/components/screens/news-detail-dialog';
 import { PageSizeInput } from '@/components/ui/pagination';
+import { DataAttribution } from '@/components/screens/data-attribution';
 import { adoptLegacySaves, loadSaved, saveSaved, saveLegacyIds } from '@/lib/news/saved';
 import { relativeTime } from '@/lib/news/relative-time';
 import {
@@ -661,6 +662,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   if (fullPage) {
     return (
       <div ref={rootRef} data-keyboard-scope="Market news" className="w-full flex flex-col gap-6 select-none">
+        <DataAttribution extra={["Official regulator / central-bank RSS feeds"]} />
         {/* High-level stories are not a separate band: they are ranked into the
             main feed (most-critical first) and surfaced in the header ledger by
             `NewsAlertWatcher`. */}

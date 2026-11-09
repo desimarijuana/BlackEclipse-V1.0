@@ -1151,7 +1151,13 @@ export const en = {
   'keyboard.searchPlaceholder': 'Search actions, keys, or pages',
   'keyboard.noMatches': 'No matching shortcuts.',
   'keyboard.globalGroup': 'Global and chart shortcuts',
-  'keyboard.navGroup': 'Sidebar navigation',
+  'keyboard.navGroup': 'Navigation & panels',
+  'keyboard.appGroup': 'Essentials',
+  'keyboard.chartGroup': 'Focused chart',
+  'keyboard.sidebarNavGroup': 'Sidebar navigation',
+  'keyboard.reservedHint': 'Some browsers reserve this key, so it may not reach Eclipse.',
+  'keyboard.reservedNote': 'F11 and F12 are reserved by the browser and cannot be intercepted. F1 and F5 are also unreliable on some browsers. Reassign those slots in Settings › Sidebar.',
+  'keyboard.customizeHint': 'Assign sidebar navigation keys in Settings › Sidebar.',
 
   // ── Where a number came from / how current it is (Phase 13) ───────────────
   // The user's question is "is this number current?". The answer is a sentence

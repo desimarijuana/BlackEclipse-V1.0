@@ -96,8 +96,13 @@ function resetSetup() {
     "data_source_prefs_v1",
     "llm_config",
     "provider_keys_v1",
+    "setup_check_v1",
   ]);
   const pending = setOnboardingPending();
+  // MCP server config (operator setup, not source code).
+  for (const file of [path.join(SITE, "mcp-servers.json"), path.join(REPO, "mcp-servers.json")]) {
+    try { fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  }
   return {
     removed: cleared.removed + pending.updated,
     dbPath: cleared.dbPath,

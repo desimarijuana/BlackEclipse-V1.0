@@ -815,8 +815,29 @@ export function keylessSearchProviders(): SearchProvider[] {
 export async function resolveSearchProviders(
   custom: SearchProvider | null
 ): Promise<SearchProvider[]> {
+  const { getSourcePreferenceMap } = await import("@/lib/data-source-preferences");
+  const prefs = await getSourcePreferenceMap();
+  const allowed = (id: string): boolean => {
+    switch (id) {
+      case "duckduckgo-html":
+      case "duckduckgo-lite":
+      case "mojeek":
+      case "bing-html":
+        return prefs.duckduckgo !== false;
+      case "tavily":
+      case "brave":
+      case "exa":
+      case "serper":
+        return prefs[id] !== false;
+      default:
+        return true;
+    }
+  };
+
   const list: SearchProvider[] = [];
-  if (custom && (await Promise.resolve(custom.configured()))) list.push(custom);
-  list.push(...keylessSearchProviders());
+  if (custom && (await Promise.resolve(custom.configured())) && allowed(custom.id)) {
+    list.push(custom);
+  }
+  list.push(...keylessSearchProviders().filter((p) => allowed(p.id)));
   return list;
 }

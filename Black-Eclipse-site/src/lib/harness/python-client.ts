@@ -32,6 +32,8 @@ export interface RunRequestPayload {
     apiKey?: string;
     model: string;
     temperature?: number;
+    /** Optional max output tokens for one response; absent = provider default. */
+    maxTokens?: number;
     /** Optional operator-declared context window; absent = unknown. */
     contextWindow?: number;
   };

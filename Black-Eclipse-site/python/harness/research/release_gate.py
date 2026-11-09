@@ -126,12 +126,48 @@ class CitationIntegrity:
 
 
 def _disclosure(unverified: list[str]) -> str:
+    """Operator-facing detail (the run blob); it MAY name the URLs."""
     listed = ", ".join(unverified)
     return (
         "Evidence note: the following cited link(s) were not retrieved during this "
         f"run, so they are not backed by Eclipse evidence: {listed}. "
         "Treat them as unverified."
     )
+
+
+def _redaction_note(unverified: list[str]) -> str:
+    """Answer-facing note: it must NOT re-introduce the unverified URL."""
+    count = len(unverified)
+    noun = "link" if count == 1 else "links"
+    return (
+        f"Evidence note: {count} cited {noun} could not be tied to a source "
+        "retrieved during this run, so the unverified reference was withheld. "
+        "The surrounding text is unchanged."
+    )
+
+
+def redact_unverified(answer: str, unverified: list[str]) -> str:
+    """Remove unverifiable citation URLs from the released answer.
+
+    The prose is preserved; only the pointer is withheld. A markdown link keeps
+    its label: `[10-K](https://bad.example)` becomes `10-K (unverified source)`.
+    This is not suppression of content: an unretrieved URL is not evidence, and
+    leaving it in the answer presents it as one.
+    """
+    text = answer or ""
+    for url in unverified:
+        if not url:
+            continue
+        escaped = re.escape(url)
+        # Markdown link: keep the label, drop the URL.
+        text = re.sub(
+            rf"\[([^\]]+)\]\({escaped}\)",
+            r"\1 (unverified source)",
+            text,
+        )
+        # Remaining bare occurrence (or an autolink).
+        text = re.sub(escaped, "(unverified source)", text)
+    return text
 
 
 def enforce_evidence_answer(
@@ -234,8 +270,12 @@ async def apply(
     except Exception:  # noqa: BLE001 - never fatal
         return answer, None
     blob = verdict.to_dict()
-    if verdict.disclosure:
-        answer = f"{answer}\n\n{verdict.disclosure}"
+    if verdict.unverified:
+        # Withhold the pointer itself. A disclosure that repeats the URL still
+        # presents it (and any citation parser counts it), so the answer gets a
+        # URL-free note and the URL stays only in the operator blob.
+        answer = redact_unverified(answer, verdict.unverified)
+        answer = f"{answer}\n\n{_redaction_note(verdict.unverified)}"
     if verdict.status != "no_citations" and emitter is not None:
         try:
             await emitter.emit("evidence.release_gate", blob)
@@ -267,6 +307,7 @@ __all__ = [
     "CitationIntegrity",
     "extract_urls",
     "enforce_evidence_answer",
+    "redact_unverified",
     "apply",
     "attach",
 ]

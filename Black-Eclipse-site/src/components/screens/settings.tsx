@@ -79,6 +79,10 @@ interface LLMConfig {
    * clears any prior declaration.
    */
   contextWindow?: number | null;
+  /** Optional sampling temperature (0–2); `null`/undefined = Auto. */
+  temperature?: number | null;
+  /** Optional max output tokens; `null`/undefined = provider default. */
+  maxTokens?: number | null;
   /**
    * Optional reasoning-effort override ("model variant"). One of
    * `low`/`medium`/`high`/`very_high`; `null`/undefined means Auto (the runtime's

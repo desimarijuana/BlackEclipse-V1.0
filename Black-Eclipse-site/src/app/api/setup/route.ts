@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
 import { getLLMPreset } from "@/lib/agent/presets";
 import { saveProviderKey, listProviderKeyStatus } from "@/lib/provider-keys";
-import { setLLMConfig, type LLMProviderName } from "@/lib/settings";
+import { getConfig, setLLMConfig, type LLMProviderName } from "@/lib/settings";
 import { invalidateSettingsCache } from "@/lib/settings-route-cache";
 import { invalidateSourcePreferenceCache } from "@/lib/data-source-preferences";
 import { BUNDLES } from "@/lib/setup/bundles";
@@ -54,8 +54,18 @@ export async function GET() {
       ? { ...safeSourceDefaults(mode), ...savedPrefs.sources }
       : await setupSourcePreferences(mode);
 
-    const [ai, keyStatuses] = await Promise.all([getAiStatus(), listProviderKeyStatus()]);
+    const [ai, keyStatuses, lastCheckRaw] = await Promise.all([
+      getAiStatus(),
+      listProviderKeyStatus(),
+      getConfig("setup_check_v1"),
+    ]);
     const keyMap = Object.fromEntries(keyStatuses.map((k) => [k.envVar, k.configured]));
+    let lastCheck: { at: string; items: unknown[] } | null = null;
+    try {
+      if (lastCheckRaw) lastCheck = JSON.parse(lastCheckRaw) as { at: string; items: unknown[] };
+    } catch {
+      lastCheck = null;
+    }
 
     const capabilities = CAPABILITIES.map((cap) => ({
       id: cap.id,
@@ -110,6 +120,8 @@ export async function GET() {
       })),
       capabilities,
       sources: sourceRows,
+      acceptedRestrictedSources: savedPrefs?.acceptedRestrictedSources ?? [],
+      lastCheck,
       warnings,
     });
   } catch (err) {
@@ -135,7 +147,8 @@ async function applyAi(choice: SetupCompleteInput["ai"]): Promise<void> {
   if (!choice) return;
 
   if (choice.kind === "skip") {
-    await setLLMConfig({ provider: "mock" });
+    // Clear any old plaintext key so a skipped setup cannot keep using it.
+    await setLLMConfig({ provider: "mock", apiKey: "" });
     return;
   }
 
@@ -146,6 +159,7 @@ async function applyAi(choice: SetupCompleteInput["ai"]): Promise<void> {
       provider: preset.id as LLMProviderName,
       baseUrl: choice.baseUrl?.trim() || preset.baseUrl,
       model: choice.model?.trim() || preset.model,
+      apiKey: "",
     });
     return;
   }
@@ -161,6 +175,8 @@ async function applyAi(choice: SetupCompleteInput["ai"]): Promise<void> {
       provider: preset.id as LLMProviderName,
       baseUrl: preset.baseUrl,
       model: choice.model?.trim() || preset.model,
+      // Empty clears any old plaintext key; getLLMConfig resolves the vault.
+      apiKey: "",
     });
     return;
   }
@@ -176,11 +192,15 @@ async function applyAi(choice: SetupCompleteInput["ai"]): Promise<void> {
     throw new Error("Base URL must be http(s)");
   }
   if (!choice.model?.trim()) throw new Error("Model is required for a custom endpoint");
+  if (choice.apiKey?.trim()) {
+    await saveProviderKey("CUSTOM_LLM_API_KEY", choice.apiKey.trim());
+  }
   await setLLMConfig({
     provider: "custom",
     baseUrl: choice.baseUrl.trim().replace(/\/$/, ""),
     model: choice.model.trim(),
-    apiKey: choice.apiKey?.trim() || "",
+    // The key lives in the encrypted vault, never plaintext in llm_config.
+    apiKey: "",
     contextWindow: choice.contextWindow ?? null,
   });
 }
@@ -219,14 +239,6 @@ export async function POST(request: Request) {
     const ai = body.ai && typeof body.ai === "object"
       ? (body.ai as SetupCompleteInput["ai"])
       : undefined;
-
-    const extraKeys = Array.isArray(body.extraKeys)
-      ? (body.extraKeys as Array<{ envVar?: unknown; value?: unknown }>)
-      : [];
-    for (const item of extraKeys) {
-      if (typeof item.envVar !== "string" || typeof item.value !== "string") continue;
-      if (item.value.trim()) await saveProviderKey(item.envVar, item.value.trim());
-    }
 
     await applyAi(ai);
 
