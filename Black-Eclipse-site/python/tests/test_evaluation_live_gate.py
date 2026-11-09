@@ -41,6 +41,21 @@ def test_provider_configured_rejects_an_empty_provider(monkeypatch):
     assert live_gate.provider_configured() is False
 
 
+def test_a_subset_smoke_cannot_claim_the_live_gate():
+    from harness.evaluation import live_gate
+
+    full = live_gate.apply_live_sample_floor(
+        {"passed": True, "failures": []}, live_gate.MIN_LIVE_TRIALS,
+    )
+    assert full["passed"] is True
+
+    small = live_gate.apply_live_sample_floor(
+        {"passed": True, "failures": []}, live_gate.MIN_LIVE_TRIALS - 1,
+    )
+    assert small["passed"] is False
+    assert any("sample_size" in message for message in small["failures"])
+
+
 class _Bus:
     def subscribe(self, _listener):
         return lambda: None

@@ -32,6 +32,33 @@ API_KEY_ENV = "BLACK_ECLIPSE_API_KEY"
 #: Providers that are local and keyless by design.
 LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio", "local"})
 
+#: A live gate needs enough measured trials to mean anything. A bounded subset
+#: (`--limit 12`, a smoke) is useful, but it is NOT a gate: 11/12 = 0.9167 would
+#: otherwise pass the 0.9 floor on a sample far too small to support it.
+MIN_LIVE_TRIALS = 30
+
+
+def apply_live_sample_floor(
+    thresholds: dict[str, Any],
+    measured_trials: int,
+    *,
+    minimum: int = MIN_LIVE_TRIALS,
+) -> dict[str, Any]:
+    """Mark a sample smaller than the floor as a FAIL, keeping its metrics.
+
+    The metrics stay published (a smoke is evidence); only the verdict is
+    downgraded, so a subset can never be mistaken for the gate.
+    """
+    if measured_trials < minimum:
+        failures = list(thresholds.get("failures") or [])
+        failures.append(
+            f"sample_size={measured_trials} < {minimum} "
+            "(a subset smoke is not a release gate)"
+        )
+        thresholds["passed"] = False
+        thresholds["failures"] = failures
+    return thresholds
+
 
 def provider_configured() -> bool:
     """Whether a live provider can be used.
@@ -142,8 +169,9 @@ async def run_live_gate(
             dataset_checksum=dataset.checksum, suite=suite, trials=trials,
             tier=1, persist=persist, metadata={"kind": "evaluation", "tier": "live"},
         )
-        result.thresholds = check_thresholds(
-            result.aggregates, sample_size=result.measured_trials,
+        result.thresholds = apply_live_sample_floor(
+            check_thresholds(result.aggregates, sample_size=result.measured_trials),
+            result.measured_trials,
         )
         return result, ""
     except Exception as exc:  # noqa: BLE001 - a failed lane is a reason, not a number
@@ -158,7 +186,9 @@ async def run_live_gate(
 __all__ = [
     "API_KEY_ENV",
     "LOCAL_PROVIDERS",
+    "MIN_LIVE_TRIALS",
     "PROVIDER_ENV",
+    "apply_live_sample_floor",
     "provider_configured",
     "run_live_gate",
 ]

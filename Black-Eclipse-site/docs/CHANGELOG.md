@@ -1,6 +1,15 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(eval): a subset smoke can no longer claim the live gate.**
+  `Threshold.evaluate` ignored its `sample_size`, so the 12-task live smoke
+  (11/12 = 0.9167) printed `gate PASS` against the 0.9 floor. The live lane now
+  applies `MIN_LIVE_TRIALS = 30`: a smaller sample keeps and prints its metrics
+  but is marked FAIL with
+  `sample_size=N < 30 (a subset smoke is not a release gate)`. The full
+  196-trial live run is unaffected. Test:
+  `test_a_subset_smoke_cannot_claim_the_live_gate`. Docs updated:
+  `docs/CHANGELOG.md`.
 - **fix(eval): the live lane crashed before it could measure anything.**
   `run_live_gate()` called `provider_configured()` but the function was never
   defined, so every `npm run eval:live` invocation died with a `NameError` before
@@ -35,6 +44,15 @@
   never-default for a paid product, and makes the bring-your-own-key rule
   explicit (no shared keys, no server-side proxy). Docs updated:
   `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
+- **docs(setup): reorganize onboarding around capabilities and a working first
+  session.** The flow is now Welcome/mode → AI → Data/capabilities →
+  Review/readiness. Data is grouped by what the user wants to do (company,
+  macro, events, prices, news/search, crypto) instead of by vendor; Included,
+  Connect-your-own and Advanced/community are visibly separate. Adds bundle
+  presets, the three-way live-prices decision, a readiness check
+  (`POST /api/setup/check`), a "definition of starts without issues", and the
+  capability mapping modules. Docs updated: `docs/onboarding-plan.md`,
+  `docs/CHANGELOG.md`.
 - **feat(ui): real, type-any page pagination for Artifacts and Market News; fix cards that silently vanished.** Artifacts now uses ServerPaginationFooter instead of an append-only "Load more": numbered pages, a typed per-page box (1–200, the runtime's real cap), current-page polling, and last-page clamping after deletes. Artifact cards fall back to the category icon when an image/video has no generated thumbnail instead of rendering a 404 `<img>` (a blank card); the failed-thumbnail state is per card. Market News gets the same typed per-page control in its pagination footer plus a typed "go to page" box, and the Customize panel accepts any cards-per-page value; `/api/news`'s `limit` cap rises 50→200 and the UI clamps to it. Fixed the card toggle bug where "Timestamp" was nested inside "Badges", so disabling Badges hid timestamps even though the Timestamp toggle said on. Clustering now uses a fixed 600-row window so `pagination.total`/`totalPages` stay consistent between pages. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-08
