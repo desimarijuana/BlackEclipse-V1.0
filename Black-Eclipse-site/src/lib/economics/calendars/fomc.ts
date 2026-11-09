@@ -65,7 +65,7 @@ export function parseFomcCalendar(
     const heading = $(panel).find("h4").first().text();
     const yearMatch = heading.match(/(\d{4})\s+FOMC/i);
     if (!yearMatch) return;
-    let year = Number(yearMatch[1]);
+    const year = Number(yearMatch[1]);
 
     $(panel)
       .find(".fomc-meeting")
@@ -90,7 +90,7 @@ export function parseFomcCalendar(
         if (!range) return;
 
         const startDay = Number(range[1]);
-        let endDay = range[2] ? Number(range[2]) : startDay;
+        const endDay = range[2] ? Number(range[2]) : startDay;
         let decisionMonth = month;
         let decisionYear = year;
 

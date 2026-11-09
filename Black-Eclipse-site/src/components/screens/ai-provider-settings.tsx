@@ -283,7 +283,7 @@ function MaxTokensControl({
         className="font-mono !border-white/12"
       />
       <p className="text-[10px] text-muted-foreground">
-        Caps the length of each model response. Leave blank to use the provider's default.
+        Caps the length of each model response. Leave blank to use the provider&apos;s default.
       </p>
     </div>
   );

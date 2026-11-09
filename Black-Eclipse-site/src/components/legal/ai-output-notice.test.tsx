@@ -6,20 +6,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AiOutputNotice } from './ai-output-notice';
-import {
-  AI_COMPOSER_NOTICE,
-  AI_OUTPUT_LABEL,
-  AI_OUTPUT_SHORT,
-  RISK_DISCLOSURE_FULL,
-} from '@/lib/legal/disclosure';
+import { AI_COMPOSER_NOTICE, AI_OUTPUT_LABEL } from '@/lib/legal/disclosure';
 
 describe('AiOutputNotice', () => {
-  it('renders the label and compact sentence under an answer', () => {
+  it('does not repeat the notice under every settled answer', () => {
     const html = renderToStaticMarkup(<AiOutputNotice />);
-    expect(html).toContain(AI_OUTPUT_LABEL);
-    expect(html).toContain(AI_OUTPUT_SHORT);
-    expect(html).toContain(RISK_DISCLOSURE_FULL);
-    expect(html).toContain('role="note"');
+    expect(html).toBe('');
   });
 
   it('renders the persistent composer one-liner', () => {

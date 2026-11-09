@@ -1,6 +1,10 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(lint): clear the three release-gate errors.** `fomc.ts` used `let` for two
+  variables it never reassigns, and the AI-provider settings copy had an
+  unescaped apostrophe (`provider&apos;s`). `npx eslint .` is back to 0 errors
+  (113 warnings); `tsc --noEmit` passes. no doc change beyond this note.
 - **feat(economics): real FOMC dates, no fabricated calendar, search fallback,
   and a native SEC filings browser.** The economic calendar no longer spreads
   placeholder events over the next 30 days; `src/lib/economics/calendars/fomc.ts`

@@ -28,6 +28,10 @@ export function AiOutputNotice({
   className?: string;
 }) {
   const composer = variant === 'composer';
+  // The repeated notice under every settled answer was distracting. The
+  // persistent composer one-liner (and the first-run acknowledgement) still
+  // carry the disclosure; the output placement is intentionally removed.
+  if (!composer) return null;
 
   return (
     <div
