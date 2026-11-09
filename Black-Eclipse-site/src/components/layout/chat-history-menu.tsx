@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Folder, Pencil, Pin, PinOff, Plus, Trash2, X } from '@/lib/icons';
+import { Check, Folder, GitBranch, Pencil, Pin, PinOff, Plus, Trash2, X } from '@/lib/icons';
 import { useT } from '@/lib/i18n';
 import {
   CHAT_COLORS,
@@ -31,6 +31,8 @@ export interface ChatHistoryMenuProps {
   onSetFolderColor: (id: string, color: string) => void;
   onMoveConversation: (id: string, folderId: string | null) => void;
   onTogglePin: (id: string) => void;
+  /** Copy the conversation into a new chat (a real fork with its own session). */
+  onForkConversation: (id: string) => void;
   onPurge: (id: string) => void;
   onDeleteFolder: (id: string) => void;
   onMoveFolder: (id: string, parentId: string | null, beforeId: string | null) => void;
@@ -112,7 +114,7 @@ export function ChatHistoryMenu(props: ChatHistoryMenuProps) {
   const {
     anchor, conversation: chat, folder, folders, onClose,
     onRename, onSetConversationColor, onSetFolderColor, onMoveConversation, onTogglePin,
-    onPurge, onDeleteFolder, onMoveFolder, onAddTag, onRemoveTag,
+    onForkConversation, onPurge, onDeleteFolder, onMoveFolder, onAddTag, onRemoveTag,
   } = props;
   const t = useT();
   if (typeof document === 'undefined') return null;
@@ -141,6 +143,9 @@ export function ChatHistoryMenu(props: ChatHistoryMenuProps) {
         <button onClick={() => { onRename('chat', chat.id); onClose(); }} className={`${action} hover:bg-accent/40`}><Pencil size={12} /> {t('sidebar.rename')}</button>
         <button onClick={() => { onTogglePin(chat.id); onClose(); }} className={`${action} hover:bg-accent/40`}>
           {chat.pinned ? <PinOff size={12} /> : <Pin size={12} />} {chat.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
+        </button>
+        <button onClick={() => { onForkConversation(chat.id); onClose(); }} className={`${action} hover:bg-accent/40`}>
+          <GitBranch size={12} /> {t('sidebar.fork')}
         </button>
         <button onClick={() => { onPurge(chat.id); onClose(); }} className={`${action} text-rose-400 hover:bg-rose-500/10`}><Trash2 size={12} /> {t('sidebar.delete')}</button>
       </div>

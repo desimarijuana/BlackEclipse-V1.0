@@ -5,6 +5,9 @@
 // If a fetch fails, the entry is marked unavailable — never fabricated.
 
 import { isHtmlPayload } from "./fetch";
+import { enrichMetrics, type WebMetricSpec } from "./enrichment";
+
+export type SnapshotState = "LIVE" | "WEB" | "UNAVAILABLE";
 
 export interface SnapshotMetric {
   id: string;
@@ -15,6 +18,12 @@ export interface SnapshotMetric {
   asOf: string | null;    // vintage of the value
   unit: string;           // '%' | '' | 'index'
   country: string;
+  /** Exact provider identity of the value actually fetched (e.g. "FRED · DFF"). */
+  source: string;
+  /** LIVE = structured provider; WEB = official page found via search. */
+  state: SnapshotState;
+  /** Source page for WEB values. */
+  url: string | null;
 }
 
 interface FREDMeta {
@@ -95,7 +104,39 @@ function yoy(points: { date: string; value: number }[]): { date: string; value: 
   }).filter((p) => Number.isFinite(p.value));
 }
 
-export async function buildSnapshot(): Promise<{ metrics: SnapshotMetric[]; builtAt: string }> {
+// Conservative, labelled patterns for the web fallback. A metric without a spec
+// is never web-enriched. Each pattern anchors a label to a number so a headline
+// or unrelated figure cannot be mistaken for the release.
+const WEB_SPECS: Record<string, WebMetricSpec> = {
+  "us-cpi": {
+    query: "BLS consumer price index latest 12-month percent change site:bls.gov",
+    pattern: /(?:consumer price index|CPI)[^.]{0,180}?(\d{1,2}\.\d)\s*(?:percent|%)/i,
+    min: -5,
+    max: 30,
+  },
+  "us-unemp": {
+    query: "BLS unemployment rate latest site:bls.gov",
+    pattern: /unemployment rate[^.]{0,140}?(\d{1,2}\.\d)\s*(?:percent|%)/i,
+    min: 0,
+    max: 30,
+  },
+  "us-10y": {
+    query: "10-year treasury yield latest site:treasury.gov",
+    pattern: /10[- ]year[^.]{0,140}?(\d{1,2}\.\d{1,3})\s*(?:percent|%)/i,
+    min: 0,
+    max: 25,
+  },
+  "fed-funds": {
+    query: "federal funds target range latest site:federalreserve.gov",
+    pattern: /(?:federal funds|target range)[^.]{0,180}?(\d{1,2}\.\d{1,2})\s*(?:percent|%)/i,
+    min: 0,
+    max: 25,
+  },
+};
+
+export async function buildSnapshot(
+  options: { webFallback?: boolean } = {},
+): Promise<{ metrics: SnapshotMetric[]; builtAt: string }> {
   const specs: { id: string; label: string; region: string; country: string; kind: SnapshotMetric["kind"]; unit: string; fred: FREDMeta }[] = [
     ...RATE_SOURCES.map((r) => ({ id: r.id, label: r.label, region: r.region, country: r.country, kind: "rate" as const, unit: "%", fred: r.fred })),
     ...PRINT_SOURCES.map((p) => ({ id: p.id, label: p.label, region: p.region, country: p.country, kind: p.kind, unit: p.unit, fred: p.fred })),
@@ -108,13 +149,32 @@ export async function buildSnapshot(): Promise<{ metrics: SnapshotMetric[]; buil
         if (s.fred.transform === "yoy") points = yoy(points);
         if (points.length === 0) throw new Error("no data");
         const last = points[points.length - 1];
-        return { id: s.id, label: s.label, region: s.region, kind: s.kind, country: s.country, unit: s.unit, value: last.value, asOf: last.date };
+        return { id: s.id, label: s.label, region: s.region, kind: s.kind, country: s.country, unit: s.unit, value: last.value, asOf: last.date, source: `FRED · ${s.fred.fredId}`, state: "LIVE", url: null };
       } catch (err) {
         console.error(`[economics/snapshot] ${s.id} failed:`, err instanceof Error ? err.message : err);
-        return { id: s.id, label: s.label, region: s.region, kind: s.kind, country: s.country, unit: s.unit, value: null, asOf: null };
+        return { id: s.id, label: s.label, region: s.region, kind: s.kind, country: s.country, unit: s.unit, value: null, asOf: null, source: `FRED · ${s.fred.fredId}`, state: "UNAVAILABLE", url: null };
       }
     })
   );
+
+  // Fill gaps from official pages via search. This never touches a LIVE value.
+  if (options.webFallback !== false && process.env.ECON_WEB_FALLBACK !== "0") {
+    try {
+      const missing = metrics.filter((m) => m.value === null);
+      const enriched = await enrichMetrics(missing, WEB_SPECS);
+      for (const metric of metrics) {
+        const hit = enriched[metric.id];
+        if (!hit || metric.value !== null) continue;
+        metric.value = hit.value;
+        metric.asOf = hit.asOf;
+        metric.source = `WEB · ${hit.provider}`;
+        metric.state = "WEB";
+        metric.url = hit.url;
+      }
+    } catch (err) {
+      console.error("[economics/snapshot] web fallback failed:", err instanceof Error ? err.message : err);
+    }
+  }
 
   return { metrics, builtAt: new Date().toISOString() };
 }

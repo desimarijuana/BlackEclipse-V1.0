@@ -13,6 +13,9 @@ interface SnapshotMetric {
   asOf: string | null;
   unit: string;
   country: string;
+  source: string;
+  state: 'LIVE' | 'WEB' | 'UNAVAILABLE';
+  url: string | null;
 }
 
 interface SnapshotData {
@@ -26,41 +29,8 @@ interface ResearchResult {
   confidence?: number;
 }
 
-// FRED series id shown as provenance on each card.
-const FRED_ID: Record<string, string> = {
-  'fed-funds': 'DFEDTARU',
-  'boe-rate': 'BOERUKM',
-  'ecb-rate': 'ECBDFR',
-  'boj-rate': 'IRSTCI01JPM156N',
-  'rba-rate': 'IRSTCI01AUM156N',
-  'rbnz-rate': 'IRSTCI01NZM156N',
-  'boc-rate': 'IRSTCI01CAM156N',
-  'snb-rate': 'IRSTCI01CHM156N',
-  'rbi-rate': 'IRSTCI01INM156N',
-  'sbp-rate': 'IRSTCI01PKM156N',
-  'pboc-rate': 'IRSTCI01CNM156N',
-  'us-cpi': 'CPIAUCSL',
-  'us-gdp': 'GDPC1',
-  'us-nfp': 'PAYEMS',
-  'us-unemp': 'UNRATE',
-  'us-10y': 'DGS10',
-  'in-cpi': 'CPALTT01INM659N',
-  'in-gdp': 'NGDPRSAXDCCINQ',
-  'in-unemp': 'LRUN64TTINQ156S',
-  'pk-cpi': 'CPALTT01PKM659N',
-  'pk-gdp': 'NGDPRSAXDCPKQ',
-  'pk-unemp': 'LRUN64TTPKQ156S',
-  'cn-cpi': 'CPALTT01CNM659N',
-  'cn-gdp': 'NGDPRSAXDCCNQ',
-  'gb-cpi': 'CPALTT01GBM659N',
-  'gb-unemp': 'LRUN64TTGBQ156S',
-  'eu-cpi': 'CP0000EZ19M086NEST',
-  'eu-unemp': 'LRHUTTTTEZM156S',
-  'jp-cpi': 'CPALTT01JPM659N',
-  'jp-unemp': 'LRUN64TTJPM156S',
-  'ca-cpi': 'CPALTT01CAM659N',
-  'ca-unemp': 'LRUN64TTCAQ156S',
-};
+// FRED series ids are reported by the API (`metric.source`) so the card can
+// never drift from what was actually fetched.
 
 const FLAG: Record<string, string> = {
   'fed-funds': 'FED · US',
@@ -251,9 +221,10 @@ export function SnapshotView() {
           Data provenance
         </p>
         <p className="text-[13px] text-muted-foreground leading-relaxed">
-          Every metric above is pulled from the FRED public CSV feed and shows its value plus the{' '}
-          <span className="font-mono text-foreground">“as of”</span> vintage. No number on this screen is invented — if a
-          series is unavailable, the card is omitted rather than filled with a placeholder.
+          Every metric above is pulled from the FRED public CSV feed and shows its value, the{' '}
+          <span className="font-mono text-foreground">“as of”</span> vintage, and the exact series fetched. No number on
+          this screen is invented — a card with no data stays marked <span className="font-mono text-foreground">unavailable</span>{' '}
+          rather than being filled with a placeholder.
         </p>
       </div>
     </div>
@@ -276,8 +247,20 @@ function SnapCard({ m }: { m: SnapshotMetric }) {
             {displayValue}
             {displayUnit && <span className="text-[12px] text-muted-foreground ml-0.5">{displayUnit}</span>}
           </div>
-          <div className="font-mono text-[10px] text-muted-foreground mt-1">as of {m.asOf}</div>
-          <div className="font-mono text-[10px] text-primary mt-0.5">FRED · {FRED_ID[m.id] ?? m.id}</div>
+          <div className="font-mono text-[10px] text-muted-foreground mt-1">as of {m.asOf ?? '—'}</div>
+          {m.state === 'WEB' && m.url ? (
+            <a
+              href={m.url}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-[10px] text-amber-300 hover:underline mt-0.5"
+              title="Found on an official page via search — not a structured feed"
+            >
+              WEB · {m.source.replace(/^WEB · /, '')}
+            </a>
+          ) : (
+            <div className="font-mono text-[10px] text-primary mt-0.5">{m.source}</div>
+          )}
         </>
       ) : (
         <div className="text-[11px] text-muted-foreground/60 font-mono flex items-center gap-1 mt-1.5">

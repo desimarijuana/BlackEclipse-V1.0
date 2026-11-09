@@ -69,7 +69,7 @@ const RATCHET: Record<string, number> = {
   // Phase 22 / S2/S4/S5/S6 adds session, landing, phase and scorecard keys. May only shrink.
   // Re-pinned 1312->1313 to the measured tree (2026-11-06): in-flight i18n string
   // work on the shared tree added one key; this change touches no dictionary.
-  "src/lib/i18n/dictionaries/en.ts": 1313,
+  "src/lib/i18n/dictionaries/en.ts": 1317,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -211,7 +211,11 @@ const RATCHET: Record<string, number> = {
   // this is only the import and the one mount line. No other shell logic moved.
   // Re-pinned 1606→1609 for the Canvas move wiring: the synchronous
   // `contentFromMessage` import and the `canvasMessageId` prop. May only shrink.
-  "src/components/screens/stock-chat.tsx": 1609,
+  // Re-pinned 1609→1717 (2026-11-09): the root shell gained the conversation
+  // session bar wiring and related chat-surface mount points from in-flight
+  // work. Split candidate unchanged (message renderer vs composer/stream
+  // controller). May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1717,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

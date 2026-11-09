@@ -17,7 +17,7 @@
 // persist callback, keeping the merge additive and the parent shell thin.
 
 import { useEffect, useState } from "react";
-import { Loader2, Monitor, RefreshCcw, RotateCcw, ShieldCheck, Sparkles } from "@/lib/icons";
+import { Loader2, Download, Monitor, RefreshCcw, RotateCcw, ShieldCheck, Sparkles } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,6 +27,10 @@ import { HEATMAP_MARKETS } from "@/lib/heatmap";
 import {
   DEFAULT_GENERAL_PREFS, loadGeneralPrefs, saveGeneralPrefs, type GeneralPrefs,
 } from "@/lib/general-prefs";
+import {
+  DEFAULT_UPDATE_PREFS, loadUpdatePrefs, saveUpdatePrefs, type UpdatePrefs,
+} from "@/lib/updates/prefs";
+import type { UpdateStatus } from "@/lib/updates/types";
 import { Field, Panel, SubSection, Toggle } from "./settings-ui";
 
 export interface GeneralAppPreferences {
@@ -64,6 +68,48 @@ export function GeneralSettingsPanel({
       return next;
     });
   };
+
+  // Updates are a separate local-only pref (be_update_prefs_v1): the banner and
+  // this panel share it, so turning the check off here stops the banner too.
+  const [updatePrefs, setUpdatePrefs] = useState<UpdatePrefs>(DEFAULT_UPDATE_PREFS);
+  const [updateCheck, setUpdateCheck] = useState<{
+    busy: boolean;
+    status: UpdateStatus | null;
+    error: string | null;
+  }>({ busy: false, status: null, error: null });
+  useEffect(() => { setUpdatePrefs(loadUpdatePrefs()); }, []);
+  const setUpdateEnabled = (enabled: boolean) => {
+    const next = { ...updatePrefs, enabled };
+    setUpdatePrefs(next);
+    saveUpdatePrefs(next);
+    if (!enabled) setUpdateCheck({ busy: false, status: null, error: null });
+  };
+  const checkForUpdates = async () => {
+    setUpdateCheck({ busy: true, status: null, error: null });
+    try {
+      const res = await fetch("/api/updates?refresh=1", { cache: "no-store" });
+      const data = (await res.json()) as UpdateStatus;
+      if (!res.ok) throw new Error("Could not check for updates.");
+      setUpdateCheck({ busy: false, status: data, error: null });
+    } catch (err) {
+      setUpdateCheck({
+        busy: false,
+        status: null,
+        error: err instanceof Error ? err.message : "Could not check for updates.",
+      });
+    }
+  };
+  const updateResult = (() => {
+    if (updateCheck.busy) return "Checking…";
+    if (updateCheck.error) return updateCheck.error;
+    const status = updateCheck.status;
+    if (!status) return "";
+    if (!status.ok) return status.error || "Could not check for updates.";
+    if (status.available) {
+      return `v${status.latestVersion} is available — you're on v${status.currentVersion}.`;
+    }
+    return `You're up to date (v${status.currentVersion}).`;
+  })();
 
   const [currency, setCurrency] = useState<string>("USD");
   useEffect(() => { setCurrency(getDisplayCurrency()); }, []);
@@ -222,6 +268,46 @@ export function GeneralSettingsPanel({
               onChange={(v) => updateGeneral({ confirmDestructive: v })}
             />
           </div>
+        </Panel>
+      </SubSection>
+
+      {/* Updates — signed release notice + manual check. Local-only pref. */}
+      <SubSection icon={Download} title="Updates">
+        <Panel className="p-5 md:p-6 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <Label className="text-xs text-muted-foreground font-medium">Check for updates</Label>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                Eclipse asks a public GitHub release for a signed version file. No account, install
+                ID or local data is sent.
+              </p>
+            </div>
+            <Toggle checked={updatePrefs.enabled} onChange={setUpdateEnabled} />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer rounded-xl"
+              disabled={!updatePrefs.enabled || updateCheck.busy}
+              onClick={() => void checkForUpdates()}
+            >
+              {updateCheck.busy ? (
+                <Loader2 size={14} className="mr-1 animate-spin" />
+              ) : (
+                <RefreshCcw size={14} className="mr-1" />
+              )}
+              Check now
+            </Button>
+            {updateResult && (
+              <p className="text-[11px] text-muted-foreground">{updateResult}</p>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            To install an update, stop Eclipse and run <code className="font-mono">black update</code>{" "}
+            in the project folder. It backs up your database, verifies the release, and rolls back
+            if the build fails.
+          </p>
         </Panel>
       </SubSection>
 

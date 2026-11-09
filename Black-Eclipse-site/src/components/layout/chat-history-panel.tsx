@@ -7,6 +7,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   MoreHorizontal,
   Pin,
   Plus,
@@ -35,6 +36,8 @@ export interface ChatHistoryPanelProps {
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
+  /** Copy a chat into a new conversation (its own transcript + session). */
+  onForkConversation: (id: string) => void;
   /** Legacy permanent delete (also fixes the active selection in the shell). */
   onDeleteConversation: (id: string) => void;
 }
@@ -52,6 +55,7 @@ export function ChatHistoryPanel({
   activeConversationId,
   onSelectConversation,
   onNewChat,
+  onForkConversation,
   onDeleteConversation,
 }: ChatHistoryPanelProps) {
   const t = useT();
@@ -229,6 +233,11 @@ export function ChatHistoryPanel({
         >
           <span className="flex items-center gap-1.5 min-w-0 flex-1">
             {c.pinned && <Pin size={10} className="shrink-0 text-amber-400" weight="fill" />}
+            {c.forkedFrom && (
+              <span title={`Forked from ${c.forkedFrom.title || 'another chat'}`} className="shrink-0">
+                <GitBranch size={10} className="text-primary/70" />
+              </span>
+            )}
             {c.color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} />}
             <span className="min-w-0 flex-1">
               {isRenaming ? renameInput(renaming, c.title) : <span className="block truncate">{c.title || t('sidebar.untitledSession')}</span>}
@@ -426,6 +435,7 @@ export function ChatHistoryPanel({
           onSetFolderColor={onSetFolderColor}
           onMoveConversation={onMoveConversation}
           onTogglePin={onTogglePin}
+          onForkConversation={onForkConversation}
           onPurge={(id) => { if (confirm(t('sidebar.confirmDeleteForever'))) onDeleteConversation(id); }}
           onDeleteFolder={onDeleteFolder}
           onMoveFolder={onMoveFolder}

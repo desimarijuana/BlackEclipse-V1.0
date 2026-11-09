@@ -79,6 +79,7 @@ interface SidebarProps {
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
+  onForkConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onOpenSettings?: () => void;
   mobileOpen?: boolean;
@@ -95,6 +96,7 @@ export function Sidebar({
   activeConversationId,
   onSelectConversation,
   onNewChat,
+  onForkConversation,
   onDeleteConversation,
   onOpenSettings,
   mobileOpen = false,
@@ -378,6 +380,7 @@ export function Sidebar({
             activeConversationId={activeConversationId}
             onSelectConversation={handleSelectChat}
             onNewChat={onNewChat}
+            onForkConversation={onForkConversation}
             onDeleteConversation={onDeleteConversation}
           />
         )}

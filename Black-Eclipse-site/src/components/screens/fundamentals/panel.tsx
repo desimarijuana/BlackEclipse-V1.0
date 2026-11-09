@@ -9,8 +9,9 @@
 import React, { useMemo, useState } from 'react';
 import {
   Activity, ArrowUpRight, BarChart3, Building2, CalendarClock,
-  Gauge, RefreshCw, TrendingUp,
+  Gauge, RefreshCw, ScrollText, TrendingUp,
 } from '@/lib/icons';
+import { FilingsSection } from './filings-section';
 import { TabBar } from '@/components/ui/tab-bar';
 import { useEChart, baseChartOption } from '@/components/screens/portfolio/use-echart';
 import { useChartPalette } from '@/lib/chart-palette-store';
@@ -31,6 +32,7 @@ export const FUNDAMENTAL_SECTIONS = [
   { id: 'statements', label: 'Statements', icon: BarChart3 },
   { id: 'valuation', label: 'Valuation', icon: Gauge },
   { id: 'timeline', label: 'Timeline', icon: CalendarClock },
+  { id: 'filings', label: 'Filings', icon: ScrollText },
 ] as const;
 export type FundamentalSectionId = (typeof FUNDAMENTAL_SECTIONS)[number]['id'];
 
@@ -64,6 +66,7 @@ export function FundamentalsBody({ data, section, onSectionChange, compact }: Fu
       {section === 'statements' && <StatementsSection data={data} />}
       {section === 'valuation' && <ValuationSection data={data} />}
       {section === 'timeline' && <TimelineSection data={data} />}
+      {section === 'filings' && <FilingsSection symbol={data.symbol} market={data.market} />}
     </div>
   );
 }
@@ -89,6 +92,10 @@ export function FundamentalsFull({ data, compact }: { data: FundamentalsSnapshot
       <section>
         <SectionHead title="Disclosure timeline" desc="Filings and dated events the numbers came from." />
         <TimelineSection data={data} />
+      </section>
+      <section>
+        <SectionHead title="SEC filings" desc="The filings index behind the statements — form, filed date, period and the primary document." />
+        <FilingsSection symbol={data.symbol} market={data.market} />
       </section>
     </div>
   );

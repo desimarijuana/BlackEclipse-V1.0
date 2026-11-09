@@ -34,4 +34,7 @@ export const navigation = {
   'nav.tables': 'Tables',
   'nav.overview': 'Overview',
   'nav.bots': 'Bots',
+
+  // Chat history row actions (navigation-adjacent chrome)
+  'sidebar.fork': 'Fork chat',
 } as const;

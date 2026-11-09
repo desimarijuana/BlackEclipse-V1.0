@@ -62,6 +62,32 @@ describe('session-store file handling', () => {
     expect((await getSession('c1')).files).toHaveLength(0);
   });
 
+  it('persists and clears file provenance, and never invents it', async () => {
+    await writeSessionFile('c1', {
+      name: 'chat-input.tsx',
+      bytes: Buffer.from('export {}'),
+      kind: 'context',
+      meta: { origin: 'project', sourcePath: 'src/components/chat/chat-input.tsx', rootLabel: 'eclipse' },
+    });
+    await writeSessionFile('c1', { name: 'local.txt', bytes: Buffer.from('x'), kind: 'context' });
+
+    const session = await getSession('c1');
+    const projectFile = session.files.find((f) => f.name === 'chat-input.tsx');
+    const localFile = session.files.find((f) => f.name === 'local.txt');
+    expect(projectFile).toMatchObject({
+      origin: 'project',
+      sourcePath: 'src/components/chat/chat-input.tsx',
+      rootLabel: 'eclipse',
+    });
+    // A file with no recorded provenance lists without a guessed origin.
+    expect(localFile?.origin).toBeUndefined();
+
+    await deleteSessionFile('c1', 'context', 'chat-input.tsx');
+    const after = await getSession('c1');
+    expect(after.files.some((f) => f.name === 'chat-input.tsx')).toBe(false);
+  });
+
+
   it('rejects file names that escape the session folder', async () => {
     await expect(
       writeSessionFile('c1', { name: '../evil.txt', bytes: Buffer.from('x'), kind: 'context' })

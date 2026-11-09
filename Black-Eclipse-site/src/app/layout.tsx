@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { AgentationMount } from "@/components/layout/agentation-mount";
 import { GlobalLoader } from "@/components/ui/global-loader";
 import { OnboardingGate } from "@/components/setup/onboarding-gate";
+import { RiskAckGate } from "@/components/legal/risk-ack-gate";
 import { GlobalSearchMount } from "@/components/layout/global-search-mount";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
@@ -14,6 +15,7 @@ import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
 import { ChannelActivityWatcher } from "@/lib/notifications/channel-watcher";
 import { NewsAlertWatcher } from "@/lib/notifications/news-watcher";
 import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
+import { UpdateBanner } from "@/components/layout/update-banner";
 import { DesktopSession } from "@/components/layout/desktop-session";
 import { SoundProvider } from "@/lib/sounds";
 import { TtsProvider } from "@/lib/tts";
@@ -51,8 +53,17 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             __html: `try{var t=JSON.parse(localStorage.getItem('be_theme_v1')||'null');if(t&&t.scheme==='light'){document.documentElement.classList.remove('dark');}}catch(e){}`,
           }}
         />
+        {/* Capture ?setup=1 BEFORE the app shell rewrites the URL to ?tab=chat.
+         * The gate reads this session flag, so the setup link can never be
+         * lost during hydration. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(new URLSearchParams(location.search).get('setup')==='1'){sessionStorage.setItem('be_setup_force','1');}}catch(e){}`,
+          }}
+        />
         <GlobalLoader />
         <OnboardingGate />
+        <RiskAckGate />
         {children}
         <AgentationMount />
         <GlobalSearchMount />
@@ -67,6 +78,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <ChannelActivityWatcher />
         <NewsAlertWatcher />
         <BrowserTabIndicator />
+        <UpdateBanner />
         <DesktopSession />
       </body>
     </html>

@@ -5,6 +5,8 @@ import { ArrowLeft, ArrowRight, Loader2 } from "@/lib/icons";
 import { safeSourceDefaults } from "@/lib/setup/defaults";
 import { bundleSources } from "@/lib/setup/bundles";
 import { getLLMPreset } from "@/lib/agent/presets";
+import { seedStarterDashboard } from "@/lib/dashboard/use-dashboards";
+import { RISK_DISCLOSURE_VERSION } from "@/lib/legal/disclosure";
 import type { SetupDraft, SetupKeyStatuses, SetupState } from "./types";
 import { draftAiChoice } from "./types";
 import { WelcomeStep } from "./steps/welcome-step";
@@ -17,6 +19,14 @@ const STEPS = ["Welcome", "AI", "Included", "Providers", "Review"];
 
 const PRICE_ADVANCED = ["tradingview", "yfinance", "http", "browser", "scrapling"];
 const PRICE_CONNECTED = ["polygon", "twelvedata", "alphavantage", "marketstack", "finnhub"];
+
+const BUNDLE_TEMPLATE: Record<string, string> = {
+  research: "research",
+  "personal-trader": "trader-pro",
+  commercial: "desk",
+  crypto: "chain-desk",
+  custom: "research",
+};
 
 function initialDraft(state: SetupState): SetupDraft {
   return {
@@ -47,6 +57,7 @@ function initialDraft(state: SetupState): SetupDraft {
     aiModel: "",
     aiApiKey: "",
     extraKeys: {},
+    riskAck: state.riskAck?.accepted ?? false,
   };
 }
 
@@ -205,8 +216,14 @@ export function OnboardingShell({
   };
 
   const finish = async (skip = false) => {
+    if (!draft.riskAck) {
+      setError("Acknowledge the risk notice to continue.");
+      setDraft((current) => ({ ...current, step: 0 }));
+      return;
+    }
     setBusy(true);
     setError(null);
+    const riskAck = { version: RISK_DISCLOSURE_VERSION };
     try {
       const body = skip
         ? {
@@ -215,6 +232,7 @@ export function OnboardingShell({
             sources: safeSourceDefaults("personal"),
             acceptedRestrictedSources: [],
             ai: { kind: "skip" },
+            riskAck,
           }
         : {
             mode: draft.mode,
@@ -222,6 +240,7 @@ export function OnboardingShell({
             sources: draft.sources,
             acceptedRestrictedSources: draft.accepted,
             ai: draftAiChoice(draft),
+            riskAck,
           };
       const res = await fetch("/api/setup", {
         method: "POST",
@@ -230,6 +249,9 @@ export function OnboardingShell({
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Could not save setup");
+      seedStarterDashboard(
+        BUNDLE_TEMPLATE[skip ? "research" : draft.bundleId] ?? "research",
+      );
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save setup");
@@ -341,6 +363,7 @@ export function OnboardingShell({
                   checkItems={checkItems}
                   onCheck={() => void runCheck()}
                   onFinish={() => void finish(false)}
+                  acknowledged={draft.riskAck}
                   busy={busy}
                   error={error}
                 />
@@ -359,7 +382,9 @@ export function OnboardingShell({
               ) : (
                 <button
                   type="button"
-                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline cursor-pointer"
+                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!draft.riskAck}
+                  title={draft.riskAck ? undefined : "Acknowledge the risk notice first"}
                   onClick={() => void finish(true)}
                 >
                   Skip for now
@@ -371,7 +396,9 @@ export function OnboardingShell({
               {draft.step < 4 && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary/85 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary/85 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={draft.step === 0 && !draft.riskAck}
+                  title={draft.step === 0 && !draft.riskAck ? "Acknowledge the risk notice first" : undefined}
                   onClick={() => updateDraft({ step: draft.step + 1 })}
                 >
                   Continue <ArrowRight size={12} />

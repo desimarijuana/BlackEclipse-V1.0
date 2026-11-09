@@ -10,7 +10,8 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const path = typeof body.path === "string" ? body.path : "";
     if (!path) return NextResponse.json({ error: "path is required" }, { status: 400 });
-    const result = await readWorkspaceFile(path);
+    const rootId = typeof body.rootId === "string" ? body.rootId : undefined;
+    const result = await readWorkspaceFile(path, rootId);
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

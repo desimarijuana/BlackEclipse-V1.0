@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
 import { PageHeader } from '@/components/layout/page-header';
-import { DataAttribution } from '@/components/screens/data-attribution';
 import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -1178,16 +1177,6 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         !embedded && "flex-1 overflow-y-auto h-full"
       )}>
       
-      {!embedded && (
-        <div className="mb-2">
-          <DataAttribution
-            extra={[
-              "CoinGecko — Data provided by CoinGecko (paid plan)",
-              "TradingView / Yahoo — personal use only",
-            ]}
-          />
-        </div>
-      )}
 
       {/* Page Title Header */}
       {!embedded && (

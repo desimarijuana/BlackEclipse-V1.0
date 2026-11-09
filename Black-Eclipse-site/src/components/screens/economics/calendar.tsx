@@ -1,17 +1,21 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles } from '@/lib/icons';
+import { Loader2, Sparkles, ExternalLink } from '@/lib/icons';
 
 interface CalendarEvent {
   id: string;
   date: string;
+  time?: string | null;
   country: string;
   title: string;
   importance: 'high' | 'medium' | 'low';
   actual: string | null;
   forecast: string | null;
   previous: string | null;
+  confirmed?: boolean;
+  source?: 'mirror' | 'official' | 'web';
+  url?: string | null;
 }
 
 interface ResearchResult {
@@ -131,12 +135,23 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
     ? [...visible].sort((a, b) => Number(isFocused(b)) - Number(isFocused(a)))
     : visible;
 
+  const sourceLabel =
+    source === 'mirror+official'
+      ? 'mirror + official schedules'
+      : source === 'official'
+        ? 'official schedules only'
+        : source === 'mirror'
+          ? 'release mirror'
+          : source === 'unavailable'
+            ? 'sources unavailable'
+            : '';
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[10px] font-mono text-muted-foreground/70">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 align-middle" />
-          Economic Calendar{source === 'schedule-fallback' ? ' · recurring schedule (mirror offline)' : ` · ${events.length} releases`}
+          Economic Calendar{sourceLabel ? ` · ${sourceLabel}` : ''} · {events.length} releases
         </p>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Calendar filters">
           {FILTERS.map((f) => (
@@ -175,10 +190,11 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
               <thead>
                 <tr className="border-b border-border/10">
                   <th className="text-left px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Date</th>
-                  <th className="text-left px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Time (UTC)</th>
+                  <th className="text-left px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Time</th>
                   <th className="text-left px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Country</th>
                   <th className="text-left px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Event</th>
                   <th className="text-left px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Importance</th>
+                  <th className="text-right px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Actual</th>
                   <th className="text-right px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Forecast</th>
                   <th className="text-right px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.05em] text-muted-foreground font-medium">Previous</th>
                   <th className="text-right px-3 py-2.5" />
@@ -186,22 +202,44 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
               </thead>
               <tbody>
                 {ordered.map((e) => {
-                  const when = new Date(e.date);
+                  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(e.date);
+                  const when = new Date(dateOnly ? `${e.date}T00:00:00Z` : e.date);
                   const day = when.toUTCString().slice(0, 16);
-                  const time = when.toISOString().slice(11, 16);
+                  const time = e.time ?? (dateOnly ? '—' : `${when.toISOString().slice(11, 16)} UTC`);
                   const focused = isFocused(e);
                   return (
                     <tr key={e.id} className={`border-b border-border/10 last:border-0 hover:bg-accent/20 transition-colors ${focused ? 'bg-primary/[0.07] ring-1 ring-inset ring-primary/30' : ''}`}>
                       <td className="px-3 py-2.5 font-mono font-semibold text-foreground whitespace-nowrap">{day}</td>
                       <td className="px-3 py-2.5 font-mono text-muted-foreground whitespace-nowrap">{time}</td>
                       <td className="px-3 py-2.5 font-mono font-semibold text-foreground">{e.country}</td>
-                      <td className="px-3 py-2.5 text-foreground">{e.title}</td>
+                      <td className="px-3 py-2.5 text-foreground">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{e.title}</span>
+                          {e.confirmed === false && (
+                            <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-amber-300">
+                              Tentative
+                            </span>
+                          )}
+                          {e.source === 'official' && e.url && (
+                            <a
+                              href={e.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Official schedule"
+                              className="text-muted-foreground hover:text-primary"
+                            >
+                              <ExternalLink size={10} />
+                            </a>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
                           <span className={`w-2 h-2 rounded-sm ${IMP_DOT[e.importance]}`} />
                           {IMP_LABEL[e.importance]}
                         </span>
                       </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-foreground">{e.actual ?? '—'}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{e.forecast ?? '—'}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{e.previous ?? '—'}</td>
                       <td className="px-3 py-2.5 text-right whitespace-nowrap">
@@ -224,7 +262,7 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
 
       <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
         <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-        <span>Forecast cells are left blank until a real consensus exists. This calendar mirrors the Fincept schedule; when actuals are published they replace the previous value — never a fabricated number.</span>
+        <span>Dates come from the release mirror plus official central-bank schedules (FOMC dates are read from federalreserve.gov). Cells stay blank until a real value exists — no fabricated dates or numbers.</span>
       </div>
 
       {research && (

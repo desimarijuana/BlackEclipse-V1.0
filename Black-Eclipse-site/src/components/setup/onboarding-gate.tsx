@@ -17,6 +17,11 @@ export function OnboardingGate() {
   // race and lose the request.
   const [forced] = useState(() => {
     if (typeof window === "undefined") return false;
+    try {
+      if (sessionStorage.getItem("be_setup_force") === "1") return true;
+    } catch {
+      /* private mode */
+    }
     return new URLSearchParams(window.location.search).get("setup") === "1";
   });
   const [checked, setChecked] = useState(false);
@@ -44,7 +49,12 @@ export function OnboardingGate() {
   }, []);
 
   const done = () => {
-    // Drop the forced setup query, but keep an existing tab deep link.
+    // Drop the forced setup flag/query, but keep an existing tab deep link.
+    try {
+      sessionStorage.removeItem("be_setup_force");
+    } catch {
+      /* private mode */
+    }
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     window.location.assign(tab ? `/?tab=${encodeURIComponent(tab)}` : "/");

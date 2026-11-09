@@ -143,6 +143,34 @@ export function markOnboarded() {
   try { localStorage.setItem(ONBOARDED_KEY, '1'); } catch { /* best effort */ }
 }
 
+/**
+ * Seed the first-run dashboard from the setup bundle. It only fills an UNSAVED
+ * default board: an existing custom layout is never overwritten. Also marks the
+ * dashboard persona dialog as done so setup does not show a second onboarding.
+ */
+export function seedStarterDashboard(templateId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const existing = loadIndex();
+    if (existing.length === 0) {
+      const main = seedDashboard('Main', templateId, 'main');
+      main.isDefault = true;
+      persistIndex([main]);
+      persistActiveId('main');
+      markOnboarded();
+      return;
+    }
+    const main = existing.find((d) => d.isDefault) ?? existing[0];
+    if (isUnseeded(main) && main.templateId !== templateId) {
+      main.templateId = templateId;
+      persistIndex(existing);
+    }
+    markOnboarded();
+  } catch {
+    /* localStorage unavailable */
+  }
+}
+
 export function useDashboards() {
   const [list, setList] = useState<DashboardEntry[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);

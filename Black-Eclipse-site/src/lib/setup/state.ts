@@ -29,6 +29,11 @@ import type {
 } from "./types";
 import { isSourceId, sourceById } from "./source-catalog";
 import { legacySourceDefaults, safeSourceDefaults, isRestrictedSource } from "./defaults";
+import { RISK_DISCLOSURE_VERSION } from "@/lib/legal/disclosure";
+import {
+  recordRiskAcknowledgement,
+  RISK_ACK_CONFIG_KEY,
+} from "@/lib/legal/acceptance";
 
 export const ONBOARDING_CONFIG_KEY = "onboarding_v1";
 export const SOURCE_PREFS_CONFIG_KEY = "data_source_prefs_v1";
@@ -172,6 +177,13 @@ export async function completeOnboarding(input: SetupCompleteInput): Promise<{
   onboarding: OnboardingState;
   prefs: SourcePrefs;
 }> {
+  // Finishing setup requires an acceptance of the CURRENT risk notice. A stale
+  // or missing acknowledgement must not be silently upgraded to "accepted".
+  if (input.riskAckVersion !== RISK_DISCLOSURE_VERSION) {
+    throw new Error("Please acknowledge the current risk notice before finishing setup.");
+  }
+  await recordRiskAcknowledgement(input.mode);
+
   const prefs = await writeSourcePreferences({
     mode: input.mode,
     sources: input.sources,
@@ -199,6 +211,8 @@ export async function resetSetup(): Promise<void> {
   await deleteConfig(SOURCE_PREFS_CONFIG_KEY);
   await deleteConfig("llm_config");
   await deleteConfig("setup_check_v1");
+  // Re-running setup must re-ask for the risk acknowledgement.
+  await deleteConfig(RISK_ACK_CONFIG_KEY);
   for (const def of PROVIDER_KEYS) {
     await deleteProviderKey(def.envVar);
   }

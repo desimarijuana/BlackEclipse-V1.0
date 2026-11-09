@@ -4,6 +4,7 @@ import { Check, ShieldCheck, Sparkles } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { SetupBundleRow, SetupDraft, SetupState } from "../types";
 import { bundleHighlights } from "@/lib/setup/bundles";
+import { RISK_ACK_LABEL, RISK_DISCLOSURE_FULL } from "@/lib/legal/disclosure";
 
 export function WelcomeStep({
   state,
@@ -87,6 +88,31 @@ export function WelcomeStep({
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.05] p-2.5">
+        <label className="flex cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-primary"
+            checked={draft.riskAck}
+            onChange={(event) => setDraft({ riskAck: event.target.checked })}
+          />
+          <span className="min-w-0">
+            <span className="block text-[10px] font-semibold text-foreground">Before you start</span>
+            <span className="block text-[9.5px] leading-relaxed text-muted-foreground">
+              {RISK_ACK_LABEL}
+            </span>
+          </span>
+        </label>
+        <details className="ml-5 mt-1.5">
+          <summary className="cursor-pointer text-[9px] text-muted-foreground/70 underline decoration-dotted underline-offset-2 hover:text-foreground">
+            Read the full notice
+          </summary>
+          <p className="mt-1 max-w-prose text-[9px] leading-relaxed text-muted-foreground/70">
+            {RISK_DISCLOSURE_FULL}
+          </p>
+        </details>
       </div>
 
       <p className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5 text-[9px] leading-relaxed text-muted-foreground">

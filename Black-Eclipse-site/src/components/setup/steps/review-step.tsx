@@ -30,6 +30,7 @@ export function ReviewStep({
   checkItems,
   onCheck,
   onFinish,
+  acknowledged,
   busy,
   error,
 }: {
@@ -40,6 +41,8 @@ export function ReviewStep({
   checkItems: CheckItemView[] | null;
   onCheck: () => void;
   onFinish: () => void;
+  /** The risk notice was explicitly accepted on the first step. */
+  acknowledged: boolean;
   busy: boolean;
   error: string | null;
 }) {
@@ -149,7 +152,8 @@ export function ReviewStep({
         type="button"
         size="lg"
         className="w-full cursor-pointer rounded-xl"
-        disabled={busy}
+        disabled={busy || !acknowledged}
+        title={acknowledged ? undefined : "Acknowledge the risk notice on the first step"}
         onClick={onFinish}
       >
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}

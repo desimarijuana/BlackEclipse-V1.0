@@ -79,7 +79,7 @@ export function SessionBar({ session: controller, compact = false }: SessionBarP
             <FileGroup
               label={chatId ? 'Attaching' : 'Attached — sent with your first message'}
               icon={FileText}
-              files={pending.map((p) => ({ name: p.name, kind: 'context' as const, bytes: p.bytes, updatedAt: '', textExtractable: true }))}
+              files={pending.map((p) => ({ origin: 'upload' as const, name: p.name, kind: 'context' as const, bytes: p.bytes, updatedAt: '', textExtractable: true }))}
               chatId={chatId ?? ''}
               onRemove={(f) => removePending(f.name)}
               downloadable={false}

@@ -23,6 +23,9 @@
 
 # production
 /build
+# Signed release manifests produced locally by scripts/update-sign.js. They are
+# uploaded as GitHub Release assets, never committed.
+/release/
 
 # misc
 .DS_Store

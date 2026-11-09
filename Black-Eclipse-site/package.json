@@ -1,6 +1,6 @@
 {
   "name": "black-eclipse",
-  "version": "0.3.1",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "bin": {
@@ -47,6 +47,9 @@
     "reset:onboarding": "node scripts/reset.js --onboarding",
     "reset:setup": "node scripts/reset.js --setup",
     "reset:factory": "node scripts/reset.js --factory",
+    "docs:data-sources": "tsx scripts/generate-data-sources-doc.ts",
+    "docs:data-sources:check": "tsx scripts/generate-data-sources-doc.ts --check",
+    "smoke:onboarding": "node scripts/smoke-onboarding.js",
     "test:rsl": "node scripts/test-python.js python/tests/test_rsl_loop.py python/tests/test_rsl_config.py python/tests/test_rsl_recursion.py python/tests/test_rsl_hillclimb.py python/tests/test_rsl_archive.py python/tests/test_rsl_cmp.py python/tests/test_rsl_operators.py python/tests/test_rsl_islands.py python/tests/test_significance.py python/tests/test_rsl_significance.py python/tests/test_autonomy.py python/tests/test_autonomy_apply.py python/tests/test_rsl_guardrails.py python/tests/test_rsl_session.py python/tests/test_rsl_digest.py python/tests/test_rsl_snapshot.py python/tests/test_rsl_landing.py python/tests/test_rsl_verifier.py python/tests/test_surface_lab.py python/tests/test_surface_candidate.py python/tests/test_surface_context_policy.py python/tests/test_evolution_rsl_routes.py python/tests/test_evolution_corpus_routes.py python/tests/test_evolution_rsl_operator.py python/tests/test_post_landing.py python/tests/test_drift_watch.py python/tests/test_evaluation_nightly.py python/tests/test_evaluation_export.py python/tests/test_replay_builder.py",
     "test:evals": "node scripts/test-evals.js",
     "test:drift-ui": "node scripts/drift-ui-smoke.mjs",
@@ -69,6 +72,10 @@
     "demo:transform": "node scripts/demo-transform.js",
     "demo:loop": "node scripts/demo-loop.js",
     "eclipse": "node scripts/eclipse.js",
+    "update": "node scripts/update.js",
+    "update:check": "node scripts/update.js --check",
+    "update:keys": "node scripts/update-keys.js",
+    "update:sign": "node scripts/update-sign.js",
     "security:preflight": "node scripts/security-preflight.js",
     "check:all": "node scripts/check-all.js"
   },

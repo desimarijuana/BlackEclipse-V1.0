@@ -4,11 +4,13 @@ import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/workspace/files?path=. — the editor file tree (direct children).
+// GET /api/workspace/files?path=.&rootId=.. — the editor file tree (direct children).
 export async function GET(request: Request) {
   try {
-    const path = new URL(request.url).searchParams.get("path") ?? ".";
-    const result = await listWorkspaceFiles(path);
+    const params = new URL(request.url).searchParams;
+    const path = params.get("path") ?? ".";
+    const rootId = params.get("rootId");
+    const result = await listWorkspaceFiles(path, rootId);
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

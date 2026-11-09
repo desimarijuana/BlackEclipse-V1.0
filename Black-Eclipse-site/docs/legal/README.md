@@ -15,6 +15,8 @@ intends to take, the controls it relies on, and the documents it still needs.
 - [**LEGAL-COMPLIANCE-BLUEPRINT.md**](./LEGAL-COMPLIANCE-BLUEPRINT.md) - the full
   framework: entity, regulation, AI risk, trading risk, privacy, licensing,
   product controls, documents, incidents, roadmap, and jurisdiction uncertainty.
+- [**disclosures.md**](./disclosures.md) - the canonical, versioned AI/financial
+  notice text and exactly where each form appears in the product.
 
 ## The position in one paragraph
 
@@ -43,8 +45,8 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 | Terms of Service | Needed | Founder + counsel | Hosted service, clickwrap |
 | Privacy Notice | Needed | Founder + counsel | Hosted service; align to data map |
 | Risk Disclosure | Needed | Founder + counsel | All users; specific and conspicuous |
-| Financial Disclaimer | Needed | Founder + counsel | Not advice, no fiduciary duty |
-| AI Usage Disclosure | Needed | Founder | Probabilistic output, data limits |
+| Financial Disclaimer | Draft | Founder + counsel | In-product copy shipped (`disclosures.md`, v2026-11-09); Terms + counsel review still needed |
+| AI Usage Disclosure | Draft | Founder | Point-of-use notice + first-run recorded acceptance shipped; hosted Terms still needed |
 | Acceptable Use Policy | Needed | Founder + counsel | Abuse, market manipulation, third-party accounts |
 | Automated Trading Disclaimer | Needed | Founder + counsel | Required before live trading |
 | Data Processing Agreement | Needed (hosted B2B) | Counsel | Roles, subprocessors, transfers |

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buildSnapshot } from "@/lib/economics/snapshot";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 // In-memory SWR cache — central-bank rates and CPI prints move slowly.
 const CACHE_TTL_MS = 10 * 60 * 1000;

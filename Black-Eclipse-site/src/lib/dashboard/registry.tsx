@@ -87,7 +87,7 @@ registerTopic(jsonTopic('market:quote:AAPL,MSFT,NVDA,TSLA,AMZN', '/api/quote?sym
 registerTopic(jsonTopic('alerts:list', '/api/alerts', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('journal:analytics', '/api/journal/analytics', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('chart:asset:AAPL', '/api/price-history?symbol=AAPL&market=US', { ttl: 300_000, interval: 120_000 }));
-registerTopic(jsonTopic('econ:series:us-cpi', '/api/economics?source=us-cpi', { ttl: 600_000, interval: 300_000 }));
+registerTopic(jsonTopic('econ:series:us-cpi', '/api/economics?source=bls&series=CPIAUCSL', { ttl: 600_000, interval: 300_000 }));
 registerTopic(jsonTopic('econ:snapshot', '/api/economics/snapshot', { ttl: 600_000, interval: 300_000 }));
 registerTopic(jsonTopic('agent:activity', '/api/agent/activity', { ttl: 30_000, interval: 15_000 }));
 

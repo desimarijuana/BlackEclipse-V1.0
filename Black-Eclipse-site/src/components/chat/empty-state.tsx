@@ -29,6 +29,10 @@ interface EmptyStateProps {
   effortState?: ReasoningEffortState;
   /** Bots + group chats the user can `@`-mention from the composer. */
   mentionTargets?: MentionTarget[];
+  /** Async project-file search for the composer's `@` palette. */
+  searchProjectFiles?: (query: string) => Promise<import('@/lib/chat/file-sources').FileRef[]>;
+  /** Attach a project file chosen from the `@` palette. */
+  onReferenceFile?: (ref: import('@/lib/chat/file-sources').FileRef) => void;
   /** A paste too big for the composer becomes an attached document. */
   onPasteText?: (text: string) => void;
 }
@@ -37,7 +41,7 @@ interface EmptyStateProps {
  * The chat landing surface: nothing but the composer, full width. The eclipse
  * background is painted by the chat tab container, so this stays transparent.
  */
-export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, attachments, onRemoveAttachment, onOpenAttachment, busy, onCancel, modelState, effortState, mentionTargets, onPasteText }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, attachments, onRemoveAttachment, onOpenAttachment, busy, onCancel, modelState, effortState, mentionTargets, searchProjectFiles, onReferenceFile, onPasteText }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-end w-full px-4 md:px-6 pb-2 z-10 relative">
       <div
@@ -58,6 +62,8 @@ export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, a
           modelState={modelState}
           effortState={effortState}
           mentionTargets={mentionTargets}
+          searchProjectFiles={searchProjectFiles}
+          onReferenceFile={onReferenceFile}
           onPasteText={onPasteText}
         />
       </div>

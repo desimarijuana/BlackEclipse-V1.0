@@ -77,6 +77,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Data sources doc check
+        run: npm run docs:data-sources:check
+
       - name: Lint
         run: npx eslint .
 

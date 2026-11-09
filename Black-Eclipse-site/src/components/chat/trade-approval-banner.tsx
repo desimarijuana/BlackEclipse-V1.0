@@ -40,6 +40,9 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
   const [phrases, setPhrases] = useState<Record<string, string>>({});
   const [required, setRequired] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  // The operator must explicitly own the decision before any order is sent.
+  // The typed phrase proves intent; this checkbox records the responsibility.
+  const [ownership, setOwnership] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<{ id: string; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // A denied approval is removed immediately and kept out of the poll while the
@@ -142,6 +145,7 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
         );
         setPhrases((current) => ({ ...current, [approval.id]: '' }));
         setRequired((current) => ({ ...current, [approval.id]: '' }));
+        setOwnership((current) => ({ ...current, [approval.id]: false }));
         await load();
         return;
       }
@@ -170,6 +174,7 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
     setApprovals((current) => current.filter((item) => item.id !== approval.id));
     setPhrases((current) => ({ ...current, [approval.id]: '' }));
     setRequired((current) => ({ ...current, [approval.id]: '' }));
+    setOwnership((current) => ({ ...current, [approval.id]: false }));
     onCancel?.();
     try {
       await decideTradeApproval(approval.id, false);
@@ -195,6 +200,7 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
         const expected = expectedPhrase(approval);
         const typed = phrases[approval.id] ?? '';
         const phraseOk = !expected || typed.trim() === expected;
+        const owned = ownership[approval.id] === true;
         const isBusy = busy === approval.id;
         return (
           <div
@@ -248,10 +254,24 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
                     />
                   </label>
                 )}
+                <label className="mt-2 flex cursor-pointer items-start gap-2 text-[10.5px] leading-relaxed text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-primary"
+                    checked={owned}
+                    onChange={(event) =>
+                      setOwnership((current) => ({ ...current, [approval.id]: event.target.checked }))
+                    }
+                  />
+                  <span>
+                    I understand this order is my decision and my responsibility, and I verified
+                    it with my broker.
+                  </span>
+                </label>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    disabled={isBusy || !phraseOk}
+                    disabled={isBusy || !phraseOk || !owned}
                     onClick={() => void decideAndSend(approval)}
                     className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                   >

@@ -51,10 +51,18 @@ export interface SetupAiStatus {
   configured: boolean;
 }
 
+export interface SetupRiskAck {
+  requiredVersion: string;
+  acceptedVersion?: string;
+  accepted: boolean;
+}
+
 export interface SetupState {
   completed: boolean;
   isNewInstall: boolean;
   mode: SetupMode;
+  /** Recorded acceptance of the current risk notice (see lib/legal). */
+  riskAck: SetupRiskAck;
   ai: SetupAiStatus;
   bundles: SetupBundleRow[];
   capabilities: SetupCapabilityRow[];
@@ -85,6 +93,8 @@ export interface SetupDraft {
   aiModel: string;
   aiApiKey: string;
   extraKeys: Record<string, string>;
+  /** Required before setup can finish; recorded server-side with a version. */
+  riskAck: boolean;
 }
 
 export type SetupKeyStatuses = Record<string, KeyStatusLite>;

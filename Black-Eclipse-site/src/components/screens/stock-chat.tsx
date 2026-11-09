@@ -17,7 +17,7 @@ import { EmptyState } from '@/components/chat/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { contentFromMessage } from '@/lib/canvas/content';
-import { ChatInput } from '@/components/chat/chat-input';
+import { ChatInput, type AttachmentChip } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { ClarificationCard } from '@/components/chat/clarification-card';
 import { SessionBar } from '@/components/chat/session-bar';
@@ -25,7 +25,14 @@ import { ProjectChip } from '@/components/chat/project-chip';
 import { NotebookProvider } from '@/components/chat/notebook-provider';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
+import { useContextPicker } from '@/lib/chat/use-context-picker';
+import { useProjectBinding } from '@/lib/chat/use-project-binding';
+import { searchWorkspaceFiles } from '@/lib/harness/code-browser';
+import type { FileRef } from '@/lib/chat/file-sources';
 import { buildUserTurn } from '@/lib/chat/paste';
+import { DEFAULT_QUOTE_PROMPT, turnTextForHarness } from '@/lib/chat/quote';
+import { useChatConversationActions } from '@/lib/chat/use-chat-conversation-actions';
+import { useChatMessageActions } from '@/lib/chat/use-chat-message-actions';
 import { mostRecentConversation, saveConversationsCache } from '@/lib/chat/chat-organization';
 import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useConversationPersistence } from '@/lib/chat/use-conversation-persistence';
@@ -242,21 +249,43 @@ function StockChatContent() {
   const messageQueue = useMessageQueue();
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const projectBinding = useProjectBinding(activeConversationId);
+  const contextPicker = useContextPicker({ controller: sessionController, chatId: activeConversationId });
   // The composer container the approval card floats above (portaled to <body>).
   // Held in state (not a ref) so the card re-measures once the node mounts.
   const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
 
   // Visible attachment chips at the composer: pending + the session's saved
-  // context files, de-duplicated.
-  const attachmentChips = useMemo(
-    () => mergeAttachmentChips(
-      sessionController.pending,
-      (sessionController.session?.files ?? []).filter((f) => f.kind === 'context'),
-    ),
-    [sessionController.pending, sessionController.session],
-  );
+  // context files, de-duplicated, each carrying where it came from.
+  const attachmentChips = useMemo<AttachmentChip[]>(() => {
+    const pending = sessionController.pending.map((p) => ({
+      name: p.name,
+      origin: p.meta?.origin ?? ('upload' as const),
+      sourcePath: p.meta?.sourcePath ?? null,
+      rootLabel: p.meta?.rootLabel ?? null,
+    }));
+    const saved = (sessionController.session?.files ?? [])
+      .filter((f) => f.kind === 'context')
+      .map((f) => ({
+        name: f.name,
+        origin: f.origin ?? ('upload' as const),
+        sourcePath: f.sourcePath ?? null,
+        rootLabel: f.rootLabel ?? null,
+      }));
+    return mergeAttachmentChips(pending, saved);
+  }, [sessionController.pending, sessionController.session]);
+
+  // Project-file search for the composer's `@` palette, scoped to this chat's
+  // bound folder. Errors yield an empty list (the palette still shows bots).
+  const searchProjectFiles = useCallback(async (text: string): Promise<FileRef[]> => {
+    const result = await searchWorkspaceFiles(text, projectBinding.rootId, 8);
+    return result.files.map((file) => ({
+      ...file,
+      bytes: file.bytes ?? undefined,
+      rootId: projectBinding.rootId,
+      rootLabel: projectBinding.label,
+    }));
+  }, [projectBinding.rootId, projectBinding.label]);
   const reservedAttachmentNames = messages.flatMap((m) => m.attachments?.map((a) => a.name) ?? []);
 
   const handleRemoveAttachment = (name: string) => {
@@ -540,9 +569,24 @@ function StockChatContent() {
     loadOrganization: loadChatOrganization,
   });
 
+  // Fork + quoted-passage actions live in a hook so this at-ratchet shell does
+  // not grow with the feature's orchestration.
+  const conversationActions = useChatConversationActions({
+    conversationsRef,
+    activeConversationIdRef,
+    save: saveConversations,
+    setActiveConversationId: (id) => setActiveConversationId(id),
+    setMessages: (messages) => setMessages(messages),
+    isBusy: () => agentBusy || runInFlightRef.current,
+    queueSize: () => messageQueue.size(),
+    onSessionCloned: () => setSessionRefreshKey((k) => k + 1),
+  });
+  const { pendingQuote, clearQuote, acceptQuote, forkConversation: handleForkConversation, forkFromMessage: handleForkMessage } = conversationActions;
+
   const handleSelectConversation = (id: string) => {
     activeConversationIdRef.current = id;
     setActiveConversationId(id);
+    clearQuote();
     const chat = conversationsRef.current.find(c => c.id === id);
     if (chat) {
       setMessages(chat.messages);
@@ -556,11 +600,13 @@ function StockChatContent() {
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
     setMessages([]);
+    clearQuote();
     messageQueue.clear();
     useWorkspaceStore.getState().clear();
   };
 
   const handleDeleteConversation = (id: string) => {
+    clearQuote();
     const updated = conversationsRef.current.filter(c => c.id !== id);
     saveConversations(updated);
     if (activeConversationIdRef.current === id) {
@@ -704,20 +750,30 @@ function StockChatContent() {
     // While a turn is in flight (or queued work is waiting) a submit becomes a
     // QUEUED prompt instead of a silent no-op. The queue drains automatically
     // when the current reply finishes, preserving the order the user typed.
+    // A pending quote rides with the queued prompt, so it is not lost.
     if (agentBusy || runInFlightRef.current || messageQueue.size() > 0) {
-      if (!typed) return;
-      if (messageQueue.enqueue(typed)) {
+      const quote = pendingQuote;
+      const queuedText = typed || (quote ? DEFAULT_QUOTE_PROMPT : '');
+      if (!queuedText) return;
+      if (messageQueue.enqueue(queuedText, quote ?? undefined)) {
         setQuery('');
+        clearQuote();
         sound.tick();
       }
       return;
     }
 
-    const userMsg = buildUserTurn(query, sessionController.claimPastedAttachments(), attachmentChips.length > 0);
+    // A quote-only send gets a neutral prompt; the quoted passage itself is
+    // assembled into the harness turn below (and shown as a card in the bubble).
+    const quote = pendingQuote;
+    const prompt = typed || (quote ? DEFAULT_QUOTE_PROMPT : '');
+    const userMsg = buildUserTurn(prompt, sessionController.claimPastedAttachments(), attachmentChips.length > 0);
     if (!userMsg) return;
+    if (quote) userMsg.quote = quote;
     sessionController.closePreview();
     setQuery('');
-    
+    clearQuote();
+
     const chatId = addMessageToActiveChat(userMsg);
     // Attachments made on the empty state must land in the session folder BEFORE
     // the run starts, or the run's context documents miss them. This awaits the
@@ -728,7 +784,7 @@ function StockChatContent() {
       // A failed flush must not block the send; the error is surfaced on the bar.
     }
     await sessionController.flushAttachments();
-    await dispatchTurn(chatId, userMsg.content, userMsg);
+    await dispatchTurn(chatId, turnTextForHarness(userMsg), userMsg);
   };
 
   /**
@@ -747,8 +803,8 @@ function StockChatContent() {
     // context for the model and the front door would otherwise reject the run.
     const history: { role: 'user' | 'assistant'; content: string }[] = existing
       .slice(0, -1)
-      .filter((m) => m.content.trim().length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .filter((m) => m.content.trim().length > 0 || m.quote)
+      .map((m) => ({ role: m.role, content: turnTextForHarness(m) }));
 
     // A placeholder assistant turn; the shared run hook fills its fields.
     const placeholderId = (Date.now() + 1).toString();
@@ -857,9 +913,14 @@ function StockChatContent() {
     if (!next) return;
     drainingQueueRef.current = true;
     messageQueue.remove(next.id);
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: next.text };
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: next.text,
+      ...(next.quote ? { quote: next.quote } : {}),
+    };
     const chatId = addMessageToActiveChat(userMsg);
-    void dispatchTurn(chatId, next.text, userMsg).finally(() => {
+    void dispatchTurn(chatId, turnTextForHarness(userMsg), userMsg).finally(() => {
       drainingQueueRef.current = false;
     });
     // `dispatchTurn`/`addMessageToActiveChat` are stable enough here: the effect
@@ -887,83 +948,17 @@ function StockChatContent() {
     if (agentBusy || runInFlightRef.current) void handleCancel();
   };
 
-  /** Record a user's rating on an assistant turn (persisted with the message). */
-  const handleFeedback = (id: string, feedback: 'up' | 'down') => {
-    const chatId = activeConversationIdRef.current;
-    if (!chatId) return;
-    const updated = conversationsRef.current.map((c) => {
-      if (c.id !== chatId) return c;
-      return {
-        ...c,
-        messages: c.messages.map((m) =>
-          m.id === id ? { ...m, feedback: m.feedback === feedback ? undefined : feedback } : m,
-        ),
-      };
-    });
-    saveConversations(updated);
-    const chat = updated.find((c) => c.id === chatId);
-    if (chat) setMessages(chat.messages);
-  };
-
-  /**
-   * Re-run the prompt that produced an assistant turn. Used by the message
-   * toolbar's Retry/Regenerate. It reuses the edit path: truncate at that turn's
-   * preceding user message and resend it.
-   */
-  const handleRetryMessage = (assistantId: string) => {
-    const chatId = activeConversationIdRef.current;
-    if (!chatId) return;
-    const chat = conversationsRef.current.find((c) => c.id === chatId);
-    if (!chat) return;
-    const idx = chat.messages.findIndex((m) => m.id === assistantId);
-    if (idx < 1) return;
-    // Find the user prompt this assistant turn answered.
-    let userId = -1;
-    for (let i = idx - 1; i >= 0; i -= 1) {
-      if (chat.messages[i].role === 'user') { userId = i; break; }
-    }
-    if (userId === -1) return;
-    handleEditMessage(chat.messages[userId].id, chat.messages[userId].content);
-  };
-
-  /**
-   * Edit a previously-sent prompt: drop that message and everything after it
-   * (the thread is a linear transcript, so later turns depended on it), then
-   * re-send the edited text. This is the standard "edit and branch" behavior
-   * without introducing branching state.
-   */
-  const handleEditMessage = (id: string, content: string) => {
-    const chatId = activeConversationIdRef.current;
-    if (!chatId) return;
-    const chat = conversationsRef.current.find((c) => c.id === chatId);
-    if (!chat) return;
-
-    const idx = chat.messages.findIndex((m) => m.id === id);
-    if (idx === -1) return;
-
-    const truncated = chat.messages.slice(0, idx);
-    const updatedConvs = conversationsRef.current.map((c) =>
-      c.id === chatId ? { ...c, messages: truncated, timestamp: Date.now() } : c
-    );
-    conversationsRef.current = updatedConvs;
-    saveConversations(updatedConvs);
-    if (activeConversationIdRef.current === chatId) setMessages(truncated);
-
-    // Re-run the edited prompt through the agent.
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content };
-    const newChatId = addMessageToActiveChat(userMsg);
-    void dispatchTurn(newChatId, content, userMsg);
-  };
-
-  /**
-   * Re-send a user prompt unchanged — the "Redirect" action on a prompt bubble.
-   * Reuses the edit path (truncate at that message and run it again).
-   */
-  const handleResendMessage = (id: string) => {
-    const chat = conversationsRef.current.find((c) => c.id === activeConversationIdRef.current);
-    const msg = chat?.messages.find((m) => m.id === id);
-    if (msg && msg.role === 'user') handleEditMessage(id, msg.content);
-  };
+  // Feedback / retry / edit-branch / redirect are transcript mutations; they
+  // live in a hook so this at-ratchet shell does not carry the boilerplate.
+  const messageActions = useChatMessageActions({
+    conversationsRef,
+    activeConversationIdRef,
+    save: saveConversations,
+    setMessages: (messages) => setMessages(messages),
+    addUserMessage: addMessageToActiveChat,
+    dispatch: dispatchTurn,
+  });
+  const { feedback: handleFeedback, retry: handleRetryMessage, edit: handleEditMessage, resend: handleResendMessage } = messageActions;
 
   /** Inject a prompt and run it through the Eclipse Agent (the harness) so the
    *  answer is grounded in JDdS tools — never a canned fabricated reply. */
@@ -1161,6 +1156,7 @@ function StockChatContent() {
           activeConversationId={activeConversationId}
           onSelectConversation={handleSelectConversation}
           onNewChat={handleNewChat}
+          onForkConversation={handleForkConversation}
           onDeleteConversation={handleDeleteConversation}
           onOpenSettings={() => setSettingsOpen(true)}
           mobileOpen={mobileMenuOpen}
@@ -1267,8 +1263,8 @@ function StockChatContent() {
                       setQuery={setQuery}
                       onSend={handleSend}
                       onViewMarketOverview={() => setActiveTab('discovery')}
-                      onAttach={() => fileInputRef.current?.click()}
-                      onAttachImage={() => imageInputRef.current?.click()}
+                      onAttach={contextPicker.open}
+                      onAttachImage={contextPicker.openImages}
                       attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
                       onPasteText={(text) => void sessionController.attachText(text, reservedAttachmentNames)}
                       busy={agentBusy}
@@ -1276,6 +1272,8 @@ function StockChatContent() {
                       modelState={chatModel}
                       effortState={reasoningEffort}
                       mentionTargets={mentionTargets}
+                      searchProjectFiles={searchProjectFiles}
+                      onReferenceFile={sessionController.attachProjectFile}
                     />
                     <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6">
                       <div className="flex min-w-0 items-center gap-2">
@@ -1297,6 +1295,8 @@ function StockChatContent() {
   onRetryMessage={handleRetryMessage}
   onOpenAttachment={sessionController.openAttachment}
   onFeedback={handleFeedback}
+  onQuote={acceptQuote}
+  onForkMessage={handleForkMessage}
   onFollowup={handleFollowup}
   onOpenCanvas={openMessageInCanvas}
   canvasMessageId={focusMode ? null : canvasSource?.messageId ?? null}
@@ -1315,12 +1315,16 @@ function StockChatContent() {
                         effortState={reasoningEffort}
                         busy={agentBusy}
                         onCancel={handleCancel}
-                        onAttach={() => fileInputRef.current?.click()}
-                        onAttachImage={() => imageInputRef.current?.click()}
+                        onAttach={contextPicker.open}
+                        onAttachImage={contextPicker.openImages}
                         attaching={sessionController.busy}
                         attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
+                        quote={pendingQuote}
+                        onClearQuote={clearQuote}
                         onPasteText={(text) => void sessionController.attachText(text, reservedAttachmentNames)}
                         mentionTargets={mentionTargets}
+                        searchProjectFiles={searchProjectFiles}
+                        onReferenceFile={sessionController.attachProjectFile}
                         queued={messageQueue.items}
                         onQueueEdit={messageQueue.update}
                         onQueueRemove={messageQueue.remove}
@@ -1360,29 +1364,7 @@ function StockChatContent() {
                     </div>
                   </div>
                 )}
-                {/* One hidden picker serves the "+" in both the empty state and
-                    the running conversation. */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    void sessionController.uploadFiles(e.target.files ?? []);
-                    e.target.value = '';
-                  }}
-                />
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    void sessionController.uploadFiles(e.target.files ?? []);
-                    e.target.value = '';
-                  }}
-                />
+                {contextPicker.host}
               </div>
               </NotebookProvider>
             </div>

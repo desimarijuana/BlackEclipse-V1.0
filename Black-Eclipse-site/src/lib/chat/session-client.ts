@@ -1,7 +1,7 @@
 // Client helpers for a conversation's session workspace. Thin wrappers over
 // /api/chat/session — no logic beyond request shaping and honest errors.
 
-import type { Checkpoint, CheckpointSnapshot, SessionFile, SessionFileKind, SessionInfo } from "./session-types";
+import type { Checkpoint, CheckpointSnapshot, FileProvenance, SessionFile, SessionFileKind, SessionInfo } from "./session-types";
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -32,12 +32,13 @@ export async function uploadSessionFile(
   chatId: string,
   kind: SessionFileKind,
   name: string,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  meta?: FileProvenance,
 ): Promise<SessionFile> {
   const res = await fetch("/api/chat/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chatId, kind, name, contentBase64: toBase64(bytes) }),
+    body: JSON.stringify({ chatId, kind, name, contentBase64: toBase64(bytes), ...(meta ? { meta } : {}) }),
   });
   const body = await json<{ file: SessionFile }>(res);
   return body.file;
@@ -51,6 +52,17 @@ export async function deleteSessionFile(
   const params = new URLSearchParams({ chatId, kind, name });
   const res = await fetch(`/api/chat/session?${params.toString()}`, { method: "DELETE" });
   await json<{ success: true }>(res);
+}
+
+/** Copy a conversation's context documents into a new (forked) conversation. */
+export async function cloneSessionContext(fromChatId: string, toChatId: string): Promise<number> {
+  const res = await fetch("/api/chat/session/clone", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fromChatId, toChatId }),
+  });
+  const body = await json<{ copied: number }>(res);
+  return typeof body.copied === "number" ? body.copied : 0;
 }
 
 export function sessionFileUrl(chatId: string, kind: SessionFileKind, name: string): string {

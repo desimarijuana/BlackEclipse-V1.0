@@ -6,12 +6,16 @@
 // and retyped them. This module owns the ordered list as plain immutable data
 // so the behaviour is testable without React.
 
+import type { MessageQuote } from '@/types/chat';
+
 export interface QueuedPrompt {
   id: string;
   /** Trimmed prompt text, exactly what will be sent. */
   text: string;
   /** Epoch ms — keeps the list stable and lets the UI say "queued 2m ago". */
   createdAt: number;
+  /** A quoted passage that travels with this prompt when it drains. */
+  quote?: MessageQuote;
 }
 
 /** A bounded queue: past this the user is told to wait instead of silently
@@ -27,11 +31,12 @@ export function enqueuePrompt(
   text: string,
   makeId: () => string,
   now = Date.now(),
+  quote?: MessageQuote,
 ): readonly QueuedPrompt[] {
   const trimmed = text.trim();
   if (!trimmed) return items;
   if (items.length >= MAX_QUEUED_PROMPTS) return items;
-  return [...items, { id: makeId(), text: trimmed, createdAt: now }];
+  return [...items, { id: makeId(), text: trimmed, createdAt: now, ...(quote ? { quote } : {}) }];
 }
 
 export function removeQueued(

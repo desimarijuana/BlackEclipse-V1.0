@@ -5,6 +5,24 @@ import type { ActivityItem, AssistantModel, DelegationView, PendingApproval, Pen
  * so the transcript can show WHAT was sent, not just the typed prompt — a
  * pasted wall of text must not vanish into an invisible attachment.
  */
+/**
+ * A passage the user selected from an earlier turn and quoted into this turn.
+ * Stored on the message so the transcript can render the quote as a distinct
+ * card, while `Message.content` stays the user's actual question. The harness
+ * receives the quote through `turnTextForHarness` (`lib/chat/quote.ts`).
+ */
+export interface MessageQuote {
+  /** The bounded, trimmed passage. */
+  text: string;
+  /** The message the passage came from (used for the jump-to-source action). */
+  messageId: string;
+  role: 'user' | 'assistant';
+  /** Display name of the author, when it was not the main Eclipse agent. */
+  author?: string;
+  /** True when the selection was longer than the stored bound. */
+  truncated?: boolean;
+}
+
 export interface MessageAttachment {
   /** Session file name, e.g. `pasted-text.txt`. */
   name: string;
@@ -33,6 +51,12 @@ export interface Message {
    * only; absent on assistant turns, ordinary prompts and legacy rows.
    */
   attachments?: MessageAttachment[];
+  /**
+   * A passage of an earlier turn the user quoted into THIS turn. `content`
+   * remains the typed question (or the default quote-only prompt); the harness
+   * context is assembled by `turnTextForHarness`.
+   */
+  quote?: MessageQuote;
   /** Lifecycle of an assistant turn (absent on user turns and legacy rows). */
   status?: ResponseStatus;
   /** Tools/retrieval the agent used while producing this turn. */

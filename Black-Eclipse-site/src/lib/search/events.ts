@@ -8,12 +8,15 @@ import type { SearchEntity } from './types';
 export interface CalendarEvent {
   id: string;
   date: string;
+  time?: string | null;
   country: string;
   title: string;
   importance: 'high' | 'medium' | 'low';
   actual: string | null;
   forecast: string | null;
   previous: string | null;
+  confirmed?: boolean;
+  source?: 'mirror' | 'official' | 'web';
 }
 
 let eventsCache: CalendarEvent[] | null = null;
@@ -82,9 +85,10 @@ export function resolveEvent(query: string): SearchEntity | null {
   const match = upcoming.find((e) => EVENT_KEYWORDS.find((k) => k.key === key)?.match(e.title));
   if (!match) return null;
 
-  const when = new Date(match.date);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(match.date);
+  const when = new Date(dateOnly ? `${match.date}T00:00:00Z` : match.date);
   const day = when.toUTCString().slice(0, 16);
-  const time = when.toISOString().slice(11, 16);
+  const time = match.time ?? (dateOnly ? '' : `${when.toISOString().slice(11, 16)} UTC`);
 
   return {
     id: `event-${match.id}`,
@@ -93,7 +97,7 @@ export function resolveEvent(query: string): SearchEntity | null {
     keywords: [key, match.title.toLowerCase()],
     icon: 'globe',
     destination: { tab: 'economics', subroute: 'economics.calendar', params: { focus: key.toUpperCase() } },
-    subtitle: `${day} ${time} UTC · ${match.country} · ${match.importance}`,
+    subtitle: `${day}${time ? ` ${time}` : ''} · ${match.country} · ${match.importance}${match.confirmed === false ? ' · tentative' : ''}`,
     rankBoost: 1.2,
   };
 }

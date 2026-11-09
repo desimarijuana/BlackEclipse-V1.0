@@ -21,11 +21,56 @@ import {
   approveTrustedRoot,
   browseFolders,
   createBrowsedFolder,
+  listTrustedRoots,
   pickFolderNative,
   selectTrustedRoot,
   type BrowseEntry,
   type TrustedRoot,
 } from '@/lib/harness/code-browser';
+
+const RECENT_KEY = 'eclipse.folderPicker.recent';
+const MAX_RECENT = 6;
+
+function readRecents(): string[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(path: string): string[] {
+  const next = [path, ...readRecents().filter((p) => p !== path)].slice(0, MAX_RECENT);
+  try { window.localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+  return next;
+}
+
+/** Absolute path breadcrumb, preserving the drive/root segment. */
+function pathSegments(path: string | null): Array<{ label: string; path: string }> {
+  if (!path) return [];
+  const normalized = path.replace(/\\/g, '/');
+  const drive = /^([A-Za-z]:)(\/|$)/.exec(normalized);
+  const parts = normalized.split('/').filter(Boolean);
+  const out: Array<{ label: string; path: string }> = [];
+  if (drive) {
+    // Windows: `C:` then each folder beneath it.
+    let acc = `${drive[1]}/`;
+    out.push({ label: drive[1], path: acc });
+    for (const part of parts.slice(1)) {
+      acc = acc.endsWith('/') ? `${acc}${part}` : `${acc}/${part}`;
+      out.push({ label: part, path: acc });
+    }
+    return out;
+  }
+  let acc = '';
+  for (const part of parts) {
+    acc = `${acc}/${part}`;
+    out.push({ label: part, path: acc });
+  }
+  return out;
+}
 
 export interface FolderPickerProps {
   onClose: () => void;
@@ -75,8 +120,17 @@ export function FolderPicker({
   const firstLoad = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
+  const [roots, setRoots] = useState<TrustedRoot[]>([]);
+  const [recent, setRecent] = useState<string[]>([]);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Approved roots + recent folders are the picker's "where am I" rail. Both are
+  // best-effort: a runtime/storage failure simply leaves the rail empty.
+  useEffect(() => {
+    setRecent(readRecents());
+    void listTrustedRoots().then(setRoots).catch(() => setRoots([]));
+  }, []);
 
   const load = useCallback(async (target?: string) => {
     setBusy(true);
@@ -148,6 +202,8 @@ export function FolderPicker({
     setBusy(true);
     try {
       const root = await approveTrustedRoot(path);
+      setRecent(rememberRecent(path));
+      setRoots((prev) => (prev.some((r) => r.id === root.id) ? prev : [...prev, root]));
       if (selectGlobally) await selectTrustedRoot(root.id);
       onApproved(root);
     } catch (err) {
@@ -287,6 +343,61 @@ export function FolderPicker({
               {nativeBusy ? <Loader2 size={13} className="animate-spin" /> : <FolderOpen size={13} />}
               Windows…
             </button>
+          )}
+        </div>
+
+        {/* Where am I: approved roots, a clickable absolute breadcrumb, recents. */}
+        <div className="space-y-1 border-b border-border/30 px-4 py-2">
+          {roots.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-[9.5px] uppercase tracking-wide text-muted-foreground/50">Approved</span>
+              {roots.map((root) => (
+                <button
+                  key={root.id}
+                  type="button"
+                  onClick={() => void load(root.path)}
+                  title={root.path}
+                  className="inline-flex max-w-[180px] items-center gap-1 rounded-full border border-border/40 px-2 py-0.5 text-[10.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Folder size={10} className="shrink-0" />
+                  <span className="truncate">{root.label?.trim() || root.path}</span>
+                  {root.selected && <Check size={9} className="shrink-0 text-primary" />}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-wrap items-center gap-0.5 text-[11px]">
+            {pathSegments(path).map((segment, index, all) => (
+              <span key={segment.path} className="flex min-w-0 items-center gap-0.5">
+                {index > 0 && <ChevronRight size={10} className="shrink-0 text-muted-foreground/30" />}
+                <button
+                  type="button"
+                  onClick={() => void load(segment.path)}
+                  className="max-w-[150px] truncate rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  title={segment.path}
+                >
+                  {segment.label}
+                </button>
+                {index === all.length - 1 && <span className="text-[9.5px] text-primary/70">here</span>}
+              </span>
+            ))}
+            {!path && <span className="text-muted-foreground/50">Filesystem roots</span>}
+          </div>
+          {recent.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-[9.5px] uppercase tracking-wide text-muted-foreground/50">Recent</span>
+              {recent.map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  onClick={() => void load(entry)}
+                  title={entry}
+                  className="max-w-[150px] truncate rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {entry.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? entry}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 

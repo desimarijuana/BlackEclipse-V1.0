@@ -10,6 +10,8 @@ filesystem. Shared state comes from `harness.deps`; this module never imports
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -31,6 +33,7 @@ class SelectRootRequest(BaseModel):
 
 class ReadFileRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
+    rootId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
 
 
 class WriteFileRequest(BaseModel):
@@ -47,17 +50,27 @@ class MkdirBrowseRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
-def _editor_root():
-    """The active workspace root for the human editor, or raise 400."""
-    from ..code.workspace import default_root  # noqa: PLC0415
+def _editor_root(root_id: Optional[str] = None):
+    """The workspace root for the human editor, or raise 400.
 
+    With a `root_id` (a chat's bound project), the approved root is resolved by
+    id — the client never supplies a path. Otherwise the globally selected root
+    (or the repo default) applies.
+    """
+    from ..code.workspace import default_root, trusted_root_path  # noqa: PLC0415
+
+    if root_id:
+        root = trusted_root_path(root_id)
+        if root is None:
+            raise HTTPException(status_code=404, detail="That folder is not approved.")
+        return root
     root = default_root()
     if root is None:
         raise HTTPException(status_code=400, detail="No workspace folder is selected.")
     return root
 
 
-def _resolve_editor_path(rel: str):
+def _resolve_editor_path(rel: str, root_id: Optional[str] = None):
     """Resolve an editor path inside the active root, or raise 400 (structured).
 
     The SAME confinement the agent tools use (`policy.resolve_within`): protected
@@ -66,7 +79,7 @@ def _resolve_editor_path(rel: str):
     """
     from ..code.policy import PolicyDenial, resolve_within  # noqa: PLC0415
 
-    root = _editor_root()
+    root = _editor_root(root_id)
     try:
         resolved = resolve_within(root, rel)
     except PolicyDenial as exc:
@@ -151,16 +164,18 @@ _IGNORED_EDITOR_DIRS = frozenset({
 
 @router.get("/workspace/files")
 def list_files(
-    path: str = ".", depth: int = 2, _: bool = Depends(require_operator),
+    path: str = ".", depth: int = 2, rootId: Optional[str] = None,  # noqa: N803
+    _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     """The editor's file tree: direct children of `path`, ignore-aware, bounded.
 
     Read-only. Directories only (the editor lazily expands); protected paths are
-    refused by the same confinement the tools use.
+    refused by the same confinement the tools use. `rootId` (optional) selects an
+    approved root explicitly, so a chat's project can differ from the global one.
     """
     from ..code.policy import PolicyDenial, resolve_within  # noqa: PLC0415
 
-    root = _editor_root()
+    root = _editor_root(rootId)
     try:
         base = resolve_within(root, path or ".")
     except PolicyDenial as exc:
@@ -185,12 +200,79 @@ def list_files(
             "truncated": truncated}
 
 
+# Search is bounded by BOTH a visited-file cap and a wall-clock budget; a repo
+# that is too large yields an honest `truncated` flag, never an endless scan.
+_MAX_SEARCH_FILES = 20_000
+_MAX_SEARCH_RESULTS = 100
+
+
+@router.get("/workspace/files/search")
+def search_files(
+    q: str = "", rootId: Optional[str] = None, limit: int = 50,  # noqa: N803
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Fuzzy-ish file search inside the active (or named) approved root.
+
+    Read-only and bounded. Matches the leaf name first, then the relative path,
+    case-insensitively. Ignored directories (`.git`, `node_modules`, …) are
+    skipped so a search never surfaces build noise. An empty `q` returns the
+    first files in path order, which the composer uses as a browse fallback.
+    """
+    root = _editor_root(rootId)
+    needle = (q or "").strip().lower()
+    capped_limit = max(1, min(int(limit or 50), _MAX_SEARCH_RESULTS))
+    results: list[dict[str, Any]] = []
+    visited = 0
+    truncated = False
+
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in _IGNORED_EDITOR_DIRS and not d.startswith("."))
+            for filename in sorted(filenames):
+                visited += 1
+                if visited > _MAX_SEARCH_FILES:
+                    truncated = True
+                    break
+                if filename.startswith("."):
+                    continue
+                full = Path(dirpath) / filename
+                try:
+                    rel = full.relative_to(root).as_posix()
+                except ValueError:
+                    continue
+                haystack = rel.lower()
+                if needle and needle not in haystack:
+                    continue
+                try:
+                    size = full.stat().st_size
+                except OSError:
+                    size = None
+                results.append({"name": filename, "path": rel, "bytes": size})
+                if len(results) >= capped_limit:
+                    truncated = True
+                    break
+            if truncated:
+                break
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"That folder could not be searched: {exc}") from exc
+
+    # Leaf-name matches rank above path-only matches; shorter paths first.
+    def _rank(item: dict[str, Any]) -> tuple[int, int, str]:
+        name = str(item["name"]).lower()
+        if not needle:
+            return (0, len(str(item["path"])), str(item["path"]))
+        return (0 if needle in name else 1, len(str(item["path"])), str(item["path"]))
+
+    results.sort(key=_rank)
+    return {"success": True, "root": str(root), "query": q, "files": results, "truncated": truncated}
+
+
 @router.post("/workspace/file/read")
 def read_file(body: ReadFileRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Read a text file inside the active root, with line numbers and redaction."""
     from ..session_index import redact_span  # noqa: PLC0415
 
-    root, resolved = _resolve_editor_path(body.path)
+    root, resolved = _resolve_editor_path(body.path, body.rootId)
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="That file is not there.")
     if resolved.stat().st_size > _MAX_EDITOR_BYTES:

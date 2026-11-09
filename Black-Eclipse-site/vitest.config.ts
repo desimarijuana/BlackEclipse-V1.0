@@ -11,6 +11,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // Dynamic imports of the agent/tool modules can take seconds on a loaded
+    // Windows machine. The default 5s turned a slow import into a false failure;
+    // assertions still run at full strength.
+    testTimeout: 15_000,
   },
   resolve: {
     alias: {

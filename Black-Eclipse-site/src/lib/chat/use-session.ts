@@ -11,12 +11,26 @@ import {
   sessionFileUrl,
   uploadSessionFile,
 } from './session-client';
-import { SESSION_LIMITS, type SessionFile, type SessionInfo } from './session-types';
+import { SESSION_LIMITS, type FileProvenance, type SessionFile, type SessionInfo } from './session-types';
 import { claimPastes, pastedTextName } from './paste';
+import type { FileRef, PickedFile } from './file-sources';
+import { readWorkspaceFile } from '@/lib/harness/code-browser';
 
 export interface PendingFile {
   name: string;
   bytes: number;
+  meta?: FileProvenance;
+}
+
+/** Normalize any accepted upload input into `PickedFile`s with provenance. */
+export function toPickedFiles(input: FileList | File[] | PickedFile[]): PickedFile[] {
+  return Array.from(input as ArrayLike<File | PickedFile>).map((item) => {
+    if (item && typeof item === 'object' && 'file' in item) {
+      const picked = item as PickedFile;
+      return { file: picked.file, meta: picked.meta ?? { origin: 'upload' } };
+    }
+    return { file: item as File, meta: { origin: 'upload' } };
+  });
 }
 
 /** A pasted document to show on the user turn that first used it. */
@@ -34,16 +48,16 @@ export const PASTED_PREVIEW_CHARS = 240;
  * context files, de-duplicated by name (a file shown as pending must not appear
  * twice once it lands in the session). Pure, so the display rule is testable.
  */
-export function mergeAttachmentChips(
-  pending: PendingFile[],
-  contextFiles: { name: string }[],
-): { name: string }[] {
+export function mergeAttachmentChips<T extends { name: string }>(
+  pending: T[],
+  contextFiles: T[],
+): T[] {
   const seen = new Set<string>();
-  const out: { name: string }[] = [];
+  const out: T[] = [];
   for (const file of [...pending, ...contextFiles]) {
     if (seen.has(file.name)) continue;
     seen.add(file.name);
-    out.push({ name: file.name });
+    out.push(file);
   }
   return out;
 }
@@ -55,7 +69,13 @@ export interface SessionController {
   /** Files attached before a conversation exists — shown immediately. */
   pending: PendingFile[];
   refresh: () => void;
-  uploadFiles: (files: FileList | File[]) => Promise<void>;
+  uploadFiles: (files: FileList | File[] | PickedFile[]) => Promise<void>;
+  /**
+   * Attach one PROJECT file by relative path: the runtime reads it (confined to
+   * the approved root) and the text is uploaded as context with `project`
+   * provenance. Used by the file picker and the composer's `@` palette.
+   */
+  attachProjectFile: (ref: FileRef) => Promise<void>;
   /**
    * Attach PASTED TEXT as a context document, exactly like an uploaded file
    * (same session folder, same chip, same extraction into the run). Used when a
@@ -112,26 +132,29 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     setPreview(null);
   }, [chatId]);
   // Files attached before a conversation exists, flushed on the first reload.
-  const pendingRef = useRef<File[]>([]);
+  const pendingRef = useRef<PickedFile[]>([]);
   // Uploads started by a paste. Sending can happen before the round-trip ends.
   const attachingRef = useRef(new Set<Promise<void>>());
 
-  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+  const uploadFiles = useCallback(async (input: FileList | File[] | PickedFile[]) => {
     const id = chatIdRef.current;
-    const list = Array.from(files);
+    const list = toPickedFiles(input);
     if (list.length === 0) return;
     // No conversation yet (empty state): hold the files and SHOW them right away,
     // so attaching before the first message is visible instead of silent. They
     // flush into the session folder once the first message creates the chat.
     if (!id) {
-      for (const file of list) {
+      for (const { file, meta } of list) {
         if (file.size > SESSION_LIMITS.maxFileBytes) {
           const limit = Math.round(SESSION_LIMITS.maxFileBytes / 1024 / 1024);
           setError(`${file.name} exceeds ${limit}MB`);
           continue;
         }
-        pendingRef.current.push(file);
-        setPending((prev) => [...prev.filter((p) => p.name !== file.name), { name: file.name, bytes: file.size }]);
+        pendingRef.current.push({ file, meta });
+        setPending((prev) => [
+          ...prev.filter((p) => p.name !== file.name),
+          { name: file.name, bytes: file.size, meta },
+        ]);
       }
       setError(null);
       return;
@@ -139,14 +162,14 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     setBusy(true);
     setError(null);
     try {
-      for (const file of list) {
+      for (const { file, meta } of list) {
         if (file.size > SESSION_LIMITS.maxFileBytes) {
           throw new Error(
             `${file.name} exceeds ${Math.round(SESSION_LIMITS.maxFileBytes / 1024 / 1024)}MB`
           );
         }
         const bytes = new Uint8Array(await file.arrayBuffer());
-        await uploadSessionFile(id, 'context', file.name, bytes);
+        await uploadSessionFile(id, 'context', file.name, bytes, meta);
       }
       setLocalKey((k) => k + 1);
     } catch (err) {
@@ -157,6 +180,29 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
   }, []);
 
   /**
+   * Attach a project file by relative path. The runtime reads it through the
+   * SAME confinement the editor and tools use, so a path outside the approved
+   * root is refused rather than guessed at.
+   */
+  const attachProjectFile = useCallback(async (ref: FileRef) => {
+    try {
+      const result = await readWorkspaceFile(ref.path, ref.rootId ?? null);
+      const meta: FileProvenance = {
+        origin: 'project',
+        sourcePath: result.path || ref.path,
+        rootId: ref.rootId ?? null,
+        rootLabel: ref.rootLabel ?? null,
+      };
+      const name = ref.name || result.path.split('/').pop() || 'file';
+      const file = new File([result.content], name, { type: 'text/plain' });
+      await uploadFiles([{ file, meta }]);
+      if (result.redacted) setError(`${name} contained secrets; they were redacted before attaching.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not attach that file');
+    }
+  }, [uploadFiles]);
+
+  /**
    * Attach pasted text as a context document. It goes through the SAME upload
    * path as a file, so it gets a chip, lands in the session folder, and is
    * extracted into every run exactly like an attached document.
@@ -165,13 +211,14 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     const taken = [
       ...(reservedNames ?? []),
       ...pastedTextsRef.current.keys(),
-      ...pendingRef.current.map((f) => f.name),
+      ...pendingRef.current.map((f) => f.file.name),
       ...(session?.files ?? []).map((f) => f.name),
     ];
     const name = pastedTextName(taken);
     pastedTextsRef.current.set(name, text);
     claimedPastesRef.current.delete(name);
-    const task = uploadFiles([new File([text], name, { type: 'text/plain' })]);
+    const file = new File([text], name, { type: 'text/plain' });
+    const task = uploadFiles([{ file, meta: { origin: 'paste' } }]);
     attachingRef.current.add(task);
     try {
       await task;
@@ -212,9 +259,9 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     setPending([]);
     setBusy(true);
     try {
-      for (const file of queued) {
+      for (const { file, meta } of queued) {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        await uploadSessionFile(id, 'context', file.name, bytes);
+        await uploadSessionFile(id, 'context', file.name, bytes, meta);
       }
       setLocalKey((k) => k + 1);
     } catch (err) {
@@ -267,12 +314,12 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
   }, [preview, refresh]);
 
   const removePending = useCallback((name: string) => {
-    pendingRef.current = pendingRef.current.filter((f) => f.name !== name);
+    pendingRef.current = pendingRef.current.filter((f) => f.file.name !== name);
     setPending((prev) => prev.filter((p) => p.name !== name));
     pastedTextsRef.current.delete(name);
     claimedPastesRef.current.delete(name);
     if (preview?.name === name) setPreview(null);
   }, [preview]);
 
-  return { session, busy, error, pending, refresh, uploadFiles, attachText, openAttachment, preview, closePreview, claimPastedAttachments, flushAttachments, flushPending, removeFile, removePending };
+  return { session, busy, error, pending, refresh, uploadFiles, attachProjectFile, attachText, openAttachment, preview, closePreview, claimPastedAttachments, flushAttachments, flushPending, removeFile, removePending };
 }

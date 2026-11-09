@@ -1,21 +1,35 @@
 // Economic calendar — upcoming releases (CPI, NFP, rate decisions, PMIs) with
 // actual/forecast/previous values, importance, country and time.
 //
-// Primary source: Fincept's public econocalendar mirror (same catalog as the
-// Economic Calendar source). Falls back to a curated static schedule of the
-// highest-importance recurring releases when the mirror is unreachable — the
-// fallback carries forecast/previous context only as labels, never fabricated
-// numbers.
+// Two independent sources are merged:
+//   1. Fincept's public econocalendar mirror — the release catalog with
+//      actual/forecast/previous values.
+//   2. Official schedules (currently the Federal Reserve's FOMC calendar) —
+//      authoritative *confirmed dates*, even when the mirror is unavailable.
+//
+// There is NO synthetic fallback. If neither source yields a date, the event is
+// absent (or its date stays empty) — a fabricated date is worse than a gap.
+
+import { fetchFomcSchedule } from "./calendars/fomc";
+
+export type CalendarProvenance = "mirror" | "official" | "web";
 
 export interface CalendarEvent {
   id: string;
-  date: string;       // ISO
+  /** ISO datetime, or `YYYY-MM-DD` when the provider publishes a date only. */
+  date: string;
+  /** Human-readable release time, e.g. "14:00 ET". Null when unknown. */
+  time?: string | null;
   country: string;
   title: string;
   importance: "high" | "medium" | "low";
   actual: string | null;
   forecast: string | null;
   previous: string | null;
+  /** False when the official source itself marks the date tentative. */
+  confirmed?: boolean;
+  source?: CalendarProvenance;
+  url?: string | null;
 }
 
 const HIGH_KEYWORDS = ["cpi", "nonfarm", "nfp", "interest rate", "rate decision", "fomc", "gdp", "payroll", "unemployment", "pmi", "monetary policy"];
@@ -34,8 +48,7 @@ function mapRows(raw: unknown): CalendarEvent[] {
     : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).data)
       ? ((raw as Record<string, unknown>).data as Record<string, unknown>[])
       : [];
-  return rows
-    .map((row, i) => {
+  const mapped: (CalendarEvent | null)[] = rows.map((row, i): CalendarEvent | null => {
       const title = String(row.event ?? row.title ?? row.Event ?? "Release");
       const dateRaw = row.date ?? row.datetime ?? row.DateTime ?? row.time ?? row.Date;
       const ts = dateRaw ? Date.parse(String(dateRaw)) : NaN;
@@ -44,6 +57,7 @@ function mapRows(raw: unknown): CalendarEvent[] {
       return {
         id: String(row.id ?? `${ts}-${i}`),
         date: new Date(ts).toISOString(),
+        time: null,
         country: String(row.country ?? row.Country ?? row.region ?? "—"),
         title,
         importance: (["high", "medium", "low"].includes(String(row.importance ?? row.impact ?? "").toLowerCase())
@@ -52,47 +66,126 @@ function mapRows(raw: unknown): CalendarEvent[] {
         actual: str(row.actual ?? row.Actual ?? row.actual_value),
         forecast: str(row.forecast ?? row.Forecast ?? row.forecast_value ?? row.consensus),
         previous: str(row.previous ?? row.Previous ?? row.previous_value),
+        confirmed: true,
+        source: "mirror" as const,
+        url: null,
       };
-    })
+    });
+  return mapped
     .filter((e): e is CalendarEvent => e !== null)
     .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
 }
 
-// Fallback: the recurring high-impact monthly schedule (times = ET). These are
-// *scheduled slots*, not confirmed — values stay null until the mirror returns.
-const FALLBACK_EVENTS: CalendarEvent[] = [
-  { id: "fb-cpi", date: "", country: "US", title: "Consumer Price Index (CPI)", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-nfp", date: "", country: "US", title: "Nonfarm Payrolls (NFP)", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-fomc", date: "", country: "US", title: "FOMC Interest Rate Decision", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-ecb", date: "", country: "EU", title: "ECB Interest Rate Decision", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-boe", date: "", country: "UK", title: "BoE Interest Rate Decision", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-boj", date: "", country: "JP", title: "BoJ Interest Rate Decision", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-gdp", date: "", country: "US", title: "GDP (QoQ advance)", importance: "high", actual: null, forecast: null, previous: null },
-  { id: "fb-ism", date: "", country: "US", title: "ISM Manufacturing PMI", importance: "medium", actual: null, forecast: null, previous: null },
-];
-
-function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
-  return [...events].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+function dayDistance(a: string, b: string): number {
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return Number.POSITIVE_INFINITY;
+  return Math.abs(ta - tb) / (24 * 3600 * 1000);
 }
 
-export async function fetchEconomicCalendar(): Promise<{ events: CalendarEvent[]; source: string }> {
+function sameRelease(a: string, b: string): boolean {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  const isFomc = (t: string) => /fomc|federal reserve|federal open market/.test(t);
+  if (isFomc(x) && isFomc(y)) return true;
+  return x === y;
+}
+
+/**
+ * Prefer the official date/confirmation while keeping the mirror's actual,
+ * forecast and previous values. This is the only place a date is upgraded.
+ */
+export function mergeOfficialEvents(
+  mirror: CalendarEvent[],
+  official: CalendarEvent[],
+): CalendarEvent[] {
+  const merged = [...mirror];
+  for (const event of official) {
+    const index = merged.findIndex(
+      (candidate) =>
+        sameRelease(candidate.title, event.title) && dayDistance(candidate.date, event.date) <= 4,
+    );
+    if (index >= 0) {
+      merged[index] = {
+        ...merged[index],
+        date: event.date,
+        time: event.time ?? merged[index].time,
+        confirmed: event.confirmed,
+        source: "official",
+        url: event.url ?? merged[index].url,
+      };
+    } else {
+      merged.push(event);
+    }
+  }
+  return merged.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+}
+
+export interface EconomicCalendar {
+  events: CalendarEvent[];
+  source: "mirror" | "official" | "mirror+official" | "unavailable";
+  /** Non-fatal diagnostics, e.g. "FOMC schedule unreachable". */
+  warnings: string[];
+}
+
+export async function fetchEconomicCalendar(): Promise<EconomicCalendar> {
+  const warnings: string[] = [];
+  let mirror: CalendarEvent[] = [];
   try {
     const res = await fetch("https://fincept.pythonanywhere.com/api/v1/econocalendar/data", {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) {
-      const events = mapRows(await res.json());
-      if (events.length > 0) return { events, source: "fincept" };
+      mirror = mapRows(await res.json());
+    } else {
+      warnings.push(`calendar mirror HTTP ${res.status}`);
     }
   } catch (err) {
-    console.error("[economics/calendar] mirror fetch failed:", err instanceof Error ? err.message : err);
+    warnings.push(
+      `calendar mirror failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
-  const now = new Date();
-  const events = FALLBACK_EVENTS.map((e, i) => ({
-    ...e,
-    // Spread fallback placeholders over the next 30 days as scheduled slots.
-    date: new Date(now.getTime() + (i + 1) * 3.5 * 24 * 3600 * 1000).toISOString(),
-  }));
-  return { events: sortEvents(events), source: "schedule-fallback" };
+
+  let official: CalendarEvent[] = [];
+  try {
+    const meetings = await fetchFomcSchedule();
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    official = meetings
+      .filter((m) => Date.parse(m.date) >= cutoff)
+      .map((m) => ({
+        id: `fomc-${m.date}`,
+        date: m.date,
+        time: m.time,
+        country: m.country,
+        title: m.title,
+        importance: "high" as const,
+        actual: null,
+        forecast: null,
+        previous: null,
+        confirmed: m.confirmed,
+        source: "official" as const,
+        url: m.url,
+      }));
+  } catch (err) {
+    warnings.push(
+      `FOMC schedule failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (mirror.length === 0 && official.length === 0) {
+    if (warnings.length > 0) {
+      console.error("[economics/calendar]", warnings.join("; "));
+    }
+    return { events: [], source: "unavailable", warnings };
+  }
+
+  const events = mergeOfficialEvents(mirror, official);
+  const source: EconomicCalendar["source"] =
+    mirror.length > 0 && official.length > 0
+      ? "mirror+official"
+      : mirror.length > 0
+        ? "mirror"
+        : "official";
+  return { events, source, warnings };
 }

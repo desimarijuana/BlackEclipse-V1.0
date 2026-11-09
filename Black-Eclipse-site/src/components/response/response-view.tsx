@@ -19,6 +19,7 @@ import { degradeUnknownBlock, finalizeParsed, reportResponseDegrade } from '@/li
 import { resolveResponseFigures } from '@/lib/response/refs';
 import { computeEnvelopeValues, initialEnvelopeValues } from '@/lib/response/state';
 import { InputsStateProvider, useResponseRuntime, type InputsState } from './figure-context';
+import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 import { InputsBlock } from './inputs-block';
 import {
   CalloutBlock,
@@ -293,9 +294,15 @@ export interface ResponseViewProps {
   onFollowup?: (prompt: string) => void;
   /** Hide the export/save action chips (Canvas has its own header actions). */
   showActions?: boolean;
+  /**
+   * Show the point-of-use AI/risk notice at the footer. Default false because
+   * the chat transcript already renders one per turn; surfaces that render a
+   * response OUTSIDE chat (e.g. Canvas) opt in.
+   */
+  showNotice?: boolean;
 }
 
-export function ResponseView({ response, compact = false, className, onFollowup, showActions = true }: ResponseViewProps) {
+export function ResponseView({ response, compact = false, className, onFollowup, showActions = true, showNotice = false }: ResponseViewProps) {
   // Figure resolution + envelope-state persistence come from the surrounding chat
   // (built from the turn's own data). Without one, a `$ref` figure renders
   // UNAVAILABLE (never the raw reference) and edits are not persisted.
@@ -394,6 +401,7 @@ export function ResponseView({ response, compact = false, className, onFollowup,
           {showActions ? <ResponseActions response={finalizedResolved} /> : null}
         </div>
         <div>{renderBlocks(finalizedResolved.blocks)}</div>
+        {showNotice ? <AiOutputNotice /> : null}
       </section>
     </InputsStateProvider>
   );

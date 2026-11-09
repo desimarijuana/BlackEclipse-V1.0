@@ -2,9 +2,11 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown, SquarePen } from '@/lib/icons';
+import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown, SquarePen, GitBranch, MessageSquareText } from '@/lib/icons';
 import { cn } from '@/lib/utils';
-import { Message } from '@/types/chat';
+import { Message, type MessageQuote } from '@/types/chat';
+import { boundQuote } from '@/lib/chat/quote';
+import { QuoteCard } from './quote-card';
 import { Markdown } from './markdown';
 import { ResponseRuntimeProvider } from '@/components/response/figure-context';
 import { buildFigureResolver } from '@/lib/response/refs';
@@ -21,6 +23,7 @@ import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ComputedResultPanel } from './computed-result-panel';
 import { CanvasInlineNotice } from '@/components/screens/canvas/canvas-banner';
+import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 
 import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
@@ -70,6 +73,10 @@ interface ChatHistoryProps {
   onOpenAttachment?: (name: string) => void;
   /** Rate an assistant turn. The caller persists the choice on the message. */
   onFeedback?: (id: string, feedback: 'up' | 'down') => void;
+  /** Quote a selected passage (or a whole message) into the composer. */
+  onQuote?: (quote: MessageQuote) => void;
+  /** Copy the conversation through this message into a new chat. */
+  onForkMessage?: (id: string) => void;
   /** Run a follow-up agent turn (used by response `controls` blocks). */
   onFollowup?: (prompt: string) => void;
   /** Open this assistant message's content in the Canvas reading dock. */
@@ -105,6 +112,16 @@ const NEAR_BOTTOM_PX = 96;
  */
 const LONG_USER_MESSAGE_CHARS = 2_000;
 const USER_MESSAGE_PREVIEW_CHARS = 800;
+
+/** The floating "Quote" chip anchored to a text selection. */
+interface SelectionAction {
+  x: number;
+  top: number;
+  text: string;
+  messageId: string;
+  role: 'user' | 'assistant';
+  author?: string;
+}
 
 /**
  * The presentation mode the Intelligent Response Orchestrator chose, as a short
@@ -169,7 +186,7 @@ const AssistantContent = memo(function AssistantContent(props: AssistantContentP
   );
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onOpenAttachment, onFeedback, onFollowup, onOpenCanvas, canvasMessageId, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onOpenAttachment, onFeedback, onQuote, onForkMessage, onFollowup, onOpenCanvas, canvasMessageId, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -179,6 +196,13 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   const [copiedId, setCopiedId] = useState<string | null>(null);
   // One long user turn expanded at a time; the rest stay compact.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Selected-text quote action (null when there is no usable selection).
+  const [selectionAction, setSelectionAction] = useState<SelectionAction | null>(null);
+  // A source message flashed briefly after "Jump to".
+  const [flashId, setFlashId] = useState<string | null>(null);
+  // The selection listener must not re-subscribe on every streamed token.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   // The "Latest" pill is portaled to <body> so its backdrop-filter samples the
   // real page. The transcript sits inside the app shell's own `.glass-card`,
   // which is a backdrop root and would silently flatten a nested glass surface —
@@ -333,6 +357,93 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     };
   }, [messages, updateBar]);
 
+  const jumpToMessage = useCallback((messageId: string) => {
+    const el = scrollRef.current?.querySelector<HTMLElement>(
+      `[data-message-id="${typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(messageId) : messageId}"]`,
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashId(messageId);
+    window.setTimeout(() => setFlashId((current) => (current === messageId ? null : current)), 1400);
+  }, [scrollRef]);
+
+  const quoteMessage = (msg: Message) => {
+    if (!onQuote || !msg.content.trim()) return;
+    const bounded = boundQuote(msg.content);
+    if (!bounded.text) return;
+    onQuote({
+      text: bounded.text,
+      messageId: msg.id,
+      role: msg.role,
+      ...(msg.author?.name ? { author: msg.author.name } : {}),
+      ...(bounded.truncated ? { truncated: true } : {}),
+    });
+  };
+
+  // Selected-text quoting. Only selections inside a `[data-quotable-content]`
+  // block count, so quoting an activity row, toolbar or attachment chip cannot
+  // happen by accident. The chip is portaled to <body> so glass/backdrop and
+  // overflow clipping cannot hide it.
+  useEffect(() => {
+    if (!onQuote) return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    const readSelection = (): SelectionAction | null => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+      const range = selection.getRangeAt(0);
+      const node = range.startContainer;
+      const startEl = node.nodeType === Node.ELEMENT_NODE
+        ? (node as Element)
+        : node.parentElement;
+      const content = startEl?.closest('[data-quotable-content]');
+      if (!content || !root.contains(content)) return null;
+      const messageEl = content.closest('[data-message-id]');
+      const messageId = messageEl?.getAttribute('data-message-id');
+      if (!messageId) return null;
+      const message = messagesRef.current.find((m) => m.id === messageId);
+      if (!message) return null;
+      const bounded = boundQuote(selection.toString());
+      if (!bounded.text) return null;
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return null;
+      return {
+        x: rect.left + rect.width / 2,
+        top: rect.top,
+        text: bounded.text,
+        messageId,
+        role: message.role,
+        ...(message.author?.name ? { author: message.author.name } : {}),
+      };
+    };
+
+    const update = () => setSelectionAction(readSelection());
+    const clear = () => setSelectionAction(null);
+    const onMouseUp = () => window.setTimeout(update, 0);
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clear();
+      else update();
+    };
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) clear();
+      else update();
+    };
+    const onScroll = () => clear();
+
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('selectionchange', onSelectionChange);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('keyup', onKeyUp);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [onQuote]);
+
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
     setDraft(msg.content);
@@ -382,7 +493,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
             <div
               key={msg.id}
               data-message-id={msg.id}
-              className={`group animate-fade-in-up flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+              className={cn(
+                'group animate-fade-in-up flex flex-col',
+                msg.role === 'user' ? 'items-end' : 'items-start',
+                flashId === msg.id && 'rounded-2xl ring-2 ring-primary/40 ring-offset-2 ring-offset-background transition-shadow',
+              )}
             >
               {/* A settled error renders as the error card below (not the status
                   line), so the failure reads once, not as two "something went
@@ -469,11 +584,13 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     <ChangeCards changes={msg.changes} compact={compact} />
                   )}
                   {msg.content && !restatesError(msg.content, msg.error) && (
-                    <ResponseRuntimeProvider
-                      value={{ figureResolver: buildFigureResolver({ analysis: msg.analysis }), stateKey: msg.id }}
-                    >
-                      <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
-                    </ResponseRuntimeProvider>
+                    <div data-quotable-content className="w-full">
+                      <ResponseRuntimeProvider
+                        value={{ figureResolver: buildFigureResolver({ analysis: msg.analysis }), stateKey: msg.id }}
+                      >
+                        <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
+                      </ResponseRuntimeProvider>
+                    </div>
                   )}
                   {(msg.analysis || msg.research) && (
                     <div className="mt-2 flex w-full flex-col gap-2">
@@ -503,6 +620,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   ) : null}
                   {msg.documents ? (
                     <DocumentPanel documents={msg.documents} compact={compact} />
+                  ) : null}
+                  {/* Point-of-use notice: every settled AI answer carries it.
+                      Deliberately not dismissible — the short form stays. */}
+                  {!working && msg.content && !restatesError(msg.content, msg.error) ? (
+                    <AiOutputNotice className={compact ? 'text-[9.5px]' : undefined} />
                   ) : null}
                     </>
                   )}
@@ -546,6 +668,28 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                             {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
                           </button>
                           <TtsButton content={msg.content} speakKey={msg.id} />
+                          {onQuote && (
+                            <button
+                              type="button"
+                              onClick={() => quoteMessage(msg)}
+                              className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                              title="Quote this response"
+                              aria-label="Quote this response"
+                            >
+                              <MessageSquareText size={11} />
+                            </button>
+                          )}
+                          {onForkMessage && (
+                            <button
+                              type="button"
+                              onClick={() => onForkMessage(msg.id)}
+                              className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                              title="Fork conversation from here"
+                              aria-label="Fork conversation from here"
+                            >
+                              <GitBranch size={11} />
+                            </button>
+                          )}
                           {onOpenCanvas && (
                             <button
                               type="button"
@@ -667,21 +811,26 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                       // instead of wrapping early inside a fixed-size bubble.
                       : 'w-fit max-w-full px-3.5 py-2 md:px-4 md:py-2.5 text-[13px] md:text-[14px] rounded-2xl',
                   )}>
-                    {msg.content.length > LONG_USER_MESSAGE_CHARS && expandedId !== msg.id
-                      ? `${msg.content.slice(0, USER_MESSAGE_PREVIEW_CHARS).trimEnd()}…`
-                      : msg.content}
-                    {msg.content.length > LONG_USER_MESSAGE_CHARS && (
-                      <button
-                        type="button"
-                        onClick={() => setExpandedId((id) => (id === msg.id ? null : msg.id))}
-                        aria-expanded={expandedId === msg.id}
-                        className="mt-1.5 block whitespace-normal text-[11px] font-medium text-primary/80 underline-offset-2 transition-colors hover:text-primary hover:underline"
-                      >
-                        {expandedId === msg.id
-                          ? 'Show less'
-                          : `Show full message · ${msg.content.length.toLocaleString()} characters`}
-                      </button>
+                    {msg.quote && (
+                      <QuoteCard quote={msg.quote} onJump={jumpToMessage} compact={compact} />
                     )}
+                    <div data-quotable-content>
+                      {msg.content.length > LONG_USER_MESSAGE_CHARS && expandedId !== msg.id
+                        ? `${msg.content.slice(0, USER_MESSAGE_PREVIEW_CHARS).trimEnd()}…`
+                        : msg.content}
+                      {msg.content.length > LONG_USER_MESSAGE_CHARS && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId((id) => (id === msg.id ? null : msg.id))}
+                          aria-expanded={expandedId === msg.id}
+                          className="mt-1.5 block whitespace-normal text-[11px] font-medium text-primary/80 underline-offset-2 transition-colors hover:text-primary hover:underline"
+                        >
+                          {expandedId === msg.id
+                            ? 'Show less'
+                            : `Show full message · ${msg.content.length.toLocaleString()} characters`}
+                        </button>
+                      )}
+                    </div>
                     <MessageAttachments
                       attachments={msg.attachments}
                       onOpen={onOpenAttachment}
@@ -697,6 +846,28 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     >
                       {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
                     </button>
+                    {onQuote && (
+                      <button
+                        type="button"
+                        onClick={() => quoteMessage(msg)}
+                        className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        title="Quote this prompt"
+                        aria-label="Quote this prompt"
+                      >
+                        <MessageSquareText size={11} />
+                      </button>
+                    )}
+                    {onForkMessage && (
+                      <button
+                        type="button"
+                        onClick={() => onForkMessage(msg.id)}
+                        className="flex items-center rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+                        title="Fork conversation from here"
+                        aria-label="Fork conversation from here"
+                      >
+                        <GitBranch size={11} />
+                      </button>
+                    )}
                     {onResendMessage && (
                       <button
                         type="button"
@@ -748,6 +919,36 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       <div className="hidden md:block">
         <MessageRail messages={messages} scrollRef={scrollRef} />
       </div>
+
+      {selectionAction && createPortal(
+        <button
+          type="button"
+          // Keep the selection alive while the button is pressed.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (!onQuote) return;
+            onQuote({
+              text: selectionAction.text,
+              messageId: selectionAction.messageId,
+              role: selectionAction.role,
+              ...(selectionAction.author ? { author: selectionAction.author } : {}),
+            });
+            window.getSelection()?.removeAllRanges();
+            setSelectionAction(null);
+          }}
+          style={{
+            position: 'fixed',
+            left: Math.min(Math.max(selectionAction.x, 64), window.innerWidth - 64),
+            top: Math.max(8, selectionAction.top - 38),
+          }}
+          className="z-[130] flex items-center gap-1.5 rounded-full glass-tooltip px-3 py-1.5 text-[11px] font-medium text-foreground shadow-lg transition-colors hover:text-primary cursor-pointer animate-fade-in"
+          title="Quote this passage into your next message"
+          aria-label="Quote selected text"
+        >
+          <MessageSquareText size={12} /> Quote
+        </button>,
+        document.body,
+      )}
 
       {!atBottom && rootRect &&
         createPortal(

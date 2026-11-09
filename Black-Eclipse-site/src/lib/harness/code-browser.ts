@@ -240,8 +240,8 @@ export async function postLandingProbe(
 
 // ── Workspace folders + editor (client-safe) ─────────────────────────────────
 
-import type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTreeResult, TrustedRoot } from './code-client';
-export type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTreeResult, TrustedRoot };
+import type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTreeResult, TrustedRoot, WorkspaceFileHit, WorkspaceSearchResult } from './code-client';
+export type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTreeResult, TrustedRoot, WorkspaceFileHit, WorkspaceSearchResult };
 
 export async function browseFolders(path?: string): Promise<BrowseResult> {
   const q = path ? `?path=${encodeURIComponent(path)}` : '';
@@ -301,14 +301,26 @@ export async function revokeTrustedRoot(rootId: string): Promise<void> {
   await api(`${workspaceBase()}/api/workspace/roots/${encodeURIComponent(rootId)}`, { method: 'DELETE' });
 }
 
-export async function listWorkspaceFiles(path = '.'): Promise<EditorTreeResult> {
-  return api<EditorTreeResult>(`/api/workspace/files?path=${encodeURIComponent(path)}`);
+export async function listWorkspaceFiles(path = '.', rootId?: string | null): Promise<EditorTreeResult> {
+  const root = rootId ? `&rootId=${encodeURIComponent(rootId)}` : '';
+  return api<EditorTreeResult>(`/api/workspace/files?path=${encodeURIComponent(path)}${root}`);
 }
 
-export async function readWorkspaceFile(path: string): Promise<EditorFileResult> {
+export async function searchWorkspaceFiles(
+  query: string,
+  rootId?: string | null,
+  limit = 50,
+): Promise<WorkspaceSearchResult> {
+  const root = rootId ? `&rootId=${encodeURIComponent(rootId)}` : '';
+  return api<WorkspaceSearchResult>(
+    `/api/workspace/files/search?q=${encodeURIComponent(query)}&limit=${limit}${root}`,
+  );
+}
+
+export async function readWorkspaceFile(path: string, rootId?: string | null): Promise<EditorFileResult> {
   return api<EditorFileResult>('/api/workspace/file/read', {
     method: 'POST',
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path, ...(rootId ? { rootId } : {}) }),
   });
 }
 

@@ -254,6 +254,17 @@ async function main() {
       if (result.status !== 0) process.exit(result.status || 1);
       break;
     }
+    case "update": {
+      // One implementation lives in scripts/update.js so the CLI, docs and the
+      // in-app notice cannot drift. It verifies the signed tag before applying.
+      const { spawnSync } = require("child_process");
+      const result = spawnSync(
+        process.execPath,
+        [path.join(__dirname, "..", "scripts", "update.js"), ...rest],
+        { stdio: "inherit", cwd: path.join(__dirname, "..") },
+      );
+      process.exit(result.status ?? 1);
+    }
     case "onboarding":
     case "onboard":
       runReset(["--onboarding"]);
@@ -282,6 +293,10 @@ Commands:
   status       check both servers
   build        force a production rebuild
   desktop      (re)install the desktop shortcut and its app icon
+  update       check for a signed release and apply it safely
+                 black update --check
+                 black update --yes [--restart]
+                 black update --channel beta
   doctor       check the environment (--fix to auto-repair)
   onboarding   re-run the setup questions (keeps keys and data)
   reset        reset setup or wipe data:

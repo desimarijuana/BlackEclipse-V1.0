@@ -13,9 +13,10 @@
 // is the working core.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, FilePlus, FolderPlus, Plus, Trash2, X } from '@/lib/icons';
+import { ChevronRight, FilePlus, FolderPlus, MessageSquare, Plus, Trash2, X } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
+import { ATTACH_PROJECT_FILE_EVENT } from '@/lib/chat/file-sources';
 import {
   deleteWorkspacePath,
   listTrustedRoots,
@@ -236,6 +237,18 @@ function FileWorkspace({ root }: { root: TrustedRoot }) {
                   )}
                   <span className="truncate">{entry.name}</span>
                 </button>
+                {!entry.isDir && (
+                  <button
+                    type="button"
+                    title="Attach this file to the active chat"
+                    onClick={() => window.dispatchEvent(new CustomEvent(ATTACH_PROJECT_FILE_EVENT, {
+                      detail: { path: entry.path, rootId: root.id, rootLabel: root.label ?? null },
+                    }))}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground/0 transition-colors hover:text-primary group-hover:text-muted-foreground/60"
+                  >
+                    <MessageSquare size={12} />
+                  </button>
+                )}
                 <button
                   type="button"
                   title={t('editor.delete')}

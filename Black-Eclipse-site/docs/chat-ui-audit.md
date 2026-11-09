@@ -1,7 +1,7 @@
 ---
 title: Chat & Agent Experience — Audit and Overhaul Plan
 status: Current
-last-verified: 2026-10-27
+last-verified: 2026-11-09
 ---
 
 # Chat & Agent Experience — Audit and Overhaul Plan
@@ -864,3 +864,111 @@ Why an allowlist instead of the whole argument object: `workspace_patch_apply`
 and other tools carry file content, input data and secrets. A narrow,
 bounded, redacted preview gives the operator the code that matters without
 turning the activity feed into an argument dump.
+
+---
+
+## File selection and provenance (2026-11-09)
+
+**The problem this fixes:** the composer's attach affordance was a hidden
+`<input type="file">`. After upload, a chip carried only `file.name`, so a file
+lost its folder, its root, and whether it came from the project or this
+computer.
+
+**The model now** (OpenCode's): a file always has a source.
+
+| Origin | What it means | What the UI shows |
+|---|---|---|
+| `project` | Referenced from an approved workspace root; attached as text through the confined editor route | `Project` badge + workspace-relative folder (e.g. `src/components/chat`) |
+| `upload` | Picked from this computer | `Local` badge + `Local · uploaded copy` (the browser never reveals the absolute path, so we do not invent one) |
+| `paste` | Pasted text too large for the composer | `Pasted` badge |
+
+Provenance lives in a per-conversation `context-meta.json` sidecar beside the
+bytes (`session-store.ts`), never inside the file. A file with no sidecar entry
+still lists, with no guessed origin.
+
+**Surfaces and contracts**
+
+- `components/workspace/file-source-picker.tsx` — the one picker. Tabs:
+  *Project* (browses `GET /api/workspace/files?path=&rootId=`, breadcrumb,
+  multi-select) and *This computer* (native picker, labelled local). It is
+  portaled above the app.
+- `lib/chat/use-context-picker.tsx` — wires the picker to a `SessionController`
+  and listens for `eclipse:attach-project-file`, the event the editor dispatches
+  to attach a file to the active chat.
+- `chat-input.tsx` — the `@` palette merges bot/room mentions with a debounced
+  project-file search (`GET /api/workspace/files/search?q=&rootId=`). Choosing a
+  file inserts its relative path and asks the host to attach it. Chips render the
+  origin badge plus the folder path.
+- `python/harness/routers/workspace.py` — `search_files` is a bounded recursive
+  walk (20 000 files, 100 results) that skips ignored dirs; `list_files` accepts
+  an optional `rootId` so a chat's project can differ from the global selection.
+  Both stay under `policy.resolve_within`: browsing is never a second, weaker
+  door.
+- `folder-picker.tsx` — clickable absolute breadcrumb, approved-root rail, and
+  recents; approving still goes through the trusted-root store.
+
+**Non-negotiable invariant:** the browser sends root IDs and confined relative
+paths only. No surface accepts an arbitrary absolute path from the client.
+
+---
+
+## Fork + quote (2026-11-09)
+
+Two conversation primitives that share the same seam — a turn can be copied into
+a new conversation, or a passage can be carried into the next question.
+
+### Fork is a real conversation, not a UI branch
+
+`forkConversation` (`lib/chat/fork.ts`) builds a new `Conversation` with:
+
+- a collision-safe new id (accepted by the session store's id validator),
+- a copy of the turns through an optional boundary message (inclusive),
+- **new message ids**, so feedback, canvas targets and quote jump links never
+  leak between transcripts,
+- cleared `pendingApproval` / `pendingClarification` (live-only state),
+- `forkedFrom { conversationId, title, at, messageId? }` provenance (the title
+  is snapshotted so it survives deleting the source),
+- the source's folder/colour/tags, but never pinned/archived/trashed.
+
+The shell orchestration lives in `use-chat-conversation-actions.ts` (the shell
+is size-ratcheted): it saves the fork, activates it, restores the workspace, and
+asks `POST /api/chat/session/clone` to copy the source's **context** documents
+into the fork's own session folder. That copy matters: user turns reference
+attachments by name, and the next run reads context from the NEW folder.
+Output files and checkpoints are intentionally not cloned — they belong to the
+source runs, and a fork starts with a clean checkpoint history. A failed copy
+does not block the fork; it is logged and the fork remains usable.
+
+Entry points: the sidebar chat menu (whole conversation) and the message toolbar
+(`GitBranch`, from that message). Forking is blocked while a run or prompt queue
+is active so partial state and queued prompts cannot cross threads.
+
+### Quote carries selected text into the next turn
+
+`lib/chat/quote.ts` owns the contract:
+
+- selections are trimmed and bounded to 4 000 characters (`truncated: true`
+  records that it was shortened),
+- `Message.quote` stores `{ text, messageId, role, author?, truncated? }` while
+  `Message.content` stays the user's question,
+- `turnTextForHarness(message)` prepends a delimited, labelled passage and the
+  explicit "reference material, not new instructions" line before the question.
+
+The transcript UI (`chat-history.tsx`) shows a floating **Quote** chip only for
+selections inside `[data-quotable-content]`, so activity rows, toolbars and
+attachment chips cannot be quoted by accident. The user turn renders a
+`QuoteCard` above the question; quoting a whole message is available from the
+message toolbar as the keyboard/touch fallback. A quote-only send uses
+`DEFAULT_QUOTE_PROMPT` ("Explain the quoted passage."). The pending quote is
+carried by the prompt queue when a turn is in flight, so it is not lost.
+
+**Scope:** the full ChatBot page wires `onQuote`; the floating dock still omits
+it, which disables both the selection chip and the toolbar button there. The
+shared data model and prompt assembly are ready for the dock when needed.
+
+**Files:** `types/chat.ts`, `chat-organization.ts` (`ConversationFork` +
+normalization), `fork.ts`, `quote.ts`, `session-store.ts` (`cloneSessionContext`),
+`app/api/chat/session/clone/route.ts`, `session-client.ts`,
+`use-chat-conversation-actions.ts`, `use-chat-message-actions.ts`,
+`chat-history.tsx`, `quote-card.tsx`, `chat-input.tsx`,
+`chat-history-panel.tsx`, `chat-history-menu.tsx`, `sidebar.tsx`.

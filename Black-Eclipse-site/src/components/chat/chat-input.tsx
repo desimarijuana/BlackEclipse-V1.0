@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, ArrowUp, Pause, Loader2, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen } from '@/lib/icons';
+import { Plus, ArrowUp, Pause, Loader2, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen, MessageSquareText } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { ProviderLogo } from '@/components/providers/provider-logo';
 import { VoiceInputButton } from './voice-input-button';
+import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -39,6 +40,8 @@ import {
 } from '@/lib/harness/command-registry';
 import { searchMentions, mentionedTargets, type MentionTarget } from '@/lib/bots/mentions';
 import { isLongPaste } from '@/lib/chat/paste';
+import { originLabel, describeSource, folderOf, type FileRef } from '@/lib/chat/file-sources';
+import type { FileOrigin } from '@/lib/chat/session-types';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
@@ -47,6 +50,8 @@ import { useT } from '@/lib/i18n/use-t';
 import { isKeyboardScopeVisible } from '@/lib/keyboard';
 import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
 import type { QueuedPrompt } from '@/lib/chat/message-queue';
+import type { MessageQuote } from '@/types/chat';
+import { quoteSourceLabel } from '@/lib/chat/quote';
 import { MessageQueue } from './message-queue';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
@@ -56,7 +61,8 @@ const MAX_MENTION_RESULTS = 8;
 
 /** The trailing `@token` the user is typing (null = no open mention token). */
 function mentionTokenOf(text: string): string | null {
-  const m = /(?:^|\s)@([\w.-]*)$/.exec(text);
+  // Path separators are allowed so `@src/components` can search project files.
+  const m = /(?:^|\s)@([\w.\-/]*)$/.exec(text);
   return m ? m[1] : null;
 }
 
@@ -65,6 +71,10 @@ export interface AttachmentChip {
   name: string;
   /** True while the upload is still in flight (for a pending attachment). */
   uploading?: boolean;
+  /** Where the file is from — shown so a chip is never an anonymous name. */
+  origin?: FileOrigin;
+  sourcePath?: string | null;
+  rootLabel?: string | null;
 }
 
 interface ChatInputProps {
@@ -107,6 +117,9 @@ interface ChatInputProps {
    */
   attachments?: AttachmentChip[];
   onRemoveAttachment?: (name: string) => void;
+  /** A selected passage waiting to be sent with the next turn. */
+  quote?: MessageQuote | null;
+  onClearQuote?: () => void;
   /** Open an attachment so its content can be READ before sending. */
   onOpenAttachment?: (name: string) => void;
   /**
@@ -122,6 +135,14 @@ interface ChatInputProps {
    * bot(s)/room(s) on send. Omitted on composers that have no bots to reach.
    */
   mentionTargets?: MentionTarget[];
+  /**
+   * Async project-file search for the `@` palette. Results appear in a "Files"
+   * section beside the bots/rooms, each showing its folder path. When omitted
+   * only mentions are searchable.
+   */
+  searchProjectFiles?: (query: string) => Promise<FileRef[]>;
+  /** Called when a project file is chosen from the `@` palette. */
+  onReferenceFile?: (ref: FileRef) => void;
   /**
    * Handle a PASTE too big to belong in the composer: the caller attaches it as
    * a document (and it shows as a chip, the way an uploaded file does). When
@@ -157,10 +178,14 @@ export function ChatInput({
   attaching = false,
   attachments,
   onRemoveAttachment,
+  quote,
+  onClearQuote,
   onOpenAttachment,
   contextLabel,
   contextFraction,
   mentionTargets,
+  searchProjectFiles,
+  onReferenceFile,
   onPasteText,
   queued,
   onQueueEdit,
@@ -291,10 +316,11 @@ export function ChatInput({
     ) ?? null;
   }, [query]);
 
-  // ── Bot / group `@mention` palette ──────────────────────────────────────
+  // ── Bot / group / file `@mention` palette ────────────────────────────────
   // Typing `@word` (start of text or after a space, no space yet) opens a menu of
-  // the user's bots and group chats. Selecting one inserts `@Name `; on send a
-  // mentioned target receives the turn (delegation). Inert without `mentionTargets`.
+  // the user's bots and group chats, plus matching project files. Selecting a
+  // bot inserts `@Name `; selecting a file inserts its relative path and asks
+  // the host to attach it as context. Inert without `mentionTargets`.
   useHydrateBotAvatars();
   const mentionAvatars = useBotAvatarStore((s) => s.avatars);
   const [mentionHighlight, setMentionHighlight] = useState(0);
@@ -303,7 +329,37 @@ export function ChatInput({
     if (mentionToken === null || !mentionTargets || mentionTargets.length === 0) return [];
     return searchMentions(mentionTargets, mentionToken, MAX_MENTION_RESULTS);
   }, [mentionToken, mentionTargets]);
-  const mentionMenuOpen = mentionToken !== null && mentionMatches.length > 0;
+
+  // Project-file results are async and debounced so a fast typist does not fire
+  // one runtime walk per keystroke. A stale response is dropped by the `alive`
+  // flag; a runtime error simply yields no file section.
+  const [fileMatches, setFileMatches] = useState<FileRef[]>([]);
+  const [fileSearching, setFileSearching] = useState(false);
+  useEffect(() => {
+    if (mentionToken === null || !searchProjectFiles) {
+      setFileMatches([]);
+      setFileSearching(false);
+      return;
+    }
+    let alive = true;
+    setFileSearching(true);
+    const timer = setTimeout(() => {
+      searchProjectFiles(mentionToken)
+        .then((hits) => { if (alive) setFileMatches(hits); })
+        .catch(() => { if (alive) setFileMatches([]); })
+        .finally(() => { if (alive) setFileSearching(false); });
+    }, 120);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [mentionToken, searchProjectFiles]);
+
+  type MentionOption =
+    | { kind: 'bot'; target: MentionTarget }
+    | { kind: 'file'; file: FileRef };
+  const mentionOptions = useMemo<MentionOption[]>(() => [
+    ...mentionMatches.map((target) => ({ kind: 'bot' as const, target })),
+    ...fileMatches.map((file) => ({ kind: 'file' as const, file })),
+  ], [mentionMatches, fileMatches]);
+  const mentionMenuOpen = mentionToken !== null && mentionOptions.length > 0;
   useEffect(() => { setMentionHighlight(0); }, [mentionToken]);
 
   const mentionListRef = useRef<HTMLDivElement>(null);
@@ -313,12 +369,19 @@ export function ChatInput({
   }, [mentionHighlight, mentionMenuOpen]);
 
   const completeMention = useCallback(
-    (m: MentionTarget) => {
+    (option: MentionOption | undefined) => {
+      if (!option) return;
       // Replace only the partial token being typed; never clobber earlier text.
-      setQuery(query.replace(/@([\w.-]*)$/, `@${m.name} `));
+      if (option.kind === 'bot') {
+        setQuery(query.replace(/@([\w.\-/]*)$/, `@${option.target.name} `));
+      } else {
+        const path = option.file.path;
+        setQuery(query.replace(/@([\w.\-/]*)$/, `@${path} `));
+        onReferenceFile?.(option.file);
+      }
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [setQuery, query],
+    [setQuery, query, onReferenceFile],
   );
 
   // Resolved mentions already in the draft: chips so the user sees exactly which
@@ -346,17 +409,17 @@ export function ChatInput({
     if (mentionMenuOpen && !e.nativeEvent.isComposing) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setMentionHighlight((h) => (h + 1) % mentionMatches.length);
+        setMentionHighlight((h) => (h + 1) % mentionOptions.length);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setMentionHighlight((h) => (h - 1 + mentionMatches.length) % mentionMatches.length);
+        setMentionHighlight((h) => (h - 1 + mentionOptions.length) % mentionOptions.length);
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        completeMention(mentionMatches[mentionHighlight]);
+        completeMention(mentionOptions[Math.min(mentionHighlight, mentionOptions.length - 1)]);
         return;
       }
     }
@@ -468,44 +531,87 @@ export function ChatInput({
           onClear={onQueueClear}
         />
       )}
+      {quote && (
+        <div className="mb-2 flex items-start gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-2.5 py-2 text-[11px]">
+          <MessageSquareText size={13} className="mt-0.5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-primary">Quoted · {quoteSourceLabel(quote)}</span>
+              {quote.truncated && <span className="text-[10px] text-muted-foreground/70">shortened</span>}
+            </div>
+            <p className="mt-0.5 max-h-16 overflow-hidden whitespace-pre-wrap break-words text-foreground/80">
+              {quote.text}
+            </p>
+          </div>
+          {onClearQuote && (
+            <button
+              type="button"
+              onClick={onClearQuote}
+              title="Remove quoted passage"
+              aria-label="Remove quoted passage"
+              className="shrink-0 rounded-full p-0.5 text-muted-foreground/70 hover:bg-white/10 hover:text-foreground cursor-pointer"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      )}
       {attachments && attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Attached documents">
-          {attachments.map((file) => (
-            <span
-              key={file.name}
-              className="group inline-flex max-w-[70vw] sm:max-w-[240px] items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 py-1 pl-2 pr-1 text-[11px] text-foreground/90"
-              title={file.name}
-            >
-              {file.uploading ? (
-                <Loader2 size={12} className="shrink-0 animate-spin text-primary" />
-              ) : (
-                <FileText size={12} className="shrink-0 text-primary" />
-              )}
-              {onOpenAttachment ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenAttachment(file.name)}
-                  title={`Open ${file.name}`}
-                  className="min-w-0 truncate text-left hover:underline"
+          {attachments.map((file) => {
+            const source = describeSource({
+              origin: file.origin ?? 'upload',
+              sourcePath: file.sourcePath ?? null,
+              rootLabel: file.rootLabel ?? null,
+            });
+            return (
+              <span
+                key={file.name}
+                className="group inline-flex max-w-[78vw] sm:max-w-[300px] flex-col gap-0 rounded-xl border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] text-foreground/90"
+                title={`${file.name} — ${source}`}
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {file.uploading ? (
+                    <Loader2 size={12} className="shrink-0 animate-spin text-primary" />
+                  ) : (
+                    <FileText size={12} className="shrink-0 text-primary" />
+                  )}
+                  {onOpenAttachment ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAttachment(file.name)}
+                      title={`Open ${file.name}`}
+                      className="min-w-0 flex-1 truncate text-left hover:underline"
+                    >
+                      {file.name}
+                    </button>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  )}
+                  <span className="shrink-0 rounded-full bg-accent/40 px-1.5 py-0.5 text-[8.5px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                    {originLabel(file.origin)}
+                  </span>
+                  {onRemoveAttachment && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveAttachment(file.name)}
+                      title="Remove attachment"
+                      aria-label={`Remove ${file.name}`}
+                      className="shrink-0 rounded-full p-0.5 text-muted-foreground/70 hover:bg-white/10 hover:text-foreground"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </span>
+                <span
+                  className="min-w-0 truncate pl-[18px] font-mono text-[9.5px] text-muted-foreground/60"
+                  title={file.sourcePath ?? source}
                 >
-                  {file.name}
-                </button>
-              ) : (
-                <span className="min-w-0 truncate">{file.name}</span>
-              )}
-              {onRemoveAttachment && (
-                <button
-                  type="button"
-                  onClick={() => onRemoveAttachment(file.name)}
-                  title="Remove attachment"
-                  aria-label={`Remove ${file.name}`}
-                  className="shrink-0 rounded-full p-0.5 text-muted-foreground/70 hover:bg-white/10 hover:text-foreground"
-                >
-                  <X size={11} />
-                </button>
-              )}
-            </span>
-          ))}
+                  {file.sourcePath ?? source}
+                </span>
+              </span>
+            );
+          })}
         </div>
       )}
       {activeCommand && (
@@ -614,39 +720,74 @@ export function ChatInput({
             }}
             className="z-[120] max-h-[50vh] overflow-y-auto rounded-2xl glass-command-popover shadow-lg"
           >
-            <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
-              {t('bots.mentions.paletteLabel')}
+            <div className="flex items-center justify-between px-3 pt-2 pb-1">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">
+                {t('bots.mentions.paletteLabel')}
+              </span>
+              {fileSearching && <Loader2 size={11} className="animate-spin text-muted-foreground/50" />}
             </div>
-            {mentionMatches.map((m, i) => (
-              <button
-                key={`${m.kind}:${m.id}`}
-                type="button"
-                role="option"
-                aria-selected={i === mentionHighlight}
-                onMouseEnter={() => setMentionHighlight(i)}
-                // onMouseDown (not onClick) so the textarea does not blur/lose the
-                // selection before the mention is inserted.
-                onMouseDown={(e) => { e.preventDefault(); completeMention(m); }}
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                  i === mentionHighlight ? 'bg-accent/40' : 'hover:bg-accent/25',
-                )}
-              >
-                {m.kind === 'group'
-                  ? <GhostAvatar spec={ghostSpecFromId(m.id)} size={18} title={m.name} />
-                  : <BotAvatar botId={m.id} spec={avatarFor(mentionAvatars, m.id)} size={18} title={m.name} />}
-                <span className="min-w-0 shrink-0 truncate font-medium">@{m.name}</span>
-                {m.description && (
-                  <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70 sm:inline">
-                    {m.description}
+            {mentionOptions.map((option, i) => {
+              const active = i === mentionHighlight;
+              if (option.kind === 'file') {
+                const file = option.file;
+                return (
+                  <button
+                    key={`file:${file.path}`}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onMouseEnter={() => setMentionHighlight(i)}
+                    onMouseDown={(e) => { e.preventDefault(); completeMention(option); }}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                      active ? 'bg-accent/40' : 'hover:bg-accent/25',
+                    )}
+                  >
+                    <FileText size={15} className="shrink-0 text-primary/80" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-foreground/90">{file.name}</span>
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground/60">
+                        {folderOf(file.path) || file.rootLabel || '.'}
+                      </span>
+                    </span>
+                    <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                      {file.rootLabel?.trim() || 'Project'}
+                    </span>
+                  </button>
+                );
+              }
+              const m = option.target;
+              return (
+                <button
+                  key={`${m.kind}:${m.id}`}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onMouseEnter={() => setMentionHighlight(i)}
+                  // onMouseDown (not onClick) so the textarea does not blur/lose the
+                  // selection before the mention is inserted.
+                  onMouseDown={(e) => { e.preventDefault(); completeMention(option); }}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                    active ? 'bg-accent/40' : 'hover:bg-accent/25',
+                  )}
+                >
+                  {m.kind === 'group'
+                    ? <GhostAvatar spec={ghostSpecFromId(m.id)} size={18} title={m.name} />
+                    : <BotAvatar botId={m.id} spec={avatarFor(mentionAvatars, m.id)} size={18} title={m.name} />}
+                  <span className="min-w-0 shrink-0 truncate font-medium">@{m.name}</span>
+                  {m.description && (
+                    <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70 sm:inline">
+                      {m.description}
+                    </span>
+                  )}
+                  <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                    {m.kind === 'group' ? <Users size={9} /> : <Bot size={9} />}
+                    {m.kind}
                   </span>
-                )}
-                <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-                  {m.kind === 'group' ? <Users size={9} /> : <Bot size={9} />}
-                  {m.kind}
-                </span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>,
           document.body,
         )}
@@ -736,7 +877,7 @@ export function ChatInput({
             />
             {busy ? (
               <div className="flex items-center gap-1.5">
-                {(query.trim() || (attachments && attachments.length > 0)) && (
+                {(query.trim() || quote || (attachments && attachments.length > 0)) && (
                   <Button
                     type="submit"
                     size="icon"
@@ -763,7 +904,7 @@ export function ChatInput({
               <Button 
                 type="submit" 
                 size="icon" 
-                disabled={!query.trim() && !(attachments && attachments.length > 0)}
+                disabled={!query.trim() && !quote && !(attachments && attachments.length > 0)}
                 className="p-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0 h-8 w-8 cursor-pointer disabled:opacity-40 disabled:hover:bg-primary transition-opacity flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
               >
                 <ArrowUp size={17} />
@@ -787,6 +928,9 @@ export function ChatInput({
           </span>
         </div>
       )}
+      {/* Persistent point-of-use notice. It lives with the shared composer so
+          both the full chat and the landing state inherit it. */}
+      <AiOutputNotice variant="composer" className="mt-1.5" />
     </div>
   );
 }

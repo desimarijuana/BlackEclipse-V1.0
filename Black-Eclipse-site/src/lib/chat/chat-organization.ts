@@ -11,6 +11,20 @@ import type { Message } from '@/types/chat';
  * the node environment.
  */
 
+/**
+ * Where a conversation came from, when it was forked. The title is snapshotted
+ * so provenance survives even if the source conversation is later deleted.
+ */
+export interface ConversationFork {
+  conversationId: string;
+  /** The source turn the fork was cut at, when forked from a message. */
+  messageId?: string;
+  /** Source conversation title at fork time. */
+  title: string;
+  /** Epoch ms. */
+  at: number;
+}
+
 /** A single saved conversation. Extra fields are optional so legacy rows load. */
 export interface Conversation {
   id: string;
@@ -20,6 +34,8 @@ export interface Conversation {
   timestamp: number;
   /** Creation stamp (epoch ms). Backfilled from `timestamp` on legacy rows. */
   createdAt?: number;
+  /** Set when this conversation was forked from another one. */
+  forkedFrom?: ConversationFork;
   /** Owning folder id, or null/absent when unfiled. */
   folderId?: string | null;
   /** User-assigned accent color (hex), or null for the default. */
@@ -176,17 +192,32 @@ function normalizeTags(raw: unknown): string[] {
  * Coerce one persisted row into a Conversation, backfilling organization fields.
  * Returns null for rows too malformed to use.
  */
+function normalizeFork(raw: unknown): ConversationFork | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (typeof raw.conversationId !== 'string' || !raw.conversationId) return undefined;
+  const at = finiteOrNull(raw.at) ?? Date.now();
+  const fork: ConversationFork = {
+    conversationId: raw.conversationId,
+    title: typeof raw.title === 'string' ? raw.title : '',
+    at,
+  };
+  if (typeof raw.messageId === 'string' && raw.messageId) fork.messageId = raw.messageId;
+  return fork;
+}
+
 export function normalizeConversation(raw: unknown): Conversation | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;
   const messages = Array.isArray(raw.messages) ? raw.messages.filter(isMessage) : [];
   const timestamp = finiteOrNull(raw.timestamp) ?? Date.now();
+  const forkedFrom = normalizeFork(raw.forkedFrom);
   return {
     id: raw.id,
     title: typeof raw.title === 'string' ? raw.title : '',
     messages,
     timestamp,
     createdAt: finiteOrNull(raw.createdAt) ?? timestamp,
+    ...(forkedFrom ? { forkedFrom } : {}),
     folderId: typeof raw.folderId === 'string' ? raw.folderId : null,
     color: typeof raw.color === 'string' ? raw.color : null,
     pinned: raw.pinned === true,

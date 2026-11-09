@@ -6,6 +6,7 @@
 // after a mutation (React state alone would be one render behind).
 
 import { useCallback, useRef, useState } from 'react';
+import type { MessageQuote } from '@/types/chat';
 import {
   MAX_QUEUED_PROMPTS,
   enqueuePrompt,
@@ -23,7 +24,7 @@ function newId(): string {
 export interface MessageQueue {
   items: QueuedPrompt[];
   /** Resolves to false when the text was empty or the queue is full. */
-  enqueue: (text: string) => boolean;
+  enqueue: (text: string, quote?: MessageQuote) => boolean;
   remove: (id: string) => void;
   update: (id: string, text: string) => void;
   move: (id: string, direction: 'up' | 'down') => void;
@@ -48,8 +49,8 @@ export function useMessageQueue(): MessageQueue {
   }, []);
 
   const enqueue = useCallback(
-    (text: string): boolean => {
-      const next = enqueuePrompt(itemsRef.current, text, newId);
+    (text: string, quote?: MessageQuote): boolean => {
+      const next = enqueuePrompt(itemsRef.current, text, newId, Date.now(), quote);
       return commit(next);
     },
     [commit],

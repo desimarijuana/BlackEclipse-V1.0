@@ -684,18 +684,47 @@ export interface EditorFileResult {
   lines: number;
 }
 
-export async function listWorkspaceFiles(path = "."): Promise<EditorTreeResult> {
+export interface WorkspaceFileHit {
+  name: string;
+  path: string;
+  bytes: number | null;
+}
+
+export interface WorkspaceSearchResult {
+  root: string;
+  query: string;
+  files: WorkspaceFileHit[];
+  truncated: boolean;
+}
+
+function rootQuery(rootId?: string | null): string {
+  return rootId ? `&rootId=${encodeURIComponent(rootId)}` : "";
+}
+
+export async function listWorkspaceFiles(path = ".", rootId?: string | null): Promise<EditorTreeResult> {
   const body = await request<EditorTreeResult & { success: boolean }>(
-    `/workspace/files?path=${encodeURIComponent(path)}`,
+    `/workspace/files?path=${encodeURIComponent(path)}${rootQuery(rootId)}`,
     { method: "GET", timeoutMs: 20_000 },
   );
   return body;
 }
 
-export async function readWorkspaceFile(path: string): Promise<EditorFileResult> {
+export async function searchWorkspaceFiles(
+  query: string,
+  rootId?: string | null,
+  limit = 50,
+): Promise<WorkspaceSearchResult> {
+  const body = await request<WorkspaceSearchResult & { success: boolean }>(
+    `/workspace/files/search?q=${encodeURIComponent(query)}&limit=${limit}${rootQuery(rootId)}`,
+    { method: "GET", timeoutMs: 20_000 },
+  );
+  return body;
+}
+
+export async function readWorkspaceFile(path: string, rootId?: string | null): Promise<EditorFileResult> {
   const body = await request<EditorFileResult & { success: boolean }>("/workspace/file/read", {
     method: "POST",
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path, ...(rootId ? { rootId } : {}) }),
     timeoutMs: 20_000,
   });
   return body;

@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-10-20
+last-verified: 2026-11-09
 ---
 
 # Data Flow
@@ -179,7 +179,7 @@ category, event keywords and the user's watchlist/holdings. It returns the
 `reasons[]` shown in the UI and never invents a direction or a target. `/api/news`
 scores the page it returns and accepts `sort=importance` + `minImportance`;
 `/api/news/alerts` returns the strongest recent stories plus upcoming
-high-impact releases (suppressed when the calendar is only the static fallback).
+high-impact releases (suppressed when the calendar source is `unavailable`).
 The News tab ranks those stories into the main feed (`sort=importance`,
 most-critical first) instead of rendering a separate band; a root-mounted
 `src/lib/notifications/news-watcher.tsx` polls the same endpoint (first poll
@@ -198,6 +198,32 @@ honours quiet hours, and records a durable `PriceAlertEvent` with
 
 `src/lib/economics/` fetches macro series, caches them in `MacroSeries` as JSON
 (`cacheKey` = source + params hash) so the Economics page loads from JDDS.
+
+The **economic calendar** merges two sources instead of inventing a schedule:
+the Fincept release mirror (actual/forecast/previous values) and official
+central-bank schedules. `src/lib/economics/calendars/fomc.ts` reads the Federal
+Reserve's own meeting page (`federalreserve.gov/monetarypolicy/fomccalendars.htm`),
+keeping the Fed's tentative marker; `mergeOfficialEvents` upgrades a mirror
+row's date to the official one without discarding its values. If both sources
+fail the route returns `source: "unavailable"` and an empty list — there is no
+synthetic-date fallback.
+
+When a structured snapshot metric is missing, `src/lib/economics/enrichment.ts`
+applies the screener's search pattern: web search → keep official statistical
+hosts only (BLS, BEA, FRED, central banks) → fetch the page → extract a labelled,
+range-checked number and date. Such values carry `state: "WEB"` plus the source
+URL; they never replace a `LIVE` structured value and are refused when the
+label/number/date triple is not deterministic.
+
+### SEC filing index
+
+`src/lib/harness/data-bridge-filings.ts` (`sec_filing_list`) reads EDGAR's
+submissions index (form, filed, period, accession, primary document). The native
+route `GET /api/stocks/[symbol]/filings` wraps it with rate limiting and a
+30-minute cache; the Fundamentals panel renders the same data in its **Filings**
+tab (`src/components/screens/fundamentals/filings-section.tsx`). It is US-only —
+a non-US market returns `not_covered`, and a filing without a provider-published
+document renders no link.
 
 ### Investor Eye world state
 

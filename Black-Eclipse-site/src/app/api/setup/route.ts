@@ -20,6 +20,8 @@ import {
   setupSourcePreferences,
 } from "@/lib/setup/state";
 import { probeInstall } from "@/lib/setup/existing-install";
+import { riskAcknowledgementStatus } from "@/lib/legal/acceptance";
+import { RISK_DISCLOSURE_VERSION } from "@/lib/legal/disclosure";
 import type {
   SetupCompleteInput,
   SetupMode,
@@ -54,10 +56,11 @@ export async function GET() {
       ? { ...safeSourceDefaults(mode), ...savedPrefs.sources }
       : await setupSourcePreferences(mode);
 
-    const [ai, keyStatuses, lastCheckRaw] = await Promise.all([
+    const [ai, keyStatuses, lastCheckRaw, riskAck] = await Promise.all([
       getAiStatus(),
       listProviderKeyStatus(),
       getConfig("setup_check_v1"),
+      riskAcknowledgementStatus(),
     ]);
     const keyMap = Object.fromEntries(keyStatuses.map((k) => [k.envVar, k.configured]));
     let lastCheck: { at: string; items: unknown[] } | null = null;
@@ -113,6 +116,7 @@ export async function GET() {
       completed: resolved.completed,
       isNewInstall: resolved.isNewInstall,
       mode,
+      riskAck,
       ai,
       bundles: BUNDLES.map((b) => ({
         ...b,
@@ -240,6 +244,19 @@ export async function POST(request: Request) {
       ? (body.ai as SetupCompleteInput["ai"])
       : undefined;
 
+    // The wizard must send the version it displayed. Never trust a bare
+    // `accepted: true` — the point is to prove WHICH notice was accepted.
+    const riskAckVersion =
+      body.riskAck && typeof body.riskAck === "object" && typeof (body.riskAck as { version?: unknown }).version === "string"
+        ? (body.riskAck as { version: string }).version
+        : null;
+    if (riskAckVersion !== RISK_DISCLOSURE_VERSION) {
+      return NextResponse.json(
+        { error: "Please acknowledge the current risk notice before finishing setup." },
+        { status: 400 },
+      );
+    }
+
     await applyAi(ai);
 
     const result = await completeOnboarding({
@@ -248,6 +265,7 @@ export async function POST(request: Request) {
       sources,
       acceptedRestrictedSources: accepted,
       ai,
+      riskAckVersion,
     });
 
     invalidateSettingsCache();

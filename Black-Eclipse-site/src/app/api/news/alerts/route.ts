@@ -74,9 +74,9 @@ export async function GET(request: Request) {
       getCalendar(),
       prisma.cronJob.findUnique({ where: { type: "news_refresh" } }),
     ]);
-    // The static fallback schedule carries placeholder dates, not confirmed
-    // release times. Never present those as "CPI in 42m" — show nothing instead.
-    const upcoming = calendar.source === "schedule-fallback"
+    // A calendar with no confirmed source carries no release times. Never
+    // present those as "CPI in 42m" — show nothing instead.
+    const upcoming = calendar.source === "unavailable"
       ? []
       : upcomingEvents(calendar.events, now);
 

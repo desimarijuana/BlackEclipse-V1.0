@@ -38,6 +38,8 @@ import {
 import { useCommandStore } from '@/lib/search/store';
 import { sound } from '@/lib/sounds';
 import { isKeyboardEventAvailable } from '@/lib/keyboard';
+import { FileSourcePicker } from '@/components/workspace/file-source-picker';
+import type { PickedFile } from '@/lib/chat/file-sources';
 import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
 import { useChatModel } from '@/lib/agent/use-chat-model';
@@ -55,6 +57,7 @@ import { ApprovalCard } from './approval-card';
 import { ClarificationCard } from './clarification-card';
 import { MessageQueue } from './message-queue';
 import { useMessageQueue } from '@/lib/chat/use-message-queue';
+import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Stable workspace-folder id for the dock, so its runs also persist output. */
@@ -208,8 +211,7 @@ export function ChatDock({
   );
   const sessionIdRef = useRef<string>('dock-temp');
   const [dockSessionId, setDockSessionId] = useState<string>('dock-temp');
-  const attachRef = useRef<HTMLInputElement>(null);
-  const imageRef = useRef<HTMLInputElement>(null);
+  const [pickerMode, setPickerMode] = useState<'all' | 'images' | null>(null);
 
   // Insert a token (`/` or `@`) at the end of the draft and keep focus.
   const insertToken = (token: string) => {
@@ -604,13 +606,15 @@ export function ChatDock({
 
   // Upload attached documents into the dock's own session folder, where the
   // front door picks them up as context for the next run.
-  const handleAttach = async (files: FileList | File[] | null) => {
+  const handleAttach = async (files: FileList | File[] | PickedFile[] | null) => {
     if (!files) return;
-    for (const file of Array.from(files)) {
+    for (const item of Array.from(files as ArrayLike<File | PickedFile>)) {
+      const file = item && typeof item === 'object' && 'file' in item ? item.file : (item as File);
+      const meta = item && typeof item === 'object' && 'file' in item ? item.meta : undefined;
       if (file.size > SESSION_LIMITS.maxFileBytes) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());
       try {
-        await uploadSessionFile(sessionIdRef.current, 'context', file.name, bytes);
+        await uploadSessionFile(sessionIdRef.current, 'context', file.name, bytes, meta);
       } catch {
         // Surface nothing inline here; the session bar lists what succeeded.
       }
@@ -776,11 +780,11 @@ export function ChatDock({
                 <Plus size={17} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-56 glass-command-popover">
-                <DropdownMenuItem onClick={() => imageRef.current?.click()}>
+                <DropdownMenuItem onClick={() => setPickerMode('images')}>
                   <ImageIcon size={15} className="shrink-0" />
                   <span>Images and photos</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => attachRef.current?.click()}>
+                <DropdownMenuItem onClick={() => setPickerMode('all')}>
                   <Layers size={15} className="shrink-0" />
                   <span>Context</span>
                 </DropdownMenuItem>
@@ -889,28 +893,16 @@ export function ChatDock({
               )}
             </div>
           </div>
-          <input
-            ref={attachRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              void handleAttach(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          <input
-            ref={imageRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              void handleAttach(e.target.files);
-              e.target.value = '';
-            }}
-          />
+          {pickerMode ? (
+            <FileSourcePicker
+              mode={pickerMode}
+              chatId={sessionIdRef.current}
+              onClose={() => setPickerMode(null)}
+              onPick={(files) => { void handleAttach(files); }}
+            />
+          ) : null}
         </div>
+        <AiOutputNotice variant="composer" className="mt-1.5" />
         {pendingApproval && (
           <ApprovalCard approval={pendingApproval} anchor={composerEl} onDecide={agentRun.decide} />
         )}

@@ -1,6 +1,32 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(economics): real FOMC dates, no fabricated calendar, search fallback,
+  and a native SEC filings browser.** The economic calendar no longer spreads
+  placeholder events over the next 30 days; `src/lib/economics/calendars/fomc.ts`
+  reads the Federal Reserve's own meeting calendar (preserving its tentative
+  marker) and `mergeOfficialEvents` upgrades mirror dates without discarding
+  actual/forecast/previous. The snapshot reports the exact FRED series it
+  fetched and fills missing US metrics from official pages via the screener's
+  search→official-host→fetch→labelled-number pattern (`state: "WEB"`, source URL,
+  never replacing a LIVE value). Added `GET /api/stocks/[symbol]/filings` over the
+  existing `sec_filing_list` capability and a **Filings** tab in the Fundamentals
+  panel. Also fixed the dashboard economic chart topic, which pointed at a
+  non-existent `us-cpi` source. Docs: `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`.
+- **feat(chat): fork a conversation + quote selected text into the next turn.**
+  The sidebar chat menu now has **Fork chat** and every message toolbar has
+  **Fork from here** (`GitBranch`); a fork is a real new conversation with fresh
+  message ids, provenance (`Conversation.forkedFrom`), its own session folder,
+  and a server-side copy of the source's context documents
+  (`POST /api/chat/session/clone`) so attachments keep working. Forking is
+  blocked while a run/queue is active. Selecting text inside a message shows a
+  floating **Quote** chip; the composer renders the passage as a card and the
+  turn is sent with a delimited quote context (`Message.quote`,
+  `turnTextForHarness`). Quote-only send uses "Explain the quoted passage.";
+  quotes ride with queued prompts; editing/retrying a quoted turn preserves it.
+  Shell boilerplate was extracted into `use-chat-conversation-actions.ts` and
+  `use-chat-message-actions.ts` to keep `stock-chat.tsx` inside its size ratchet.
+  Docs: `docs/chat-ui-audit.md` (§ Fork + quote), `docs/NAVIGATION.md`.
 - **fix(finance): `finance_calc` also covers portfolio weight.** The finance
   suite's residual `finance.v6.weight.001` needed `value/total`; the calculator
   now computes `weight` / `portfolio_weights` and the prompt names it. The
@@ -41,7 +67,17 @@
   (reset deletes it). Copy lives in `src/lib/legal/disclosure.ts`; this is
   evidence and risk allocation, not immunity — the enforceable clause stays in
   Terms. Docs: `docs/legal/disclosures.md` (new), `docs/legal/README.md`
-  (statuses), ADR-073 in `docs/DECISIONS.md` + `skills/ARCHITECT.md`.
+  (statuses), `docs/NAVIGATION.md` (legal row), ADR-073 in `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md`.
+- **feat(legal): cover existing installs and live orders.** An upgraded install
+  that never saw the notice now gets a one-time blocking gate
+  (`src/components/legal/risk-ack-gate.tsx`, mounted in the root layout) backed
+  by `GET/POST /api/legal/risk-ack`; it reads `/api/setup`, appears only when
+  setup is complete and the current version is unaccepted, and records the same
+  versioned acknowledgement. The trade approval card also requires an explicit
+  "this order is my decision and my responsibility" checkbox before Confirm &
+  send (the typed live phrase is unchanged). Docs: `docs/legal/disclosures.md`,
+  ADR-074 in `docs/DECISIONS.md` + `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
 - **feat(finance): one deterministic calculator for the metrics the agent must
   not do mentally.** New `finance_calc` computes percentage change/return
   (signed), EPS, P/E, P/S, margins, position_size (reward/risk), CAGR and FCF

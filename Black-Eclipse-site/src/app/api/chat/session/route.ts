@@ -6,7 +6,7 @@ import {
   getSession,
   writeSessionFile,
 } from "@/lib/chat/session-store";
-import { SESSION_LIMITS, type SessionFileKind } from "@/lib/chat/session-types";
+import { SESSION_LIMITS, type FileProvenance, type SessionFileKind } from "@/lib/chat/session-types";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,25 @@ export async function POST(request: Request) {
         { status: 413 }
       );
     }
-    const file = await writeSessionFile(chatId, { name, bytes, kind });
+    // Provenance is descriptive only; the store re-validates and drops anything
+    // that is not a known origin. It never influences where bytes are written.
+    const rawMeta = body.meta;
+    const meta: FileProvenance | undefined =
+      rawMeta && typeof rawMeta === "object"
+        ? {
+            origin: (rawMeta as Record<string, unknown>).origin as FileProvenance["origin"],
+            sourcePath: typeof (rawMeta as Record<string, unknown>).sourcePath === "string"
+              ? ((rawMeta as Record<string, unknown>).sourcePath as string)
+              : null,
+            rootId: typeof (rawMeta as Record<string, unknown>).rootId === "string"
+              ? ((rawMeta as Record<string, unknown>).rootId as string)
+              : null,
+            rootLabel: typeof (rawMeta as Record<string, unknown>).rootLabel === "string"
+              ? ((rawMeta as Record<string, unknown>).rootLabel as string)
+              : null,
+          }
+        : undefined;
+    const file = await writeSessionFile(chatId, { name, bytes, kind, meta });
     return NextResponse.json({ success: true, file });
   } catch (err) {
     const { status, body } = statusFor(err);

@@ -7,9 +7,8 @@ import { mergeAttachmentChips } from './use-session';
 
 describe('mergeAttachmentChips', () => {
   it('shows a pending file as a chip', () => {
-    expect(mergeAttachmentChips([{ name: 'report.pdf', bytes: 10 }], [])).toEqual([
-      { name: 'report.pdf' },
-    ]);
+    const chips = mergeAttachmentChips([{ name: 'report.pdf', bytes: 10 }], []);
+    expect(chips.map((c) => c.name)).toEqual(['report.pdf']);
   });
 
   it('shows saved session files as chips', () => {

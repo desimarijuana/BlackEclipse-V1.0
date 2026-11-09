@@ -14,8 +14,15 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Message } from "@/types/chat";
+import type { ConversationFork } from "./chat-organization";
 import { extractText, extractDocumentText, isTextExtractable } from "./extract";
-import { SESSION_LIMITS, type SessionFile, type SessionFileKind, type SessionInfo } from "./session-types";
+import {
+  SESSION_LIMITS,
+  type FileProvenance,
+  type SessionFile,
+  type SessionFileKind,
+  type SessionInfo,
+} from "./session-types";
 
 const CHAT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -123,6 +130,9 @@ async function listKind(chatId: string, kind: SessionFileKind): Promise<SessionF
   } catch {
     return [];
   }
+  // Provenance is stored beside the files (never inside the bytes). A missing or
+  // unreadable sidecar simply means "no provenance yet" — the file still lists.
+  const meta = kind === "context" ? await readContextMeta(chatId) : {};
   const files: SessionFile[] = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
@@ -134,12 +144,71 @@ async function listKind(chatId: string, kind: SessionFileKind): Promise<SessionF
         bytes: stat.size,
         updatedAt: stat.mtime.toISOString(),
         textExtractable: isTextExtractable(entry.name),
+        ...(meta[entry.name] ?? {}),
       });
     } catch {
       // Vanished between readdir and stat — skip.
     }
   }
   return files.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+}
+
+// ── Provenance sidecar ───────────────────────────────────────────────────────
+// One small JSON map per conversation: file name → where it came from. It is
+// deliberately separate from the file bytes so a file copied into the folder by
+// hand still lists (with unknown origin) instead of failing.
+
+const CONTEXT_META_FILE = "context-meta.json";
+
+function contextMetaPath(chatId: string): string {
+  return path.join(sessionDir(chatId), CONTEXT_META_FILE);
+}
+
+const ORIGINS = new Set<FileProvenance["origin"]>(["upload", "project", "paste"]);
+
+function coerceProvenance(raw: unknown): FileProvenance | null {
+  if (!raw || typeof raw !== "object") return null;
+  const blob = raw as Record<string, unknown>;
+  const origin = typeof blob.origin === "string" && ORIGINS.has(blob.origin as FileProvenance["origin"])
+    ? (blob.origin as FileProvenance["origin"])
+    : null;
+  if (!origin) return null;
+  return {
+    origin,
+    sourcePath: typeof blob.sourcePath === "string" ? blob.sourcePath : null,
+    rootId: typeof blob.rootId === "string" ? blob.rootId : null,
+    rootLabel: typeof blob.rootLabel === "string" ? blob.rootLabel : null,
+  };
+}
+
+async function readContextMeta(chatId: string): Promise<Record<string, FileProvenance>> {
+  try {
+    const raw = await fs.readFile(contextMetaPath(chatId), "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, FileProvenance> = {};
+    for (const [name, value] of Object.entries(parsed)) {
+      const meta = coerceProvenance(value);
+      if (meta) out[name] = meta;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+async function writeContextMeta(
+  chatId: string,
+  meta: Record<string, FileProvenance>,
+): Promise<void> {
+  await fs.writeFile(contextMetaPath(chatId), JSON.stringify(meta), "utf8");
+}
+
+async function setContextMeta(chatId: string, name: string, meta: FileProvenance | null): Promise<void> {
+  const current = await readContextMeta(chatId);
+  if (meta) current[name] = meta;
+  else delete current[name];
+  await writeContextMeta(chatId, current);
 }
 
 /**
@@ -186,12 +255,14 @@ export interface WriteFileOptions {
   name: string;
   bytes: Uint8Array;
   kind: SessionFileKind;
+  /** Where the file came from (context files only; shown on the chip). */
+  meta?: FileProvenance;
 }
 
 /** Write a file into a session (upload or agent output). Returns its metadata. */
 export async function writeSessionFile(
   chatId: string,
-  { name, bytes, kind }: WriteFileOptions
+  { name, bytes, kind, meta }: WriteFileOptions
 ): Promise<SessionFile> {
   if (bytes.byteLength > SESSION_LIMITS.maxFileBytes) {
     throw new SessionError(
@@ -209,13 +280,22 @@ export async function writeSessionFile(
   }
   const full = resolveFile(chatId, kind, safeName);
   await fs.writeFile(full, bytes);
+  // Persist provenance after the bytes land, so a failed write never leaves a
+  // stale description of a file that does not exist.
+  if (kind === "context" && meta) {
+    await setContextMeta(chatId, safeName, meta);
+  }
   const stat = await fs.stat(full);
   return {
+    // FileProvenance requires an origin. A context file with stored metadata
+    // keeps its real provenance; anything else is a local upload.
+    origin: kind === "context" && meta ? meta.origin : "upload",
     name: safeName,
     kind,
     bytes: stat.size,
     updatedAt: stat.mtime.toISOString(),
     textExtractable: isTextExtractable(safeName),
+    ...(kind === "context" && meta ? meta : {}),
   };
 }
 
@@ -225,6 +305,58 @@ export async function readSessionFile(chatId: string, kind: SessionFileKind, nam
 
 export async function deleteSessionFile(chatId: string, kind: SessionFileKind, name: string): Promise<void> {
   await fs.unlink(resolveFile(chatId, kind, name));
+  if (kind === "context") await setContextMeta(chatId, assertSafeName(name), null);
+}
+
+/**
+ * Copy a conversation's CONTEXT documents into another conversation.
+ *
+ * A forked chat is a real new conversation with its own session folder. Its
+ * copied user turns still reference attachments by name, and the next run reads
+ * context from the NEW folder — so without this, a fork would show attachments
+ * that cannot be opened and would silently lose their context.
+ *
+ * Output files and checkpoints are intentionally NOT copied: they belong to the
+ * original runs, and a fork starts with a clean checkpoint history. Individual
+ * unreadable/unsafe names are skipped rather than failing the whole fork.
+ */
+export async function cloneSessionContext(fromChatId: string, toChatId: string): Promise<{ copied: number }> {
+  assertChatId(fromChatId);
+  assertChatId(toChatId);
+  if (fromChatId === toChatId) return { copied: 0 };
+  await ensureSessionDirs(toChatId);
+
+  const sourceDir = kindDir(fromChatId, "context");
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  } catch {
+    return { copied: 0 };
+  }
+
+  const sourceMeta = await readContextMeta(fromChatId);
+  const targetMeta: Record<string, FileProvenance> = {};
+  let copied = 0;
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (copied >= SESSION_LIMITS.maxContextFiles) break;
+    try {
+      const safeName = assertSafeName(entry.name);
+      await fs.copyFile(
+        path.join(sourceDir, safeName),
+        resolveFile(toChatId, "context", safeName),
+      );
+      if (sourceMeta[safeName]) targetMeta[safeName] = sourceMeta[safeName];
+      copied += 1;
+    } catch {
+      // A vanished, unsafe or unreadable file is skipped.
+    }
+  }
+  if (Object.keys(targetMeta).length > 0) {
+    const current = await readContextMeta(toChatId);
+    await writeContextMeta(toChatId, { ...current, ...targetMeta });
+  }
+  return { copied };
 }
 
 /**
@@ -321,6 +453,8 @@ export interface StoredTranscript {
   createdAt: number;
   /** Server write stamp (epoch ms); the hydration merge prefers the newer copy. */
   updatedAt: number;
+  /** Set when this conversation was forked from another one. */
+  forkedFrom?: ConversationFork;
   folderId?: string | null;
   color?: string | null;
   pinned?: boolean;
@@ -362,6 +496,7 @@ export async function writeTranscript(
     timestamp: typeof data.timestamp === "number" ? data.timestamp : Date.now(),
     createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
     updatedAt: Date.now(),
+    forkedFrom: data.forkedFrom,
     folderId: data.folderId ?? null,
     color: data.color ?? null,
     pinned: data.pinned === true,

@@ -14,7 +14,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/economics/calendar", () => ({
   fetchEconomicCalendar: vi.fn(async () => ({
-    source: "fincept",
+    source: "mirror",
     events: [
       {
         id: "e1",
@@ -82,25 +82,15 @@ describe("GET /api/news/alerts", () => {
     expect(data.alerts[0].importanceReasons.length).toBeGreaterThan(0);
     expect(data.upcoming).toHaveLength(1);
     expect(data.upcoming[0].title).toContain("CPI");
-    expect(data.calendarSource).toBe("fincept");
+    expect(data.calendarSource).toBe("mirror");
   });
 
-  it("does not present the placeholder fallback schedule as confirmed releases", async () => {
+  it("does not present an unavailable calendar as confirmed releases", async () => {
     const calendar = await import("@/lib/economics/calendar");
     vi.mocked(calendar.fetchEconomicCalendar).mockResolvedValueOnce({
-      source: "schedule-fallback",
-      events: [
-        {
-          id: "fb-cpi",
-          date: new Date(Date.now() + 60 * 60_000).toISOString(),
-          country: "US",
-          title: "Consumer Price Index (CPI)",
-          importance: "high",
-          actual: null,
-          forecast: null,
-          previous: null,
-        },
-      ],
+      source: "unavailable",
+      warnings: ["calendar mirror failed", "FOMC schedule failed"],
+      events: [],
     });
     findMany.mockResolvedValueOnce([row({})]);
 
@@ -109,7 +99,7 @@ describe("GET /api/news/alerts", () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.calendarSource).toBe("schedule-fallback");
+    expect(data.calendarSource).toBe("unavailable");
     expect(data.upcoming).toEqual([]);
   });
 });

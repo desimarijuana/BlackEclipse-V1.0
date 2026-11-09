@@ -6,6 +6,25 @@
 
 export type SessionFileKind = "context" | "output";
 
+/**
+ * Where an attached file came from. This is provenance, not a hint: the chip
+ * shows it so a file is never an anonymous name. `project` means it was
+ * referenced from an approved workspace folder (path is workspace-relative);
+ * `upload` means it came from this computer (the original absolute path is not
+ * exposed by the browser, so it is a local copy); `paste` is pasted text.
+ */
+export type FileOrigin = "upload" | "project" | "paste";
+
+export interface FileProvenance {
+  origin: FileOrigin;
+  /** Workspace-relative path for project files; null for uploads/pastes. */
+  sourcePath?: string | null;
+  /** The approved root the file came from (project origin only). */
+  rootId?: string | null;
+  /** Display label for that root (project origin only). */
+  rootLabel?: string | null;
+}
+
 export interface SessionFile {
   name: string;
   kind: SessionFileKind;
@@ -14,6 +33,11 @@ export interface SessionFile {
   updatedAt: string;
   /** True when the file's text could be extracted and used as run context. */
   textExtractable: boolean;
+  /** Provenance, absent for a file written before it was recorded (or by hand). */
+  origin?: FileOrigin;
+  sourcePath?: string | null;
+  rootId?: string | null;
+  rootLabel?: string | null;
 }
 
 export interface SessionInfo {

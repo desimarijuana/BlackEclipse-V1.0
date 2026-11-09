@@ -153,4 +153,6 @@ export interface SetupCompleteInput {
   sources: Record<string, boolean>;
   acceptedRestrictedSources?: string[];
   ai?: AiChoice;
+  /** Required: the risk notice version the user explicitly accepted. */
+  riskAckVersion?: string;
 }
