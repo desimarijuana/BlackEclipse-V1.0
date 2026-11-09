@@ -188,6 +188,12 @@ The entrypoint symlinks these into the `be-data` volume mounted at `/data`:
 - `agent-memory.db`, `eclipse-memory.db` (harness state),
 - `.black-eclipse/` (auth DB, artifacts, sessions, plugins).
 
+The entrypoint also applies the Prisma schema (`prisma db push`)
+before the app starts, because the container runs `next start` directly and
+would not otherwise go through `scripts/doctor.js` (the `prestart` hook that
+creates the tables on a bare host). A fresh volume therefore boots with a
+complete schema; a destructive schema change fails closed with a loud warning.
+
 Back up `/data`; do not bake it into the image.
 
 ## Health & operations
@@ -217,7 +223,8 @@ Back up `/data`; do not bake it into the image.
 ## Notes / known limits
 
 - **First boot warms markets** (prices, news) and can take a minute; the app is
-  responsive throughout.
+  responsive throughout. The first boot also runs the one-time `prisma db push`
+  (a few seconds) before the app process starts.
 - The **browser tool** needs the Chromium download (`python -m playwright install
   chromium`) which is not baked in; the tool reports `BROWSER_UNINSTALLED` until
   present, and the container does not include it to stay small. Add it to the

@@ -280,7 +280,7 @@ below. Do not mark a phase done because the code side is finished.
 | 2026-11-08 | Baseline | measured | gates above; live gate FAIL; tree dirty; eslint 3 errors |
 | 2026-11-08 | P0 | **done** | eslint 0 errors; `tsc --noEmit` pass; decisions+legal `cc5519ea`, roadmap `9785b485`, merged into `main` as `b48d3ba5`; `main` clean; `npm run check:all` → ALL GATES PASSED. Not pushed. |
 | 2026-11-08 | P1 | **in progress** | C3 clean build PASS (fresh `.next`, 255 s) and `next start` serves `GET /login` 200 in 2 s; C5 fail-closed verified and the `HARNESS_AUTH=required` preflight bug fixed (8 tests). Remaining: C4 container (no Docker on this host), real secrets + provider key (user input). |
-| | P2 | not started | |
+| 2026-11-08 | P2 | **in progress** | Isolated production-posture drill (separate port, temp `BE_DATA_DIR`, harness on 8770): unauth API → 401; first-run setup + login + authenticated session; runtime absent → 503 then recovery → 200; backup → destroy → restore, 4/4 DBs integrity ok. Found and fixed the container first-boot schema gap (`docker-entrypoint.sh` now runs `prisma db push`; 58 tables, 0 P2021 on a fresh dir). Remaining: a real frontier model journey (provider key) and the Docker/C4 container run. |
 | | P3 | not started | |
 | | P4 | not started | |
 | | P5 | not started | |

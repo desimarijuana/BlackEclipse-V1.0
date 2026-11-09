@@ -29,4 +29,16 @@ if [ -d /app/.black-eclipse ] && [ ! -L /app/.black-eclipse ]; then
 fi
 [ -L /app/.black-eclipse ] || ln -sf "$DATA_DIR/.black-eclipse" "/app/.black-eclipse"
 
+# Apply the Prisma schema BEFORE the app starts. `npm start` does this through
+# `scripts/doctor.js` (the `prestart` hook), but the container runs `next start`
+# directly, so a fresh `be-data` volume would otherwise boot with an empty
+# database and every Prisma table (CronJob, journal, ...) would fail with P2021.
+# Additive `db push` is safe and idempotent; a destructive schema change fails
+# closed with a loud warning instead of silently dropping data.
+if command -v npx >/dev/null 2>&1; then
+  if ! npx prisma db push; then
+    echo "[entrypoint] WARNING: prisma db push failed; the database schema may be incomplete." >&2
+  fi
+fi
+
 exec "$@"
