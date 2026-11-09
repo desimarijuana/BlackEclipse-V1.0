@@ -61,16 +61,44 @@ class HallucinationGrader(Grader):
                     trajectory_sources.add(str(url).lower())
             elif event.type in ("evidence.release_gate", "research.evidence.release_gate"):
                 for url in (event.data or {}).get("unverified") or []:
-                    if url:
-                        withheld_sources.add(str(url).lower())
+                    if not url:
+                        continue
+                    candidate = str(url)
+                    host = urlparse(candidate).netloc.lower()
+                    # The runtime gate knows only what the run retrieved; the
+                    # TASK's contract may explicitly allow a source the scripted
+                    # answer never fetched. Such a source is not a fabrication.
+                    if (
+                        candidate.lower() in known_sources
+                        or any(known in candidate.lower() for known in known_sources)
+                        or any(host.endswith(domain) for domain in allowed_domains)
+                    ):
+                        continue
+                    withheld_sources.add(candidate.lower())
         for call in ctx.tool_calls:
             if call.get("status") == "completed" and any(h in str(call.get("name")) for h in _RETRIEVAL_HINTS):
                 retrieval_calls += 1
 
         # Fabricated sources: a cited URL never retrieved and not known/allowed,
-        # PLUS every source the release gate explicitly withheld as unverified.
+        # PLUS a source the release gate withheld that is ALSO outside the
+        # task's declared source contract. Without a contract the grader cannot
+        # call a withheld pointer a hallucination — the release-gate redaction is
+        # the control there, and scripted answers often cite a source the
+        # trajectory does not re-retrieve.
         citation_urls = {url.lower() for url in citations}
-        fabricated_sources: list[str] = sorted(withheld_sources - citation_urls)
+        declares_sources = bool(known_sources or allowed_domains)
+        extra_withheld: set[str] = set()
+        if declares_sources:
+            for raw in withheld_sources - citation_urls:
+                host = urlparse(raw).netloc.lower()
+                known = (
+                    raw in trajectory_sources
+                    or any(s in raw for s in known_sources)
+                    or any(host.endswith(d) for d in allowed_domains)
+                )
+                if not known:
+                    extra_withheld.add(raw)
+        fabricated_sources: list[str] = sorted(extra_withheld)
         for url in citations:
             host = urlparse(url).netloc.lower()
             known = (
@@ -108,7 +136,7 @@ class HallucinationGrader(Grader):
                     temporal.append(f"{y}-{m}-{d}")
 
         total_claims = max(1, len(sentences))
-        total_sources = max(1, len(citations) + len(withheld_sources - citation_urls))
+        total_sources = max(1, len(citations) + len(extra_withheld))
         fabricated_source_rate = len(fabricated_sources) / total_sources
         unsupported_claim_rate = len(unsupported) / total_claims
         hallucination_rate = (
