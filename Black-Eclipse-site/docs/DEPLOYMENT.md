@@ -235,6 +235,23 @@ A cron entry is equivalent:
            >> /var/log/blackeclipse-backup.log 2>&1
 ```
 
+**Windows (Task Scheduler).** `scripts/install-backup-task.ps1` registers the
+same daily backup, wrapping the same `backup.sh`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-backup-task.ps1
+# optional: -Time 02:30 -Keep 30 -OutDir D:\backups\blackeclipse
+schtasks /Run /TN "BlackEclipse Backup"   # verify one run
+```
+
+It writes the wrapper to `%LOCALAPPDATA%\BlackEclipse\backup-task.cmd` — a
+space-free path, because `schtasks` stores `/TR` unquoted and splits a path
+containing spaces (`0x80070002`). The task's logon mode is **interactive only**:
+it fires while the user is signed in. For a server, use the systemd timer or a
+dedicated service account. The archive excludes `.black-eclipse/code-index`
+(a rebuildable cache whose sidecars the live app holds open) and the SQLite
+`-wal`/`-shm` sidecars; the three app databases still use the SQLite backup API.
+
 **Restore** (tested in the P2 drill: backup → destroy → restore, 4/4 databases
 passing `PRAGMA integrity_check`):
 
