@@ -1,0 +1,57 @@
+name: Ops drift watch
+
+# Weekly cadence for the checks that catch silent rot between releases:
+# the browser drift smokes, the ADR record, the harness size ratchet and the
+# committed-secret scan. Push/PR runs live in ci.yml; this job exists so a stale
+# tree is noticed even when nobody pushes.
+#
+# Owner: @BlackEclipse/maintainers (CODEOWNERS). A red run notifies the
+# repository watchers by default; a hosted deployment must also route CI
+# failure notifications to the operator's channel.
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-drift
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: drift + size + ADR + secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Black-Eclipse-site
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Secret scan
+        run: node scripts/scan-secrets.js
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: Black-Eclipse-site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Drift browser smokes
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:drift
+
+      - name: ADR record
+        run: npm run check:adr
+
+      - name: Harness size budget
+        run: npm run check:size

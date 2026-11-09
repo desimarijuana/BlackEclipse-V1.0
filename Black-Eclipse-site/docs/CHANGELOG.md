@@ -1,6 +1,20 @@
 # Change Log
 
 ## 2026-11-08
+- **ops(release): P5 operational scaffolding for a self-hosted instance.**
+  `scripts/backup.sh` (consistent SQLite snapshots via the backup API, a
+  `PRAGMA integrity_check` before the archive is accepted, gzip archive,
+  retention, `.black-eclipse/` included), `scripts/install-backup-timer.sh`
+  (daily systemd timer), `scripts/health-watch.sh` (public health probe that
+  posts to `ALERT_WEBHOOK_URL` and says plainly when no channel is configured),
+  `deploy/prometheus/blackeclipse.rules.yml` (availability + health-probe alerts,
+  runtime-metric templates), and `.github/workflows/ops-drift.yml` (weekly
+  drift/size/ADR/secrets cadence, at the repository root where Actions reads it).
+  `docs/DEPLOYMENT.md` gains Backups & restore, Monitoring & alerts, Incident
+  response and Drift watch. The P5 exit gate is time-based (one week of a live
+  instance with no silent failure), so it is recorded open, not done. Docs
+  updated: `docs/DEPLOYMENT.md`, `docs/PRODUCTION-READINESS.md`,
+  `docs/CHANGELOG.md`.
 - **docs(harness): refresh benchmark results.** `docs/harness/benchmarks.md`
   now records run `evalrun-1794189449278` at commit `216277a2` (tier 0,
   gate PASS) with updated latency. Doc updated: `docs/harness/benchmarks.md`.

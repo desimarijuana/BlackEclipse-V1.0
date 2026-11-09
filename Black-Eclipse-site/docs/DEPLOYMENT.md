@@ -196,6 +196,59 @@ complete schema; a destructive schema change fails closed with a loud warning.
 
 Back up `/data`; do not bake it into the image.
 
+## Backups & restore
+
+`scripts/backup.sh` writes one archive of the state that must survive a host
+loss, and verifies it before accepting it:
+
+- `jdds.db`, `agent-memory.db`, `eclipse-memory.db` — copied with the **SQLite
+  backup API**, so the snapshot is consistent while the app is running;
+- `.black-eclipse/` — auth database, artifacts, sessions, plugins (its own
+  `backups/` directory is excluded);
+- each database is checked with `PRAGMA integrity_check` (a failure aborts the
+  backup instead of writing a bad archive).
+
+```bash
+# one-off (defaults: data dir = the app dir, output = <data>/backups, keep 14)
+bash scripts/backup.sh
+
+# explicit paths for a container host whose data lives in the volume
+bash scripts/backup.sh --data-dir /var/lib/docker/volumes/blackeclipse_be-data/_data \
+                       --out /var/backups/blackeclipse --keep 30
+```
+
+**Schedule it.** `scripts/install-backup-timer.sh` installs a systemd timer
+(daily 03:15 by default, with a randomized delay):
+
+```bash
+sudo bash scripts/install-backup-timer.sh                          # defaults
+sudo bash scripts/install-backup-timer.sh --time 02:30 --keep 30 \
+     --data-dir /var/lib/docker/volumes/blackeclipse_be-data/_data \
+     --out /var/backups/blackeclipse
+systemctl list-timers blackeclipse-backup.timer
+```
+
+A cron entry is equivalent:
+
+```cron
+15 3 * * * /opt/BlackEclipse-V1.0/Black-Eclipse-site/scripts/backup.sh \
+           >> /var/log/blackeclipse-backup.log 2>&1
+```
+
+**Restore** (tested in the P2 drill: backup → destroy → restore, 4/4 databases
+passing `PRAGMA integrity_check`):
+
+```bash
+sudo systemctl stop blackeclipse          # stop the app AND the timer
+tar -xzf /var/backups/blackeclipse/blackeclipse-<stamp>.tar.gz -C /tmp/restore
+# copy /tmp/restore/data/* over the live data directory
+sudo systemctl start blackeclipse
+```
+
+Keep backups off the data disk (a lost volume should not take its own backup
+with it) and restrict their permissions — `.black-eclipse/` contains the auth
+database. Never commit a backup; `jdds.db` and `.env` stay out of git.
+
 ## Health & operations
 
 - Healthcheck: `GET /login` (always public) — the container reports healthy once
@@ -219,6 +272,59 @@ Back up `/data`; do not bake it into the image.
   `HARNESS_PY_URL` / `HARNESS_PY_PORT` (default `8765`); set the same value in
   `.env` if you change it. Do not run `next dev` in production — it self-restarts
   under memory pressure, which kills any agent run in flight.
+
+## Monitoring & alerts
+
+- **Liveness:** `GET /login` (public) is the container healthcheck and the
+  external probe target.
+- **Runtime telemetry:** the operator-gated surface in
+  `docs/harness/observability.md` — `/observability/status`, `health`, `metrics`,
+  `slos`, `diagnostics`, and the Prometheus exposition at
+  `/observability/metrics/prometheus`.
+- **Rules:** `deploy/prometheus/blackeclipse.rules.yml` ships two
+  token-free rules (app scrape down, health probe failing) plus commented
+  templates for runtime metrics. Scrape the app with a job named
+  `blackeclipse` and probe `/login` with a blackbox exporter named
+  `blackeclipse-health`.
+- **Route to a human.** A rules file with no Alertmanager route is not an alert.
+  Point Alertmanager (or the hosting provider's alarm) at a pager/chat/email
+  channel someone reads, and name that owner in the deployment notes.
+- **Bare host without Prometheus:** `scripts/health-watch.sh` exits non-zero and
+  posts to `ALERT_WEBHOOK_URL` when the health surface fails. A one-minute cron
+  entry is enough:
+
+  ```cron
+  * * * * * cd /opt/BlackEclipse-V1.0/Black-Eclipse-site && \
+    HEALTH_URL=http://127.0.0.1:3000/login \
+    ALERT_WEBHOOK_URL=https://hooks.example/ops \
+    bash scripts/health-watch.sh >> /var/log/blackeclipse-health.log 2>&1
+  ```
+
+  Without a webhook it only writes to the log — a local check, not an alert.
+
+## Incident response
+
+| Incident | First action | Channel |
+|---|---|---|
+| Security vulnerability | Keep details out of public issues | GitHub **Security › Advisories › Report a vulnerability** (SECURITY.md) |
+| Outage / unhealthy app | Check `/observability/health` and `journalctl -u blackeclipse` / `docker compose logs app`; roll back with `git checkout <previous tag> && bash scripts/deploy.sh --force` | The operator's on-call channel wired into Alertmanager |
+| Data loss / corruption | Stop the app, restore the latest verified archive (see **Backups & restore**) | On-call channel |
+| Red weekly drift run | Triage before the next release; do not tag past a red run | `@BlackEclipse/maintainers` (CODEOWNERS) |
+
+Every alert and every red scheduled workflow must name an owner. For a
+single-operator install that owner is the operator; for the repository it is the
+maintainers role.
+
+## Drift watch
+
+`.github/workflows/ops-drift.yml` runs every Monday at 06:00 UTC (and on
+`workflow_dispatch`): the browser drift smokes, the ADR record, the harness size
+ratchet and the committed-secret scan. Push/PR runs stay in `ci.yml`; this is the
+cadence that notices a tree nobody touched. A red run is owed a triage by the
+owner before the next release — do not tag around it. For policy/authority
+changes, the operator-run path is
+`npm run self:maintenance -- plan --preview <file>` (read-only) followed by
+`execute`.
 
 ## Notes / known limits
 

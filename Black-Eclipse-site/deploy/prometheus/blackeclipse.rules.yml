@@ -1,0 +1,59 @@
+# Prometheus alerting rules for a self-hosted BlackEclipse instance.
+#
+# Wire two jobs in `prometheus.yml`:
+#   1. the app scrape target (job "blackeclipse") for its own metrics, and
+#   2. a blackbox exporter probing the public health surface:
+#        GET http://127.0.0.1:3000/login          (job "blackeclipse-health")
+#
+# The runtime's Prometheus exposition is operator-gated:
+#   GET /observability/metrics/prometheus
+# Scrape it with an operator token (or from loopback with the runtime's loopback
+# allowance). The `up` rules below need no token; the app rules are templates -
+# uncomment and match the metric names reported by your live runtime, because the
+# harness records names dynamically.
+#
+# Alertmanager routes these to a channel a human reads (pager, chat webhook or
+# email). A rules file with no route is not an alert; see
+# docs/DEPLOYMENT.md "Monitoring & alerts".
+
+groups:
+  - name: blackeclipse-availability
+    rules:
+      - alert: BlackEclipseDown
+        expr: up{job="blackeclipse"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: maintainers
+        annotations:
+          summary: "BlackEclipse front door is not answering"
+          description: "The app scrape target has been down for 2 minutes on {{ $labels.instance }}."
+          runbook: "docs/DEPLOYMENT.md#health--operations"
+
+      - alert: BlackEclipseHealthProbeFailing
+        expr: probe_success{job="blackeclipse-health"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: maintainers
+        annotations:
+          summary: "BlackEclipse health surface failing"
+          description: "GET /login has failed for 5 minutes on {{ $labels.instance }}."
+          runbook: "docs/DEPLOYMENT.md#health--operations"
+
+  # ── Runtime SLO templates (enable once the metric names are confirmed) ──────
+  # The harness exposes counters/histograms named by the code that records them
+  # (see GET /observability/metrics and docs/harness/observability.md). Do not
+  # guess a name in an alert you rely on; copy it from the live exposition.
+  #
+  # - alert: BlackEclipseAgentErrorsHigh
+  #   expr: sum(rate(eclipse_agent_errors_total[5m])) > 0.1
+  #   for: 10m
+  #   labels: { severity: warning, owner: maintainers }
+  #   annotations:
+  #     summary: "Agent error rate above 0.1/s"
+  #
+  # - alert: BlackEclipseRunLatencyHigh
+  #   expr: histogram_quantile(0.95, rate(eclipse_run_duration_ms_bucket[10m])) > 30000
+  #   for: 15m
+  #   labels: { severity: warning, owner: maintainers }
