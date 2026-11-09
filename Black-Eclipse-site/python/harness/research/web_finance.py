@@ -290,6 +290,8 @@ SIMPLE_FORMULAS: dict[str, tuple[str, str]] = {
     "position_size": ("reward / |risk|", "R"),
     "risk_reward": ("reward / |risk|", "R"),
     "risk_reward_ratio": ("reward / |risk|", "R"),
+    "weight": ("value / total", ""),
+    "portfolio_weights": ("value / total", ""),
     "cagr": ("((end / start) ** (1 / years) - 1) * 100", "%"),
     "fcf": ("operating_cash_flow - capex", "currency"),
 }
@@ -362,6 +364,11 @@ def compute_simple(metric: str, inputs: dict[str, Any]) -> dict[str, Any]:
         if risk == 0:
             raise ValueError(f"{name} is undefined with zero risk")
         value = reward / abs(risk)
+    elif name in ("weight", "portfolio_weights"):
+        part, total = need("value", "total")
+        if total == 0:
+            raise ValueError(f"{name} is undefined with zero total")
+        value = part / total
     elif name == "cagr":
         start, end, years = need("start", "end", "years")
         if start <= 0 or end <= 0 or years <= 0:

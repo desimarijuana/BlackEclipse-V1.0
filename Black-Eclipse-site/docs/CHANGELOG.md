@@ -1,6 +1,47 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(finance): `finance_calc` also covers portfolio weight.** The finance
+  suite's residual `finance.v6.weight.001` needed `value/total`; the calculator
+  now computes `weight` / `portfolio_weights` and the prompt names it. The
+  finance suite then stood at 267/269 with `task_success` **0.9926**
+  (`financial_accuracy` **0.9926**, up from 0.937). The one remaining miss is a
+  model-compliance edge case (answered +25 after the tool returned -25), not a
+  tooling gap. Size ratchets re-pinned for the in-flight setup/update routers.
+  Docs updated: `docs/CHANGELOG.md`.
+- **feat(chat): OpenCode-style file selection with provenance.** The composer's
+  "+" now opens a shared `FileSourcePicker` instead of a bare OS dialog: a
+  **Project** tab browses the chat's approved workspace root (breadcrumb, folder
+  paths, multi-select) and a **This computer** tab uploads local files labelled
+  `Local · uploaded copy`. Every attachment chip shows its origin badge and the
+  workspace-relative folder path. `@` in the composer now searches project files
+  (debounced, keyboard-navigable, section beside bots) and attaches the chosen
+  file as context. Provenance (`origin`/`sourcePath`/`rootId`/`rootLabel`) is
+  persisted in a per-session `context-meta.json` sidecar. The runtime gained
+  `GET /workspace/files/search` (bounded walk, optional `rootId`) and
+  `rootId` support on `/workspace/files`; the folder picker gained a clickable
+  breadcrumb, approved-root rail and recents; the editor can send a file to the
+  active chat. Docs: `docs/chat-ui-audit.md` (§ File selection), `docs/NAVIGATION.md`.
+- **feat(release): data-sources page, CI drift check, onboarding smoke, starter
+  dashboard.** `npm run docs:data-sources` generates `docs/data-sources.md` from
+  `src/lib/setup/source-catalog.ts`; CI runs the `--check` form so the page
+  cannot drift. `npm run smoke:onboarding` walks all five setup steps in a real
+  browser (no Finish click). Setup now seeds the first dashboard from the chosen
+  bundle (`seedStarterDashboard`), so the Dashboard persona dialog does not
+  appear after setup. Also fixed a production hydration mismatch in
+  `UpdateBanner` (localStorage read during the initial render). Docs updated:
+  `docs/data-sources.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(legal): point-of-use AI/financial risk notice with a recorded first-run
+  acceptance.** Every settled assistant answer now carries a non-dismissible
+  "AI-generated · not financial advice" notice (expandable to the full text);
+  the shared composer and the Assistant dock keep a permanent one-liner; Canvas
+  reports opt in via `ResponseView.showNotice`. The first-run wizard requires a
+  checkbox on its first step, and `POST /api/setup` rejects a missing or stale
+  `riskAck.version`, recording `{version, acceptedAt, mode}` in `risk_ack_v1`
+  (reset deletes it). Copy lives in `src/lib/legal/disclosure.ts`; this is
+  evidence and risk allocation, not immunity — the enforceable clause stays in
+  Terms. Docs: `docs/legal/disclosures.md` (new), `docs/legal/README.md`
+  (statuses), ADR-073 in `docs/DECISIONS.md` + `skills/ARCHITECT.md`.
 - **feat(finance): one deterministic calculator for the metrics the agent must
   not do mentally.** New `finance_calc` computes percentage change/return
   (signed), EPS, P/E, P/S, margins, position_size (reward/risk), CAGR and FCF
@@ -10,6 +51,13 @@
   including its sign. Registered in the agent allowlist and the tool registry
   (1,025 tools). Size ratchets re-pinned deliberately (total 465,125; see the
   budget comment). Docs updated: `docs/CHANGELOG.md`.
+- **chore(updates): keep private development honest with `published: false`.**
+  `config/updates.json` now carries a maintainer `published` flag, defaulting to
+  false while the release repo is private. In that state no network request is
+  made, Settings reports "Updates are not published yet", and `black update`
+  changes nothing — instead of a 404 that looks like a broken check. Launch is a
+  one-line flip once the repo is public. Docs updated: `docs/UPDATES.md`,
+  `docs/CHANGELOG.md`.
 - **feat(updates): signed release notices and a safe `black update` path.**
   Eclipse now tells users when a newer release exists, without phoning home:
   the local server fetches a public GitHub release manifest, verifies an Ed25519

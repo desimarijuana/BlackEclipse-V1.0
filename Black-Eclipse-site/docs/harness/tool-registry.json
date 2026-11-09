@@ -1,5 +1,5 @@
 {
-  "digest": "3db4215a2ec46175",
+  "digest": "f0a07fb63c13d9e9",
   "manifestVersion": "1",
   "toolCount": 1025,
   "tools": [
@@ -11501,12 +11501,12 @@
     },
     {
       "deprecated": false,
-      "description": "Compute ONE closed-form business metric from named inputs, with its formula: percentage_change/return (signed), EPS, P/E, P/S, gross/net/operating margin, position_size (reward/risk), CAGR, FCF. Use this for every calculation and report the returned value verbatim, including its sign; never compute the arithmetic yourself.",
+      "description": "Compute ONE closed-form business metric from named inputs, with its formula: percentage_change/return (signed), EPS, P/E, P/S, gross/net/operating margin, position_size (reward/risk), portfolio weight (value/total), CAGR, FCF. Use this for every calculation and report the returned value verbatim, including its sign; never compute the arithmetic yourself.",
       "effect": null,
       "inputSchema": {
         "properties": {
           "inputs": {
-            "description": "percentage_change/return: {start,end}; eps: {net_income,shares}; pe: {price,eps}; ps: {price,sales_per_share}; position_size: {reward,risk}; margins: {gross_profit|net_income|operating_income, revenue}; cagr: {start,end,years}; fcf: {operating_cash_flow,capex}",
+            "description": "percentage_change/return: {start,end}; eps: {net_income,shares}; pe: {price,eps}; ps: {price,sales_per_share}; position_size: {reward,risk}; weight: {value,total}; margins: {gross_profit|net_income|operating_income, revenue}; cagr: {start,end,years}; fcf: {operating_cash_flow,capex}",
             "type": "object"
           },
           "metric": {
@@ -11525,6 +11525,8 @@
               "position_size",
               "risk_reward",
               "risk_reward_ratio",
+              "weight",
+              "portfolio_weights",
               "cagr",
               "fcf"
             ],

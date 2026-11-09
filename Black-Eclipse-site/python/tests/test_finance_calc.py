@@ -22,6 +22,7 @@ CASES = [
     ("pe", {"price": 84, "eps": 6}, 14.0),
     ("ps", {"price": 84, "sales_per_share": 6}, 14.0),
     ("position_size", {"reward": 6, "risk": 2}, 3.0),
+    ("weight", {"value": 25, "total": 100}, 0.25),
     ("gross_margin", {"gross_profit": 40, "revenue": 100}, 40.0),
     ("net_margin", {"net_income": 20, "revenue": 100}, 20.0),
     ("cagr", {"start": 100, "end": 121, "years": 2}, 10.0),
