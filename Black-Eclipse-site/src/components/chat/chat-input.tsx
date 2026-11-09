@@ -6,7 +6,6 @@ import { Plus, ArrowUp, Pause, Loader2, Command, FileText, X, ChevronDown, Check
 import { Button } from '@/components/ui/button';
 import { ProviderLogo } from '@/components/providers/provider-logo';
 import { VoiceInputButton } from './voice-input-button';
-import { AiOutputNotice } from '@/components/legal/ai-output-notice';
 import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -928,9 +927,6 @@ export function ChatInput({
           </span>
         </div>
       )}
-      {/* Persistent point-of-use one-liner, shared by the full chat and the
-          landing state. */}
-      <AiOutputNotice variant="composer" className="mt-1.5" />
     </div>
   );
 }

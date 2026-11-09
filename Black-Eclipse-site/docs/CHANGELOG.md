@@ -1,6 +1,12 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(chat): remove the AI notice from chat (user-directed reversal).** The
+  composer one-liner, per-answer footer and response-view footer are gone again;
+  the `AiOutputNotice` component and its test are deleted. The first-run risk
+  acknowledgement stays, and `showNotice` remains a no-op prop so Canvas keeps
+  compiling. This supersedes the legal entry below for chat surfaces.
+  No doc change — copy/placement only, contracts unchanged.
 - **refine(legal): restore the short per-answer clause and make gate intensity
   deployment-aware.** The per-answer notice is back as ONE responsibility clause
   ("Verify with your broker; decisions are yours") with the full text behind the
