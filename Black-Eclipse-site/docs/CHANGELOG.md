@@ -1,6 +1,17 @@
 # Change Log
 
 ## 2026-11-08
+- **fix(ui): the sidebar menu always reads F1–F12 in order again.** Saved
+  shortcut slots had drifted for legacy orders (ChatBot kept F3 from the old
+  default order) and for the Dashboard insertion, which left one slot blank and
+  shifted every following key by one; duplicate keys could also survive. The
+  config is now versioned (v3) with an explicit `shortcutsCustomized` flag:
+  un-customized menus are re-numbered F1..F12 in visible order on load, after an
+  app-wide nav update and after a reorder, while keys assigned in Settings are
+  preserved and de-duplicated. Sidebar badges and collapsed titles render the
+  formatted label; the shortcut help no longer double-formats labels (which
+  upper-cased `Shift + E`) and now lists the missing `Alt+G` Graph mode entry.
+  Docs updated: `docs/OVERVIEW.md`, `docs/CHANGELOG.md`.
 - **Skills Phase 8: surface promotion evidence, version comparison, and bundle
   update preview/rollback.** Three capabilities already existed in the browser
   client but had no UI. Skill Detail now has a **Promotion evidence** section
