@@ -1,6 +1,24 @@
 # Change Log
 
+## 2026-11-09
+- **docs(setup): add the first-run onboarding implementation plan.** Documents
+  the boot-style gate, personal-vs-commercial source modes, the built-in API
+  commercial-use matrix with upstream links, AI provider / BYO-key flow, the
+  `onboarding_v1` + `data_source_prefs_v1` config contracts, the enforcement
+  layer required to make toggles real, the existing-install migration, and the
+  phased build/test plan. Docs updated: `docs/onboarding-plan.md`,
+  `docs/CHANGELOG.md`.
+
 ## 2026-11-08
+- **fix(evaluation): restore the live gate's `provider_configured` helper.** The
+  v0.3.0 tree called and exported `provider_configured()` in
+  `python/harness/evaluation/live_gate.py` but the definition was missing, so
+  `npm run eval:live` died with a `NameError` before any trial. The helper is
+  back (a local provider needs only a name; a hosted one also needs a key) with
+  three unit tests, and the live lane now runs end-to-end against the configured
+  Ollama model — `--limit 1` produced a recorded run. Size budget re-pinned
+  464766→464772 and evaluation 12066→12073 for the restored code. Docs updated:
+  `docs/CHANGELOG.md`.
 - **ops(release): P5 operational scaffolding for a self-hosted instance.**
   `scripts/backup.sh` (consistent SQLite snapshots via the backup API, a
   `PRAGMA integrity_check` before the archive is accepted, gzip archive,

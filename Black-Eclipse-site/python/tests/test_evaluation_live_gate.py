@@ -15,6 +15,32 @@ from harness.persistence import AgentMemoryStore
 from harness.schemas import HarnessError, ModelSettings, RunResult
 
 
+def test_provider_configured_accepts_a_local_provider_without_a_key(monkeypatch):
+    from harness.evaluation import live_gate
+
+    monkeypatch.setenv(live_gate.PROVIDER_ENV, "ollama")
+    monkeypatch.delenv(live_gate.API_KEY_ENV, raising=False)
+    assert live_gate.provider_configured() is True
+
+
+def test_provider_configured_requires_a_key_for_a_hosted_provider(monkeypatch):
+    from harness.evaluation import live_gate
+
+    monkeypatch.setenv(live_gate.PROVIDER_ENV, "openai")
+    monkeypatch.delenv(live_gate.API_KEY_ENV, raising=False)
+    assert live_gate.provider_configured() is False
+    monkeypatch.setenv(live_gate.API_KEY_ENV, "sk-test")
+    assert live_gate.provider_configured() is True
+
+
+def test_provider_configured_rejects_an_empty_provider(monkeypatch):
+    from harness.evaluation import live_gate
+
+    monkeypatch.delenv(live_gate.PROVIDER_ENV, raising=False)
+    monkeypatch.setenv(live_gate.API_KEY_ENV, "sk-test")
+    assert live_gate.provider_configured() is False
+
+
 class _Bus:
     def subscribe(self, _listener):
         return lambda: None

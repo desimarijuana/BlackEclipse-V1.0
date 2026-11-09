@@ -29,6 +29,25 @@ from .tasks import load_all_builtin, select_tasks
 PROVIDER_ENV = "BLACK_ECLIPSE_PROVIDER"
 API_KEY_ENV = "BLACK_ECLIPSE_API_KEY"
 
+#: Providers that are local and keyless by design.
+LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio", "local"})
+
+
+def provider_configured() -> bool:
+    """Whether a live provider can be used.
+
+    A local provider needs only a name; a hosted one also needs a key. A hosted
+    provider with no key is NOT configured - the lane reports NOT MEASURED
+    instead of running trials that can only fail with 401.
+    """
+    provider = (os.environ.get(PROVIDER_ENV) or "").strip().lower()
+    if not provider:
+        return False
+    if provider in LOCAL_PROVIDERS:
+        return True
+    return bool((os.environ.get(API_KEY_ENV) or "").strip())
+
+
 #: The cheapest capability that proves the front door answers.
 PREFLIGHT_CAPABILITY = "market_snapshot"
 
@@ -136,4 +155,10 @@ async def run_live_gate(
             pass
 
 
-__all__ = ["API_KEY_ENV", "PROVIDER_ENV", "provider_configured", "run_live_gate"]
+__all__ = [
+    "API_KEY_ENV",
+    "LOCAL_PROVIDERS",
+    "PROVIDER_ENV",
+    "provider_configured",
+    "run_live_gate",
+]
