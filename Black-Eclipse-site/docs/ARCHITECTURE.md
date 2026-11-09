@@ -69,16 +69,18 @@ shell's mode. Keyboard shortcuts stay local. ChatBot belongs to both Terminal
 and Agentic; when a terminal/agentic-only screen is
 opened by the palette or a deep link the switcher follows it. The switcher is
 hidden while collapsed, but the selected mode still filters the icons — switch
-with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse SDK,
-Eclipse Memory and Artifacts**; the other agentic capabilities (Code, Editor,
-Jobs, Tasks, Pages, UI Builder, Plugins, Model Control Center, Search, Research,
-Backtest) are not sidebar tabs and are reached from ChatBot through its tools.
-The Eclipse SDK tab is the user-facing composition surface — declarative
-widgets, composed pages, the Command Center, typed themes, fund portfolios and
-passphrase locks; see `docs/eclipse-sdk.md`. Every SDK mutation appends to
-`SdkAudit` on `agent-memory.db` (bounded, no secrets); front-door-owned writes
-(theme, app shell, dashboard templates) record through the same loopback audit
-route, and the SDK screen's Activity panel reads it. The Command Center toolbar
+with Alt+T / Alt+A. The Agentic mode lists **ChatBot, Skills, Eclipse Memory and
+Artifacts**; the other agentic capabilities (Code, Editor, Jobs, Tasks, Pages,
+UI Builder, Plugins, Model Control Center, Search, Research, Backtest) are not
+sidebar tabs and are reached from ChatBot through its tools. The Eclipse SDK is
+the user-facing composition surface — declarative widgets, composed pages, the
+Command Center, typed themes, fund portfolios and passphrase locks — driven
+through ChatBot tools or the typed `eclipseSdk` client; there is no dedicated
+SDK page (the former `?tab=sdk` surface was removed). See
+`docs/eclipse-sdk.md`. Every SDK mutation appends to `SdkAudit` on
+`agent-memory.db` (bounded, no secrets); front-door-owned writes (theme, app
+shell, dashboard templates) record through the same loopback audit route.
+The Command Center toolbar
 exposes retained-revision Undo/History; a restore is a new revision, so undo is
 itself undoable. The dashboard is not a separate
 store: `/dashboard/<id>` is a UI blueprint mirrored by `DashboardScreen`, and

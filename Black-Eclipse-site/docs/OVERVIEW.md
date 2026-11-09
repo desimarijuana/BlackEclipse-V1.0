@@ -59,7 +59,7 @@ The sidebar is user-reorderable with configurable function-key navigation.
 Defaults follow its shipped order: F1 ChatBot, F2 Dashboard, F3 Command Center,
 F4 Investor Eye, F5 Chart Workspace, F6 Market Screener, F7 Portfolio, F8 Journal,
 F9 Market News, F10 Market Bubbles, F11 Economics, and F12 Price Alerts. Later
-sections (Skills, Eclipse SDK, Eclipse Memory, Artifacts, Graph Studio) ship
+sections (Skills, Eclipse Memory, Artifacts, Graph Studio) ship
 without a default function key. A menu that has never been customized is
 re-numbered on load, after a reorder and after an app-wide nav update, so its
 first twelve entries always read F1–F12 in order — this repairs older saved

@@ -37,7 +37,6 @@ const ALL_TABS: Record<AppTab, true> = {
   tasks: true,
   pages: true,
   'ui-builder': true,
-  sdk: true,
   backtest: true,
   'strategy-studio': true,
   'research-data': true,

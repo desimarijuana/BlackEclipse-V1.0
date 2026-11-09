@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AlertTriangle, RefreshCw, RotateCcw } from '@/lib/icons';
+import { AlertTriangle, RefreshCw } from '@/lib/icons';
 
 interface Props {
   children: React.ReactNode;
@@ -53,16 +53,10 @@ export class ErrorBoundary extends React.Component<Props, State> {
               </div>
               <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                 <button
-                  onClick={() => this.setState({ hasError: false, message: '' })}
+                  onClick={() => window.location.reload()}
                   className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 cursor-pointer"
                 >
-                  <RotateCcw size={14} /> Try again
-                </button>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 cursor-pointer"
-                >
-                  <RefreshCw size={13} /> Reload
+                  <RefreshCw size={14} /> Reload
                 </button>
               </div>
             </div>

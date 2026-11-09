@@ -104,7 +104,6 @@ export const LAUNCHER_ORDER = [
   'page-strategy-studio',
   'page-overview',
   'page-skills',
-  'page-sdk',
   'page-memory',
   'page-artifacts',
   'page-tables',
@@ -231,7 +230,6 @@ registerPage({ id: 'page-research-data', kind: 'page', title: 'Research Data', a
   registerPage({ id: 'page-ml-lab', kind: 'page', title: 'ML Lab', aliases: ['ml lab', 'machine learning', 'ml research', 'model training', 'train model', 'dataset builder', 'model registry', 'walk forward', 'experiments'], keywords: ['ml', 'machine learning', 'model', 'training', 'dataset', 'feature', 'target', 'experiment', 'registry', 'walk forward', 'purged', 'leakage', 'evaluation', 'drift'], icon: 'activity', tab: 'ml-lab', rankBoost: 1.2 });
 // Sidebar-visible screens that previously had no palette entry.
 registerPage({ id: 'page-overview', kind: 'page', title: 'Graph Studio', aliases: ['graph studio', 'overview', 'graph', 'workflows', 'workflow gallery'], keywords: ['graph', 'studio', 'overview', 'workflow', 'gallery', 'nodes', 'canvas'], icon: 'dashboard', tab: 'overview', rankBoost: 1.1 });
-registerPage({ id: 'page-sdk', kind: 'page', title: 'Eclipse SDK', aliases: ['eclipse sdk', 'sdk', 'sdk console', 'extensibility'], keywords: ['sdk', 'eclipse', 'extensibility', 'blueprint', 'capabilities'], icon: 'sdk', tab: 'sdk', rankBoost: 1.1 });
 registerPage({ id: 'page-artifacts', kind: 'page', title: 'Artifacts', aliases: ['artifacts', 'artifact center', 'artifact gallery', 'files center'], keywords: ['artifacts', 'artifact', 'gallery', 'files', 'deliverables'], icon: 'artifacts', tab: 'artifacts', rankBoost: 1.1 });
 registerPage({ id: 'page-tables', kind: 'page', title: 'Tables', aliases: ['tables', 'data tables', 'table editor'], keywords: ['tables', 'table', 'data', 'rows'], icon: 'tables', tab: 'tables' });
 // Shell-reachable screens outside the sidebar (ChatBot tools land here).

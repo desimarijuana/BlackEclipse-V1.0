@@ -22,7 +22,6 @@ export const navigation = {
   'nav.economics': 'Economics',
   'nav.alerts': 'Price Alerts',
   'nav.skills': 'Skills',
-  'nav.sdk': 'Eclipse SDK',
   'nav.memory': 'Eclipse Memory',
   'nav.artifacts': 'Artifacts',
   'nav.tasks': 'Tasks',

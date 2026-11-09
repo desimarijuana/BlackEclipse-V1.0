@@ -303,7 +303,3 @@ export function GraphPanel({ onSelectCountry }: { onSelectCountry?: (iso2: strin
     </>
   );
 }
-
-// The bare chart (no panel chrome, no full-page overlay) is reused by the
-// sidebar graph dialog so a relationship graph can be shown anywhere.
-export { GraphChart as RelationshipGraphChart };

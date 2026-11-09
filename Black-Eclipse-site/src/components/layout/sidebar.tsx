@@ -104,7 +104,7 @@ export function Sidebar({
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const prefetchSettings = useSettingsPrefetch();
   // Quick launchers below the mode switcher: the Channel Gateway (Telegram,
-  // Discord, WhatsApp, …) and the relationship/skills graph browser.
+  // Discord, WhatsApp, …) and the learning-journey graph browser.
   const [gatewayOpen, setGatewayOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
   // The collapse/expand affordance is a DESKTOP preference: the mobile drawer is

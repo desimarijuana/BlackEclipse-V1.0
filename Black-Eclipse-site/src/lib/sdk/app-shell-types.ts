@@ -49,7 +49,6 @@ export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'strategy-studio', label: 'Strategy Studio', group: 'terminal' },
   { id: 'overview', label: 'Overview', group: 'graph' },
   { id: 'skills', label: 'Skills', group: 'agentic' },
-  { id: 'sdk', label: 'Eclipse SDK', group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', group: 'agentic' },
   { id: 'tables', label: 'Tables', group: 'graph' },

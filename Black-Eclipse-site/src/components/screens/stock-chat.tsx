@@ -129,7 +129,6 @@ const PagesScreen = dynamic(
   () => import('@/components/screens/pages/pages-screen').then((m) => m.PagesScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
-import { SdkTab } from '@/components/screens/sdk/sdk-tab';
 import { CodeTab } from '@/components/screens/code/code-tab';
 const BacktestScreen = dynamic(
   () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
@@ -1429,8 +1428,6 @@ function StockChatContent() {
               </div>
             </div>
           )}
-
-          {visited.has('sdk') && <SdkTab active={activeTab === 'sdk'} />}
 
           {visited.has('backtest') && (
             <div className={cn('w-full h-full', activeTab === 'backtest' ? '' : 'hidden')}>

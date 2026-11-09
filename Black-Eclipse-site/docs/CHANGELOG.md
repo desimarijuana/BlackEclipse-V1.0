@@ -1,6 +1,31 @@
 # Change Log
 
 ## 2026-11-08
+- **refactor(ui): remove the Eclipse SDK page.** The dedicated `?tab=sdk`
+  screen (`src/components/screens/sdk/`) is deleted along with its AppTab,
+  sidebar/Agentic entry, search-palette page and launcher row, app-shell nav
+  section, deep-link entry and nav translation key. The Eclipse SDK itself —
+  `/sdk/*`, `eclipseSdk`, widgets, dashboards, themes, locks, audit and the
+  `/app` / `/eclipsesdk` chat tools — is unchanged and remains driveable from
+  ChatBot and the typed client. Docs updated: `docs/ARCHITECTURE.md`,
+  `docs/eclipse-sdk.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(ui): the sidebar Graph pop-up now shows only the learned graph.** The
+  **Relations** tab duplicated the Investor Eye relationship graph (the same
+  `IE_GRAPH_TOPIC` chart, with no capability the Investor Eye panel lacks), so
+  it is removed; the pop-up keeps the learning-journey graph and drops the tab
+  strip. The Investor Eye **Relationship Graph** panel is unchanged, and the
+  now-unused `RelationshipGraphChart` re-export and `sidebar.graphSkills` /
+  `sidebar.graphRelations` strings are removed. `graphHint` / `graphDialogHint`
+  now describe the learned graph. No data or API change. Docs updated:
+  `docs/CHANGELOG.md`.
+- **fix(ui): the crash card now offers one clear action — Reload.** The
+  top-level "Something went wrong" fallback (`error-boundary.tsx`) paired
+  "Try again" (reset the boundary state in place) with "Reload" (full document
+  reload). For a boundary wrapping the whole app, the in-place reset rarely
+  recovers: a deterministic render error immediately re-throws, and the subtree's
+  state is already gone, so it mostly flashed the card back. "Try again" was
+  removed and the surviving **Reload** button is now the primary action. No doc
+  change — copy/affordance-only UI change, contracts unchanged.
 - **fix(ui): the sidebar menu always reads F1–F12 in order again.** Saved
   shortcut slots had drifted for legacy orders (ChatBot kept F3 from the old
   default order) and for the Dashboard insertion, which left one slot blank and

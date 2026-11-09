@@ -28,16 +28,16 @@ describe('app shell nav contracts', () => {
     const nav = normalizeAppNav({
       mode: 'agentic',
       sections: [
-        { id: 'sdk', enabled: true },
+        { id: 'skills', enabled: true },
         { id: 'not-a-tab', enabled: true },
         { id: 'news', enabled: false },
-        { id: 'sdk', enabled: false },
+        { id: 'skills', enabled: false },
       ],
     });
     expect(nav.mode).toBe('agentic');
-    expect(nav.sections.slice(0, 2).map((section) => section.id)).toEqual(['sdk', 'news']);
+    expect(nav.sections.slice(0, 2).map((section) => section.id)).toEqual(['skills', 'news']);
     expect(nav.sections[1].enabled).toBe(false);
-    expect(nav.sections.filter((section) => section.id === 'sdk')).toHaveLength(1);
+    expect(nav.sections.filter((section) => section.id === 'skills')).toHaveLength(1);
     // Missing sections are appended so the nav can never lose an entry.
     expect(nav.sections.map((section) => section.id)).toContain('dashboard');
   });

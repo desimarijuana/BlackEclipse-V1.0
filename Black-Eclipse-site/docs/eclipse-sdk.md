@@ -36,8 +36,9 @@ Import it from any client module:
 import { eclipseSdk } from '@/lib/sdk';
 ```
 
-It is also exposed as `window.eclipseSdk` for browser-console testing, and the
-`Eclipse SDK` tab (`?tab=sdk`) is a thin UI over the same methods.
+It is also exposed as `window.eclipseSdk` for browser-console testing. There is
+no dedicated SDK page: app-control work runs through ChatBot tools or the typed
+client (the former `Eclipse SDK` tab / `?tab=sdk` surface was removed).
 
 ## Declarative widgets (no code execution)
 
@@ -191,11 +192,10 @@ hashes and salts are never returned by the API. Re-locking an already-locked
 resource requires a valid unlock token, so a caller cannot replace the
 passphrase and defeat the gate.
 
-The SDK screen's lock manager covers every resource type (`page`, `widget`,
-`portfolio`, `design`, `dashboard`, `theme`), filters by resource type and
-search, shows the hint/updated time, and marks resources unlocked in this tab.
-Unlocking is per-tab for 15 minutes; removing a lock still requires that token
-or the passphrase.
+`eclipseSdk.locks.list()` covers every resource type (`page`, `widget`,
+`portfolio`, `design`, `dashboard`, `theme`) and `eclipseSdk.locks.unlock()`
+marks a resource unlocked for the current tab. Unlocking is per-tab for 15
+minutes; removing a lock still requires that token or the passphrase.
 
 ## Activity and undo
 
@@ -206,7 +206,7 @@ Front-door-owned surfaces (themes, app-shell nav, dashboard templates) call
 `POST /sdk/audit` over the loopback callback after a successful write; a runtime
 that is down never turns a successful edit into a failure. The table is capped
 at the newest 2,000 rows; `GET /sdk/audit?limit=&action=&resourceType=` reads
-it, and the SDK screen's Activity panel filters/searches the same rows.
+it, and `eclipseSdk.audit.list()` filters/searches the same rows.
 `sdk_audit_list` is the read-only chat tool (for "what changed recently?").
 Local Command Center drag/drop publishes go through `/api/ui/...`, not the SDK,
 so they appear in the board's **History** rather than Activity; Activity is the
@@ -288,7 +288,6 @@ window focus, and a 15s fallback, so every tab converges on the same theme.
 | App shell live sync | `src/lib/sdk/app-shell-client.ts` (mounted by `ui-catalog-sync.tsx`) |
 | Shell navigation helper | `src/lib/sdk/navigate.ts` (deep link + pending dashboard) |
 | Design merge | `src/lib/sdk/design.ts` |
-| SDK tab UI | `src/components/screens/sdk/sdk-screen.tsx` |
 | Sidebar page links | `src/components/layout/sdk-pages-nav.tsx` |
 
 Tests: `python/tests/test_sdk_service.py`, `python/tests/test_sdk_api.py`,
