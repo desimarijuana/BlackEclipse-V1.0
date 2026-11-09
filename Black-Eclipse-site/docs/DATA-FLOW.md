@@ -311,7 +311,10 @@ The product rule stands: **never present stale or simulated data as live.**
   (`importance`, `alertLevel`, `importanceReasons`, `isBreaking`, `confidence`,
   `direction`, `horizon`, `invalidates`, `affected`). Query: `sort` (`newest` |
   `oldest` | `importance`), `minImportance`, `tickers` (filter + watchlist
-  context), `portfolio` (holdings context only).
+  context), `portfolio` (holdings context only), `page`, `limit` (1–200). The
+  feed clusters same-story rows before paging, so `pagination.total` is the
+  clustered total inside the ranking window (400 for `importance`, a fixed 600
+  otherwise) — not the raw `NewsItem` count.
 - `/api/news/alerts` → `{ alerts, upcoming, calendarSource, threshold,
   lookbackHours, lastIngestAt, source }`. `upcoming` is empty when the calendar
   is only the placeholder fallback.

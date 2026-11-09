@@ -84,12 +84,11 @@ async function queryNews(opts: {
   const { where, sort, page, limit, cluster, sortMode, minImportance, watchlist, portfolio } = opts;
   const importanceMode = sortMode === "importance";
   // Importance ranking needs a wider recent window, then sorts AFTER scoring.
-  // Default feed stays cheap and paginates in the DB as before.
-  const takeRows = importanceMode
-    ? 400
-    : cluster
-      ? Math.min(600, page * limit + limit * 2)
-      : limit;
+  // Clustering must use a STABLE window too: a per-page window made the
+  // clustered catalog (and therefore `totalPages`) shift as the user paged.
+  const CLUSTER_WINDOW = 600;
+  const IMPORTANCE_WINDOW = 400;
+  const takeRows = importanceMode ? IMPORTANCE_WINDOW : cluster ? CLUSTER_WINDOW : limit;
 
   const [rawTotal, news, pulse] = await Promise.all([
     prisma.newsItem.count({ where }),
@@ -169,7 +168,7 @@ async function queryNews(opts: {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-  const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "10", 10)));
+  const limit = Math.min(200, Math.max(1, parseInt(searchParams.get("limit") || "10", 10)));
   const category = searchParams.get("category");
   const region = searchParams.get("region");
   const tierParam = searchParams.get("tier");

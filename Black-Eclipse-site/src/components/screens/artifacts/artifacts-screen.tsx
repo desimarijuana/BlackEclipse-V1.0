@@ -15,6 +15,7 @@ import {
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useCommandStore } from '@/lib/search/store';
+import { ServerPaginationFooter } from '@/components/ui/pagination';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslateFn } from '@/lib/i18n/translate';
 import type { TranslationKey } from '@/lib/i18n/types';
@@ -102,10 +103,13 @@ function ArtifactCard({
   t: TranslateFn;
 }) {
   const Icon = categoryIcon(artifact.category);
-  const isImage = artifact.category === 'image';
-  // A video with a generated poster (a real frame of the render) shows it too;
-  // a video without one falls back to the category icon — never a broken img.
-  const hasPoster = isImage || (artifact.category === 'video' && Boolean(artifact.thumbnailKey));
+  const isVideo = artifact.category === 'video';
+  // Only request the thumbnail when the runtime actually recorded one. Older
+  // image/video artifacts without a generated thumbnail used to render a
+  // 404 <img> that collapsed to an empty block — they now fall back to the
+  // category icon instead of a blank card.
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const hasPoster = !thumbFailed && Boolean(artifact.thumbnailKey) && (artifact.category === 'image' || isVideo);
   return (
     <div
       className={cn(
@@ -133,7 +137,7 @@ function ArtifactCard({
             src={thumbnailUrl(artifact.id)}
             alt=""
             className="h-full w-full object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={() => setThumbFailed(true)}
           />
         ) : (
           <Icon className="h-9 w-9 text-muted-foreground/70" />
@@ -471,13 +475,14 @@ function DetailDrawer({
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 24;
+const DEFAULT_PAGE_SIZE = 24;
+const MAX_PAGE_SIZE = 200;
 
 export function ArtifactsScreen() {
   const t = useT();
   const [items, setItems] = useState<Artifact[]>([]);
   const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [offset, setOffset] = useState(0);
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -506,36 +511,44 @@ export function ArtifactsScreen() {
     favorite: favoritesOnly ? true : undefined,
     includeArchived,
     tags: activeTag ? [activeTag] : undefined,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     offset: 0,
-  }), [debounced, category, sort, favoritesOnly, includeArchived, activeTag]);
+  }), [debounced, category, sort, favoritesOnly, includeArchived, activeTag, pageSize]);
 
-  const load = useCallback(async (append = false, nextOffset = 0) => {
+  // Server-side pagination: fetch only the requested page. `load` replaces the
+  // list (no more append-only "Load more"), so the footer can show real page
+  // numbers over the full filtered total.
+  const load = useCallback(async (nextOffset = 0) => {
     const seq = ++reqSeq.current;
     setLoading(true);
     setError(null);
     try {
       const page = await listArtifacts({ ...params(), offset: nextOffset });
       if (seq !== reqSeq.current) return; // stale response — ignore
-      setItems((prev) => (append ? [...prev, ...page.artifacts] : page.artifacts));
+      // A delete can empty the last page; step back to the new last page.
+      if (page.artifacts.length === 0 && nextOffset > 0 && page.total > 0) {
+        const lastOffset = Math.max(0, (Math.ceil(page.total / pageSize) - 1) * pageSize);
+        if (lastOffset !== nextOffset) { void load(lastOffset); return; }
+      }
+      setItems(page.artifacts);
       setTotal(page.total);
-      setHasMore(page.hasMore);
-      setOffset(nextOffset + page.artifacts.length);
+      setOffset(nextOffset);
     } catch (e) {
       if (seq === reqSeq.current) setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       if (seq === reqSeq.current) setLoading(false);
     }
-  }, [params]);
+  }, [params, pageSize]);
 
-  useEffect(() => { void load(false, 0); }, [load]);
+  // Any filter/sort/page-size change starts again at the first page.
+  useEffect(() => { void load(0); }, [load]);
   useEffect(() => { listTags().then(setTags).catch(() => {}); }, []);
 
-  // Lightweight realtime: refresh the first page periodically while mounted.
+  // Lightweight realtime: refresh the current page periodically while mounted.
   useEffect(() => {
-    const id = window.setInterval(() => { if (!document.hidden) void load(false, 0); }, 12_000);
+    const id = window.setInterval(() => { if (!document.hidden) void load(offset); }, 12_000);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [load, offset]);
 
   const toggle = (id: string) => setSelected((prev) => {
     const next = new Set(prev);
@@ -550,13 +563,13 @@ export function ArtifactsScreen() {
     try {
       await bulkAction([...selected], action);
       setSelected(new Set());
-      await load(false, 0);
+      await load(offset);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Bulk action failed');
     }
   };
 
-  const retry = () => void load(false, 0);
+  const retry = () => void load(offset);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -678,19 +691,23 @@ export function ArtifactsScreen() {
 
       <div className="flex items-center justify-center gap-3 py-2">
         {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" /> : null}
-        {hasMore && !loading ? (
-          <button type="button" onClick={() => void load(true, offset)}
-            className="glass-card-subtle rounded-lg px-3 py-1.5 text-xs text-foreground hover:bg-white/5">
-            {t('artifacts.loading')}
-          </button>
-        ) : null}
-        {!hasMore && items.length > 0 ? (
-          <span className="text-[11px] text-muted-foreground/40">{total} total</span>
-        ) : null}
       </div>
 
+      <ServerPaginationFooter
+        total={total}
+        limit={pageSize}
+        offset={offset}
+        count={items.length}
+        onOffset={(next) => void load(next)}
+        onLimit={setPageSize}
+        maxPageSize={MAX_PAGE_SIZE}
+        numbered
+        disabled={loading}
+        label="artifacts"
+      />
+
       {open ? (
-        <DetailDrawer artifact={open} onClose={() => setOpen(null)} onChanged={() => void load(false, 0)} t={t} />
+        <DetailDrawer artifact={open} onClose={() => setOpen(null)} onChanged={() => void load(offset)} t={t} />
       ) : null}
     </div>
   );

@@ -10,11 +10,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
 import { loadPortfolioSymbols } from '@/lib/news/client-context';
+import { NewsPagination } from '@/components/screens/news-pagination';
+import { PageSizeInput } from '@/components/ui/pagination';
 import {
   clearCardSettings,
   DEFAULT_CARD_SETTINGS,
   loadCardSettings,
   saveCardSettings,
+  clampPerPage,
+  MAX_PER_PAGE,
   type CardSettings,
 } from '@/lib/news/card-settings';
 
@@ -244,7 +248,8 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
       const useMyStocks = opts?.myStocks ?? myStocksOnly;
       const useHighAlert = opts?.highAlert ?? highAlertOnly;
       const effectiveSort = useHighAlert ? 'importance' : c.sort;
-      const params = new URLSearchParams({ page: String(pageNum), limit: String(c.perPage), sort: effectiveSort });
+      const perPage = clampPerPage(c.perPage);
+      const params = new URLSearchParams({ page: String(pageNum), limit: String(perPage), sort: effectiveSort });
       if (useHighAlert) params.set('minImportance', '55');
       if (f.category) params.set('category', f.category);
       if (f.region) params.set('region', f.region);
@@ -374,7 +379,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     // The High Alert filter is a user-pinned query; leave it alone.
     if (highAlertOnly) return;
     try {
-      const params = new URLSearchParams({ page: '1', limit: String(cards.perPage), sort: cards.sort });
+      const params = new URLSearchParams({ page: '1', limit: String(clampPerPage(cards.perPage)), sort: cards.sort });
       if (filters.category) params.set('category', filters.category);
       if (filters.region) params.set('region', filters.region);
       if (filters.tier) params.set('tier', filters.tier);
@@ -431,7 +436,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   const showStaged = () => {
     setNewsList((prev) => {
       const seen = new Set(prev.map((n) => n.id));
-      return [...stagedNews.filter((n) => !seen.has(n.id)), ...prev].slice(0, cards.perPage);
+      return [...stagedNews.filter((n) => !seen.has(n.id)), ...prev].slice(0, clampPerPage(cards.perPage));
     });
     setStagedNews([]);
     setNewCount(0);
@@ -979,6 +984,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                     {n}
                   </button>
                 ))}
+                <PageSizeInput
+                  pageSize={cards.perPage}
+                  max={MAX_PER_PAGE}
+                  label="Custom"
+                  className="self-center"
+                  onCommit={(n) => {
+                    updateCards({ perPage: n });
+                    fetchNews(1, filters, { ...cards, perPage: n });
+                  }}
+                />
                 <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider self-center">Sort:</span>
                 {(['newest', 'oldest', 'importance'] as const).map((s) => (
@@ -1183,22 +1198,24 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 )}
 
                 <div className="flex-1 min-w-0 space-y-2.5 relative z-10">
-                  {cards.showBadges && (
+                  {(cards.showBadges || cards.showTimestamp) && (
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-bold text-muted-foreground font-mono uppercase bg-accent/60 px-2 py-0.5 rounded border border-border/40">
-                        {item.source}
-                      </span>
-                      {item.category && (
+                      {cards.showBadges && item.source && (
+                        <span className="text-[10px] font-bold text-muted-foreground font-mono uppercase bg-accent/60 px-2 py-0.5 rounded border border-border/40">
+                          {item.source}
+                        </span>
+                      )}
+                      {cards.showBadges && item.category && (
                         <span className="text-[10px] font-bold text-primary/80 font-mono uppercase bg-primary/5 border border-primary/15 px-2 py-0.5 rounded">
                           {item.category}
                         </span>
                       )}
-                      {item.ticker && (
+                      {cards.showBadges && item.ticker && (
                         <span className="text-[10px] font-extrabold text-primary font-mono bg-primary/10 border border-primary/20 px-2 py-0.5 rounded">
                           {item.ticker}
                         </span>
                       )}
-                      {(item.sourceCount ?? 1) > 1 && (
+                      {cards.showBadges && (item.sourceCount ?? 1) > 1 && (
                         <span
                           className="text-[10px] font-bold text-amber-400 font-mono bg-amber-400/5 border border-amber-400/25 px-2 py-0.5 rounded"
                           title={`Covered by: ${(item.clusterSources || []).join(', ')}`}
@@ -1206,21 +1223,23 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                           ×{item.sourceCount} sources
                         </span>
                       )}
-                      {item.alertLevel === 'critical' && (
+                      {cards.showBadges && item.alertLevel === 'critical' && (
                         <span className="text-[10px] font-bold text-rose-300 font-mono bg-rose-500/10 border border-rose-500/35 px-2 py-0.5 rounded">
                           CRITICAL
                         </span>
                       )}
-                      {item.alertLevel === 'high' && (
+                      {cards.showBadges && item.alertLevel === 'high' && (
                         <span className="text-[10px] font-bold text-amber-300 font-mono bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded">
                           HIGH ALERT
                         </span>
                       )}
-                      {item.isBreaking && (
+                      {cards.showBadges && item.isBreaking && (
                         <span className="text-[10px] font-bold text-rose-300 font-mono bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded">
                           BREAKING
                         </span>
                       )}
+                      {/* Timestamp is its own toggle — it used to be nested inside
+                          the Badges block, so turning Badges off silently hid it. */}
                       {cards.showTimestamp && (
                         <span className="text-[10px] text-muted-foreground font-mono">{relativeTime(item.timestamp)}</span>
                       )}
@@ -1296,63 +1315,21 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
            })}
         </div>
 
-        {/* Pagination Controls */}
-        {totalPages > 1 && (() => {
-          // Compact windowed page list: 1 … (p-1) p (p+1) … last
-          const windowSize = 1;
-          const pageNumbers: (number | '…')[] = [];
-          const push = (n: number | '…') => {
-            if (pageNumbers[pageNumbers.length - 1] !== n) pageNumbers.push(n);
-          };
-          push(1);
-          if (page - windowSize > 2) push('…');
-          for (let i = Math.max(2, page - windowSize); i <= Math.min(totalPages - 1, page + windowSize); i++) push(i);
-          if (page + windowSize < totalPages - 1) push('…');
-          if (totalPages > 1) push(totalPages);
-          const pageBtn = (n: number, active: boolean) => (
-            <button
-              key={n}
-              onClick={() => handlePageChange(n)}
-              className={`h-8.5 min-w-[34px] px-2 rounded-lg text-[12px] font-mono font-semibold cursor-pointer transition-all border ${
-                active
-                  ? 'bg-primary/15 text-primary border-primary/40 shadow-[0_0_10px_rgba(139,92,246,0.15)]'
-                  : 'bg-accent/30 text-muted-foreground border-border/30 hover:border-primary/30 hover:text-foreground'
-              }`}
-            >
-              {n}
-            </button>
-          );
-          const navBtn = (label: string, target: number, disabled: boolean, arrow: React.ReactNode) => (
-            <button
-              onClick={() => !disabled && handlePageChange(target)}
-              disabled={disabled}
-              className="h-8.5 px-3 rounded-lg text-[12px] font-semibold cursor-pointer transition-all border inline-flex items-center gap-1.5 bg-accent/30 text-muted-foreground border-border/30 hover:border-primary/30 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-border/30 disabled:hover:text-muted-foreground"
-            >
-              {arrow} {label}
-            </button>
-          );
-          return (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-8 p-4 glass-card-subtle border border-border/10 rounded-2xl font-mono select-none">
-              <span className="text-[11px] text-muted-foreground order-2 sm:order-1">
-                Showing page <span className="text-foreground font-bold">{page}</span> of{' '}
-                <span className="text-foreground font-bold">{totalPages}</span>
-                {totalItems > 0 && <> · <span className="text-foreground font-bold">{totalItems}</span> articles</>}
-              </span>
-
-              <div className="flex flex-wrap items-center justify-center gap-1.5 order-1 sm:order-2">
-                {navBtn('Prev', page - 1, page <= 1, <span aria-hidden>&larr;</span>)}
-                {pageNumbers.map((n, idx) =>
-                  n === '…' ? (
-                    <span key={`ellipsis-${idx}`} className="h-8.5 min-w-[24px] inline-flex items-center justify-center text-muted-foreground/50 text-[12px]">…</span>
-                  ) : (
-                    pageBtn(n, n === page)
-                  )
-                )}
-                {navBtn('Next', page + 1, page >= totalPages, <span aria-hidden>&rarr;</span>)}
-              </div>
-            </div>
-          );
-        })()}
+        {/* Pagination Controls — page numbers, typed go-to-page, typed page size */}
+        {totalItems > 0 && (
+          <NewsPagination
+            page={page}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            perPage={clampPerPage(cards.perPage)}
+            maxPerPage={MAX_PER_PAGE}
+            onPage={handlePageChange}
+            onPerPage={(n) => {
+              updateCards({ perPage: n });
+              fetchNews(1, filters, { ...cards, perPage: n });
+            }}
+          />
+        )}
         {newsDialog}
       </div>
     );

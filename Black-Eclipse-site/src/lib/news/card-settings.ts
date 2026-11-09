@@ -12,10 +12,21 @@ export interface CardSettings {
   showButtons: boolean;          // footer action row
   showTimestamp: boolean;
   glow: boolean;                 // ambient sentiment glow
-  perPage: 10 | 20 | 30 | 50;    // cards per page
+  perPage: number;               // cards per page (typed, 1…MAX_PER_PAGE)
   sort: 'newest' | 'oldest' | 'importance'; // list order
   autoRefresh: boolean;          // poll for new articles in the background
   refreshSec: 30 | 60 | 120;     // poll interval
+}
+
+/** The news API clamps `limit` to 200; the UI must agree. */
+export const MIN_PER_PAGE = 1;
+export const MAX_PER_PAGE = 200;
+
+/** Floor/ceil-honest clamp for a typed or persisted page size. */
+export function clampPerPage(value: unknown): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_CARD_SETTINGS.perPage;
+  return Math.min(MAX_PER_PAGE, Math.max(MIN_PER_PAGE, n));
 }
 
 export const DEFAULT_CARD_SETTINGS: CardSettings = {
@@ -46,6 +57,9 @@ export function loadCardSettings(): CardSettings {
     const parsed: CardSettings = raw
       ? { ...DEFAULT_CARD_SETTINGS, ...JSON.parse(raw) }
       : { ...DEFAULT_CARD_SETTINGS };
+    // A previously saved value (or a hand-edited localStorage entry) may sit
+    // outside the API's accepted range; normalize it before it reaches fetch.
+    parsed.perPage = clampPerPage(parsed.perPage);
     // One-time move for existing users: the high-alert stories used to be a
     // separate band; they now live in the main feed ranked most-critical first.
     // A later manual switch back to "newest" is respected.
@@ -63,7 +77,10 @@ export function loadCardSettings(): CardSettings {
 export function saveCardSettings(settings: CardSettings): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(CARD_SETTINGS_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(CARD_SETTINGS_KEY, JSON.stringify({
+      ...settings,
+      perPage: clampPerPage(settings.perPage),
+    }));
   } catch {
     /* quota / private mode — in-memory only */
   }

@@ -1,0 +1,798 @@
+---
+title: First-Run Onboarding — Implementation Plan
+status: Proposed
+last-verified: 2026-11-09
+---
+
+# First-Run Onboarding — Implementation Plan
+
+**Goal:** A boot-style, full-screen setup experience shown once, on a brand-new
+installation, before the user lands in the app. It asks how the user will use
+the product (personal vs commercial), which **built-in data APIs** to enable,
+and how the AI should be powered (built-in/local vs the user's own provider key).
+Every choice is honest, reversible, and enforced — no cosmetic toggles.
+
+**Non-goals (v1):** billing, hosted Eclipse keys, per-user (multi-tenant)
+onboarding, account creation. This is instance setup, not sign-up.
+
+---
+
+## 1. What already exists (reuse, do not rebuild)
+
+| Need | Existing thing | Reuse |
+|---|---|---|
+| Boot visual language | `src/components/ui/global-loader.tsx` + `src/components/ui/ascii-loader.tsx` (`DotGrid`, `AsciiProgress`) | Same background, grid, `%`/label treatment |
+| First-run pattern | `src/components/screens/dashboard/onboarding.tsx` (`DashboardOnboarding` dialog) | Non-dismissible dialog pattern, persona cards, glass styling |
+| AI provider list | `src/lib/agent/presets.ts` (`LLM_PRESETS`), `src/components/screens/ai-provider-settings.tsx` | Provider catalog, key status, model picker |
+| Key vault | `src/lib/provider-keys.ts`, `GET/POST/DELETE /api/provider-keys` | Save/test keys encrypted at rest; never return values |
+| LLM config | `src/lib/settings.ts` (`getLLMConfig` / `setLLMConfig`), `POST /api/settings` | Persist provider/baseUrl/model |
+| Built-in market data | `src/lib/scraper/fetchers/index.ts` chain; `src/lib/connectors/catalog.ts`; `src/lib/economics/sources.ts`; `src/lib/investor-eye/*` | Enforce source prefs here |
+| Settings storage | `SystemConfig` key/value (`prisma/schema.prisma`), `getConfig/setConfig` in `src/lib/settings.ts` | One new key namespace |
+| Mutation guard | `guardMutation` in `src/lib/api-guard.ts` | Protect the completion route |
+| Boot mount | `src/app/layout.tsx` | Mount the gate next to `<GlobalLoader />` |
+
+**Do not** reuse `GET /api/onboarding` — that route already belongs to the
+Skills cold-start content (`src/app/api/onboarding/route.ts`, used by
+`skills-browser.ts`). New routes live under **`/api/setup`**.
+
+---
+
+## 2. Onboarding experience (organized for a working first session)
+
+The goal is not "collect API keys." The goal is: **a new user reaches a useful,
+honest app in under two minutes, understands exactly what is and is not
+connected, and can fix anything later.**
+
+### 2.1 Seven principles
+
+1. **Organize by capability, not by vendor.** A new user thinks "I want charts
+   and news," not "I want Polygon.io." Vendors appear only after a capability is
+   chosen.
+2. **Separate Included from Connected, visibly.** Every data item is either
+   *Included* (open data, no account) or *Connect your own* (user's key/account).
+   This is also the legal boundary, so it must be obvious on screen.
+3. **One decision per screen.** Do not show 30 toggles at once. Expand only the
+   capability the user is working on.
+4. **Never dead-end.** Every capability can be skipped, and the skip explains
+   exactly what will be unavailable (`UNAVAILABLE`, never fake data).
+5. **Chat first, then data.** Chat is the home surface; configure AI before the
+   data tour so the first message works.
+6. **Test before finish.** A readiness check exercises the chosen AI and enabled
+   sources and reports real failures, not optimistic labels.
+7. **Advanced/legal choices are collapsed.** Community/scraper sources live in
+   an "Advanced" accordion, off by default, with an explicit acknowledgement.
+
+### 2.2 Screen map
+
+```
+Boot loader (existing, z-40)
+  └─ Onboarding (z-50) ─ 4 steps + handoff
+       1. Welcome & mode          (one choice)
+       2. AI & Chat               (one choice + test)
+       3. Data & capabilities     (capability rows, progressive disclosure)
+       4. Review & readiness      (status table + Run check + Finish)
+  └─ App (loader finishes behind the overlay)
+```
+
+Shared frame: full-screen `bg-background/98 backdrop-blur-md`, centered
+`glass-card-strong` panel (max ~880px, max-height `calc(100dvh - 2rem)`,
+internal scroll), Eclipse mark + `DotGrid` top-left, `01 / 04` top-right,
+`Back` / `Continue` bottom. Escape does not close it. Focus-trapped, keyboard
+accessible, reduced-motion aware. Only step 1 has `Skip for now`.
+
+### Step 1 — Welcome & how you'll use Eclipse
+
+**Purpose:** set the legal default and the bundle without asking a legal
+question in legal language.
+
+- Title: **Welcome to BlackEclipse**
+- Body: "Let's connect your AI and data. This takes about a minute. Everything
+  here can be changed later in Settings."
+- Two mode cards:
+  - **Personal / research** — "For your own analysis. You can enable free
+    community sources, with their terms shown."
+  - **Commercial / product** — "For work you charge for. We'll only enable
+    open-licensed data and ask you to connect your own licensed providers."
+- A third, quieter choice: **Not sure yet — use the safe defaults** (Personal
+  mode, open data only, no community sources).
+- Fine print: "Data-source labels are an informational snapshot, not legal
+  advice. Verify each provider's current terms."
+- `Skip for now` → safe defaults (open data only, AI `mock`), then a
+  confirmation screen that says: "Chat is off and live prices are off. You can
+  turn them on in Settings or run setup again."
+
+**Why this order:** the mode changes every default that follows. Asking it once
+avoids re-asking inside each capability.
+
+### Step 2 — AI & Chat
+
+**Purpose:** make the first chat message work, or say honestly that it won't.
+
+- Detect existing config first: if an LLM key/base URL is already present, show
+  **"Already configured — {provider} / {model}"** with `Keep` / `Change`.
+- Three cards:
+  1. **Local (recommended if installed)** — Ollama / LM Studio. Detects local
+     servers and models; if none, shows install steps and a base-URL field.
+  2. **Use my API key** — provider grid from `LLM_PRESETS`. Reveals masked key,
+     `Test key`, and model picker. Saves via the existing vault.
+  3. **Custom OpenAI-compatible endpoint** — base URL, optional key, model,
+     optional context window.
+- Live status line: **"Chat will use: Ollama · llama3.1"** or **"Chat will be
+  unavailable (mock mode)."**
+- `Set this up later` is allowed; the app then runs `mock` and the final review
+  says so. Never claim a provider is connected without a real test or saved key.
+
+### Step 3 — Data & capabilities (the screen that must be organized well)
+
+**Purpose:** let the user choose outcomes, not vendors. This is one screen with
+three stacked sections, only one expanded at a time.
+
+Header: "Choose what Eclipse can use. Nothing here is charged. Keys stay on this
+machine."
+
+#### 3A. Bundle chips (optional shortcut)
+
+At the top, four chips apply a sensible starting point; the user can still edit
+everything below:
+
+| Bundle | What it applies |
+|---|---|
+| **Research (no keys)** | Included open data on; live prices off; AI already chosen in step 2 |
+| **Personal trader** | Included open data + community market sources (with acknowledgement) |
+| **Commercial** | Included open data + "connect a licensed provider"; community sources off |
+| **Custom** | Nothing pre-selected; user picks rows |
+
+The selected bundle is only a starting point. Changing a row switches the chip
+to **Custom**.
+
+#### 3B. Capability rows (the main organization)
+
+Each row shows a capability, its current status, and a `Configure` expander.
+Statuses: **Ready**, **Needs a key**, **Off**, **Unavailable**.
+
+| Capability | Included (no account) | Connect your own | Default |
+|---|---|---|---|
+| **Company research** (filings, fundamentals) | SEC EDGAR | FMP, Finnhub | Included ON |
+| **US macro** | FRED, BEA, BLS | Trading Economics | Included ON |
+| **Global macro** | World Bank, Eurostat/ECB | — | Included ON |
+| **World events** | GDELT, USGS; NASA FIRMS (verify) | — | Included ON |
+| **Live prices & charts** | *None* | Polygon.io (US), Twelve Data (global), Finnhub, Alpha Vantage, Marketstack, FMP | **Decision required** |
+| **News & research search** | keyless fallback (DuckDuckGo) | Finnhub, Tavily, Brave, Exa, Serper | Included ON / key optional |
+| **Crypto** | *None* | CoinMarketCap, CoinGecko paid; community exchange sources in Advanced | Off |
+| **Advanced / community** | TradingView, Yahoo, Binance, CoinGecko Demo, scraper | — | **Off, collapsed** |
+
+Expanding a row shows only that capability's sources, what each powers, the
+commercial badge, and the key/test UI. No vendor dump on first paint.
+
+#### 3C. Live prices decision card (the important one)
+
+Because this is where a new user most often gets stuck, make it one explicit
+choice with three radio options:
+
+1. **Connect a licensed provider — recommended** (especially Commercial)
+   - Quick-connect: Polygon.io (US), Twelve Data (global), Finnhub (news +
+     quotes), Alpha Vantage, Marketstack, FMP.
+   - Each opens key + `Test`; on success the row becomes **Ready**.
+   - Copy: "Live exchange prices require a provider you are licensed to use.
+     Eclipse does not include them."
+2. **Use community sources — personal use only**
+   - Shows TradingView / Yahoo / Binance / CoinGecko Demo with their terms.
+   - Off by default. Enabling requires checking **"I understand these are for
+     personal use and I accept each provider's terms."**
+   - Recorded as `acceptedRestrictedSources`, never silent.
+   - In Commercial mode this option is hidden unless the user opens Advanced and
+     explicitly acknowledges; the normal commercial path is option 1.
+3. **Skip live prices for now**
+   - Copy: "Charts and quote pages will show UNAVAILABLE until you connect a
+     provider. Filings, macro, news and chat still work."
+   - This is a valid, honest first-run state.
+
+#### 3D. Advanced accordion (collapsed)
+
+"Community sources (personal use)" — the sources we do **not** recommend as
+built-ins for a paid product: TradingView scanner, Yahoo/yfinance, Binance,
+CoinGecko keyless, HTTP/browser scraper, DuckDuckGo HTML search. Each has:
+- `PERSONAL ONLY` / `VERIFY TERMS` badge,
+- a one-line reason,
+- terms link,
+- toggle (off, requires acknowledgement).
+
+If the user never opens this accordion, the app never uses these sources.
+
+#### 3E. Summary strip (sticky above the footer)
+
+Always shows the outcome, so the user never has to infer it:
+
+> **Ready:** Chat, filings, US/global macro, world events, news search.
+> **Needs setup:** live prices (connect a provider or skip).
+> **Off:** crypto, community sources.
+
+### Step 4 — Review & readiness
+
+**Purpose:** prove the app will work before the user lands in it.
+
+- A capability checklist, not a vendor list:
+
+| Capability | Status | Action |
+|---|---|---|
+| Chat | Ready · `openai/gpt-4o-mini` | `Change` |
+| Company research | Ready · SEC EDGAR | `Change` |
+| Macro | Ready · FRED/BEA/BLS/World Bank | `Change` |
+| News & search | Ready · keyless fallback | `Add key` |
+| Live prices | Skipped — will show UNAVAILABLE | `Connect` |
+| Crypto | Off | `Connect` |
+| World events | Ready · GDELT/USGS | `Change` |
+
+- **`Run a quick check`** calls `POST /api/setup/check` and tests the chosen AI
+  and enabled sources. It reports the real result per item: `ok`, `failed`,
+  `rate-limited`, `unavailable`, with the provider's message and latency.
+- Warnings are specific:
+  - "Commercial mode with no licensed price provider. Charts will be
+    UNAVAILABLE."
+  - "AI test failed: 401 from the provider. Chat will not work until this is
+    fixed."
+- `Finish setup` is enabled unless the config write itself fails. Warnings never
+  block the user; they are recorded and shown again in Settings.
+- `Back` returns to the relevant step.
+
+### Step 5 — Handoff
+
+- POST the choices, write `onboarding_v1` + `data_source_prefs_v1`, invalidate
+  the settings cache, then fade out. A short `Saved. Warming up…` state uses the
+  same `DotGrid` so it blends into the boot loader.
+- Seed the starter dashboard from step 1's bundle/profile (reuse
+  `DASHBOARD_TEMPLATES`) so the first screen is not empty.
+- Optional first-run tips card (dismissible, only once): "Try: ask about a
+  ticker · open Macro · connect prices later." No marketing carousel.
+- If the user skipped AI: land in Chat with an honest banner and a
+  `Connect a model` button, not a fake assistant.
+
+### 2.3 What works with each setup (set expectations up front)
+
+| Capability | Safe defaults (no keys) | + AI key/local | + licensed market key | + community (personal) |
+|---|---|---|---|---|
+| Chat / research agent | ✗ (mock) | ✓ | ✓ | ✓ |
+| Company filings / fundamentals | ✓ (SEC) | ✓ | ✓ | ✓ |
+| US / global macro | ✓ | ✓ | ✓ | ✓ |
+| World events | ✓ | ✓ | ✓ | ✓ |
+| News headlines | ✓ (keyless fallback) | ✓ | ✓ | ✓ |
+| Research web search | ✓ (keyless, best effort) | ✓ | ✓ | ✓ with search key |
+| Live quotes / charts / screener | ✗ UNAVAILABLE | ✗ UNAVAILABLE | ✓ | ✓ |
+| Crypto prices | ✗ UNAVAILABLE | ✗ UNAVAILABLE | ✓ (if crypto provider) | ✓ |
+| Portfolio / journal | local only | ✓ | ✓ | ✓ |
+
+This table (in friendlier words) belongs in the UI, not just the docs. It is how
+a new user understands why a page says `UNAVAILABLE`.
+
+### 2.4 Bundles (defaults, not locks)
+
+- **Research (no keys, recommended default):** included open data ON; live
+  prices skipped; community OFF; AI chosen in step 2.
+- **Personal trader:** included open data ON; community sources ON only after
+  acknowledgement; AI chosen in step 2.
+- **Commercial:** included open data ON; community OFF; live prices require a
+  licensed key.
+- **Crypto:** open data + CoinMarketCap/CoinGecko paid; community OFF.
+- **Custom:** nothing pre-selected.
+
+A bundle writes ordinary source prefs. It is never a hidden second config.
+
+### 2.5 Definition of "starts without issues"
+
+The first session passes when all of these are true:
+
+1. The app renders the shell with no console errors.
+2. Chat either answers, or shows a clear "model not configured" banner.
+3. Every market page shows data or a labeled `UNAVAILABLE` state (no infinite
+   spinner, no blank panel, no fabricated value).
+4. Settings shows the same sources that onboarding enabled (no drift).
+5. `Run a quick check` reports the same statuses the user saw in Review.
+6. Re-running setup from Settings reproduces the same configuration.
+7. The onboarding overlay never reappears on a later launch unless requested.
+
+---
+
+## 3. Commercial-use matrix (informational snapshot, 2026-11-09)
+
+> Not legal advice. Each row links to the upstream terms; the onboarding UI
+> must display the link and the "verify" language. If terms change, update
+> `src/lib/setup/source-catalog.ts` only.
+
+### Keyless / built-in sources
+
+| Source | Powers | Commercial status | Included default | Commercial default | Note |
+|---|---|---|---|---|---|
+| TradingView scanner | Whole-market scans, covered-market quotes | **Not allowed** (no public API; redistribution/scraping restricted) | OFF — Advanced opt-in | OFF | https://www.tradingview.com/policies |
+| Yahoo Finance via yfinance | US quotes/history | **Not allowed** without Yahoo's written permission | OFF — Advanced opt-in | OFF | https://legal.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.html |
+| HTTP / browser scraper | Fallback quotes | **Depends on the target site** | OFF — Advanced opt-in | OFF | Target-site ToS governs each fetch |
+| SEC EDGAR | Filings, company facts | **Allowed** (public domain; fair-access policy) | ON | ON | https://www.sec.gov/os/webmaster-faq |
+| Binance public ticker | Crypto prices | **Not allowed** for redistribution/profit without written consent | OFF — Advanced opt-in | OFF | Binance Terms, market-data clause |
+| Kraken public API | Crypto prices | **Verify terms** (public data; commercial use subject to Kraken terms) | OFF — Advanced opt-in | OFF | https://www.kraken.com/legal |
+| CoinGecko Demo / keyless | Crypto prices | **Attribution required; Demo is not a commercial license** | OFF — Advanced opt-in | OFF; suggest paid Basic+ | https://www.coingecko.com/en/api_terms |
+| GDELT | Geopolitical events | **Allowed** (open, attribution) | ON | ON | https://www.gdeltproject.org/about.html |
+| USGS | Earthquakes | **Allowed** (public domain) | ON | ON | https://www.usgs.gov/information-policies |
+| NASA FIRMS | Fire/thermal events | **Verify terms** (free with attribution) | ON (verify) | ON with attribution | https://firms.modaps.eosdis.nasa.gov/ |
+| FRED (keyless CSV) | Macro series | **Allowed** (attribution: "Courtesy of FRED") | ON | ON | https://fred.stlouisfed.org/legal/ |
+| World Bank Open Data | Macro | **Allowed** (CC BY 4.0) | ON | ON | https://datacatalog.worldbank.org/public-licenses |
+| BEA / BLS public data | Macro | **Allowed** (US government public domain) | ON | ON | https://www.bea.gov/help/faq/ |
+| DuckDuckGo HTML search | Research fallback | **Not for commercial redistribution** | OFF — Advanced opt-in | OFF; suggest Tavily/Brave/Exa/Serper | Provider ToS |
+
+### Keyed providers to recommend in commercial mode
+
+| Provider | Good for | Commercial note |
+|---|---|---|
+| Polygon.io | US equities, FX, aggregates | Commercial on paid plans |
+| Twelve Data | Global equities/FX/crypto | Commercial on paid plans |
+| Finnhub | News, earnings, quotes | Free tier personal; paid for commercial |
+| Alpha Vantage | Quotes, FX, technicals | Premium tier for commercial |
+| Marketstack | EOD/intraday | Paid plans for commercial |
+| Financial Modeling Prep | Fundamentals | Paid plans for commercial |
+| CoinMarketCap | Crypto | Basic tier advertises commercial-use rights (verify) |
+| CoinGecko Basic+ | Crypto | Commercial with attribution on paid plans |
+
+**Recommended "first" stack for a commercial user:** SEC EDGAR + open macro
+(FRED/BEA/BLS/World Bank) + one licensed price provider (Polygon.io for US,
+Twelve Data for global). Do **not** ship TradingView/Yahoo/Binance as
+commercial defaults.
+
+**Legacy convenience stack (existing installs only):** TradingView + yfinance +
+crypto + SEC + open macro. This is what the app does today, but it is **not**
+what onboarding enables by default. Onboarding uses the safe set, and the
+legacy sources are an off-by-default "Advanced / community" opt-in. Existing
+installs keep their behavior until the user re-runs setup or changes a toggle,
+so the migration never silently breaks a working instance.
+
+### 3.1 Legal model: what "built-in" can safely mean
+
+There are two different things people call "built-in API":
+
+1. **Shipping integration code** (a client for a provider's documented API).
+   The code is MIT-licensed; this is generally fine.
+2. **Shipping or proxying the data itself** (a bundled key, a hosted backend, a
+   scraper). This is governed by the provider's data license/ToS.
+
+Risk goes up sharply when any of these is true:
+- you bundle **one key shared by all users**,
+- **your** server fetches and re-serves the data,
+- the product is **paid** or ad-supported,
+- the source is **scraped** and its ToS forbids automated access/redistribution.
+
+For a **local, self-hosted** app each user's machine calls the provider
+directly, so the project distributes software rather than data. That reduces
+redistribution exposure, but it does **not** legalize a scraper that the
+software ships enabled. For a **hosted/SaaS** version you are re-serving data to
+customers and need commercial redistribution rights (or each customer must use
+their own provider account, subject to that provider's multi-user terms).
+
+**Safe built-in (out-of-box, no key, redistributable with the stated condition):**
+
+| Source | Condition |
+|---|---|
+| SEC EDGAR | Public domain; set a real `User-Agent`, respect the fair-access rate limit |
+| FRED | Free; display "Courtesy of FRED" |
+| BEA, BLS, Census, US Treasury, EIA | US government public domain (check each agency's attribution request) |
+| World Bank Open Data | CC BY 4.0 attribution |
+| Eurostat / ECB data | Free reuse with attribution |
+| GDELT | Open; attribution |
+| USGS | Public domain |
+| NASA FIRMS | Free with attribution; verify current commercial terms |
+| Wikidata | CC0: no attribution required, safe to reuse |
+| Wikipedia article text | CC BY-SA: attribution **and share-alike** — do not blend into a proprietary database without review |
+
+**Never ship enabled as a "built-in" for a product you charge for:**
+- TradingView scanner (no public API; scraping/redistribution restricted)
+- Yahoo Finance / yfinance (commercial use requires Yahoo's permission)
+- Binance and other exchanges' market data (commercial redistribution needs
+  written consent)
+- CoinGecko Demo/keyless (attribution only; **not** a commercial license)
+- DuckDuckGo / Google / Bing HTML scraping
+- Any "unknown" site scraper
+
+**Bring-your-own-key only (never bundle your key):**
+Polygon.io, Finnhub, Twelve Data, Alpha Vantage, Marketstack, FMP,
+CoinMarketCap, CoinGecko paid, Tavily/Brave/Exa/Serper, and every LLM provider.
+Free tiers are usually personal/evaluation; commercial use and redistribution
+need a paid or enterprise agreement.
+
+**Product rule:** *built-in = open data*. Everything else is "Connect your own
+account", shown as `Requires your key` with a signup link. No shared key, no
+server-side proxy, no silent scraping. If you later sell a hosted version,
+obtain commercial redistribution rights **before** enabling any non-open
+source.
+
+---
+
+## 4. Architecture
+
+### 4.1 New modules
+
+```
+src/lib/setup/
+  source-catalog.ts      # static catalog: id, label, category, powers, badge,
+                         # license status, terms URL, attribution text
+  capabilities.ts        # maps source ids -> user-facing capabilities
+                         # (chat/company/macro/events/prices/crypto/search)
+  bundles.ts             # Research / Personal trader / Commercial / Crypto
+                         # bundle presets (apply ordinary source prefs)
+  defaults.ts            # safe included defaults vs advanced opt-in
+  state.ts               # read/write onboarding state + source prefs (server)
+  types.ts               # shared types (client-safe)
+  existing-install.ts    # upgrade heuristic (see 4.3)
+  check.ts               # readiness checks (AI + enabled sources), server-only
+src/lib/data-source-preferences.ts   # SERVER enforcement helper (no React)
+src/components/setup/
+  onboarding-gate.tsx    # mount point; fetches state, renders overlay or null
+  onboarding-shell.tsx   # full-screen frame, step machine, footer, focus trap
+  steps/welcome-step.tsx # mode + bundle
+  steps/ai-step.tsx      # local / own key / custom / later
+  steps/data-step.tsx    # capability rows + live-prices decision + advanced
+  steps/review-step.tsx  # capability checklist + Run check + finish
+  parts/capability-row.tsx
+  parts/source-row.tsx
+  parts/license-badge.tsx
+  parts/provider-card.tsx
+  parts/summary-strip.tsx
+  parts/ready-table.tsx
+src/app/api/setup/
+  route.ts               # GET state, POST complete
+  check/route.ts         # POST readiness check (rate-limited, real requests)
+```
+
+Draft state (uncommitted choices) lives in `sessionStorage` so a refresh does
+not lose the wizard; keys are saved to the vault immediately when tested, not
+held in the wizard until Finish. `onboarding_v1` is written only on Finish or
+Skip.
+
+Client-safe split: `source-catalog.ts`, `defaults.ts`, `types.ts` must not
+import Prisma. `state.ts` is server-only and imports `@/lib/settings` +
+`@/lib/provider-keys`.
+
+### 4.2 Persistence (SystemConfig)
+
+| Key | Shape | Purpose |
+|---|---|---|
+| `onboarding_v1` | `{ completed, completedAt, mode, version, aiSkipped, acceptedRestrictedSources }` | New-user gate flag + audit of explicit choices |
+| `data_source_prefs_v1` | `{ [sourceId]: { enabled: boolean, reason: 'default'\|'user'\|'commercial-blocked' } }` | Enforced source toggles |
+| Existing `llm_config` | unchanged | AI provider choice |
+| Existing `provider_keys_v1` | unchanged | Keys saved via vault |
+
+`onboarding_v1` is instance-level. If per-user onboarding is ever wanted, add
+`userId` later; do not silently scope it now.
+
+### 4.3 New-user detection (critical)
+
+- `GET /api/setup` returns `{ completed: boolean, isNewInstall: boolean, ... }`.
+- If `onboarding_v1` exists → `completed` from it.
+- If absent → decide **new install vs upgraded install**:
+  - New install: no prior operator data — `systemConfig` has 0 rows (or only
+    the DB was just created), no provider keys, no auth users, no domains/
+    dashboards.
+  - Existing install: any of those exist. Then the first GET writes
+    `onboarding_v1 = { completed: true, migrated: true }` and never shows the
+    gate. This prevents every current user from being ambushed by onboarding
+    after an update.
+- Add a "Run setup again" button in Settings → General (and a `/setup` deep link)
+  that forces the gate even when completed.
+
+### 4.4 API contract
+
+`GET /api/setup`
+
+```ts
+{
+  completed: boolean;
+  isNewInstall: boolean;
+  mode: "personal" | "commercial";
+  bundles: Array<{ id: "research"|"personal-trader"|"commercial"|"crypto"|"custom";
+                   label: string; description: string; sourceDefaults: Record<string, boolean> }>;
+  capabilities: Array<{
+    id: "chat"|"company"|"macro"|"events"|"prices"|"news"|"search"|"crypto";
+    label: string; status: "ready"|"needs-key"|"off"|"unavailable";
+    includedSources: string[]; connectedSources: string[]; advancedSources: string[];
+  }>;
+  sources: Array<{
+    id: string; label: string; category: "market"|"crypto"|"news"|"macro"|"research"|"events";
+    powers: string[]; commercial: "ok"|"attribution"|"personal-only"|"verify";
+    termsUrl?: string; enabled: boolean; editable: boolean;
+    tier: "included"|"connected"|"advanced";
+  }>;
+  ai: { provider: string; model: string; hasKey: boolean; configured: boolean };
+  warnings: string[];
+}
+```
+
+`POST /api/setup`
+
+```ts
+{
+  mode: "personal" | "commercial";
+  bundleId?: "research" | "personal-trader" | "commercial" | "crypto" | "custom";
+  sources: Record<string, boolean>;
+  acceptedRestrictedSources?: string[];
+  ai?:
+    | { kind: "local"; presetId: "ollama" | "lmstudio"; baseUrl?: string; model?: string }
+    | { kind: "key"; presetId: string; apiKey: string; model?: string }
+    | { kind: "custom"; baseUrl: string; apiKey?: string; model: string; contextWindow?: number }
+    | { kind: "skip" };
+  extraKeys?: Array<{ envVar: string; value: string }>;
+}
+```
+
+Server behavior:
+1. `guardMutation(request, "setup")`.
+2. Validate mode/source ids against the static catalog; a source in the
+   `advanced` tier can only be enabled when it is also in
+   `acceptedRestrictedSources`.
+3. In commercial mode, reject enabling `personal-only` sources unless listed in
+   `acceptedRestrictedSources`.
+4. Persist `data_source_prefs_v1`; write `onboarding_v1.completed = true`.
+5. Save AI config with the existing functions (`setLLMConfig`), keys with
+   `saveProviderKey` (never log values).
+6. Return the effective state so the UI can show real warnings.
+7. Invalidate the settings cache (`settingsCache` in `src/app/api/settings/route.ts`)
+   so the app reads the new config immediately.
+
+`POST /api/setup/check`
+
+```ts
+// request
+{ ai?: boolean; sources?: string[]; keys?: string[] }
+// response
+{
+  ok: boolean;
+  items: Array<{
+    id: string; label: string; kind: "ai"|"source"|"key";
+    status: "ok"|"failed"|"rate-limited"|"unavailable"|"skipped";
+    message: string; latencyMs?: number; httpStatus?: number;
+  }>;
+}
+```
+
+The check reuses the real test endpoints (`testProviderKey` behavior) and the
+source health probes. It is rate-limited, times out each item, and never reports
+`ok` because a key merely exists.
+
+### 4.5 Enforcement (the part that makes toggles real)
+
+Add `src/lib/data-source-preferences.ts`:
+
+```ts
+export type SourceId = "tradingview" | "yfinance" | "http" | "browser"
+  | "scrapling" | "crypto" | "sec" | "coingecko" | "kraken" | "binance"
+  | "gdelt" | "usgs" | "firms" | "fred" | "worldbank" | "bea" | "bls";
+
+export async function isSourceEnabled(id: SourceId): Promise<boolean>;
+export async function getEnabledSources(): Promise<Record<SourceId, boolean>>;
+```
+
+Cached in-process for ~30 s (same pattern as settings cache), defaulting to the
+current behavior if the key is absent (so zero-config is unchanged). Wire it:
+
+- `src/lib/scraper/fetchers/index.ts`: gate `tradingview`, `yfinance`, `http`,
+  `browser`, `scrapling`, `crypto` before each strategy. If disabled, skip to
+  the next; if all are disabled, return an honest `blocked`/`empty` result.
+- `src/lib/connectors/providers/crypto.ts` / `registerBuiltinConnectors()`:
+  skip registration when `binance` is disabled.
+- `src/lib/economics/sources.ts`: gate `fred`/`worldbank`/`bea`/`bls` fetches,
+  or filter the source list returned to the UI.
+- `src/lib/investor-eye/*`: gate `gdelt`, `usgs`, `firms`.
+- `src/lib/scraper/fetchers/sec.ts` (or the SEC fetcher): gate `sec`.
+- CoinGecko/Kraken adapters: gate their ids.
+
+**Honesty rule:** a disabled source must produce the existing `UNAVAILABLE`
+state or be omitted from the source list — never a fabricated value, and never
+a silent fallback to a source the user disabled.
+
+### 4.6 Mounting / boot interaction
+
+```tsx
+// src/app/layout.tsx
+<GlobalLoader />
+<OnboardingGate />   // client component; renders null unless needed
+{children}
+```
+
+- `OnboardingGate` fetches `/api/setup` on mount.
+- While `completed` is unknown, render nothing (the normal loader shows).
+- If incomplete, render the overlay at `z-50` with `pointer-events-auto`; it
+  covers the loader and blocks interaction with the shell.
+- The loader's warm-up fetches still run behind it. On finish, unmount the gate
+  and let the loader/app continue. This preserves the "it looks like the
+  loading page" feel without coupling onboarding to loader timing.
+- Do **not** make the loader wait for onboarding; they are independent.
+
+---
+
+## 5. UI specification (matches the boot page)
+
+- Background: `bg-background/98 backdrop-blur-md`; optional aurora glow already
+  used by the shell (do not add a new effect).
+- Panel: `.glass-card-strong`, `rounded-2xl`, `border-white/15`, subtle shadow.
+- Type: `font-serif` headings (same as dashboard onboarding), `text-xs`
+  body, `text-[10px]` metadata.
+- Icons: `@/lib/icons` only (no new icon dependency).
+- Toggles: a real accessible switch (`role="switch"`, `aria-checked`) built
+  from existing primitives; no native checkbox styling.
+- Badges: pill, 9–10px uppercase, colors from the existing tone vocabulary
+  (emerald = ok, amber = attribution, red = personal-only, muted = verify).
+- Motion: 160–220ms fade/slide between steps; honor
+  `prefers-reduced-motion: reduce` (instant).
+- Size: panel scrolls internally; footer stays pinned; works at 360px width.
+- No confetti, no marketing hero, no fake progress. The `DotGrid` is the only
+  animation.
+
+---
+
+## 6. Implementation phases
+
+### Phase 1 — Catalog, capabilities, state (no UI)
+1. Add `src/lib/setup/types.ts`, `source-catalog.ts`, `capabilities.ts`,
+   `bundles.ts`, `defaults.ts`.
+2. Add `src/lib/setup/state.ts` (`readOnboardingState`, `completeOnboarding`,
+   `getSourcePreferences`, `setSourcePreferences`).
+3. Add `src/lib/setup/existing-install.ts` heuristic.
+4. Add `src/app/api/setup/route.ts` (GET/POST) with `guardMutation`.
+5. Add `src/lib/setup/check.ts` + `src/app/api/setup/check/route.ts`
+   (rate-limited readiness tests).
+6. Unit tests: capability mapping covers every source; bundle defaults are
+   legal-safe; commercial filtering; existing-install migration; POST
+   validation; check items never report `ok` without a real probe.
+
+**Exit:** `GET /api/setup` on a fresh DB returns `completed:false` with
+capabilities/bundles; on a DB with data returns `completed:true, migrated:true`;
+POST round-trips; check reports real statuses.
+
+### Phase 2 — Enforcement
+7. Add `src/lib/data-source-preferences.ts` (cached; when the key is absent,
+   preserve legacy behavior so existing installs do not change).
+8. Gate the scraper chain, crypto connector, economics sources, investor-eye
+   sources, SEC. Add tests: disabled source is skipped; all-disabled returns an
+   honest failure; an advanced source stays off unless accepted; unset prefs
+   preserve legacy behavior.
+
+**Exit:** toggling a source in `data_source_prefs_v1` demonstrably changes which
+fetcher runs, with no fabricated data.
+
+### Phase 3 — Onboarding UI
+9. Build `OnboardingGate` + `OnboardingShell` + the four steps:
+   welcome/mode, AI, data/capabilities (with the three-way live-prices decision
+   and the collapsed Advanced section), review/readiness.
+10. Build the capability-row and readiness-table components; reuse
+    `ProviderKeyEditor`, `ModelPicker`, and the key-status logic (extract a
+    shared hook if needed).
+11. Persist wizard draft in `sessionStorage`; save keys immediately on test;
+    commit only on Finish/Skip.
+12. Mount in `src/app/layout.tsx`; seed the starter dashboard from the bundle.
+13. Add "Run setup again" in `general-settings.tsx` and a `/setup` entry point.
+
+**Exit:** a new user can finish with zero keys and reach a shell where Chat and
+every capability show an honest ready/off/unavailable state; the Review table
+matches what Run check reports; existing install never sees the gate.
+
+### Phase 4 — Polish + tests
+14. Keyboard/focus trap, reduced motion, 360px layout, screen-reader labels.
+15. Error states for every API failure (save failed, test failed, network,
+    skipped key, commercial-without-price-provider).
+16. Verify the section 2.5 first-session criteria end-to-end.
+17. Run `npm run test` and `npx tsc --noEmit`.
+
+---
+
+## 7. Failure and edge cases
+
+| Case | Behavior |
+|---|---|
+| `/api/setup` fails | Gate renders nothing; app loads normally. Setup is retryable from Settings. Never block the app on a failed setup read. |
+| DB locked during boot | GET retries once; on failure, skip onboarding this session (log once). |
+| Key save succeeds, test fails | Keep the saved key, show the provider's real error, allow `Continue` with a warning. Do not claim success. |
+| User skips AI | Run `mock`; review says "Chat unavailable until a provider is configured." |
+| Commercial with no price source | Allow finish, but show a persistent warning + empty states become `UNAVAILABLE`. |
+| User enables a restricted source in commercial mode | Require the explicit acknowledgement checkbox; record it in `acceptedRestrictedSources`. |
+| Daily driver already configured | `existing-install` migration marks complete before first paint. |
+| Multiple operators (`HARNESS_AUTH=required`) | Setup is instance-level; document that it runs once per instance, not per account. |
+| User clears config | Re-run from Settings; do not auto-show again. |
+
+---
+
+## 8. Test plan
+
+- `source-catalog.test.ts`: every source has a tier, badge, terms URL where
+  required, and a default; no duplicates.
+- `capabilities.test.ts`: every source maps to exactly one capability; every
+  capability has at least one Included or Connect path; no advanced source is a
+  default.
+- `bundles.test.ts`: Research/Commercial bundles never enable advanced or
+  `personal-only` sources; Personal-trader only enables them through the
+  acknowledgement flag; Crypto bundle never enables an exchange source.
+- `defaults.test.ts`: safe defaults = open data only; commercial never enables
+  `personal-only` without acknowledgement.
+- `state.test.ts`: unset prefs = legacy behavior; round-trip; malformed JSON
+  falls back safely (no crash).
+- `existing-install.test.ts`: empty DB = new; any prior config = migrated.
+- `api/setup/route.test.ts`: guard, validation, advanced/commercial rejection,
+  success payload, cache invalidation.
+- `api/setup/check/route.test.ts`: rate limit; per-item timeout; a stored key
+  with a failing probe is `failed`, never `ok`; skipped items stay `skipped`.
+- `data-source-preferences.test.ts`: disabling `tradingview` skips it; disabling
+  all returns an honest failure; unset keeps the legacy chain; an advanced
+  source stays off until accepted.
+- Component smoke: renders step 1, advances, and blocks finish until required
+  fields are valid (if a DOM test harness exists; otherwise extract the step
+  machine to a pure reducer and test that).
+- First-session test (manual + one automated smoke where possible): section 2.5
+  criteria — no console errors, Chat ready or honest banner, every market page
+  data or `UNAVAILABLE`, Settings matches onboarding, re-run reproduces.
+
+---
+
+## 9. Docs / changelog obligations
+
+- This plan: `docs/onboarding-plan.md`.
+- After implementation: add an "Onboarding" row to `docs/NAVIGATION.md`; update
+  `docs/QUICKSTART.md` ("first run asks these questions"); update
+  `docs/ARCHITECTURE.md` / `docs/DATA-FLOW.md` only if the source-preferences
+  enforcement changes the data path (it does — document it).
+- Append to `docs/CHANGELOG.md` on every phase.
+- If a source-preference contract is added, note it in `docs/DECISIONS.md` (app
+  ADR) because it changes how the scraper chain selects sources.
+
+---
+
+## 10. Open decisions (recommended answers)
+
+1. **Instance vs per-user onboarding?** → Instance-level for v1. Local installs
+   are effectively single-operator; per-user adds a user id to the config and a
+   second gate after login.
+2. **Should commercial mode hard-block restricted sources?** → No. Soft-block
+   with an explicit acknowledgement. Hard-blocking would make the UI unusable
+   for users who already hold a license, and we cannot verify licenses.
+3. **Do we add a new dependency for toggles/stepper?** → No. Build from
+   `Button`, `Label`, `Input`, and `cn`; the repo already avoids UI deps.
+4. **Should "Skip setup" exist?** → Yes, only on step 1 and only in personal
+   mode, so a user can get to the app; it still writes `completed:true` with
+   defaults and is re-runnable from Settings.
+5. **Where does the "Run setup again" button live?** → Settings → General,
+   next to the existing reset/advanced actions; plus a `/setup` deep link.
+
+---
+
+## 11. Effort estimate
+
+| Phase | Scope | Rough effort |
+|---|---|---|
+| 1 | Catalog, capabilities, bundles, state, routes, check, migration, tests | 1–1.5 days |
+| 2 | Enforcement across scraper/connectors/econ/investor-eye + tests | 1–1.5 days |
+| 3 | Gate, shell, 4 steps, capability rows, provider/key reuse, mounting | 2–2.5 days |
+| 4 | Polish, error states, accessibility, full test pass | 0.5–1 day |
+
+Total: ~4.5–6.5 engineering days. Phase 1+2 must land before the UI so the
+toggles are real on day one.
+
+---
+
+## 12. Final recommendation
+
+Ship in this order:
+1. **Make the liability-safe set the true built-in set**: SEC EDGAR, open macro
+   (FRED/BEA/BLS/World Bank), and open event feeds (GDELT/USGS, FIRMS after
+   verification). These are the ones you can ship enabled to every user.
+2. **Move TradingView, Yahoo, Binance, CoinGecko Demo, and scrapers out of the
+   default built-in set.** Either remove them or make them an explicit opt-in
+   "community source (use at your own risk)" that is off by default. Do not
+   describe them as features you provide.
+3. **Make every market-price source bring-your-own-key.** The project ships the
+   connector, the user owns the provider account and accepts its terms. Never
+   bundle a shared key and never proxy vendor data through the project's server.
+4. **Let the user bring their own AI provider** (key or custom endpoint) on the
+   same screen where they choose local vs hosted.
+5. **Organize the screen by capability, not vendor**: Chat, Company research,
+   Macro, Events, Prices, News & search, Crypto. Vendors appear only inside the
+   capability the user expands.
+6. **Always end with a readiness check** so the user knows what will work before
+   they leave onboarding. A skipped capability is fine; a surprise failure is
+   not.
+7. **Enforce every toggle** in the fetch layer before shipping the UI, so a
+   disabled source cannot be used silently.
+8. **Ask a lawyer before charging money** for a build that enables non-open
+   sources. The labels in this plan are engineering guidance, not a legal
+   opinion.
