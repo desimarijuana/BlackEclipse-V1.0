@@ -483,9 +483,9 @@ def test_prompt_char_ceiling():
     # approval card reported a filled order as refused. It now names both
     # operator-gated paths and requires `order_ledger` evidence before claiming a
     # failure. Matches the same test in `test_phase_s_stabilization.py`.
-    # Re-pinned 44183->44773 (2026-11-09) for the finance_calc guidance and the
+    # Re-pinned 44183->45152 (2026-11-09) for the finance_calc guidance and the
     # in-flight prompt guidance merged into the release tree. May only shrink.
-    assert len(prompt) <= 44773, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 45152, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

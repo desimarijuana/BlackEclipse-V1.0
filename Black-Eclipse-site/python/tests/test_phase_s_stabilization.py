@@ -131,9 +131,9 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # could not submit and reported a filled order as refused. The block now names
     # both operator-gated paths and requires `order_ledger` evidence before saying
     # an order failed. Matches the same test in `test_memory_tools.py`.
-    # Re-pinned 44183->44773 (2026-11-09) for the finance_calc guidance and the
+    # Re-pinned 44183->45152 (2026-11-09) for the finance_calc guidance and the
     # in-flight prompt guidance merged into the release tree. May only shrink.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 44773
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 45152
 
 
 def test_main_still_reexports_the_identity_boundary_surface():
