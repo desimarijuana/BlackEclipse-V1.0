@@ -1,6 +1,10 @@
 # Change Log
 
 ## 2026-11-08
+- **docs(harness): refresh benchmark results.** `docs/harness/benchmarks.md`
+  now records run `evalrun-1794189449278` at commit `216277a2` (tier 0,
+  gate PASS) with updated latency. Doc updated: `docs/harness/benchmarks.md`.
+  No code or contract change — recorded benchmark output only.
 - **refactor(ui): remove the Eclipse SDK page.** The dedicated `?tab=sdk`
   screen (`src/components/screens/sdk/`) is deleted along with its AppTab,
   sidebar/Agentic entry, search-palette page and launcher row, app-shell nav
