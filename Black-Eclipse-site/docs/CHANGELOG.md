@@ -1,6 +1,18 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(eval,research): close the hallucination gate and pin the passing live
+  run.** `research/release_gate.py` now withholds an unretrieved citation from the
+  released answer (`[label] (unverified source)`) and appends a URL-free note; the
+  URL stays only in the operator blob. The underspecified
+  `adversarial.hallucination.001` prompt now names Apple and the SEC source, and
+  tasks can opt out of the live lane with `metadata.live_eligible: false`.
+  Regenerated the corpus baseline and published benchmark; the full live re-run
+  `evalrun-1794245939159` reports `task_success` **0.9149**,
+  `hallucination_rate` **0.0000**, gate **PASS**, pinned as
+  `live:7e9d161037e45360f95717198f839ced`. Verified: 32 release-gate/task/live
+  tests and `test_published_benchmarks` 3/3. Docs updated:
+  `docs/releases/v0.3.0.md`, `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 - **feat(chat): queue multiple prompts while the agent is replying.** Pressing
   Enter (or the new Queue button) during a run now appends the draft to an
   ordered queue instead of silently dropping it. A new `MessageQueue` panel

@@ -17,11 +17,11 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1794245636109`
+- run: `evalrun-1794247312915`
 - dataset: `eclipse-benchmark` @ `1` (checksum `7b701a93ce4706def8de154fd6a311b9`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `1350e1ed8dc0571ce560de72cf17c3b1fd5ef710`
+- git commit: `9b7ee9d2936224023f1be17288ea924adbda21ec`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.0764 |
+| latency | 0.1165 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -90,41 +90,37 @@ A deterministic script replaces the model, so this measures the
 This is the only tier that measures the **agent**. The model is
 named, and the run is reproducible from the provenance below.
 
-- run: `live:f368f388bb662ce717c19da715f0bb44`
-- dataset: `eclipse-benchmark` @ `1` (checksum `d6375ca430594df65fc95daec98c2f1f`)
+- run: `live:7e9d161037e45360f95717198f839ced`
+- dataset: `eclipse-benchmark` @ `1` (checksum `7b701a93ce4706def8de154fd6a311b9`)
 - tier: 1
 - agent version: `0.1.0`
-- git commit: `2b6df30a65289d51e9a7c8a3bcf825fb0b109af0`
+- git commit: `fe242acf6bfee6af246ec6e4e00673447d73c8cb`
 - grader version: `unknown`
-- config: `{'tier': 1, 'taskCount': 198, 'measuredTrials': 196}`
-- gate: **FAIL**
+- config: `{'tier': 1, 'taskCount': 282, 'measuredTrials': 282}`
+- gate: **PASS**
 
-Live-eligible re-score from this same run: 167/196 = 0.8520. The other 46 measured trials are tier-0 scripted tasks that require eval-only tools or synthetic environments; the production service cannot run them, so they are excluded from the agent measurement. Dimensions that came only from those fixtures are UNKNOWN here; the raw run including them scored 0.6901.
+fresh full live run evalrun-1794245939159: gate PASS (task_success 0.9148936170212766, hallucination_rate 0.0)
 
 | dimension | value |
 |---|---|
-| task_success | 0.8520 |
-| tool_accuracy | UNKNOWN |
+| task_success | 0.9149 |
+| tool_accuracy | 0.4191 |
 | research_accuracy | UNKNOWN |
-| citation_accuracy | UNKNOWN |
+| citation_accuracy | 0.9000 |
 | code_correctness | UNKNOWN |
-| financial_accuracy | 0.8706 |
-| memory_accuracy | UNKNOWN |
-| planning_quality | UNKNOWN |
-| recovery_success | UNKNOWN |
+| financial_accuracy | 0.9370 |
+| memory_accuracy | 1.0000 |
+| planning_quality | 0.9997 |
+| recovery_success | 1.0000 |
 | misroute_rate | UNKNOWN |
 | escalation_correct | UNKNOWN |
 | provenance | UNKNOWN |
 | honesty | UNKNOWN |
 | artifact_delivery | UNKNOWN |
-| visual_delivery | UNKNOWN |
+| visual_delivery | 0.5000 |
 | hallucination_rate | 0.0000 |
-| safety_score | UNKNOWN |
+| safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 4.9609 |
-| token_usage | 28748.0041 |
+| latency | 9.8778 |
+| token_usage | 341771.8794 |
 | reliability | 1.0000 |
-
-### Gate failures
-
-- task_success=0.8520 < 0.9
