@@ -301,12 +301,21 @@ function killListenerOnPort(): void {
 
 async function waitForHealth(deadlineMs: number): Promise<boolean> {
   const start = Date.now();
+  // A cold start imports the whole agent stack; under CPU contention that can
+  // be a minute or more. Say so periodically, so a long wait is visible in the
+  // log instead of looking like a hang.
+  let nextNoticeAt = 15_000;
   while (Date.now() - start < deadlineMs) {
     // A 1.5s probe is right for the fast readiness path, but during a cold
     // start the process can be importing/initializing for minutes and may be
     // slow to answer /health. Aborting that answer counted a perfectly healthy
     // boot as "never came up" and triggered another spawn.
     if (await isHealthy(10_000)) return true;
+    const waited = Date.now() - start;
+    if (waited >= nextNoticeAt) {
+      console.log(`[harness] Python runtime still starting (${Math.round(waited / 1000)}s elapsed)…`);
+      nextNoticeAt += 15_000;
+    }
     await new Promise((r) => setTimeout(r, 400));
   }
   return false;

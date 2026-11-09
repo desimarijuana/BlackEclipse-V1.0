@@ -225,6 +225,12 @@ Back up `/data`; do not bake it into the image.
 - **First boot warms markets** (prices, news) and can take a minute; the app is
   responsive throughout. The first boot also runs the one-time `prisma db push`
   (a few seconds) before the app process starts.
+- **The Python runtime's first cold start** imports the whole agent stack
+  (measured 36 s standalone and ~51 s alongside the app's own boot on the
+  reference host; longer under a concurrent build). The app pre-starts it in the
+  background and the first harness request waits for it, logging progress every
+  15 s. The budget is **5 minutes** before an honest 503; raise it with
+  `HARNESS_PY_START_TIMEOUT_MS` on a slower host.
 - The **browser tool** needs the Chromium download (`python -m playwright install
   chromium`) which is not baked in; the tool reports `BROWSER_UNINSTALLED` until
   present, and the container does not include it to stay small. Add it to the

@@ -62,7 +62,10 @@ describe("isRecentlyHealthy", () => {
 describe("resolveStartTimeoutMs", () => {
   it("uses a generous default when unset", () => {
     expect(resolveStartTimeoutMs(undefined)).toBe(DEFAULT_START_TIMEOUT_MS);
-    expect(DEFAULT_START_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000);
+    // The measured worst case is >240 s under a concurrent build/test load;
+    // the default must keep margin above it, or a still-importing runtime is
+    // reported as unavailable while it is healthy.
+    expect(DEFAULT_START_TIMEOUT_MS).toBeGreaterThanOrEqual(300_000);
   });
 
   it("honours a positive override so an operator can tune the budget", () => {

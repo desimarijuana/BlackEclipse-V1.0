@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
@@ -74,6 +75,15 @@ def _warm_code_index(service: Any) -> None:
 
 async def _boot() -> None:
     """Start every subsystem exactly once. Never a boot blocker."""
+    _t = time.monotonic()
+
+    def _mark(step: str) -> None:
+        """Log the elapsed time of one boot step (operator diagnostics)."""
+        nonlocal _t
+        now = time.monotonic()
+        log.info("[harness-py] boot %-22s %6d ms", step, int((now - _t) * 1000))
+        _t = now
+
     # Deployment guard (end-to-end): the Python bind AND the front door's auth
     # posture, so a public bind that is reachable without a login — or a required
     # login that cannot work — is named here, not discovered later. A public bind
@@ -95,6 +105,7 @@ async def _boot() -> None:
     # Retention: mark due AUTOMATIC memories expired on startup. Idempotent and
     # best-effort.
     service.run_startup_maintenance()
+    _mark("startup-maintenance")
     # Native video: prune old job workspaces to their count/byte budgets. The
     # final MP4 is copied into the Artifact Center at registration, so a job
     # workspace is an audit aid — never the deliverable. Bounded, off the event
@@ -116,26 +127,35 @@ async def _boot() -> None:
     from .recovery.bootstrap import install_recovery_layer
 
     install_recovery_layer(service)
+    _mark("recovery-install")
     # Terminal subsystem recovery: reconcile persisted process/session rows.
     service.start_terminal()
     # Application Runtime reconciliation: re-examine the runtimes left by a
     # previous process.
     service.reconcile_application_runtime()
+    _mark("terminal+runtime-reconcile")
     # Code Intelligence & Understanding Engine (CIUE): warm the code index in the
     # background. Language servers start lazily on first use.
     service.start_code_intel()
     _warm_code_index(service)
+    _mark("code-intel")
     # Browser + Computer-Use runtimes: wire resolvers, start idle sweepers. No
     # browser/desktop is launched until a tool asks.
     service.start_browser()
+    _mark("browser")
     await service.start_browser_sweeper()
+    _mark("browser-sweeper")
     service.start_computer()
+    _mark("computer")
     await service.start_computer_sweeper()
+    _mark("computer-sweeper")
     # Connect configured MCP servers and register selected read-only tools.
     await service.start_mcp()
+    _mark("mcp")
     # The bounded learning-review queue: reviews completed runs in the background.
     # It only creates inert records/suggestions and never enables a skill.
     await service.start_learning_review()
+    _mark("learning-review")
     # RSL (R0–R4): one bounded conductor task beside learning review. It is dark
     # by default (`HARNESS_RSL_MODE=off`); observe mode is a no-op here because
     # the post-run observer owns observation.
@@ -200,12 +220,14 @@ async def _boot() -> None:
     # that publish, so their legacy run-bus emissions are ingested from boot.
     from .event_system.bootstrap import start_events
     await start_events(service)
+    _mark("events")
     # Failure Intelligence & Adaptive Recovery: subscribe to the now-live event
     # bus so failures from every subsystem are classified and recorded as durable
     # incidents. Bounded by the Event System's loop guard + the recovery budget.
     from .recovery.bootstrap import start_recovery
 
     await start_recovery(service)
+    _mark("recovery-start")
     # Run stall watchdog: even if some strand of the runtime hangs past its own
     # per-call hard deadlines (a swallowed cancellation, an unforeseen subsystem
     # strand), every non-terminal run still reaches a terminal state and its
@@ -217,6 +239,7 @@ async def _boot() -> None:
     # tasks and dispatches each through the ordinary run path. Started after jobs
     # so a task-triggering job sees a live scheduler.
     await service.start_tasks()
+    _mark("tasks")
     # The Artifact Center: a bounded background reconciler that repairs catalog/
     # storage inconsistencies (missing objects, recovered rows). Best-effort.
     await service.start_artifacts()
@@ -258,6 +281,7 @@ async def _boot() -> None:
 
     install_fabric_layer(service)
     await start_fabric(service)
+    _mark("fabric")
     # Unified search: build the vector/FTS index from existing sources in the
     # background (non-blocking). With no embedding provider this is an honest
     # keyword-only index; disabled by HARNESS_SEARCH_WARM_INDEX=0.
