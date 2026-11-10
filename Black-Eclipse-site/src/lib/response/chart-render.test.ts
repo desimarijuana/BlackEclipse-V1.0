@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseResponsePayload } from './contract';
 import { chartBlockToSpec } from './chart-spec';
 import { chartBlockWarning } from './chart-capabilities';
-import { hydrateChartBlock } from './chart-data';
+import { fetchQuantFigure, hydrateChartBlock } from './chart-data';
 
 function chartBlock(value: unknown) {
   const parsed = parseResponsePayload({ blocks: [value] });
@@ -125,6 +125,50 @@ describe('the chart spec reads the fields each kind uses', () => {
     const plan = chartBlockToSpec(block)!;
     expect(plan.spec.panels?.[0].marks[0].type).toBe('line');
     expect(plan.spec.panels?.[0].marks[0].y).toHaveLength(3);
+  });
+});
+
+describe('a quant figure names the artifact it was computed from', () => {
+  it('accepts a chart block with only a quant source', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'auto',
+      title: 'Equity curve',
+      quant: { experimentId: 'exp_abcd1234', figure: 'equity' },
+    });
+    expect(block.quant).toEqual({ experimentId: 'exp_abcd1234', figure: 'equity' });
+    expect(block.series).toEqual([]);
+    // The validator must not call a named quant figure "undrawable": the spec
+    // is resolved from the experiment before the chart is rendered.
+    expect(chartBlockWarning(block)).toBeNull();
+  });
+
+  it('resolves the figure through the backtest front door', async () => {
+    const spec = { kind: 'line', series: [{ name: 'Equity', data: [1, 2] }] };
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        figure: { name: 'equity', title: 'Equity', available: true, spec },
+      }),
+    })));
+    const resolved = await fetchQuantFigure({ experimentId: 'exp_abcd1234', figure: 'equity' });
+    expect(resolved).toEqual(spec);
+    const url = String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    expect(url).toContain('/api/backtest/experiments/exp_abcd1234/figures/equity');
+  });
+
+  it('reports an unavailable figure instead of drawing an empty one', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        figure: { name: 'equity', title: 'Equity', available: false, reason: 'no equity curve' },
+      }),
+    })));
+    await expect(
+      fetchQuantFigure({ experimentId: 'exp_missing', figure: 'equity' }),
+    ).rejects.toThrow(/no equity curve/);
   });
 });
 

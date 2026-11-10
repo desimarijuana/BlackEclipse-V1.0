@@ -72,7 +72,10 @@ export function chartSpecWarning(spec: ChartSpec): string | null {
  * else is checked against the same spec the renderer will draw.
  */
 export function chartBlockWarning(block: ChartBlock): string | null {
-  if (block.dataSource) return null;
+  // A named market source or a computed quant figure is resolved before the
+  // mapped spec exists, so the raw block is accepted here; the resolved spec is
+  // checked by `chartSpecWarning` once the data arrives.
+  if (block.dataSource || block.quant) return null;
   if (block.panels && block.panels.length > 0) {
     if (block.panels.every((panel) => panel.marks.length === 0)) return 'the chart has no marks to draw';
     for (const [panelIndex, panel] of block.panels.entries()) {

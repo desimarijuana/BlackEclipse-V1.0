@@ -30,7 +30,7 @@ import { renderChart, type ChartFigureData, type RenderedChart } from '@/lib/har
 import { PlotlyChart } from '@/components/charts/plotly-chart';
 import { chartBlockToSpec, type ChartPlan } from '@/lib/response/chart-spec';
 import { chartSpecWarning } from '@/lib/response/chart-capabilities';
-import { hydrateChartBlock } from '@/lib/response/chart-data';
+import { fetchQuantFigure, hydrateChartBlock } from '@/lib/response/chart-data';
 import { registerChartArtifact, unregisterChart } from '@/lib/response/chart-registry';
 import { Code, Loader2, Maximize2, Minimize2, X } from '@/lib/icons';
 import { generateChartSource } from '@/lib/harness/notebook-client';
@@ -87,15 +87,27 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   // The block is a fresh object on every render in most callers, so the work is
   // keyed on its CONTENT, not its identity.
   const blockKey = useMemo(() => JSON.stringify(block), [block]);
+  // A computed quant figure has no series of its own; its spec is built from a
+  // stored experiment. It still gets a registry id so PNG/PDF export works.
+  const chartId = block.id ?? (
+    block.quant ? `quant:${block.quant.experimentId}:${block.quant.figure}` : undefined
+  );
 
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });
     void (async () => {
       try {
-        const hydrated = await hydrateChartBlock(block);
-        if (cancelled) return;
-        const plan = chartBlockToSpec(hydrated, { theme: 'eclipse-dark', width: 1000, height: 560 });
+        let plan: ChartPlan | null;
+        if (block.quant) {
+          const spec = await fetchQuantFigure(block.quant);
+          if (cancelled) return;
+          plan = { spec, kind: spec.kind, notes: [] };
+        } else {
+          const hydrated = await hydrateChartBlock(block);
+          if (cancelled) return;
+          plan = chartBlockToSpec(hydrated, { theme: 'eclipse-dark', width: 1000, height: 560 });
+        }
         if (!plan) {
           setState({ status: 'empty', message: 'No data series available to chart.' });
           return;
@@ -114,7 +126,7 @@ export function ResponseChart({ block, height = 260, className, focusable = true
           return;
         }
         // The export helpers fetch the picture by artifact id.
-        if (block.id) registerChartArtifact(block.id, artifactId);
+        if (chartId) registerChartArtifact(chartId, artifactId);
         setState({ status: 'ready', src: downloadUrl(artifactId), chart: rendered.chart, plan });
       } catch (err) {
         if (cancelled) return;
@@ -131,10 +143,9 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   }, [blockKey]);
 
   useEffect(() => {
-    const chartId = block.id;
     if (!chartId) return;
     return () => unregisterChart(chartId);
-  }, [block.id]);
+  }, [chartId]);
 
   const editCode = useCallback(async () => {
     if (!notebook || state.status !== 'ready' || editingCode) return;
@@ -178,6 +189,12 @@ export function ResponseChart({ block, height = 260, className, focusable = true
           />
           {state.plan.notes.length > 0 && (
             <p className="text-[10px] text-muted-foreground/70">{state.plan.notes.join(' ')}</p>
+          )}
+          {block.quant && (
+            <p className="text-[10px] text-muted-foreground/60">
+              {block.quant.caption
+                || `Computed by the quant engine from ${block.quant.experimentId} · ${block.quant.figure}`}
+            </p>
           )}
         </div>
       );

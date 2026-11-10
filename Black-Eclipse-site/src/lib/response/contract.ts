@@ -24,47 +24,10 @@ import { model3dBlock } from './blocks/model3d';
 export const RESPONSE_SCHEMA_VERSION = '1.0';
 export const RESPONSE_FENCE_LANGUAGE = 'eclipse-response';
 
-/** Resource ceilings. Chosen to protect the renderer without breaking real
- *  research artifacts (see docs/security-and-limits in the engine doc). */
-export const RESPONSE_LIMITS = {
-  maxBlocks: 80,
-  maxNestedDepth: 4,
-  maxSeries: 24,
-  maxPointsPerSeries: 5000,
-  maxCategories: 5000,
-  maxTableRows: 2000,
-  maxTableColumns: 40,
-  maxMetrics: 60,
-  maxSources: 100,
-  maxDiagramNodes: 120,
-  maxDiagramEdges: 300,
-  maxTimelineEvents: 200,
-  maxTabs: 12,
-  maxSteps: 100,
-  maxCards: 40,
-  maxSections: 40,
-  maxActions: 12,
-  maxArtifacts: 24,
-  maxImages: 24,
-  maxWorkflowStages: 40,
-  maxFlowSteps: 24,
-  maxFlowPaths: 8,
-  maxStats: 4,
-  maxGauges: 24,
-  maxCompareColumns: 6,
-  maxCompareRows: 60,
-  maxRankedItems: 50,
-  maxBadges: 60,
-  maxSlides: 12,
-  maxSimulationInputs: 12,
-  maxSimulationOutputs: 12,
-  maxStateVars: 12,
-  maxComputedVars: 12,
-  maxLearningNodes: 120,
-  maxLearningResources: 200,
-  maxMetadataKeys: 40,
-  maxStringLength: 20000,
-} as const;
+// Resource ceilings live in ./limits so block modules can share them without a
+// cycle. Re-exported here because this is the contract's public entry point.
+import { RESPONSE_LIMITS } from './limits';
+export { RESPONSE_LIMITS } from './limits';
 
 // Block normalization (type aliases + field synonyms) lives in ./normalize so
 // this module stays within its size ratchet. Re-exported for existing callers.
@@ -323,6 +286,18 @@ const chartDataSourceSchema = z.object({
   name: shortString.optional(),
 });
 
+/**
+ * WHERE a quant figure comes from. The figure is built by the Python Quant
+ * Figure Kit from a stored experiment artifact (`equity`, `underwater`,
+ * `monthly_returns`, `monte_carlo`, `parameter_surface`, ...). The block stays
+ * tiny and the numbers never travel through the model.
+ */
+const chartQuantSourceSchema = z.object({
+  experimentId: shortString,
+  figure: shortString,
+  caption: shortString.optional(),
+});
+
 const chartMarkSchema = z.object({
   /** The mark's primitive. An UNKNOWN type falls back to `line`: one odd mark must never cost the reader every other panel. */
   type: z.enum(CHART_MARK_TYPES).catch('line'),
@@ -397,6 +372,12 @@ const chartBlock = z.object({
    */
   dataSource: chartDataSourceSchema.optional(),
   /**
+   * A COMPUTED quant figure: name a stored experiment + figure instead of
+   * carrying a series. The Python Quant Figure Kit builds the spec from the
+   * artifact, so the figure is deterministic and can never be retyped wrong.
+   */
+  quant: chartQuantSourceSchema.optional(),
+  /**
    * The compositional form: panels of marks. When present, the chart is drawn
    * as a SCENE and `series` is not needed. This is how the model draws ANY
    * chart the user asks for.
@@ -413,8 +394,9 @@ const chartBlock = z.object({
   (block) =>
     block.series.length > 0 ||
     (block.panels?.length ?? 0) > 0 ||
-    block.dataSource !== undefined,
-  { message: 'a chart needs either series, panels or a dataSource' },
+    block.dataSource !== undefined ||
+    block.quant !== undefined,
+  { message: 'a chart needs series, panels, a dataSource or a quant figure' },
 );
 
 const diagramNodeSchema = z.object({

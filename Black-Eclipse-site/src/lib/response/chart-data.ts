@@ -7,6 +7,7 @@
 // every chart uses), then the block is filled so the shared mapper can draw it.
 
 import type { ChartBlock, ChartDataSource } from './contract';
+import type { ChartSpec } from '@/lib/harness/charts';
 
 export interface ChartBar {
   date: string;
@@ -109,6 +110,61 @@ function isCandleKind(kind: string): boolean {
  * Returns a NEW block; a source that cannot be resolved rejects with the reason
  * (the UI shows it rather than an empty chart).
  */
+export interface QuantFigureSource {
+  experimentId: string;
+  figure: string;
+}
+
+export interface QuantFigurePayload {
+  status?: string;
+  experimentId?: string;
+  figure?: {
+    name: string;
+    title: string;
+    available: boolean;
+    reason?: string;
+    spec?: ChartSpec;
+  };
+}
+
+const QUANT_FETCH_CACHE = new Map<string, Promise<ChartSpec>>();
+
+/**
+ * Resolve a COMPUTED quant figure to the chart engine's spec.
+ *
+ * The figure is built by the Python Quant Figure Kit from the stored
+ * experiment; the browser never receives a series to fill in. A source that
+ * cannot be resolved rejects with the runtime's own reason, so the chart shows
+ * an honest empty state instead of a guessed picture.
+ */
+export async function fetchQuantFigure(source: QuantFigureSource): Promise<ChartSpec> {
+  const key = `${source.experimentId}|${source.figure}`;
+  const existing = QUANT_FETCH_CACHE.get(key);
+  if (existing) return existing;
+  const run = (async () => {
+    const params = new URLSearchParams({ theme: 'eclipse-dark' });
+    const res = await fetch(
+      `/api/backtest/experiments/${encodeURIComponent(source.experimentId)}/figures/` +
+        `${encodeURIComponent(source.figure)}?${params.toString()}`,
+      { signal: AbortSignal.timeout(30_000) },
+    );
+    const payload = (await res.json().catch(() => ({}))) as QuantFigurePayload & {
+      error?: string;
+    };
+    if (!res.ok) {
+      throw new Error(payload.error || `the figure could not be built (HTTP ${res.status})`);
+    }
+    const figure = payload.figure;
+    if (!figure?.available || !figure.spec) {
+      throw new Error(figure?.reason || `the quant figure ${source.figure} is unavailable`);
+    }
+    return figure.spec;
+  })();
+  QUANT_FETCH_CACHE.set(key, run);
+  run.catch(() => QUANT_FETCH_CACHE.delete(key));
+  return run;
+}
+
 export async function hydrateChartBlock(block: ChartBlock): Promise<ChartBlock> {
   const next = { ...block } as ChartBlock & { dataSource?: ChartDataSource };
 

@@ -1,0 +1,45 @@
+// Resource ceilings for the interactive response contract.
+//
+// They live outside `contract.ts` so the block modules and the contract can
+// share one source without a cycle (the chart's computed-quant source made the
+// contract's own file grow past its size ratchet).
+
+export const RESPONSE_LIMITS = {
+  maxBlocks: 80,
+  maxNestedDepth: 4,
+  maxSeries: 24,
+  maxPointsPerSeries: 5000,
+  maxCategories: 5000,
+  maxTableRows: 2000,
+  maxTableColumns: 40,
+  maxMetrics: 60,
+  maxSources: 100,
+  maxDiagramNodes: 120,
+  maxDiagramEdges: 300,
+  maxTimelineEvents: 200,
+  maxTabs: 12,
+  maxSteps: 100,
+  maxCards: 40,
+  maxSections: 40,
+  maxActions: 12,
+  maxArtifacts: 24,
+  maxImages: 24,
+  maxWorkflowStages: 40,
+  maxFlowSteps: 24,
+  maxFlowPaths: 8,
+  maxStats: 4,
+  maxGauges: 24,
+  maxCompareColumns: 6,
+  maxCompareRows: 60,
+  maxRankedItems: 50,
+  maxBadges: 60,
+  maxSlides: 12,
+  maxSimulationInputs: 12,
+  maxSimulationOutputs: 12,
+  maxStateVars: 12,
+  maxComputedVars: 12,
+  maxLearningNodes: 120,
+  maxLearningResources: 200,
+  maxMetadataKeys: 40,
+  maxStringLength: 20000,
+} as const;
