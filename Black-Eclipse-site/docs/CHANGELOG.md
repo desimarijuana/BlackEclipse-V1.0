@@ -1,6 +1,11 @@
 # Change Log
 
 ## 2026-11-09
+- **chore(size): re-pin the harness budget for the command/workspace release
+  tree.** Measured total **465271** (was 465214); `python/harness/.` 30836 (+3)
+  and `routers` 21156 (+14) from the checkpointed command/workspace work. This is
+  a deliberate `scripts/size-budget.json` edit — the ceilings are the measured
+  values, not padding. docs updated: `docs/CHANGELOG.md`.
 - **feat(commands): typed UI intents + `/canvas` and `/open`.** A routed command
   can now return a typed `ui` intent — `{type:"navigate", tab, subroute?, params?}`
   or `{type:"openCanvas", artifactId?}` — on `CommandResult`, carried through the
