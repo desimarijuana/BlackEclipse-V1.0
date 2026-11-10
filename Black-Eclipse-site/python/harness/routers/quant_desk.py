@@ -450,6 +450,31 @@ async def mine(body: MethodMineBody, _: bool = Depends(require_operator)) -> dic
         raise _http(exc) from exc
 
 
+class PlaybookBody(BaseModel):
+    methodId: Optional[str] = None
+    strategyId: Optional[str] = None
+    version: Optional[str] = None
+    symbol: Optional[str] = None
+    interval: str = "1d"
+    params: dict[str, Any] = Field(default_factory=dict)
+    experimentId: Optional[str] = None
+    spec: Optional[dict[str, Any]] = None
+
+
+@router.post("/quant/methods/playbook")
+async def trading_playbook(body: PlaybookBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.discovery_tools import generate_trading_playbook_tool  # noqa: PLC0415
+        _, data = await generate_trading_playbook_tool(body.model_dump(), service)
+        if data.get("status") == "ERROR":
+            raise _http(Exception(str(data.get("error"))))
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 @router.post("/quant/methods/setups")
 async def current_setups(body: MethodScanBody, _: bool = Depends(require_operator)) -> dict:
     try:

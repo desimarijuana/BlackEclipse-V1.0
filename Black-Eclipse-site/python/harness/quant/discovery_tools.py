@@ -13,15 +13,17 @@ from .discovery.hypotheses import generate_hypotheses
 from .discovery.library import get_method_card, list_method_families, recommend_methods
 from .discovery.miner import mine_methods
 from .discovery.synthesize import build_combination, synthesize_method
-from .discovery.taxonomy import FAMILIES
+from .discovery.taxonomy import FAMILIES, family_by_id
 from .discovery.diagnostics import analyze_structure
+from .playbook import build_playbook
 from .errors import QuantError
 
 DISCOVERY_TOOLS: tuple[str, ...] = (
     "list_method_families", "get_method_card", "recommend_methods",
     "scan_market_structure", "generate_method_hypotheses",
     "synthesize_method_strategy", "combine_methods", "mine_methods",
-    "scan_current_setups", "save_discovered_method", "list_discovered_methods",
+    "scan_current_setups", "generate_trading_playbook",
+    "save_discovered_method", "list_discovered_methods",
     "promote_discovered_method",
 )
 
@@ -269,6 +271,49 @@ async def scan_current_setups_tool(args: dict[str, Any], ctx: Any) -> tuple[str,
         return _err(exc)
 
 
+# ── Trading playbook ────────────────────────────────────────────────────────
+
+async def generate_trading_playbook_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    try:
+        spec = args.get("spec")
+        method = None
+        symbol = args.get("symbol")
+        interval = str(args.get("interval") or "1d")
+        if args.get("methodId"):
+            method = family_by_id(str(args["methodId"]))
+            if method is None:
+                raise QuantError(f"unknown method family {args['methodId']!r}")
+            from .discovery.synthesize import build_strategy  # noqa: PLC0415
+            spec = build_strategy(method.id, symbol=str(symbol or "SPY"),
+                                  interval=interval, params=args.get("params"))
+        if spec is None and args.get("strategyId"):
+            record = _store(ctx).get_strategy(str(args["strategyId"]), args.get("version"))
+            spec = record["spec"]
+        if spec is None:
+            raise QuantError("pass a methodId, strategyId or a strategy spec")
+        evidence = None
+        if args.get("experimentId"):
+            experiment = _store(ctx).get_experiment(str(args["experimentId"]))
+            evidence = {
+                "experimentId": experiment.get("id"),
+                "metrics": experiment.get("metrics"),
+                "warnings": experiment.get("warnings"),
+                "window": [experiment.get("start"), experiment.get("end")],
+            }
+        playbook = build_playbook(
+            spec, symbol=symbol,
+            evidence=evidence,
+            method_family=method.to_dict() if method is not None else None,
+        )
+        text = (f"Trading playbook — {playbook['name']} on {playbook['symbol']} "
+                f"({playbook['timeframe']})\n" + "\n".join(playbook["entry"])
+                + "\n" + "\n".join(playbook["exit"])
+                + f"\nSizing: {playbook['positionSizing']}")
+        return text, {"status": "OK", "playbook": playbook}
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 # ── Persistence ─────────────────────────────────────────────────────────────
 
 async def save_discovered_method_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -388,6 +433,15 @@ def register_discovery_tools(registry: Any) -> list[str]:
              "methodIds": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"}},
              "required": ["symbol"]}, 60_000)
+    _def("generate_trading_playbook",
+         "Turn a method or a stored, tested strategy into a plain-language playbook: "
+         "entry, exit, sizing, risk, execution assumptions, regime fit, invalidation, "
+         "monitoring and the paper-first rule. Adds no rule the spec does not contain.",
+         generate_trading_playbook_tool, {"type": "object", "properties": {
+             "methodId": {"type": "string"}, "strategyId": {"type": "string"},
+             "version": {"type": "string"}, "symbol": {"type": "string"},
+             "interval": {"type": "string"}, "params": {"type": "object"},
+             "experimentId": {"type": "string"}, "spec": {"type": "object"}}})
     _def("save_discovered_method",
          "Persist a discovered/composed method with its spec and evidence so it can be "
          "reused, versioned and promoted.",
