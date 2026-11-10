@@ -17,6 +17,14 @@ intends to take, the controls it relies on, and the documents it still needs.
   product controls, documents, incidents, roadmap, and jurisdiction uncertainty.
 - [**disclosures.md**](./disclosures.md) - the canonical, versioned AI/financial
   notice text and exactly where each form appears in the product.
+- **The contract pack (all Draft):** [Terms](./TERMS-OF-SERVICE.md),
+  [Privacy](./PRIVACY-NOTICE.md), [Risk](./RISK-DISCLOSURE.md),
+  [AI Usage](./AI-USAGE-DISCLOSURE.md), [Acceptable Use](./ACCEPTABLE-USE.md),
+  [Automated Trading](./AUTOMATED-TRADING-DISCLAIMER.md), [DPA](./DPA.md),
+  [Subprocessors](./SUBPROCESSORS.md), [Cookies](./COOKIE-NOTICE.md),
+  [Trademark](./TRADEMARK-POLICY.md), [Incident Response](./INCIDENT-RESPONSE.md),
+  [Complaints](./COMPLAINTS.md), [Records](./RECORDS-RETENTION.md),
+  [Regulatory Status](./REGULATORY-STATUS.md).
 
 ## The position in one paragraph
 
@@ -36,29 +44,34 @@ contradicts is weaker than no disclaimer at all.
 Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 **Needed** = must exist before hosted/live use.
 
+> **All `Draft` documents are templates written from the blueprint, not legal
+> advice. Counsel review is the remaining gate.** A hosted launch must not treat
+> a Draft as Live, and no Draft is enforceable until the entity, jurisdiction,
+> and contact placeholders are completed.
+
 | Document | Status | Owner | Notes |
 |---|---|---|---|
 | `LICENSE` (MIT) | Live | Project | Repository root |
-| `SECURITY.md` | Live | Maintainers | Extend with safe-harbour wording |
-| `CONTRIBUTING.md` | Live | Maintainers | Add DCO sign-off requirement |
-| `DCO` | Needed | Maintainers | Plain Developer Certificate of Origin |
-| Terms of Service | Needed | Founder + counsel | Hosted service, clickwrap |
-| Privacy Notice | Needed | Founder + counsel | Hosted service; align to data map |
-| Risk Disclosure | Needed | Founder + counsel | All users; specific and conspicuous |
+| `SECURITY.md` | Live | Maintainers | Safe-harbour wording added |
+| `CONTRIBUTING.md` | Live | Maintainers | DCO sign-off required |
+| [`DCO`](../../DCO) | Live | Maintainers | DCO 1.1; `git commit -s` |
+| [Terms of Service](./TERMS-OF-SERVICE.md) | Draft | Founder + counsel | Template; localise entity/law/liability cap |
+| [Privacy Notice](./PRIVACY-NOTICE.md) | Draft | Founder + counsel | Align to the data map and hosting model |
+| [Risk Disclosure](./RISK-DISCLOSURE.md) | Draft | Founder + counsel | Full notice behind the in-product text |
 | Financial Disclaimer | Draft | Founder + counsel | In-product copy shipped (`disclosures.md`, v2026-11-09); Terms + counsel review still needed |
-| AI Usage Disclosure | Draft | Founder | Point-of-use notice + first-run recorded acceptance shipped; hosted Terms still needed |
-| Acceptable Use Policy | Needed | Founder + counsel | Abuse, market manipulation, third-party accounts |
-| Automated Trading Disclaimer | Needed | Founder + counsel | Required before live trading |
-| Data Processing Agreement | Needed (hosted B2B) | Counsel | Roles, subprocessors, transfers |
-| Trademark & Brand Policy | Needed | Founder | Protect the name while keeping code open |
-| Cookie / Tracking Notice | Needed (hosted) | Founder | Only if tracking is used |
-| Subprocessor List | Needed (hosted) | Founder | Keep current |
-| Incident Response Policy | Draft | Founder/security | Add a tabletop exercise |
-| Complaints & Dispute Policy | Needed | Founder | Real channel + response targets |
-| Records Retention Policy | Needed | Founder | Per data class, legal hold |
+| [AI Usage Disclosure](./AI-USAGE-DISCLOSURE.md) | Draft | Founder | Point-of-use notice + first-run acceptance shipped; hosted Terms still needed |
+| [Acceptable Use Policy](./ACCEPTABLE-USE.md) | Draft | Founder + counsel | Abuse, market manipulation, third-party accounts |
+| [Automated Trading Disclaimer](./AUTOMATED-TRADING-DISCLAIMER.md) | Draft | Founder + counsel | Required before the first live arm |
+| [Data Processing Agreement](./DPA.md) | Draft | Counsel | Roles, subprocessors, transfers, audit |
+| [Trademark & Brand Policy](./TRADEMARK-POLICY.md) | Draft | Founder | Protect the name while keeping code open |
+| [Cookie / Tracking Notice](./COOKIE-NOTICE.md) | Draft | Founder | Only if a hosted deployment uses tracking |
+| [Subprocessor List](./SUBPROCESSORS.md) | Draft | Founder | Complete before a hosted launch; keep current |
+| [Incident Response Policy](./INCIDENT-RESPONSE.md) | Draft | Founder/security | Tabletop exercise still open |
+| [Complaints & Dispute Policy](./COMPLAINTS.md) | Draft | Founder | Real channel + response targets required |
+| [Records Retention Policy](./RECORDS-RETENTION.md) | Draft | Founder | Per data class, legal hold |
+| [Regulatory Status Statement](./REGULATORY-STATUS.md) | Draft | Founder + counsel | "What we are / are not"; per market |
 | Sanctions & Export Policy | Later | Counsel | Before scaling to restricted markets |
 | Code of Conduct | Recommended | Maintainers | Contributor Covenant |
-| Regulatory Status Statement | Recommended | Founder + counsel | "What we are / are not" |
 
 ## What to ship first
 

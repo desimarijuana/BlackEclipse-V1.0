@@ -1,6 +1,24 @@
 # Change Log
 
 ## 2026-11-09
+- **docs(legal): draft the hosted contract pack and adopt the DCO.** Added
+  clearly-marked Draft templates for Terms, Privacy, Risk, AI Usage, Acceptable
+  Use, Automated Trading, DPA, Subprocessors, Cookies, Trademark, Incident
+  Response, Complaints, Records Retention and Regulatory Status, each with the
+  entity/jurisdiction/contact placeholders and a counsel-review gate. The
+  register marks every one Draft (not Live) and links the pack. Adopted DCO 1.1
+  at the repo root and required `git commit -s` in CONTRIBUTING; added the
+  security safe-harbour statement. Docs updated: `docs/legal/*`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `docs/CHANGELOG.md`.
+- **fix(chat): resolve the `auto`/`mock` provider sentinel from the saved endpoint.**
+  A configured local Ollama/LM Studio endpoint whose saved provider was still
+  `auto` or `mock` was forwarded to the Python runtime as `openai`, so every
+  production chat failed with `Provider 'openai' is not configured (missing API
+  key)` even though the local server was running. `resolveLLMProviderId` now
+  maps the sentinel to the preset that owns the saved base URL (local or
+  hosted) at every runtime entry point — chat, skills, autonomous jobs and the
+  `NEXT_PUBLIC_LLM_CONFIGURED` flag. Regression tests cover chat + resolution.
+  no doc change — bug fix; the documented provider-resolution contract is unchanged.
 - **chore(size): re-pin the harness budget for the command/workspace release
   tree.** Measured total **465271** (was 465214); `python/harness/.` 30836 (+3)
   and `routers` 21156 (+14) from the checkpointed command/workspace work. This is

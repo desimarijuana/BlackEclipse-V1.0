@@ -64,6 +64,19 @@ they render a month off.
 - Run `npm run lint` before committing
 - Line endings are normalized by the root `.gitattributes` (LF for text); leave it alone.
 
+## Developer Certificate of Origin
+
+Every commit must certify the contribution with a sign-off:
+
+```sh
+git commit -s -m "your message"
+```
+
+The [`DCO`](./DCO) (version 1.1) certifies that you wrote the contribution or
+have the right to submit it under this project's licence. A commit without a
+`Signed-off-by:` line is not merged. The DCO is separate from the MIT licence:
+the licence grants use; the DCO records provenance.
+
 ## Pull Request Process
 
 1. Ensure your code builds: `npm run build`

@@ -33,6 +33,14 @@ You can expect an acknowledgement within **72 hours** and a status update within
 **7 days**. Please give us **90 days** before public disclosure; we will credit
 you in the advisory unless you ask otherwise.
 
+## Safe harbour
+
+We will not pursue or support legal action against a researcher who acts in
+good faith within the in-scope list, avoids privacy violations and data
+destruction, does not exfiltrate or publicly disclose user data, and gives us a
+reasonable opportunity to fix the issue before disclosure. This is a statement
+of intent, not a waiver of any third party's rights and not legal advice.
+
 ## In scope
 
 - Authentication and session handling (`src/lib/auth/`), including the
