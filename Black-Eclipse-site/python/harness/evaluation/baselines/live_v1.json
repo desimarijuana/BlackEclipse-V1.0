@@ -1,6 +1,59 @@
 {
   "baselineVersion": "1.0.0",
   "baselines": {
+    "live:27c280164943e63520e14422a6c953cf": {
+      "agentVersion": "0.1.0",
+      "baseUrl": "http://localhost:11434/v1",
+      "baselineVersion": "1.0.0",
+      "categories": {},
+      "ci": [
+        null,
+        null
+      ],
+      "costUsd": 0.0,
+      "dataset": "eclipse-benchmark",
+      "datasetChecksum": "65e2b04e8020274fd870c2ebf7a7e448",
+      "datasetVersion": "1",
+      "dimensions": {
+        "artifact_delivery": null,
+        "citation_accuracy": 1.0,
+        "code_correctness": null,
+        "cost": 0.0,
+        "escalation_correct": null,
+        "financial_accuracy": 0.9962825278810409,
+        "hallucination_rate": 0.0,
+        "honesty": null,
+        "latency": 7.828568345323742,
+        "memory_accuracy": 1.0,
+        "misroute_rate": null,
+        "planning_quality": 0.9997392699558766,
+        "provenance": null,
+        "recovery_success": null,
+        "reliability": 1.0,
+        "research_accuracy": null,
+        "safety_score": 1.0,
+        "task_success": 0.9748201438848921,
+        "token_usage": 316711.0755395683,
+        "tool_accuracy": 0.54,
+        "visual_delivery": 0.75
+      },
+      "gitCommit": "8d2b7bc4665d0267cd84a459b1dd4e290ec6e8ec",
+      "key": "live:27c280164943e63520e14422a6c953cf",
+      "latencyMs": 7.828568345323742,
+      "measuredTrials": 278,
+      "model": "deepseek-v4.1-flash:cloud",
+      "note": "fresh full live run evalrun-1794281772755: gate PASS (task_success 0.9748201438848921, hallucination_rate 0.0)",
+      "promptHash": null,
+      "provider": "ollama",
+      "recordedAt": "2026-11-10T04:04:17.761764Z",
+      "successes": 271,
+      "taskCount": 278,
+      "taskRates": {},
+      "taskSuccess": 0.9748201438848921,
+      "temperature": null,
+      "tier": "live",
+      "totalTrials": 278
+    },
     "live:7e9d161037e45360f95717198f839ced": {
       "agentVersion": "0.1.0",
       "baseUrl": "http://localhost:11434/v1",
@@ -460,5 +513,5 @@
       "totalTrials": 244
     }
   },
-  "updatedAt": "2026-11-09T19:35:16.330Z"
+  "updatedAt": "2026-11-10T04:04:17.762Z"
 }
