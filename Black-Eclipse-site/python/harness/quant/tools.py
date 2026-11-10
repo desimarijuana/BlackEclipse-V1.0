@@ -28,6 +28,8 @@ from .bundle import bundle_to_bytes, export_bundle, import_bundle, write_bundle
 from .compiler import compile_graph
 from .copilot_tools import COPILOT_TOOLS, register_copilot_tools
 from .datasets import dataset_from_strategy, resolve_dataset
+from .desk_tools import DESK_TOOLS, register_desk_tools
+from .discovery_tools import DISCOVERY_TOOLS, register_discovery_tools
 from .nodes import REGISTRY
 from .ops_tools import OPS_TOOLS, register_strategy_ops_tools
 from .pine_tools import PINE_TOOLS, register_pine_tools
@@ -65,6 +67,14 @@ _CAPABILITY = {
     # continuous proxy, not deliverable contracts.
     "options": "partial", "futures": "partial",
     "optionAnalytics": "available", "continuousContracts": "available",
+    "optionChainBacktest": "partial", "portfolioOptimization": "available",
+    "riskModel": "available", "stressTesting": "available",
+    "borrow": "available", "financing": "available", "margin": "available",
+    "partialFills": "available", "corporateActions": "available",
+    "runManifest": "available", "researchSessions": "available",
+    "quantBench": "available", "futuresTermStructure": "available",
+    "methodDiscovery": "available", "methodLibrary": "available",
+    "strategyMining": "available", "currentSetups": "available",
 }
 
 _STRATEGY_SUMMARY_KEYS = (
@@ -651,6 +661,90 @@ async def plot_drawdown(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     return await _plot(args, ctx, "drawdownCurve", "drawdown")
 
 
+async def render_quant_figures(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Return compact chart blocks for the deterministic Quant Figure Kit.
+
+    The blocks NAME their source experiment and figure; the numbers stay in the
+    stored artifact and are resolved by the chart surface. Nothing here carries
+    a series, so a five-figure answer is still a short message.
+    """
+    try:
+        from .visuals import FIGURE_CATALOG, RESEARCH_FIGURES, build_figure, resolve_figures
+
+        experiment_id = str(args.get("experimentId") or "").strip()
+        if not experiment_id:
+            return ("ERROR - provide `experimentId` (a stored backtest experiment).",
+                    {"status": "ERROR",
+                     "error": {"code": "EXPERIMENT_ID_REQUIRED"}})
+        store = _store(ctx)
+        requested = resolve_figures(
+            args.get("figures") or args.get("figureSet") or ("core",)
+        )
+        if not requested:
+            return ("ERROR - no known figures were requested.",
+                    {"status": "ERROR",
+                     "error": {"code": "NO_FIGURES", "available": sorted(FIGURE_CATALOG)}})
+
+        source_ids = {
+            "monteCarloExperimentId": args.get("monteCarloExperimentId"),
+            "optimizationExperimentId": args.get("optimizationExperimentId"),
+            "walkForwardExperimentId": args.get("walkForwardExperimentId"),
+        }
+        theme = str(args.get("theme") or "eclipse-dark")
+        blocks: list[dict[str, Any]] = []
+        figures: list[dict[str, Any]] = []
+        unavailable: list[dict[str, Any]] = []
+
+        for name in requested:
+            source_id = str(
+                source_ids.get(RESEARCH_FIGURES.get(name, "")) or experiment_id
+            )
+            try:
+                artifact = store.read_artifact(source_id)
+            except Exception as exc:  # noqa: BLE001 - an absent source is a named absence
+                entry = {"name": name, "available": False,
+                         "reason": f"the source experiment {source_id!r} could not be read: {exc}"}
+                figures.append(entry)
+                unavailable.append(entry)
+                continue
+
+            figure = build_figure(name, artifact, theme=theme)
+            entry = {"name": figure.name, "title": figure.title,
+                     "available": figure.available, "reason": figure.reason,
+                     "sourceExperimentId": source_id}
+            figures.append(entry)
+            if not figure.available:
+                unavailable.append(entry)
+                continue
+            blocks.append({
+                "type": "chart",
+                "id": f"quant_{source_id}_{figure.name}"[:120],
+                "chartType": "auto",
+                "title": figure.title,
+                "quant": {"experimentId": source_id, "figure": figure.name},
+            })
+
+        available = [f for f in figures if f["available"]]
+        if not blocks:
+            reasons = "; ".join(f"{item['name']}: {item['reason']}" for item in unavailable)
+            return (f"No quant figure could be drawn from {experiment_id}: {reasons}",
+                    {"status": "OK", "experimentId": experiment_id,
+                     "figures": figures, "blocks": [], "unavailable": unavailable})
+        # The model reads the TEXT, not `data`, so the compact blocks are part of
+        # the text. They name their source and carry no series, so copying them
+        # is cheap and cannot truncate a long curve.
+        text = (f"{len(blocks)} figure(s) ready: "
+                + ", ".join(f"{f['name']} ({f['sourceExperimentId']})" for f in available)
+                + ". Put these objects in the answer's `eclipse-response` "
+                + "`blocks` array verbatim; do not retype their data:\n"
+                + json.dumps(blocks, separators=(",", ":")))
+        return (text, {"status": "OK", "experimentId": experiment_id,
+                       "figures": figures, "blocks": blocks,
+                       "unavailable": unavailable})
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 def _downsample(points: list[dict[str, Any]], max_points: int) -> list[dict[str, Any]]:
     """Uniformly thin a series so a tool result cannot carry an unbounded curve.
 
@@ -1096,6 +1190,28 @@ def register_quant_tools(registry: Any) -> list[str]:
              "experimentId": {"type": "string"},
              "maxPoints": {"type": "integer", "description": "Cap on returned points (default 2000)."}},
              "required": ["experimentId"]})
+    _def("render_quant_figures",
+         "Build deterministic quant figures (equity, drawdown, monthly returns, exposure, "
+         "trade distribution, rolling risk, costs, Monte-Carlo, regime attribution, 3D "
+         "parameter surface, walk-forward) as compact chart blocks that name their source "
+         "experiment. Embed the returned `blocks` verbatim; never retype the series.",
+         render_quant_figures, {"type": "object", "properties": {
+             "experimentId": {"type": "string",
+                              "description": "The stored backtest experiment."},
+             "figures": {"type": "array", "items": {"type": "string"},
+                         "description": "Figure names or presets: core, risk, robustness, "
+                                        "validation, everything. Defaults to core."},
+             "figureSet": {"type": "string",
+                           "description": "Alias for a single preset (core/risk/robustness/"
+                                          "validation/everything)."},
+             "monteCarloExperimentId": {"type": "string",
+                                        "description": "Monte-Carlo or regime-MC experiment."},
+             "optimizationExperimentId": {"type": "string",
+                                          "description": "Optimization experiment for the 3D surface."},
+             "walkForwardExperimentId": {"type": "string",
+                                         "description": "Walk-forward experiment."},
+             "theme": {"type": "string", "enum": ["eclipse-dark", "eclipse-light"]}},
+             "required": ["experimentId"]})
     _def("compare_experiments",
          "Compare stored experiments on a fixed metric set.",
          compare_experiments, {"type": "object", "properties": {
@@ -1184,6 +1300,8 @@ def register_quant_tools(registry: Any) -> list[str]:
 
     register_advanced_tools(registry)
     register_pine_tools(registry)
+    register_desk_tools(registry)
+    register_discovery_tools(registry)
 
     _def("run_robustness_analysis",
          "Combine sensitivity, cost sensitivity, trade concentration, sample size and regime "
@@ -1209,7 +1327,8 @@ QUANT_TOOLS: tuple[str, ...] = (
     "compile_strategy_graph", "validate_strategy_graph", "list_strategy_nodes",
     "export_strategy", "import_strategy", "diff_strategy_versions", "run_python_strategy",
     "run_backtest", "run_portfolio_backtest", "calculate_metrics", "inspect_trades",
-    "inspect_positions", "plot_equity_curve", "plot_drawdown", "compare_experiments",
+    "inspect_positions", "plot_equity_curve", "plot_drawdown", "render_quant_figures",
+    "compare_experiments",
     "list_experiments", "export_backtest", "quant_capabilities",
     "optimize_parameters", "run_walk_forward", "run_monte_carlo",
     "run_sensitivity_analysis", "run_robustness_analysis",
@@ -1222,6 +1341,7 @@ QUANT_TOOLS: tuple[str, ...] = (
     "run_multiple_testing_diagnostics", "price_option", "implied_volatility",
     "analyze_option_strategy", "build_continuous_contract", "run_regime_monte_carlo", "grade_strategy_edge", "analyse_trade_log",
     "list_strategy_venues", "run_prop_firm_simulation", "list_prop_firm_rules", "generate_edge_report", *PINE_TOOLS,
+    *DESK_TOOLS, *DISCOVERY_TOOLS,
     )
 
 

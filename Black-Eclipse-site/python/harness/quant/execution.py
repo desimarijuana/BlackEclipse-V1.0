@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from .models import Fill, Order, OrderSide
 from .strategy import ExecutionAssumptions
@@ -48,6 +48,20 @@ class ExecutionSimulator:
     def __init__(self, assumptions: ExecutionAssumptions, *, seed: Optional[int] = None) -> None:
         self.assumptions = assumptions
         self._rng = random.Random(assumptions.slippage.seed if assumptions.slippage.seed is not None else seed)
+        # Honest, once-per-run diagnostics for inputs the model could not use.
+        self._warnings: list[dict[str, Any]] = []
+        self._warned: set[str] = set()
+
+    def warn_once(self, code: str, message: str, detail: Optional[dict] = None) -> None:
+        if code in self._warned:
+            return
+        self._warned.add(code)
+        self._warnings.append({"code": code, "message": message, "detail": detail or {}})
+
+    def consume_warnings(self) -> list[dict[str, Any]]:
+        out = list(self._warnings)
+        self._warnings.clear()
+        return out
 
     # ── Commission ───────────────────────────────────────────────────────────
     def commission(self, quantity: float, price: float) -> float:
@@ -220,17 +234,45 @@ class ExecutionSimulator:
         if base is None:
             return None
 
+        # Fill-quantity model. `full` is the historical behaviour; participation
+        # caps the fill at a share of the bar's volume so a large order walks
+        # across bars and a bar with no volume cannot fill at all.
+        model = self.assumptions.fill_model
+        if model.type == "participation":
+            rate = model.participation_rate
+            if rate is None or rate <= 0 or rate > 1:
+                self.warn_once(
+                    "FILL_PARTICIPATION_RATE_INVALID",
+                    "participation fill model needs a rate in (0, 1]; no fill is assumed",
+                    {"rate": rate},
+                )
+                return None
+            if bar.volume is None:
+                self.warn_once(
+                    "FILL_VOLUME_UNAVAILABLE",
+                    "participation fill model needs bar volume; no fill is assumed "
+                    "rather than inventing liquidity",
+                    {"symbol": order.symbol},
+                )
+                return None
+            available = max(0.0, float(bar.volume) * float(rate))
+            qty = min(qty, available)
+            if qty <= 0 or qty + 1e-12 < float(model.min_quantity or 0.0):
+                return None
+
         spread = self.spread_adjustment(base, bar.spread)
         slippage = self.slippage_adjustment(base, qty, bar) if paid_slippage else 0.0
         impact = self.impact_adjustment(base, qty, bar)
         fill_price = self._adverse(side, base, spread + slippage + impact)
         commission = self.commission(qty, fill_price)
+        order_qty = float(order.quantity) or qty
         return Fill(
-            id=f"fill_{order.id}_{bar.index}",
+            id=f"fill_{order.id}_{bar.index}_{len(self._warnings)}",
             order_id=order.id, symbol=order.symbol, side=side, quantity=qty,
             price=fill_price, commission=commission,
             slippage=slippage * qty, spread_cost=spread * qty, impact=impact * qty,
             index=bar.index, ts=bar.ts, reason=order.reason,
+            order_quantity=order_qty, fill_ratio=(qty / order_qty) if order_qty else 1.0,
         )
 
     def update_trailing(self, order: Order, bar: BarContext) -> None:
@@ -261,6 +303,10 @@ class ExecutionSimulator:
             "slippage": a.slippage.model_dump(exclude_none=True),
             "spread": a.spread.model_dump(exclude_none=True),
             "marketImpact": a.market_impact.model_dump(exclude_none=True),
+            "borrow": a.borrow.model_dump(exclude_none=True),
+            "financing": a.financing.model_dump(exclude_none=True),
+            "margin": a.margin.model_dump(exclude_none=True),
+            "fillModel": a.fill_model.model_dump(exclude_none=True),
             "latencyBars": a.latency_bars,
             "fillAt": a.fill_at,
             "frictionless": a.is_frictionless(),

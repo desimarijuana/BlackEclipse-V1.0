@@ -118,6 +118,58 @@ CREATE TABLE IF NOT EXISTS QuantPaperRun (
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_qpaper_deployment ON QuantPaperRun(deploymentId);
+CREATE TABLE IF NOT EXISTS QuantRunManifest (
+  experimentId TEXT PRIMARY KEY,
+  manifestJson TEXT NOT NULL,
+  digest TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS QuantResearchSession (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  question TEXT,
+  strategyId TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qsession_created ON QuantResearchSession(createdAt);
+CREATE TABLE IF NOT EXISTS QuantHypothesis (
+  id TEXT PRIMARY KEY,
+  sessionId TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  universeJson TEXT,
+  periodJson TEXT,
+  metric TEXT,
+  acceptance TEXT,
+  status TEXT NOT NULL DEFAULT 'registered',
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qhyp_session ON QuantHypothesis(sessionId);
+CREATE TABLE IF NOT EXISTS QuantTrial (
+  id TEXT PRIMARY KEY,
+  sessionId TEXT NOT NULL,
+  hypothesisId TEXT,
+  experimentId TEXT,
+  kind TEXT NOT NULL,
+  parametersJson TEXT,
+  metricsJson TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qtrial_session ON QuantTrial(sessionId);
+CREATE INDEX IF NOT EXISTS idx_qtrial_hyp ON QuantTrial(hypothesisId);
+CREATE TABLE IF NOT EXISTS QuantMethod (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  methodFamily TEXT,
+  status TEXT NOT NULL DEFAULT 'discovered',
+  specJson TEXT,
+  evidenceJson TEXT,
+  strategyId TEXT,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qmethod_status ON QuantMethod(status);
 """
 
 
@@ -555,8 +607,293 @@ class QuantStore:
             ),
         )
         self._db.commit()
+        manifest = getattr(result, "manifest", None)
+        if manifest:
+            try:
+                self.save_run_manifest(exp_id, manifest)
+            except Exception:  # noqa: BLE001 - a manifest must not lose the result
+                pass
         assert cmd is not None
         return exp_id
+
+    # ── Run manifests ────────────────────────────────────────────────────────
+    def save_run_manifest(self, experiment_id: str, manifest: dict) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO QuantRunManifest "
+            "(experimentId,manifestJson,digest,createdAt) VALUES (?,?,?,?)",
+            (experiment_id, json.dumps(manifest, sort_keys=True),
+             manifest.get("digest"), _iso_now()),
+        )
+        self._db.commit()
+
+    def get_run_manifest(self, experiment_id: str) -> dict:
+        row = self._db.execute(
+            "SELECT * FROM QuantRunManifest WHERE experimentId=?", (experiment_id,)
+        ).fetchone()
+        if row is None:
+            # Fall back to the artifact's embedded manifest before giving up.
+            try:
+                artifact = self.read_artifact(experiment_id)
+                manifest = artifact.get("manifest")
+                if manifest:
+                    return manifest
+            except Exception:  # noqa: BLE001
+                pass
+            raise ExperimentNotFound(
+                f"no run manifest is stored for experiment {experiment_id!r}",
+                detail={"experimentId": experiment_id},
+            )
+        return json.loads(row["manifestJson"] or "{}")
+
+    # ── Research sessions, hypotheses and trials ─────────────────────────────
+    def create_research_session(self, *, title: str, question: Optional[str] = None,
+                                strategy_id: Optional[str] = None) -> dict:
+        now = _iso_now()
+        session_id = f"ses_{uuid.uuid4().hex[:16]}"
+        self._db.execute(
+            "INSERT INTO QuantResearchSession "
+            "(id,title,question,strategyId,status,createdAt,updatedAt) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (session_id, title, question, strategy_id, "open", now, now),
+        )
+        self._db.commit()
+        return self.get_research_session(session_id)
+
+    def list_research_sessions(self, *, limit: int = 50,
+                               status: Optional[str] = None) -> list[dict]:
+        if status:
+            rows = self._db.execute(
+                "SELECT * FROM QuantResearchSession WHERE status=? "
+                "ORDER BY updatedAt DESC LIMIT ?", (status, limit),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM QuantResearchSession ORDER BY updatedAt DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._session_row(r) for r in rows]
+
+    @staticmethod
+    def _session_row(row) -> dict:
+        return {
+            "id": row["id"], "title": row["title"], "question": row["question"],
+            "strategyId": row["strategyId"], "status": row["status"],
+            "createdAt": row["createdAt"], "updatedAt": row["updatedAt"],
+        }
+
+    def get_research_session(self, session_id: str) -> dict:
+        row = self._db.execute(
+            "SELECT * FROM QuantResearchSession WHERE id=?", (session_id,)
+        ).fetchone()
+        if row is None:
+            raise ExperimentNotFound(
+                f"research session {session_id!r} not found",
+                detail={"sessionId": session_id},
+            )
+        data = self._session_row(row)
+        data["hypotheses"] = self.list_hypotheses(session_id)
+        data["trials"] = self.list_trials(session_id)
+        data["trialCount"] = len(data["trials"])
+        return data
+
+    def pre_register_hypothesis(self, session_id: str, *, statement: str,
+                                universe: Optional[list[str]] = None,
+                                period: Optional[dict] = None,
+                                metric: Optional[str] = None,
+                                acceptance: Optional[str] = None) -> dict:
+        self.get_research_session(session_id)
+        now = _iso_now()
+        hyp_id = f"hyp_{uuid.uuid4().hex[:16]}"
+        self._db.execute(
+            "INSERT INTO QuantHypothesis "
+            "(id,sessionId,statement,universeJson,periodJson,metric,acceptance,status,createdAt) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (hyp_id, session_id, statement, json.dumps(universe or []),
+             json.dumps(period or {}), metric, acceptance, "registered", now),
+        )
+        self._touch_session(session_id, now)
+        self._db.commit()
+        return self.get_hypothesis(hyp_id)
+
+    def get_hypothesis(self, hypothesis_id: str) -> dict:
+        row = self._db.execute(
+            "SELECT * FROM QuantHypothesis WHERE id=?", (hypothesis_id,)
+        ).fetchone()
+        if row is None:
+            raise ExperimentNotFound(f"hypothesis {hypothesis_id!r} not found")
+        return self._hypothesis_row(row)
+
+    @staticmethod
+    def _hypothesis_row(row) -> dict:
+        return {
+            "id": row["id"], "sessionId": row["sessionId"],
+            "statement": row["statement"], "universe": json.loads(row["universeJson"] or "[]"),
+            "period": json.loads(row["periodJson"] or "{}"), "metric": row["metric"],
+            "acceptance": row["acceptance"], "status": row["status"],
+            "createdAt": row["createdAt"],
+            "trials": [],
+        }
+
+    def list_hypotheses(self, session_id: str) -> list[dict]:
+        rows = self._db.execute(
+            "SELECT * FROM QuantHypothesis WHERE sessionId=? ORDER BY createdAt",
+            (session_id,),
+        ).fetchall()
+        hypotheses = [self._hypothesis_row(r) for r in rows]
+        by_id = {h["id"]: h for h in hypotheses}
+        for trial in self.list_trials(session_id):
+            hyp = by_id.get(trial.get("hypothesisId"))
+            if hyp is not None:
+                hyp["trials"].append(trial)
+        return hypotheses
+
+    def record_trial(self, session_id: str, *, kind: str,
+                     hypothesis_id: Optional[str] = None,
+                     experiment_id: Optional[str] = None,
+                     parameters: Optional[dict] = None,
+                     metrics: Optional[dict] = None) -> dict:
+        self.get_research_session(session_id)
+        now = _iso_now()
+        trial_id = f"trl_{uuid.uuid4().hex[:16]}"
+        self._db.execute(
+            "INSERT INTO QuantTrial "
+            "(id,sessionId,hypothesisId,experimentId,kind,parametersJson,metricsJson,createdAt) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (trial_id, session_id, hypothesis_id, experiment_id, kind,
+             json.dumps(parameters or {}), json.dumps(metrics or {}), now),
+        )
+        if hypothesis_id:
+            self._db.execute(
+                "UPDATE QuantHypothesis SET status='tested' WHERE id=? AND status='registered'",
+                (hypothesis_id,),
+            )
+        self._touch_session(session_id, now)
+        self._db.commit()
+        return self.get_trial(trial_id)
+
+    def get_trial(self, trial_id: str) -> dict:
+        row = self._db.execute("SELECT * FROM QuantTrial WHERE id=?", (trial_id,)).fetchone()
+        if row is None:
+            raise ExperimentNotFound(f"trial {trial_id!r} not found")
+        return self._trial_row(row)
+
+    @staticmethod
+    def _trial_row(row) -> dict:
+        return {
+            "id": row["id"], "sessionId": row["sessionId"],
+            "hypothesisId": row["hypothesisId"], "experimentId": row["experimentId"],
+            "kind": row["kind"], "parameters": json.loads(row["parametersJson"] or "{}"),
+            "metrics": json.loads(row["metricsJson"] or "{}"), "createdAt": row["createdAt"],
+        }
+
+    def list_trials(self, session_id: str, *,
+                    hypothesis_id: Optional[str] = None) -> list[dict]:
+        if hypothesis_id:
+            rows = self._db.execute(
+                "SELECT * FROM QuantTrial WHERE sessionId=? AND hypothesisId=? "
+                "ORDER BY createdAt", (session_id, hypothesis_id),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM QuantTrial WHERE sessionId=? ORDER BY createdAt",
+                (session_id,),
+            ).fetchall()
+        return [self._trial_row(r) for r in rows]
+
+    def session_journal(self, session_id: str) -> dict:
+        """A structured journal: what was asked, registered, tested and rejected."""
+        session = self.get_research_session(session_id)
+        trials = session["trials"]
+        hypotheses = session["hypotheses"]
+        rejected = [h for h in hypotheses if h["status"] == "rejected"]
+        return {
+            "session": {k: session[k] for k in
+                        ("id", "title", "question", "strategyId", "status",
+                         "createdAt", "updatedAt")},
+            "hypothesisCount": len(hypotheses),
+            "trialCount": len(trials),
+            "testedHypotheses": sum(1 for h in hypotheses if h["status"] == "tested"),
+            "rejectedHypotheses": rejected,
+            "hypotheses": hypotheses,
+            "recentTrials": trials[-10:],
+            "openQuestions": [h["statement"] for h in hypotheses
+                              if h["status"] == "registered"],
+        }
+
+    def update_hypothesis_status(self, hypothesis_id: str, status: str) -> dict:
+        if status not in ("registered", "tested", "supported", "rejected", "inconclusive"):
+            raise QuantError(f"unknown hypothesis status {status!r}")
+        self._db.execute("UPDATE QuantHypothesis SET status=? WHERE id=?",
+                         (status, hypothesis_id))
+        self._db.commit()
+        return self.get_hypothesis(hypothesis_id)
+
+    # ── Discovered methods ───────────────────────────────────────────────────
+    def save_method(self, *, name: str, method_family: str,
+                    spec: Optional[dict] = None, evidence: Optional[dict] = None,
+                    status: str = "discovered",
+                    strategy_id: Optional[str] = None) -> dict:
+        if status not in ("discovered", "validated", "promoted", "rejected"):
+            raise QuantError(f"unknown method status {status!r}")
+        now = _iso_now()
+        method_id = f"mth_{uuid.uuid4().hex[:16]}"
+        self._db.execute(
+            "INSERT INTO QuantMethod "
+            "(id,name,methodFamily,status,specJson,evidenceJson,strategyId,createdAt,updatedAt) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (method_id, name, method_family, status,
+             json.dumps(spec or {}), json.dumps(evidence or {}), strategy_id, now, now),
+        )
+        self._db.commit()
+        return self.get_method(method_id)
+
+    @staticmethod
+    def _method_row(row) -> dict:
+        return {
+            "id": row["id"], "name": row["name"], "methodFamily": row["methodFamily"],
+            "status": row["status"], "spec": json.loads(row["specJson"] or "{}"),
+            "evidence": json.loads(row["evidenceJson"] or "{}"),
+            "strategyId": row["strategyId"], "createdAt": row["createdAt"],
+            "updatedAt": row["updatedAt"],
+        }
+
+    def get_method(self, method_id: str) -> dict:
+        row = self._db.execute("SELECT * FROM QuantMethod WHERE id=?", (method_id,)).fetchone()
+        if row is None:
+            raise ExperimentNotFound(f"method {method_id!r} not found",
+                                     detail={"methodId": method_id})
+        return self._method_row(row)
+
+    def list_methods(self, *, status: Optional[str] = None,
+                     limit: int = 50) -> list[dict]:
+        if status:
+            rows = self._db.execute(
+                "SELECT * FROM QuantMethod WHERE status=? ORDER BY updatedAt DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM QuantMethod ORDER BY updatedAt DESC LIMIT ?", (limit,),
+            ).fetchall()
+        return [self._method_row(r) for r in rows]
+
+    def promote_method(self, method_id: str, status: str,
+                       *, strategy_id: Optional[str] = None) -> dict:
+        if status not in ("discovered", "validated", "promoted", "rejected"):
+            raise QuantError(f"unknown method status {status!r}")
+        self.get_method(method_id)
+        self._db.execute(
+            "UPDATE QuantMethod SET status=?, strategyId=COALESCE(?,strategyId), "
+            "updatedAt=? WHERE id=?",
+            (status, strategy_id, _iso_now(), method_id),
+        )
+        self._db.commit()
+        return self.get_method(method_id)
+
+    def _touch_session(self, session_id: str, now: str) -> None:
+        self._db.execute(
+            "UPDATE QuantResearchSession SET updatedAt=? WHERE id=?", (now, session_id)
+        )
 
     def _exp_row(self, row) -> dict:
         return {

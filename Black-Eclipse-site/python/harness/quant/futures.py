@@ -167,4 +167,90 @@ def splice_continuous(
     }
 
 
-__all__ = ["FuturesError", "splice_continuous"]
+def term_structure(points: list[dict[str, Any]], *, spot: Optional[float] = None,
+                   risk_free: float = 0.0, storage: float = 0.0) -> dict[str, Any]:
+    """Describe a futures curve and its implied carry.
+
+    `points` is ``[{"expiry": "YYYY-MM-DD", "price": 100.0}, ...]``. For each
+    point we report the implied annualized carry versus spot (or versus the first
+    point when no spot is given). Contango/backwardation are named, not assumed.
+    """
+    if not points:
+        raise FuturesError("term structure needs at least one point")
+    rows = []
+    base = float(spot) if spot is not None else float(points[0]["price"])
+    if base <= 0:
+        raise FuturesError("the base price must be positive")
+    for point in points:
+        try:
+            price = float(point["price"])
+            expiry = str(point["expiry"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise FuturesError("a term-structure point needs expiry and price") from exc
+        if price <= 0:
+            raise FuturesError("futures prices must be positive")
+        years = _years_to(expiry)
+        implied = ((price / base) ** (1.0 / years) - 1.0) if years > 0 else None
+        rows.append({
+            "expiry": expiry, "price": price,
+            "yearsToExpiry": round(years, 8),
+            "impliedCarry": (None if implied is None else round(implied, 10)),
+            "basisVsBase": round(price - base, 8),
+            "annualizedCarryAfterConvenience": (
+                None if implied is None else round(implied - storage, 10)),
+        })
+    shape = "flat"
+    if len(rows) >= 2:
+        shape = ("contango" if rows[-1]["price"] > rows[0]["price"]
+                 else "backwardation" if rows[-1]["price"] < rows[0]["price"]
+                 else "flat")
+    return {
+        "basePrice": base, "shape": shape, "points": rows,
+        "riskFree": risk_free, "storage": storage,
+        "note": "implied carry is a curve-implied number, not a forecast; "
+                "convenience yield is not identified separately unless supplied",
+    }
+
+
+def _years_to(expiry: str) -> float:
+    from datetime import date  # noqa: PLC0415
+    try:
+        d = date.fromisoformat(str(expiry)[:10])
+    except ValueError as exc:
+        raise FuturesError("expiry must be an ISO date") from exc
+    days = (d - date.today()).days
+    return max(days, 1) / 365.0
+
+
+def roll_cost(contracts: list[dict[str, Any]], roll_dates: list[str], *,
+              adjustment: str = "difference", cost_bps: float = 0.0,
+              initial_capital: float = 100_000.0) -> dict[str, Any]:
+    """Quantify the cost of rolling a continuous futures position.
+
+    The gap between the outgoing and incoming contract is the *market* roll
+    (already reflected in the spliced series under `difference`/`ratio`). The
+    `cost_bps` here is the explicit transaction cost of the roll itself.
+    """
+    spliced = splice_continuous(contracts, roll_dates, adjustment=adjustment)
+    rolls = spliced["rolls"]
+    costs = []
+    total = 0.0
+    for roll in rolls:
+        notional = abs(float(roll.get("toClose") or 0.0))
+        fee = notional * (float(cost_bps) / 10_000.0)
+        total += fee
+        costs.append({
+            "date": roll.get("date"), "fromClose": roll.get("fromClose"),
+            "toClose": roll.get("toClose"), "gap": roll.get("gap"),
+            "transactionCost": round(fee, 8),
+            "costPctOfCapital": round(fee / initial_capital * 100.0, 8) if initial_capital else None,
+        })
+    return {
+        "rolls": costs, "rollCount": len(costs), "totalCost": round(total, 8),
+        "costBps": float(cost_bps), "adjustment": adjustment,
+        "note": "the price gap is market carry; `transactionCost` is the explicit "
+                "roll friction and is never double-counted in the spliced series",
+    }
+
+
+__all__ = ["FuturesError", "roll_cost", "splice_continuous", "term_structure"]

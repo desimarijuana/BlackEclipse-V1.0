@@ -189,11 +189,52 @@ class MarketImpactModel(BaseModel):
     coefficient: float = 0.0           # bps at 100% participation (linear) / sqrt law scalar
 
 
+class BorrowModel(BaseModel):
+    """Short-sale borrow terms. Defaults are permissive and free, so an existing
+    strategy keeps its exact behaviour; a caller must opt into a real locate fee,
+    borrow rate or unavailability."""
+    available: bool = True
+    annual_rate_bps: float = 0.0
+    locate_fee_bps: float = 0.0
+    # Optional symbol allow-list; empty = every symbol allowed.
+    symbols: list[str] = Field(default_factory=list)
+
+
+class FinancingModel(BaseModel):
+    """Cash / margin financing. A negative cash balance pays the debit rate; a
+    positive balance earns the credit rate. Annual rates in basis points."""
+    debit_rate_bps: float = 0.0
+    credit_rate_bps: float = 0.0
+    day_count: Literal[360, 365] = 360
+
+
+class MarginModel(BaseModel):
+    """Maintenance-margin rules. Disabled by default: a position is never
+    liquidated unless the caller explicitly turns margin on."""
+    enabled: bool = False
+    initial_pct: float = 0.5           # 50% initial margin
+    maintenance_pct: float = 0.25      # 25% maintenance
+    # Liquidation closes the whole book once equity < maintenance requirement.
+
+
+class FillModel(BaseModel):
+    """Fill-quantity model. `full` fills the remaining order in one bar (the
+    historical behaviour). `participation` caps a fill at a share of the bar's
+    volume, so a large order fills across bars and a zero-volume bar never fills."""
+    type: Literal["full", "participation"] = "full"
+    participation_rate: Optional[float] = None   # 0 < rate <= 1
+    min_quantity: float = 0.0
+
+
 class ExecutionAssumptions(BaseModel):
     commission: CommissionModel = Field(default_factory=CommissionModel)
     slippage: SlippageModel = Field(default_factory=SlippageModel)
     spread: SpreadModel = Field(default_factory=SpreadModel)
     market_impact: MarketImpactModel = Field(default_factory=MarketImpactModel)
+    borrow: BorrowModel = Field(default_factory=BorrowModel)
+    financing: FinancingModel = Field(default_factory=FinancingModel)
+    margin: MarginModel = Field(default_factory=MarginModel)
+    fill_model: FillModel = Field(default_factory=FillModel)
     latency_bars: int = 0
     fill_at: Literal["next_open", "close"] = "next_open"
 
@@ -201,6 +242,8 @@ class ExecutionAssumptions(BaseModel):
         return (
             self.commission.type == "none" and self.slippage.type == "none"
             and self.spread.type == "none" and self.market_impact.type == "none"
+            and self.borrow.annual_rate_bps == 0 and self.borrow.locate_fee_bps == 0
+            and self.financing.debit_rate_bps == 0 and self.financing.credit_rate_bps == 0
         )
 
 

@@ -31,9 +31,19 @@ import numpy as np
 
 from . import indicators as ind
 from . import rules as rule_eval
+from .carry import (
+    borrow_available,
+    borrow_cost,
+    elapsed_days,
+    financing_cost,
+    locate_fee,
+    margin_status,
+)
+from .corporate_actions import CorporateAction, events_for, parse_actions
 from .data import BarSeries, MarketDataset, align_higher_to_primary
 from .errors import CorruptDataset, InsufficientHistory, MissingData, QuantError
 from .execution import BarContext, ExecutionSimulator
+from .manifest import build_run_manifest
 from .metrics import MetricInputs, MetricsEngine
 from .models import EquityPoint, Fill, Order, TradeRecord, Warning_
 from .orders import OrderEngine
@@ -64,6 +74,11 @@ class BacktestConfig:
     execution_override: Optional[dict[str, Any]] = None
     # Cap on how many bars to process (safety for very large datasets).
     max_bars: Optional[int] = None
+    # Corporate actions for UNADJUSTED series. Empty by default because the
+    # normal research path uses adjusted prices; applying both would double count.
+    corporate_actions: list[Any] = field(default_factory=list)
+    # Optional label for the code/build that produced the run (run manifest).
+    code_version: Optional[str] = None
 
 
 @dataclass
@@ -87,6 +102,8 @@ class BacktestResult:
     capability: dict[str, str]
     # Convenience flat metric map (same values as `metrics`).
     status: str = "OK"
+    # Content-hashed reproducibility record (see `manifest.py`).
+    manifest: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -94,6 +111,7 @@ class BacktestResult:
             "configuration": self.configuration, "metrics": self.metrics,
             "warnings": self.warnings, "errors": self.errors,
             "observability": self.observability, "capability": self.capability,
+            "manifest": self.manifest,
         }
 
     def to_dict(self, *, include_series: bool = True) -> dict[str, Any]:
@@ -232,7 +250,15 @@ class BacktestEngine:
             "barsProcessed": 0, "signals": 0, "ordersCreated": 0,
             "ordersRejectedByRisk": 0, "ordersCancelled": 0,
             "fills": 0, "trades": 0,
+            "partialFills": 0, "marginCalls": 0, "corporateActions": 0,
+            "borrowRejections": 0,
         }
+        self._corporate_actions: list[CorporateAction] = parse_actions(config.corporate_actions)
+        self._actions_by_date = events_for(self._corporate_actions)
+        self._last_carry_ts: Optional[str] = None
+        self._financing_paid = 0.0
+        self._borrow_paid = 0.0
+        self._locate_paid = 0.0
 
     # ── setup ────────────────────────────────────────────────────────────────
     def _prepare(self) -> None:
@@ -516,6 +542,18 @@ class BacktestEngine:
                 "RISK_ADJUSTED", f"{symbol} size adjusted: {', '.join(decision.adjustments)}",
                 {"symbol": symbol},
             ))
+        # A short that cannot be borrowed must be refused, not quietly modelled
+        # as a free, always-available short.
+        if side == "sell" and decision.quantity > 0:
+            available, reason = borrow_available(strat.execution.borrow, symbol)
+            if not available:
+                self._observability["borrowRejections"] += 1
+                self.warnings.append(Warning_(
+                    "BORROW_UNAVAILABLE",
+                    f"short entry for {symbol} rejected: {reason}",
+                    {"symbol": symbol, "reason": reason},
+                ))
+                return
         order = self.orders.create(
             symbol, side, "market", decision.quantity, index=i,
             ts=s.timestamps[i], tag="entry", reason=f"{side} entry",
@@ -554,14 +592,32 @@ class BacktestEngine:
             if fill is None:
                 continue
             self._apply_fill(order, fill, i)
+        for warning in sim.consume_warnings():
+            self.warnings.append(Warning_(
+                warning["code"], warning["message"], warning.get("detail") or {}
+            ))
 
     def _apply_fill(self, order: Order, fill: Fill, i: int) -> None:
         was_flat = self.portfolio.is_flat(order.symbol)
+        prior = self.portfolio.position(order.symbol).quantity
         self.orders.apply_fill(order, fill.quantity, fill.price, fill.commission)
         trade = self.portfolio.apply_fill(fill)
         self.fills.append(fill)
         self._observability["fills"] += 1
+        if fill.fill_ratio < 1.0 - 1e-9:
+            self._observability["partialFills"] += 1
         pos = self.portfolio.position(order.symbol)
+        # A short that is newly opened pays the one-off locate fee. Accruing the
+        # recurring borrow happens in `_accrue_carry`, not here.
+        if prior >= 0 and pos.quantity < 0 and fill.side == "sell":
+            terms = self.bindings_by_symbol[order.symbol].strategy.execution.borrow
+            fee = locate_fee(abs(pos.quantity) * fill.price, terms.locate_fee_bps)
+            if fee:
+                self.portfolio.apply_cash(
+                    -fee, kind="borrow", index=i, ts=fill.ts,
+                    detail={"kind": "locate", "symbol": order.symbol, "bps": terms.locate_fee_bps},
+                )
+                self._locate_paid += fee
         # Entry fill: create the protective bracket sized to the new position.
         # Size the stop from the DECISION bar (order.submitted_index), not the
         # fill bar, so the fill bar's own high/low cannot leak into the ATR.
@@ -634,6 +690,132 @@ class BacktestEngine:
             and rule_eval.evaluate(strat.rules.entry.short, ctx, i):
             self._submit_entry(binding, symbol, i, "sell", ctx)
 
+    # ── cost of carry, corporate actions, margin ─────────────────────────────
+    def _apply_corporate_actions(self, step: int, ts: Optional[str]) -> None:
+        if not self._actions_by_date or ts is None:
+            return
+        day = str(ts)[:10]
+        for action in self._actions_by_date.get(day, []):
+            effect = self.portfolio.apply_corporate_action(action, index=step, ts=ts)
+            if effect is not None:
+                self._observability["corporateActions"] += 1
+                self.warnings.append(Warning_(
+                    "CORPORATE_ACTION_APPLIED",
+                    f"{action.kind} applied to {action.symbol} on {action.ex_date}",
+                    {"action": action.to_dict(), "effect": effect},
+                ))
+
+    def _accrue_carry(self, step: int, ts: Optional[str]) -> None:
+        if self._last_carry_ts is None:
+            self._last_carry_ts = ts
+            return
+        days = elapsed_days(self._last_carry_ts, ts)
+        self._last_carry_ts = ts
+        if days <= 0:
+            return
+
+        # Cash financing is a portfolio-level concern; the first binding owns
+        # the account's cash terms in a multi-strategy run.
+        fin = self.bindings[0].strategy.execution.financing
+        cash_carry = financing_cost(
+            self.portfolio.cash,
+            debit_rate_bps=fin.debit_rate_bps,
+            credit_rate_bps=fin.credit_rate_bps,
+            days=days, day_count=fin.day_count,
+        )
+        if cash_carry:
+            self.portfolio.apply_cash(
+                cash_carry, kind="financing", index=step, ts=ts,
+                detail={"cash": self.portfolio.cash, "days": days,
+                        "debitBps": fin.debit_rate_bps, "creditBps": fin.credit_rate_bps},
+            )
+            self._financing_paid += cash_carry
+
+        for symbol, pos in list(self.portfolio.positions.items()):
+            if pos.quantity >= 0:
+                continue
+            price = self.portfolio.last_prices.get(symbol) or pos.last_price
+            if not price:
+                continue
+            terms = self.bindings_by_symbol[symbol].strategy.execution.borrow
+            cost = borrow_cost(
+                abs(pos.quantity) * price, terms.annual_rate_bps, days,
+                day_count=fin.day_count,
+            )
+            if cost:
+                self.portfolio.apply_cash(
+                    -cost, kind="borrow", index=step, ts=ts,
+                    detail={"symbol": symbol, "days": days,
+                            "annualBps": terms.annual_rate_bps},
+                )
+                self._borrow_paid += cost
+
+    def _force_liquidate(self, step: int, ts: Optional[str],
+                         bars: dict[str, BarContext]) -> None:
+        """Close the whole book at the current bar (maintenance breach).
+
+        The liquidation goes through the SAME execution simulator, so it pays
+        commission/slippage/spread/impact. It is tagged `margin_call` and the
+        resulting trade's `exit_reason` records it.
+        """
+        for order in self.orders.open_orders():
+            if order.is_open:
+                try:
+                    self.orders.cancel(order, step, "margin call liquidation")
+                except Exception:  # noqa: BLE001
+                    pass
+        for symbol, pos in list(self.portfolio.positions.items()):
+            if pos.is_flat:
+                continue
+            bar = bars.get(symbol)
+            if bar is None:
+                continue
+            side = "sell" if pos.quantity > 0 else "buy"
+            qty = abs(pos.quantity)
+            order = self.orders.create(
+                symbol, side, "market", qty, index=step, ts=ts,
+                tag="margin_call", reason="margin call liquidation",
+            )
+            self.orders.submit(order, step)
+            self.orders.accept(order, step)
+            sim = self._sim(self.bindings_by_symbol[symbol])
+            fill = sim.try_fill(order, bar, current_index=step, allow_same_bar=True)
+            if fill is None:
+                # A halted/zero-volume bar still cannot be ignored: close at the
+                # last known price and charge the commission, labelled as such.
+                price = bar.close
+                fill = Fill(
+                    id=f"fill_margin_{order.id}", order_id=order.id, symbol=symbol,
+                    side=side, quantity=qty, price=price,
+                    commission=sim.commission(qty, price),
+                    slippage=0.0, spread_cost=0.0, impact=0.0,
+                    index=step, ts=ts, reason="margin call liquidation (forced close)",
+                )
+            self._apply_fill(order, fill, step)
+            self._cancel_protective(symbol, step)
+            self._observability["ordersCreated"] += 1
+
+    def _check_margin(self, step: int, ts: Optional[str],
+                      bars: dict[str, BarContext]) -> None:
+        margin = self.bindings[0].strategy.execution.margin
+        if not margin.enabled:
+            return
+        status = margin_status(
+            equity=self.portfolio.equity,
+            gross_exposure=self.portfolio.gross_exposure(),
+            maintenance_pct=margin.maintenance_pct,
+            initial_pct=margin.initial_pct,
+        )
+        if not status["breached"]:
+            return
+        self._force_liquidate(step, ts, bars)
+        self._observability["marginCalls"] += 1
+        self.warnings.append(Warning_(
+            "MARGIN_CALL",
+            "maintenance margin breached; the book was liquidated at the bar close",
+            status,
+        ))
+
     # ── run ──────────────────────────────────────────────────────────────────
     def run(self) -> BacktestResult:
         started = time.monotonic()
@@ -646,9 +828,14 @@ class BacktestEngine:
 
         for step, ts in enumerate(self.timeline):
             touched = [sym for sym, idx in self._bar_index.items() if ts in idx]
+            # Corporate actions are effective at the START of their ex-date, so a
+            # split is applied before the bar that carries the new price.
+            self._apply_corporate_actions(step, ts)
+            bars: dict[str, BarContext] = {}
             for symbol in touched:
                 i = self._bar_index[symbol][ts]
                 bar = self._bar_ctx(symbol, i)
+                bars[symbol] = bar
                 self.portfolio.mark(symbol, bar.close)
                 self._observability["barsProcessed"] += 1
                 if i < self._min_bars:
@@ -659,6 +846,11 @@ class BacktestEngine:
                 self._process_protective(symbol, bar, i)
                 # 4/5. signals at close
                 self._evaluate_signals(symbol, i)
+
+            # Carry accrues on elapsed calendar time, then margin is checked
+            # against the marked book before the snapshot is recorded.
+            self._accrue_carry(step, ts)
+            self._check_margin(step, ts, bars)
 
             # 6. snapshot (mark everything to its latest price)
             eq = self.portfolio.snapshot(step, ts)
@@ -724,6 +916,14 @@ class BacktestEngine:
             # Top-level execution is the first binding's, for backward-compatible
             # single-strategy payloads; each binding carries its OWN assumptions.
             "execution": self._sim(self.bindings[0]).assumptions_summary(),
+            "carry": {
+                "financing": round(self._financing_paid, 8),
+                "borrow": round(self._borrow_paid, 8),
+                "locateFees": round(self._locate_paid, 8),
+                "dividends": round(self.portfolio.total_dividends, 8),
+                "events": len(self.portfolio.carry_events),
+            },
+            "corporateActions": len(self._corporate_actions),
             "bindings": [
                 {"strategyId": b.strategy.id, "strategyVersion": b.strategy.version,
                  "symbols": b.symbols, "positionSizing": b.strategy.position_sizing.model_dump(),
@@ -752,9 +952,26 @@ class BacktestEngine:
             "multiSymbol": "available", "multiTimeframe": "available",
             "commission": "available", "slippage": "available", "spread": "available",
             "latency": "available", "marketImpact": "available",
+            "borrow": "available", "financing": "available", "margin": "available",
+            "partialFills": "available", "corporateActions": "available",
             "walkForward": "available", "monteCarlo": "available",
             "optimization": "available", "robustness": "available", "sensitivity": "available",
         }
+        manifest = build_run_manifest(
+            strategies=[b.strategy for b in self.bindings],
+            dataset=self.dataset,
+            configuration=config,
+            metrics=metrics,
+            engine_version=ENGINE_VERSION,
+            code_version=self.config.code_version,
+            extra={
+                "carry": config["carry"],
+                "marginCalls": self._observability.get("marginCalls", 0),
+                "partialFills": self._observability.get("partialFills", 0),
+                "corporateActions": config["corporateActions"],
+            },
+        )
+        metadata["manifestDigest"] = manifest["digest"]
         return BacktestResult(
             metadata=metadata, configuration=config, metrics=metrics,
             metric_definitions=definitions,
@@ -768,6 +985,7 @@ class BacktestEngine:
             warnings=[w.to_dict() for w in self.warnings],
             errors=list(self.errors), artifacts={},
             observability=observability, capability=capability,
+            manifest=manifest,
         )
 
 

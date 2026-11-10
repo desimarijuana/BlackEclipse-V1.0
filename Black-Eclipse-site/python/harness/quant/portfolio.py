@@ -36,6 +36,13 @@ class Portfolio:
         self.total_slippage = 0.0
         self.total_spread = 0.0
         self.total_impact = 0.0
+        # Cost-of-carry and corporate-action ledgers. They are cash movements,
+        # not trading P&L, and are reported separately so a strategy cannot hide
+        # borrow/financing inside its "edge".
+        self.total_financing = 0.0
+        self.total_borrow = 0.0
+        self.total_dividends = 0.0
+        self.carry_events: list[dict] = []
         self.allow_short = allow_short
         self.max_leverage = max_leverage
         self._trade_seq = 0
@@ -222,6 +229,54 @@ class Portfolio:
         pos.last_price = price
         return closed
 
+    # ── Cost of carry & corporate actions ───────────────────────────────────
+    def apply_cash(self, amount: float, *, kind: str, index: Optional[int] = None,
+                   ts: Optional[str] = None, detail: Optional[dict] = None) -> None:
+        """Apply a non-trade cash movement (financing, borrow, dividend).
+
+        Positive = credit, negative = debit. The ledger keeps the component
+        totals separate so the result envelope can report them honestly.
+        """
+        if amount == 0:
+            return
+        self.cash += float(amount)
+        if kind == "financing":
+            self.total_financing += float(amount)
+        elif kind == "borrow":
+            self.total_borrow += float(amount)
+        elif kind == "dividend":
+            self.total_dividends += float(amount)
+        self.carry_events.append({
+            "kind": kind, "amount": float(amount), "index": index, "ts": ts,
+            "detail": detail or {},
+        })
+
+    def apply_corporate_action(self, action, *, index: Optional[int] = None,
+                               ts: Optional[str] = None) -> Optional[dict]:
+        """Apply one corporate action to this portfolio and return its effect."""
+        from .corporate_actions import apply_to_position  # noqa: PLC0415
+
+        pos = self.positions.get(action.symbol)
+        if pos is None or pos.is_flat:
+            return None
+        effect = apply_to_position(
+            action, quantity=pos.quantity, avg_entry_price=pos.avg_entry_price
+        )
+        if effect["kind"] == "split":
+            pos.quantity = effect["newQuantity"]
+            pos.avg_entry_price = effect["newAvgEntryPrice"]
+        elif effect["cashDelta"]:
+            self.apply_cash(
+                effect["cashDelta"], kind="dividend", index=index, ts=ts,
+                detail={"symbol": action.symbol, "perShare": action.amount,
+                        "quantity": pos.quantity},
+            )
+        self.carry_events.append({
+            "kind": f"corporate:{action.kind}", "amount": effect["cashDelta"],
+            "index": index, "ts": ts, "detail": effect,
+        })
+        return effect
+
     # ── Reconstruct a snapshot series ────────────────────────────────────────
     def state_dict(self) -> dict:
         return {
@@ -232,7 +287,11 @@ class Portfolio:
             "fees": {
                 "commission": self.total_commission, "slippage": self.total_slippage,
                 "spread": self.total_spread, "impact": self.total_impact,
-                "total": self.total_commission + self.total_slippage + self.total_spread + self.total_impact,
+                "financing": self.total_financing, "borrow": self.total_borrow,
+                "dividends": self.total_dividends,
+                "total": (self.total_commission + self.total_slippage + self.total_spread
+                          + self.total_impact + self.total_financing + self.total_borrow
+                          - self.total_dividends),
             },
         }
 

@@ -109,6 +109,10 @@ class Fill:
     index: int
     ts: Optional[str]
     reason: str = ""
+    # Partial-fill audit: the order size this fill belongs to and the share of it
+    # this fill represents. A full fill is 1.0.
+    order_quantity: Optional[float] = None
+    fill_ratio: float = 1.0
 
     @property
     def notional(self) -> float:
@@ -124,6 +128,7 @@ class Fill:
             "quantity": self.quantity, "price": self.price, "commission": self.commission,
             "slippage": self.slippage, "spreadCost": self.spread_cost, "impact": self.impact,
             "index": self.index, "ts": self.ts, "notional": self.notional, "reason": self.reason,
+            "orderQuantity": self.order_quantity, "fillRatio": self.fill_ratio,
         }
 
 
