@@ -424,6 +424,13 @@ class AgenticService:
         from .search.bootstrap import install_search_layer  # noqa: PLC0415
 
         install_search_layer(self)
+        # Large-corpus sources: registered folders catalogued in place, opened
+        # through bounded cards, searched by a routing planner (metadata / FTS /
+        # DuckDB / bounded scan). Boot wiring lives in `sources/bootstrap.py`;
+        # a failure only makes the tools report the layer unavailable.
+        from .sources.bootstrap import install_source_layer  # noqa: PLC0415
+
+        install_source_layer(self)
         # MCP (Phase 5): configured local stdio servers. Construction only reads
         # config; nothing is launched until `start_mcp()`. Selected read-only MCP
         # tools register into THIS registry, so execution stays authoritative.
