@@ -849,9 +849,35 @@ class QuantStore:
 
     @staticmethod
     def _method_row(row) -> dict:
+        spec = json.loads(row["specJson"] or "{}")
+        if not isinstance(spec, dict):
+            spec = {}
+        # The research layer extends the SAME table with formal-spec columns.
+        # Read them when present so old rows and new rows share one reader.
+        keys = set(row.keys())
+        for column, target in (
+            ("version", "version"), ("aliasesJson", "aliases"),
+            ("objectiveJson", "objective"), ("mathSpecJson", "mathSpec"),
+            ("inputsJson", "inputs"), ("parametersJson", "parameters"),
+            ("assumptionsJson", "assumptions"), ("limitationsJson", "limitations"),
+            ("provenanceJson", "provenance"), ("implementationStatus", "implementationStatus"),
+            ("reproductionStatus", "reproductionStatus"),
+            ("lifecycleStatus", "lifecycleStatus"), ("confidence", "confidence"),
+            ("contentHash", "contentHash"),
+        ):
+            if column not in keys or row[column] in (None, ""):
+                continue
+            value = row[column]
+            if column.endswith("Json"):
+                try:
+                    value = json.loads(value)
+                except (TypeError, ValueError):
+                    value = None
+            if value is not None:
+                spec[target] = value
         return {
             "id": row["id"], "name": row["name"], "methodFamily": row["methodFamily"],
-            "status": row["status"], "spec": json.loads(row["specJson"] or "{}"),
+            "status": row["status"], "spec": spec,
             "evidence": json.loads(row["evidenceJson"] or "{}"),
             "strategyId": row["strategyId"], "createdAt": row["createdAt"],
             "updatedAt": row["updatedAt"],

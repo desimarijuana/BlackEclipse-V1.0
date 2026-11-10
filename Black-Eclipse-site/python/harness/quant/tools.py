@@ -1199,6 +1199,12 @@ def register_quant_tools(registry: Any) -> list[str]:
     register_desk_tools(registry)
     register_discovery_tools(registry)
 
+    # Quant Research Intelligence: scholarly discovery, method knowledge,
+    # reproduction, validation and dossiers. Imported lazily to avoid a cycle.
+    from .research_intel.tools import register_research_tools
+
+    register_research_tools(registry)
+
     _def("run_robustness_analysis",
          "Combine sensitivity, cost sensitivity, trade concentration, sample size and regime "
          "dependence into a deterministic robustness verdict with plain-language conclusions.",
@@ -1238,6 +1244,15 @@ QUANT_TOOLS: tuple[str, ...] = (
     "analyze_option_strategy", "build_continuous_contract", "run_regime_monte_carlo", "grade_strategy_edge", "analyse_trade_log",
     "list_strategy_venues", "run_prop_firm_simulation", "list_prop_firm_rules", "generate_edge_report", *PINE_TOOLS,
     *DESK_TOOLS, *DISCOVERY_TOOLS,
+    # Quant Research Intelligence (literal to avoid an import cycle; parity is
+    # asserted by test_quant_research_tools.py).
+    "research_search_papers", "research_get_paper", "research_get_citations",
+    "research_extract_method", "research_compare_methods", "research_get_evidence",
+    "research_method_matrix", "research_visualize",
+    "quant_list_methods", "quant_get_method", "quant_specify_method",
+    "quant_reproduce_method", "quant_validate_method", "quant_attach_implementation",
+    "quant_register_method",
+    "quant_build_dossier", "quant_list_dossiers",
     )
 
 

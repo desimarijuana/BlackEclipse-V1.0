@@ -23,7 +23,7 @@ MAX_LIMIT = 100
 
 _KINDS = (
     "all", "strategy", "experiment", "ml_model", "ml_dataset", "feature",
-    "factor",
+    "factor", "method", "dossier",
 )
 
 
@@ -156,6 +156,42 @@ def _factor_entries(
     ]
 
 
+def _research_entries(store: Optional[Any], limit: int,
+                      selected: str) -> list[dict[str, Any]]:
+    """Method specs and research dossiers, read from the SAME quant store."""
+    if store is None:
+        return []
+    out: list[dict[str, Any]] = []
+    if selected in ("all", "method"):
+        out.extend(
+            _normalize(
+                "method", row,
+                name_keys=("name", "id"),
+                version_keys=("version",),
+                status_keys=("status",),
+                updated_keys=("updatedAt", "createdAt"),
+            )
+            for row in _safe_list(lambda: store.list_methods(limit=limit))[:limit]
+        )
+    if selected in ("all", "dossier"):
+        try:
+            from .quant.research_intel.store import ResearchStore  # noqa: PLC0415
+
+            rows = ResearchStore(store).list_dossiers(limit=limit)
+        except Exception:  # noqa: BLE001 - an absent research layer is an empty section
+            rows = []
+        out.extend(
+            _normalize(
+                "dossier", row,
+                version_keys=(),
+                status_keys=("status",),
+                updated_keys=("createdAt",),
+            )
+            for row in rows[:limit]
+        )
+    return out
+
+
 def build_catalog(
     *,
     quant_store: Optional[Any] = None,
@@ -179,6 +215,8 @@ def build_catalog(
     entries: list[dict[str, Any]] = []
     if selected in ("all", "strategy", "experiment"):
         entries.extend(_quant_entries(quant_store, bound, include_archived, selected))
+    if selected in ("all", "method", "dossier"):
+        entries.extend(_research_entries(quant_store, bound, selected))
     if selected in ("all", "ml_model", "ml_dataset"):
         entries.extend(_ml_entries(ml_store, bound, selected))
     if selected in ("all", "feature"):
@@ -236,9 +274,9 @@ def _stores(ctx: Any) -> tuple[Any, Any, Any, Any]:
 def _render(result: dict[str, Any]) -> str:
     if not result["total"]:
         return (
-            "Model catalog is empty: no strategies, experiments, ML models/datasets, "
-            "features or factors are registered yet. This is an empty registry, not "
-            "an unavailable capability."
+            "Model catalog is empty: no strategies, experiments, methods, dossiers, "
+            "ML models/datasets, features or factors are registered yet. This is an "
+            "empty registry, not an unavailable capability."
         )
     parts = ", ".join(f"{kind} {count}" for kind, count in result["counts"].items())
     lines = [f"Model catalog: {result['total']} artifact(s) — {parts}."]

@@ -31,6 +31,14 @@ def install_quant_layer(service: Any) -> None:
 
         service.quant_store = QuantStore(service.store)
         service.dataset_store = DatasetStore(service.store)
+        # The method knowledge base lives on the SAME QuantMethod table. Seeding
+        # is idempotent and never overwrites a research registration.
+        try:
+            from .research_intel.store import ResearchStore
+
+            ResearchStore(service.quant_store).seed_catalog()
+        except Exception:  # noqa: BLE001 - research seeding must not block quant boot
+            log.debug("quant research catalog seed unavailable", exc_info=True)
         register_quant_tools(service.registry)
         # The unified catalog spans quant/ML/stats/factors. It is registered
         # here but resolves the other stores lazily at call time, so boot order

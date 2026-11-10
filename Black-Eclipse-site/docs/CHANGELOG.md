@@ -1,6 +1,141 @@
 # Change Log
 
 ## 2026-11-10
+- **feat(quant): closed the operational code gaps in the 10/10 foundation.**
+  Live signals now refuse critical data findings; `risk_state.py` persists
+  day-start/peak equity and auto-kills a trial on a daily-loss or drawdown
+  breach; `live_scheduler.py` adds an idempotent `run-due` batch over active
+  trials; `monitor_store.py` persists daily parity/drift/attribution snapshots;
+  `model_card.py` renders the evidence record; `golden.py` repairs then freezes a
+  content-hashed golden dataset. New routes cover golden freeze, monitor
+  snapshots, model cards and the scheduler hook. Tests: 550 quant passes,
+  QuantBench 51/51, `tsc`, evals and size pass. Docs updated:
+  `docs/quant-system-blueprint.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(bots): durable conversations, manual runs for paused bots, and consistent model pins.**
+  Bots mode now mirrors per-bot threads and group rooms to a durable `BotState`
+  document in JDdS (`src/app/api/bots/state/[key]/route.ts`,
+  `src/lib/bots/state-sync.ts`). localStorage remains the instant/offline copy;
+  the newest client timestamp wins, and other tabs adopt changes through a
+  `storage` listener, so clearing browser storage no longer erases
+  conversations. "Run now" now works on a paused bot — pause stops the
+  scheduler, not an explicit run (the operator run route opts into
+  `allow_paused`; `engine.fire`/`_launch` honour it for manual triggers only,
+  while webhook/agent-tool/event/condition/fabric paths still require
+  `active`). The `agent.bot` graph node now applies a saved bot's
+  provider/model pin (credentials and base URL still come from the graph run),
+  matching its scheduled runs. Tests: `state-sync.test.ts`,
+  `test_automation_engine.py`, `test_graph_agent_node.py`; `tsc` clean. Docs
+  updated: `docs/bot-mode.md` (new), `docs/NAVIGATION.md`,
+  `docs/harness/automation-engine.md`, `docs/graph-studio.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **feat(quant): closed the remaining code gaps in the 10/10 foundation.**
+  The backtest route now refuses critical data findings unless
+  `allowDirtyData` is explicit; `data-quality/repair` drops exact duplicates and
+  counts conflicts without filling gaps. Added a durable `QuantOrder` OMS store
+  (restart-safe, unique idempotency key), enforced stop/target on live-trial
+  orders (the risk engine now requires a stop), a `run-due` scheduler hook,
+  broker cost calibration from fills (`slippageBps`, commission per lot and
+  explicit backtest assumptions), and a trial report route (runs, broker
+  account, positions, orders, P&L). The health panel now reports data, broker,
+  risk, runner and lifecycle. Tests: `test_quant_system_core.py` (14),
+  `test_quant_live.py` (5), routes; QuantBench 51/51; `tsc` and size pass.
+  Docs updated: `docs/quant-system-blueprint.md`, `docs/quant-engine.md`,
+  `docs/CHANGELOG.md`.
+- **feat(quant): shipped the 10/10 foundation across all 12 workstreams.**
+  Added `quant/data_quality.py` (duplicate/conflict detection, gap
+  classification, broker parity, content hash, blocking gate),
+  `quant/lifecycle.py` (evidence-gated model state machine),
+  `quant/risk_engine.py` (per-trade sizing, lot/notional/margin/spread/exposure
+  checks, daily-loss and drawdown kill), `quant/oms.py` (idempotency, legal
+  state machine, brackets, partial fills, reconciliation, TCA),
+  `quant/live_runner.py` (one claim per strategy/version/timeframe/bar,
+  restart-safe, pause/resume), `quant/monitor.py` (signal parity, drift,
+  attribution), `quant/capital.py` (risk-budget allocation with caps) and
+  `quant/system_health.py` (one operator view). The live trial now claims a run
+  key, runs the risk engine before submit and records OMS state. Added
+  `routers/quant_system.py` (data quality, parity, lifecycle, risk, allocation,
+  runs, health) and the Strategy Studio `system-health-panel.tsx`. Tests:
+  `test_quant_system_core.py` (11) + live (5) + routes; `tsc` clean; size
+  re-pinned deliberately. Docs updated: `docs/quant-system-blueprint.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **docs(quant): added the Quant System Blueprint** (`docs/quant-system-blueprint.md`).
+  It defines a measurable 10/10 target (data truth, research rigor, model
+  lifecycle, broker-calibrated backtests, a hard risk engine, an idempotent OMS,
+  bar-close automation, drift monitoring, portfolio allocation, governance and
+  operator UX), 12 workstreams with exit criteria, a 13-week build plus 90-day
+  evidence track, strategy promotion thresholds and a first-10-days checklist.
+  Plan only; no runtime code changed. Docs updated:
+  `docs/quant-system-blueprint.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(quant): added governed live strategy trials.** New `quant/live.py` +
+  `routers/quant_live.py` promote an approved, backtested strategy version to a
+  live broker trial. Gates: approved review, completed backtest, typed phrase,
+  live connection, future arm and a positive maxMargin. The trial creates a live
+  mandate pinned to `strategy:<id>:<version>`, evaluates the strategy on the last
+  closed bar with the same causal engine, submits ONE order under the mandate,
+  refuses to stack a position, closes on an exit signal, reads broker results
+  (account/positions/orders/open P&L) and stops by revoking the mandate. The
+  existing broker layer, money guardrails, reconciliation and kill switch are
+  reused; no second order path. Strategy Studio gained a live-trial panel.
+  Tests: `test_quant_live.py` (5) + route registration; docs
+  `docs/quant-live-strategy.md`, `docs/quant-engine.md`, `docs/NAVIGATION.md`.
+- **feat(quant): widened Quant Research Intelligence to a horizon-wide, visual
+  research system.** The method catalog grew from 17 to 33 methods across
+  intraday, swing, position and long-term horizons (ARIMA, VECM, Kalman, carry,
+  crypto funding, low-vol, seasonality, options income, volatility breakout,
+  event drift, risk parity, Black-Litterman, value, quality, long-term trend,
+  equal weight), and it is explicitly open: literature extraction and
+  `quant_register_method` add methods at runtime. Added
+  `quant_attach_implementation` so any method can receive a tested Python
+  implementation; open-access PDF links and citation pointers are stored, and
+  the generic worker uses Docker when configured.
+  Added `research_method_matrix` (coverage by horizon) and `research_visualize`
+  (method coverage, suitability, price, rolling volatility, return distribution,
+  reproduction fit) with computed chart blocks. Reproduction grew to 12 built-in
+  estimators (GJR-GARCH, EGARCH, HAR-RV, Engle-Granger, HMM, EVT/GPD, CAPM/FF,
+  Almgren-Chriss) plus a generic registered-code path that runs in a separate
+  process with a scrubbed environment, timeout and output cap. Extraction now
+  accepts an optional model proposal only when each field's quote exists
+  verbatim in the document. Academic search now merges OpenAlex, Semantic
+  Scholar, Crossref and arXiv; SSRN/NBER/RePEc are scoped pointers. Added the
+  Research Intelligence panel to Strategy Studio, an open-method matrix view,
+  computed figures, and a figures section in the dossier. Tests:
+  `test_quant_research_intel.py` (26), routes (5), connectors (11), QuantBench
+  47/47; `tsc` clean; size budget re-pinned deliberately. Docs updated:
+  `docs/quant-research-intelligence-plan.md`, `docs/quant-engine.md`,
+  `docs/quant-research-prompts.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(quant): shipped Quant Research Intelligence.** New
+  `python/harness/quant/research_intel/` adds a formal method-spec contract with
+  sourced equations, a 17-method seeded knowledge base, deterministic research
+  query planning, scholarly search over the EXISTING OpenAlex/Crossref/arXiv
+  connectors with DOI/arXiv/title dedupe, section/equation extraction with page
+  provenance, explained suitability scoring, a reproduction harness separated
+  from trading adaptation (OU/AR(1), EWMA, realized variance, GARCH(1,1)), a
+  validation matrix, and a Quant Research Dossier registered in the Artifact
+  Center. 14 agent tools (`research_*` + `quant_*_method`/dossier) are added to
+  `QUANT_TOOLS`; `routers/quant_research.py` exposes the operator-gated routes;
+  `quant/bootstrap.py` seeds the catalog; `model_catalog` gained `method` and
+  `dossier` kinds. Reproduction is honest: an unregistered implementation
+  returns `inconclusive`, and a validated lifecycle requires a passing
+  validation record. New intent kinds: literature_review, method_comparison,
+  method_reproduction, research_discovery, quant_model_development,
+  research_extension. Tests: `test_quant_research_intel.py`,
+  `test_quant_research_intent.py`, `test_quant_research_routes.py` + four
+  QuantBench cases (routing and math); registry regenerated; size budget
+  re-pinned deliberately. Added reusable research prompts
+  (`docs/quant-research-prompts.md`) and a "Quant research" block in the base
+  system prompt. Docs updated:
+  `docs/quant-research-intelligence-plan.md`, `docs/quant-engine.md`,
+  `docs/quant-research-prompts.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **docs(quant): added the Quant Research Intelligence implementation
+  specification** (`docs/quant-research-intelligence-plan.md`). It defines the
+  research-to-model evolution on top of the existing engine — scholarly search,
+  paper/method extraction with page provenance, a method knowledge base,
+  reproduction separated from trading adaptation, validation and a research
+  dossier — with mandatory repository-inspection steps, a reuse map, proposed
+  module responsibilities, tool/route contracts, additive `agent-memory.db`
+  schema, phased acceptance tests and explicit no-rebuild guardrails. Plan only;
+  no runtime code changed. Docs updated:
+  `docs/quant-research-intelligence-plan.md`, `docs/CHANGELOG.md`.
 - **feat(quant): method discovery, realism, portfolio risk and a measurable
   benchmark.** Quant mode now centres on finding, adapting and inventing
   tradable methods. New `quant/discovery/` (14-family taxonomy with thesis/edge
@@ -90,6 +225,45 @@
   `test_sources_query_tools.py`. Docs updated: `docs/harness/large-sources.md`
   (new), `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-077),
   `skills/ARCHITECT.md`, `docs/CHANGELOG.md`. `no doc change` — n/a.
+- **fix(capabilities): a "bot" request can no longer dead-end in the code
+  builder.** `capability_request` had no automation vocabulary, so "turn this
+  into a skill and then a bot" classified only the skill (or fell through to
+  `scaffold_kit`), and a chat/code turn without `code.write` then answered
+  `PROFILE_DENIED` — which reads as "Eclipse won't let me". Added `detect_kinds`
+  (ordered, multi-deliverable), a `bot` kind → `bot_create` in the surface/next-tool
+  maps, and a `_bot` hand-off whose notes explicitly forbid `scaffold_kit` and
+  name the cron + IANA timezone as required input. `CODE_AGENT_TOOLS` now carries
+  the Automation tools so a code task can create the same bot; `bot_create`
+  refuses a cron/interval trigger with a plain-language reason instead of an
+  exception. Hand-off responses now say "call the tool NOW in this turn" rather
+  than "nothing was activated"; `scaffold_kit`'s `PROFILE_DENIED` /
+  `WORKSPACE_UNBOUND` refusals name `skill_create` / `bot_create` / a code task.
+  The verifier's `output-contract` failure now says which output had the wrong
+  kind and what it got, so one build fixes it; a verifier crash is recorded as a
+  failed version instead of leaving orphan draft files with no record. Tests:
+  added bot/multi-deliverable routing, hand-off, tool-text and scaffold-refusal
+  cases; `test_code_agent`, `test_automation_tools`; isolated the dynamic recipe
+  registry in `test_capabilities_builder` and made the public-manifest drift gate
+  generate in a clean subprocess (it was order-dependent). Docs updated:
+  `docs/harness/capability-builder.md`, `docs/CHANGELOG.md`.
+- **feat(runtime): no dead ends — every offerable block becomes a durable gap
+  and a user offer.** Added `python/harness/gaps/` (`taxonomy.py` = 8 classes,
+  only capability/context/setup are offerable; `store.py` = durable
+  `CapabilityGap` on `agent-memory.db` with stable signatures, suppression and
+  resolution; `service.py` = the one-route offer + accept/decline/suppress;
+  `runtime.py` = the fail-open graph glue). `graph.py` records refused tool
+  payloads (a handler refusal is `ok=True` with `status:refused`), closes a gap
+  on a later success, catches one narrow prose-only refusal, and at the answer
+  seam emits `capability.offer` plus one visible sentence. `run_outcome` reads
+  the offer into `capabilityGap`. Operator API `/capabilities/gaps*` (accept also
+  asks the existing parked-task resume path); chat card wired through
+  `events.ts` → `capability-card.tsx` → `chat-history.tsx` with
+  `actionPrompt`/`actionLabel`; Capability Studio queue `gaps-section.tsx`;
+  prompt rule "never end with a bare refusal"; safety denials never offer a
+  bypass. Tests: `test_capability_gaps.py`, `test_no_dead_ends.py`,
+  gaps API + event/card cases. Docs: `docs/harness/no-dead-ends.md` (new),
+  `docs/harness/capability-builder.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
 
 ## 2026-11-09
 - **ops: run the v0.3.2 production build as the soak instance on Windows.** Added

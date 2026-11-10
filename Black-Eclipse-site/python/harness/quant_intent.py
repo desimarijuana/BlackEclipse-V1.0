@@ -24,6 +24,8 @@ QuantTier = Literal["none", "light", "standard", "deep"]
 QuantKind = Literal[
     "lookup", "analysis", "forecast", "strategy", "model",
     "financial_model", "factor", "risk", "trade", "discovery",
+    "literature_review", "method_comparison", "method_reproduction",
+    "research_discovery", "quant_model_development", "research_extension",
 ]
 Confidence = Literal["certain", "likely", "unsure"]
 
@@ -100,6 +102,34 @@ _DISCOVERY_TERMS = (
     "screen for", "scan for", "scan the market", "mine", "mining",
     "research ideas", "alpha ideas", "edge ideas", "generate ideas",
     "what strategies", "which strategies", "strategy library",
+)
+
+# Research-work vocabulary. These are specific phrases: a bare "research" is
+# too common ("research the company"), so it only counts with a paper/literature
+# object or an explicit method/research phrase.
+_RESEARCH_TERMS = (
+    "research paper", "research papers", "literature review", "review the literature",
+    "academic", "published research", "published paper", "paper on", "papers on",
+    "find papers", "find a paper", "cite", "citations", "citation", "literature",
+    "survey of", "prior research", "existing research", "research the",
+)
+_COMPARISON_TERMS = (
+    "compare methods", "compare the methods", "compare models", "method comparison",
+    "compare garch", "compare the approaches", "alternatives to", "which method",
+    "which model", "which approach",
+)
+_REPRODUCTION_TERMS = (
+    "reproduce", "replicate", "replication", "implement the paper",
+    "implement the methodology", "reproduce the paper", "reproduce the method",
+)
+_MODEL_DEV_TERMS = (
+    "research-backed", "research backed", "research-driven", "research driven",
+    "develop a model from research", "build a model from research",
+    "research to model", "research-to-model",
+)
+_INDEPENDENT_TERMS = (
+    "research gap", "novel hypothesis", "independent research",
+    "original hypothesis", "test the hypothesis", "new hypothesis",
 )
 
 _PREDICTION_PHRASES = (
@@ -224,7 +254,25 @@ def _prior_quant_intent(history: Optional[list[Any]]) -> Optional["QuantIntent"]
     return None
 
 
+def _research_kind(text: str) -> Optional[QuantKind]:
+    """The research sub-kind, or None when the turn is not research work."""
+    if any(_has(text, k) for k in _INDEPENDENT_TERMS):
+        return "research_extension"
+    if any(_has(text, k) for k in _MODEL_DEV_TERMS):
+        return "quant_model_development"
+    if any(_has(text, k) for k in _REPRODUCTION_TERMS):
+        return "method_reproduction"
+    if any(_has(text, k) for k in _COMPARISON_TERMS):
+        return "method_comparison"
+    if any(_has(text, k) for k in _RESEARCH_TERMS):
+        return "literature_review"
+    return None
+
+
 def _kind(text: str, *, build: bool) -> QuantKind:
+    research = _research_kind(text)
+    if research is not None:
+        return research
     if any(_has(text, k) for k in _DISCOVERY_TERMS):
         return "discovery"
     if any(_has(text, k) for k in (
@@ -406,6 +454,24 @@ def classify_quant_intent(
             reasons=("reuse/catalog request",),
         )
 
+    # Research work: reading the literature, comparing methods, reproducing a
+    # method, or developing a model from research. This is deliberately before
+    # discovery so "research the Kalman filter" reaches the research protocol and
+    # not only the internal method library.
+    research = _research_kind(text)
+    if research is not None:
+        research_deep = (
+            build is not None or deep is not None
+            or research in ("method_reproduction", "quant_model_development",
+                            "research_extension")
+        )
+        return QuantIntent(
+            tier="deep" if research_deep else "standard",
+            kind=research, confidence="likely", signals=signals,
+            reasons=(f"research request ({research})",),
+            missing=_missing(text, "model" if research != "literature_review" else "analysis"),
+        )
+
     # Discovery: the user wants methods, ideas or setups — the core of quant
     # mode. This is deliberately before the generic build/model branches so
     # "find me a strategy" reaches the method library rather than only the spec
@@ -535,7 +601,58 @@ def quant_intent_block(
         "deliver an artifact. Do not stop at commentary.",
     ]
 
-    if intent.kind == "discovery":
+    if intent.kind == "literature_review":
+        lines.append(
+            "This is a LITERATURE / METHOD REVIEW turn. Work in this order: "
+            "(a) check what already exists (`model_catalog`, `quant_list_methods`); "
+            "(b) plan search topics and search the academic connectors "
+            "(`research_search_papers`) — do not search one generic phrase; "
+            "(c) fetch and read the accessible document (`research_get_paper`); "
+            "(d) extract the method with page-level provenance "
+            "(`research_extract_method`); (e) compare it with the existing catalog "
+            "(`research_compare_methods`); (f) state explicitly what is established "
+            "by the literature, what Eclipse inferred, and what Eclipse did not "
+            "reproduce. Do not run a full model-development cycle unless asked."
+        )
+    elif intent.kind == "method_comparison":
+        lines.append(
+            "This is a METHOD COMPARISON turn. Identify the candidate methods from "
+            "the literature and the internal knowledge base, extract their actual "
+            "mathematics and assumptions, then compare them with an explained "
+            "suitability score (`research_compare_methods`) against the user's "
+            "objective, data, instrument and frequency. Print the factors and the "
+            "caveats. Do not present the top score as a profit probability."
+        )
+    elif intent.kind == "method_reproduction":
+        lines.append(
+            "This is a METHOD REPRODUCTION turn. Keep two claims separate: "
+            "(1) reproduction — implement the paper's procedure and compare its "
+            "estimates with the published benchmark (`quant_reproduce_method`); "
+            "(2) trading adaptation — apply it to the user's market, which is a "
+            "different claim. Run the reproduction first, record deviations "
+            "honestly, then validate the checks that are possible "
+            "(`quant_validate_method`). Never call a profitable adaptation a "
+            "reproduction."
+        )
+    elif intent.kind == "quant_model_development":
+        lines.append(
+            "This is a RESEARCH-TO-MODEL turn. Sequence: literature search → read "
+            "and extract → compare candidates → choose a baseline and alternatives "
+            "→ reproduce the chosen method → run a bounded experiment → validate "
+            "(out-of-sample, costs, multiple testing, robustness) → register the "
+            "method and build a Quant Research Dossier (`quant_build_dossier`). "
+            "Reuse an existing model/method before building a duplicate."
+        )
+    elif intent.kind == "research_extension":
+        lines.append(
+            "This is an INDEPENDENT RESEARCH turn. First search the existing "
+            "literature; an empty search is NOT evidence that a research gap "
+            "exists. State the gap only if the evidence supports it. Then write "
+            "competing falsifiable hypotheses, name the established methods they "
+            "combine, define the data and the experiment, and report positive, "
+            "negative and inconclusive results — including failed trials."
+        )
+    elif intent.kind == "discovery":
         lines.append(
             "This is a METHOD DISCOVERY turn. The user wants quantitative methods "
             "they can understand and trade, and potentially new ones. Work in this "
@@ -822,7 +939,8 @@ def apply_intent_surfaces(
 
 _ARTIFACT_RE = re.compile(
     r"\b(?:exp|experiment|strat|strategy|model|mdl|dataset|ds|factor|fac|"
-    r"feature|feat|analysis|capability|cap|artifact|art)_[A-Za-z0-9-]{4,}\b"
+    r"feature|feat|analysis|capability|cap|artifact|art|"
+    r"dsr|dossier|lit|rep|impl|mth|method)_[A-Za-z0-9-]{4,}\b"
 )
 _OOS_TERMS = (
     "out-of-sample", "out of sample", "walk-forward", "walk forward", "oos",
@@ -836,7 +954,7 @@ _COMPUTE_PREFIXES = (
     "analysis_run", "run_", "plot_", "render_", "calculate_", "compute_", "ml_",
     "stats_", "factor_", "python_chart", "portfolio_", "price_option",
     "implied_volatility", "build_", "create_strategy", "compile_", "generate_",
-    "simulate_", "model_catalog",
+    "simulate_", "model_catalog", "research_", "quant_",
 )
 #: Tools that produce a series or distribution worth drawing. The figure check
 #: only applies when one of these ran, so "explain the Sharpe ratio" in quant
@@ -863,6 +981,11 @@ _VALIDATION_TOOLS = frozenset({
     "run_factor_evaluation", "validate_alpha_experiment",
     "financial_model_build", "financial_model_audit", "capability_build",
     "run_python_strategy", "run_event_driven_backtest",
+    # Quant Research Intelligence: extraction, reproduction, validation and the
+    # durable dossier are the research-cycle evidence.
+    "research_extract_method", "research_compare_methods",
+    "quant_reproduce_method", "quant_validate_method",
+    "quant_register_method", "quant_build_dossier",
 })
 
 
