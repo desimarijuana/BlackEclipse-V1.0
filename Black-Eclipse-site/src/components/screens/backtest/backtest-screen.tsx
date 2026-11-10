@@ -13,6 +13,7 @@ import { ResearchPanel } from './research-panel';
 import { EquityChart, DrawdownChart } from './shared/charts';
 import { MetricGrid } from './shared/metric-grid';
 import { TradeTable } from './shared/trade-table';
+import { ManifestPanel } from './shared/manifest-panel';
 import {
   formatMetric,
   type ExperimentSummary,
@@ -369,6 +370,8 @@ export function BacktestScreen() {
                 <h3 className="mb-2 text-xs font-semibold text-foreground">Drawdown</h3>
                 <DrawdownChart result={result} />
               </div>
+
+              <ManifestPanel experimentId={result.experimentId ?? null} />
 
               <div className="glass-card rounded-2xl p-4">
                 <h3 className="mb-2 text-xs font-semibold text-foreground">

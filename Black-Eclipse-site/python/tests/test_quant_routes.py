@@ -71,6 +71,8 @@ def test_advanced_quant_routes_registered():
         "/quant/prop-firm",
         "/quant/prop-firm/firms",
         "/quant/edge-report",
+        "/quant/experiments/{experiment_id}/figures",
+        "/quant/experiments/{experiment_id}/figures/{figure}",
         "/quant/pine",
         "/quant/pine/report",
         "/projects",
@@ -138,5 +140,7 @@ def test_the_report_routes_are_mounted_on_the_running_app():
     from harness.main import app
 
     mounted = set(app.openapi().get("paths", {}))
-    for path in ("/quant/edge-report", "/quant/prop-firm", "/quant/regime-monte-carlo"):
+    for path in ("/quant/edge-report", "/quant/prop-firm", "/quant/regime-monte-carlo",
+                 "/quant/experiments/{experiment_id}/figures",
+                 "/quant/experiments/{experiment_id}/figures/{figure}"):
         assert path in mounted, path

@@ -11,6 +11,7 @@ import {
   type ExperimentSummary,
 } from '@/lib/backtest/backtest-client';
 import { EdgeReportView } from './shared/edge-report-view';
+import { QuantFigurePanel } from './shared/quant-figure-panel';
 import { Loader2, ShieldCheck } from '@/lib/icons';
 
 export interface EdgeReportPanelProps {
@@ -106,6 +107,14 @@ export function EdgeReportPanel({ experiments }: EdgeReportPanelProps) {
       </div>
 
       {error ? <p className="mb-2 font-mono text-[10px] text-rose-300">{error}</p> : null}
+
+      {experimentId ? (
+        <QuantFigurePanel
+          experimentId={experimentId}
+          monteCarloExperimentId={monteCarloId || undefined}
+          className="mb-4 border-b border-border/40 pb-4"
+        />
+      ) : null}
 
       {!report && !error ? (
         <p className="text-[11px] text-muted-foreground">

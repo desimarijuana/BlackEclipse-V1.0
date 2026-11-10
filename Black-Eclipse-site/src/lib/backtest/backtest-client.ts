@@ -391,6 +391,171 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export interface RunManifest {
+  schemaVersion?: string;
+  digest: string;
+  engineVersion?: string;
+  codeVersion?: string | null;
+  createdAt?: string;
+  strategies?: Array<{ id?: string; version?: string; contentHash?: string; assetClass?: string | null }>;
+  data?: {
+    symbols?: string[];
+    interval?: string | null;
+    series?: Record<string, { bars?: number; sha256?: string; source?: string | null }>;
+  };
+  environment?: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
+  metrics?: Record<string, number | null>;
+  extra?: Record<string, unknown>;
+}
+
+export interface ReproduceResult {
+  status: string;
+  verdict: 'REPRODUCED' | 'DIVERGED';
+  dataFingerprintMatch: boolean;
+  comparison: {
+    reproduced: boolean;
+    compared: number;
+    differences: Array<{ metric: string; expected?: unknown; actual?: unknown; delta?: number }>;
+  };
+}
+
+export interface ResearchSession {
+  id: string;
+  title: string;
+  question?: string | null;
+  strategyId?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  hypotheses?: Array<Record<string, unknown>>;
+  trials?: Array<Record<string, unknown>>;
+  trialCount?: number;
+}
+
+export interface ResearchJournal {
+  session: ResearchSession;
+  hypothesisCount: number;
+  trialCount: number;
+  testedHypotheses: number;
+  rejectedHypotheses: Array<Record<string, unknown>>;
+  hypotheses: Array<Record<string, unknown>>;
+  recentTrials: Array<Record<string, unknown>>;
+  openQuestions: string[];
+}
+
+export interface PortfolioOptimization {
+  method: string;
+  weights: number[];
+  expectedReturn: number | null;
+  volatility: number | null;
+  sharpe: number | null;
+  riskContributions: { volatility: number; share: number[]; component: number[] };
+  diagnostics: Record<string, unknown>;
+}
+
+export interface StressEnvelope {
+  parametric?: {
+    varPct: number; varAmount: number; expectedShortfallPct: number;
+    componentVarShare: number[]; volatility: number; confidence: number;
+  };
+  historical?: { varPct: number; expectedShortfallPct: number; observations: number };
+  scenario?: {
+    scenarios: Array<{ name: string; pnlPct: number; pnlAmount: number; uncoveredSymbols: string[] }>;
+    worst?: { name: string; pnlPct: number } | null;
+  };
+}
+
+export interface MethodFamilySummary {
+  id: string;
+  name: string;
+  category: string;
+  thesis: string;
+  edge_source: string;
+  instruments: string[];
+  horizons: string[];
+  data_requirements: string[];
+  signals: string[];
+  failure_modes: string[];
+  best_regimes: string[];
+  worst_regimes: string[];
+  validation: string;
+  capacity: string;
+  complexity: number;
+  evidence: number;
+  turnover: string;
+  requires: string[];
+}
+
+export interface MethodRecommendation {
+  methodId: string;
+  name: string;
+  category: string;
+  fitScore: number;
+  fitPercent: number;
+  reasons: string[];
+  warnings: string[];
+  complexity: number;
+  evidence: number;
+  turnover: string;
+  requires: string[];
+}
+
+export interface MethodRecommendationResult {
+  profile: Record<string, unknown>;
+  recommendations: MethodRecommendation[];
+  starterSpec?: Record<string, unknown>;
+  note: string;
+}
+
+export interface MarketStructure {
+  structure: string;
+  insights: string[];
+  metrics: Record<string, unknown>;
+  candidateMethods: Array<{ methodId: string; score: number; reason: string }>;
+  outOfSampleStability?: { available: boolean; stable?: boolean; warning?: string };
+  note: string;
+}
+
+export interface CurrentSetups {
+  symbol: string;
+  interval: string;
+  bar?: string | null;
+  setups: Array<{
+    methodId: string;
+    name?: string;
+    direction: 'long' | 'short' | 'none' | 'error';
+    reason: string;
+  }>;
+  active: Array<Record<string, unknown>>;
+  note: string;
+}
+
+export interface MinedMethod {
+  methodId: string;
+  name?: string;
+  params: Record<string, unknown>;
+  status: 'candidate' | 'weak' | 'rejected' | 'error';
+  score: number;
+  reasons: string[];
+  inSample?: Record<string, number | null>;
+  outOfSample?: Record<string, number | null>;
+}
+
+export interface MineResult {
+  symbol: string;
+  interval: string;
+  trialCount: number;
+  isBars: number;
+  oosBars: number;
+  candidates: MinedMethod[];
+  selected?: MinedMethod | null;
+  rejectedCount: number;
+  deflatedSharpe?: { available: boolean; deflatedSharpeRatio?: number; reason?: string };
+  warnings: string[];
+  note: string;
+}
+
 export const backtestClient = {
   capabilities: () => jsonFetch<CapabilityMap>("/capabilities"),
 
@@ -479,6 +644,121 @@ export const backtestClient = {
 
   getArtifact: (id: string) =>
     jsonFetch<BacktestResult>(`/experiments/${encodeURIComponent(id)}/artifact`),
+
+  /** The content-hashed reproducibility record for an experiment. */
+  getManifest: (id: string) =>
+    jsonFetch<{ manifest: RunManifest }>(
+      `/experiments/${encodeURIComponent(id)}/manifest`,
+    ).then((r) => r.manifest),
+
+  /** Re-run an experiment from its manifest and compare metrics + data hash. */
+  reproduce: (id: string) =>
+    jsonFetch<ReproduceResult>(
+      `/experiments/${encodeURIComponent(id)}/reproduce`, { method: "POST" },
+    ),
+
+  // ── Research sessions ────────────────────────────────────────────────────
+  createSession: (body: { title: string; question?: string; strategyId?: string }) =>
+    jsonFetch<ResearchSession>("/sessions", { method: "POST", body: JSON.stringify(body) }),
+  listSessions: (limit = 50) =>
+    jsonFetch<{ sessions: ResearchSession[] }>(`/sessions?limit=${limit}`)
+      .then((r) => r.sessions),
+  getJournal: (sessionId: string) =>
+    jsonFetch<ResearchJournal>(`/sessions/${encodeURIComponent(sessionId)}/journal`),
+  registerHypothesis: (sessionId: string, body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(sessionId)}/hypotheses`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  recordTrial: (sessionId: string, body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>(
+      `/sessions/${encodeURIComponent(sessionId)}/trials`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  // ── Portfolio, risk & stress ─────────────────────────────────────────────
+  optimizePortfolio: (body: Record<string, unknown>) =>
+    jsonFetch<PortfolioOptimization>("/portfolio/optimize", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  portfolioRisk: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/portfolio/risk", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  stress: (body: Record<string, unknown>) =>
+    jsonFetch<StressEnvelope>("/stress", { method: "POST", body: JSON.stringify(body) }),
+
+  // ── Asset-class extensions ───────────────────────────────────────────────
+  optionChainBacktest: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/options/backtest-chain", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  futuresTermStructure: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/futures/term-structure", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  futuresRollCost: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/futures/roll-cost", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  benchmark: (answers: Record<string, unknown> = {}) =>
+    jsonFetch<Record<string, unknown>>("/benchmark", {
+      method: "POST", body: JSON.stringify({ answers }),
+    }),
+
+  // ── Method discovery ─────────────────────────────────────────────────────
+  listMethodFamilies: (query = "") =>
+    jsonFetch<{ methods: MethodFamilySummary[] }>(`/methods${query}`)
+      .then((r) => r.methods),
+  getMethodCard: (methodId: string, symbol?: string, interval = '1d') => {
+    const params = new URLSearchParams();
+    if (symbol) params.set('symbol', symbol);
+    params.set('interval', interval);
+    return jsonFetch<MethodFamilySummary & { playbook?: Record<string, unknown>; exampleSpec?: Record<string, unknown> }>(
+      `/methods/${encodeURIComponent(methodId)}?${params.toString()}`,
+    );
+  },
+  recommendMethods: (body: Record<string, unknown>) =>
+    jsonFetch<MethodRecommendationResult>("/methods/recommend", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  scanStructure: (body: Record<string, unknown>) =>
+    jsonFetch<MarketStructure>("/methods/scan-structure", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  methodHypotheses: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/methods/hypotheses", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  synthesizeMethod: (body: Record<string, unknown>) =>
+    jsonFetch<{ methodId: string; spec: Record<string, unknown>; valid: boolean; issues: Array<{ code: string; message: string }> }>(
+      "/methods/synthesize", { method: "POST", body: JSON.stringify(body) },
+    ),
+  combineMethods: (body: Record<string, unknown>) =>
+    jsonFetch<{ spec: Record<string, unknown> }>("/methods/combine", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  mineMethods: (body: Record<string, unknown>) =>
+    jsonFetch<MineResult>("/methods/mine", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  currentSetups: (body: Record<string, unknown>) =>
+    jsonFetch<CurrentSetups>("/methods/setups", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  saveDiscoveredMethod: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/discovered-methods", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  listDiscoveredMethods: (status?: string) =>
+    jsonFetch<{ methods: Array<Record<string, unknown>> }>(
+      `/discovered-methods${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+    ).then((r) => r.methods),
+  exportReport: (experimentId: string, format: 'html' | 'notebook' = 'html') =>
+    jsonFetch<{ format: string; path: string; mimeType: string; content: string }>(
+      `/experiments/${encodeURIComponent(experimentId)}/report/export`,
+      { method: "POST", body: JSON.stringify({ format }) },
+    ),
 
   /** Build the Edge Report for one experiment (and optionally a Monte-Carlo). */
   edgeReport: (input: { experimentId: string; monteCarloExperimentId?: string }) =>

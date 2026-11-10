@@ -358,3 +358,56 @@ async def edge_report_route(body: EdgeReportBody,
         raise _http(exc) from exc
 
 
+# ── The Quant Figure Kit ─────────────────────────────────────────────────────
+
+
+@router.get("/quant/experiments/{experiment_id}/figures")
+async def list_quant_figures(experiment_id: str,
+                             figures: Optional[str] = None,
+                             theme: str = "eclipse-dark",
+                             _: bool = Depends(require_operator)) -> dict:
+    """List the figures available for one stored artifact.
+
+    The default is the `core` preset. A figure whose input is absent is returned
+    with `available: false` and the reason, never as an empty chart.
+    """
+    try:
+        from ..quant.visuals import build_figures
+
+        store = _store()
+        artifact = store.read_artifact(experiment_id)
+        requested = [part for part in (figures or "core").split(",") if part.strip()]
+        built = build_figures(artifact, figures=requested, theme=theme)
+        return {
+            "status": "OK",
+            "experimentId": experiment_id,
+            "figures": [figure.to_dict() for figure in built],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.get("/quant/experiments/{experiment_id}/figures/{figure}")
+async def get_quant_figure(experiment_id: str, figure: str,
+                           theme: str = "eclipse-dark",
+                           _: bool = Depends(require_operator)) -> dict:
+    """One figure's chart-engine spec, or an honest `available: false`."""
+    try:
+        from ..quant.visuals import build_figure
+
+        store = _store()
+        artifact = store.read_artifact(experiment_id)
+        built = build_figure(figure, artifact, theme=theme)
+        return {
+            "status": "OK",
+            "experimentId": experiment_id,
+            "figure": built.to_dict(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
