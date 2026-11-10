@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from ..deps import require_operator, service
 from ..quant import StrategySpec, parse_strategy, validate_strategy
 from ..quant.bundle import bundle_to_bytes, export_bundle, import_bundle
+from ..quant.data_quality import inspect_dataset
 from ..quant.compiler import compile_graph
 from ..quant.datasets import dataset_from_strategy, resolve_dataset
 from ..quant.sdk_runtime import run_strategy_source
@@ -470,6 +471,16 @@ async def signals_route(body: BacktestBody, _: bool = Depends(require_operator))
                                                          "message": "strategyId required"})
         dataset = await dataset_from_strategy(
             _market_gateway(), strategy, start=body.start, end=body.end, symbols=body.symbols)
+        quality = inspect_dataset(
+            dataset, symbols=body.symbols or strategy.universe.symbols,
+            interval=strategy.timeframes.primary,
+        )
+        if not quality["gate"]["allowed"] and not body.allowDirtyData:
+            raise HTTPException(status_code=422, detail={
+                "code": "DATA_QUALITY_BLOCKED",
+                "message": "the dataset has critical findings; repair it or set allowDirtyData",
+                "quality": quality,
+            })
         return calculate_signals(strategy, dataset, symbols=body.symbols)
     except HTTPException:
         raise
@@ -564,6 +575,7 @@ class BacktestBody(BaseModel):
     randomSeed: int = 42
     save: bool = True
     background: bool = False
+    allowDirtyData: bool = False
 
 
 @router.post("/quant/backtest")
@@ -590,6 +602,16 @@ async def run_backtest_route(body: BacktestBody, _: bool = Depends(require_opera
             dataset = await dataset_from_strategy(
                 _market_gateway(), strategy, start=body.start, end=body.end, symbols=body.symbols
             )
+            quality = inspect_dataset(
+                dataset, symbols=body.symbols or strategy.universe.symbols,
+                interval=strategy.timeframes.primary,
+            )
+            if not quality["gate"]["allowed"] and not body.allowDirtyData:
+                raise HTTPException(status_code=422, detail={
+                    "code": "DATA_QUALITY_BLOCKED",
+                    "message": "the dataset has critical findings; repair it or set allowDirtyData",
+                    "quality": quality,
+                })
             result = run_backtest(strategy, dataset, BacktestConfig(
                 initial_capital=body.initialCapital, start=body.start, end=body.end,
                 risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,

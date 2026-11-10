@@ -26,6 +26,78 @@ from ..quant_intent import classify_quant_intent
 from .cases import CASES, VERSION, QuantBenchCase
 
 
+class _BenchResearchStore:
+    """A tiny in-memory store so the bench never needs a database."""
+
+    def __init__(self) -> None:
+        self.reproductions: dict[str, dict[str, Any]] = {}
+
+    def get_method_spec(self, method_id: str) -> dict[str, Any]:
+        from ..quant.research_intel.catalog import get_catalog_method
+
+        spec = get_catalog_method(method_id)
+        if spec is None:
+            raise KeyError(method_id)
+        return {"spec": spec}
+
+    def save_reproduction(self, record: dict[str, Any]) -> dict[str, Any]:
+        record = dict(record)
+        record.setdefault("id", f"rep_bench_{len(self.reproductions) + 1}")
+        self.reproductions[record["id"]] = record
+        return record
+
+
+def _bench_garch(n: int = 700, seed: int = 8) -> list[dict[str, Any]]:
+    import math
+    import random
+
+    rng = random.Random(seed)
+    var, price, rows = 1.0, 100.0, []
+    for i in range(n):
+        r = rng.gauss(0, math.sqrt(max(var, 1e-9)))
+        var = 0.02 + 0.08 * r * r + 0.9 * var
+        price *= math.exp(r / 100.0)
+        rows.append({"ts": f"2024-{1 + (i // 28) % 12:02d}-{1 + i % 28:02d}", "close": price})
+    return rows
+
+
+def _bench_intraday(days: int = 70, bars: int = 6, seed: int = 12) -> list[dict[str, Any]]:
+    import math
+    import random
+
+    rng = random.Random(seed)
+    price, rows = 100.0, []
+    for day in range(days):
+        for bar in range(bars):
+            price *= math.exp(rng.gauss(0, 0.001))
+            rows.append({"ts": f"2024-{1 + day // 28:02d}-{1 + day % 28:02d}T{bar:02d}:00:00",
+                         "close": price})
+    return rows
+
+
+def _bench_pairs(n: int = 400, seed: int = 6) -> list[dict[str, Any]]:
+    import random
+
+    rng = random.Random(seed)
+    x, rows = 100.0, []
+    for i in range(n):
+        x = 100.0 + 0.95 * (x - 100.0) + rng.gauss(0, 0.5)
+        rows.append({"ts": f"2024-05-{i % 28 + 1:02d}", "x": x,
+                     "y": x + rng.gauss(0, 0.2), "close": x})
+    return rows
+
+
+def _bench_ar1(n: int = 400, seed: int = 5) -> list[dict[str, Any]]:
+    import random
+
+    rng = random.Random(seed)
+    x, rows = 100.0, []
+    for i in range(n):
+        x = 100.0 + 0.9 * (x - 100.0) + rng.gauss(0, 1.0)
+        rows.append({"ts": f"2024-01-{i % 28 + 1:02d}", "close": x})
+    return rows
+
+
 def _spec(*, short: bool = False, execution: Optional[dict] = None) -> S.StrategySpec:
     entry = {"short" if short else "long": {"conditions": [
         {"left": {"ref": "close"}, "op": ">", "right": {"value": 0}}
@@ -210,6 +282,161 @@ def _math(case: QuantBenchCase) -> dict[str, Any]:
         ok = result["trialCount"] > 0 and result["isBars"] + result["oosBars"] == 320 \
             and "rejectedCount" in result
         return _case_result(case, ok, f"trials={result['trialCount']} selected={bool(result['selected'])}")
+    if check == "research_schema":
+        from ..quant.research_intel.catalog import CATALOG
+        from ..quant.research_intel.schema import validate_method_spec
+
+        failures = [
+            (m["methodId"], validate_method_spec(m)[0]["code"])
+            for m in CATALOG if validate_method_spec(m)
+        ]
+        sourced = all(
+            (m["equations"][0].get("source") or {}).get("citation") for m in CATALOG
+        )
+        ok = not failures and sourced and len(CATALOG) >= 12
+        return _case_result(case, ok, f"methods={len(CATALOG)} failures={failures[:3]}")
+    if check == "research_suitability":
+        from ..quant.research_intel.catalog import get_catalog_method
+        from ..quant.research_intel.suitability import compare_methods
+
+        rows = compare_methods(
+            [get_catalog_method("volatility.har_rv"),
+             get_catalog_method("regime.hmm")],
+            {"objective": "forecast intraday volatility", "instrument": "gold",
+             "frequency": "daily", "availableData": ["realized_variance", "returns"]},
+        )
+        ok = (
+            rows[0]["methodId"] == "volatility.har_rv"
+            and all(f["reason"] for f in rows[0]["factors"])
+            and any("not a probability of profit" in c for c in rows[0]["caveats"])
+        )
+        return _case_result(case, ok, f"top={rows[0]['methodId']} score={rows[0]['score']}")
+    if check == "research_reproduction":
+        from ..quant.research_intel.repro import reproduce_method
+
+        store = _BenchResearchStore()
+        rep = reproduce_method(
+            store, method_id="stats.ornstein_uhlenbeck", series=_bench_ar1(),
+        )
+        ok = (
+            rep["status"] == "partial"
+            and rep["observedMetrics"]["halfLife"] > 0
+            and 0 < rep["observedMetrics"]["ar1"] < 1
+        )
+        return _case_result(case, ok, f"status={rep['status']} halfLife={rep['observedMetrics']['halfLife']:.2f}")
+    if check == "research_honesty":
+        from ..quant.research_intel.extraction import extract_method
+        from ..quant.research_intel.repro import reproduce_method
+
+        store = _BenchResearchStore()
+        extracted = extract_method(literature_id="lit_bench", text="Nothing quantitative here.")
+        unregistered = reproduce_method(store, method_id="stats.arima", series=_bench_ar1())
+        ok = (
+            extracted["valid"] is False
+            and any(i["code"] == "NO_EQUATION" for i in extracted["issues"])
+            and unregistered["status"] == "inconclusive"
+            and "No runnable implementation" in unregistered["fidelity"]["note"]
+        )
+        return _case_result(case, ok, f"extractValid={extracted['valid']} repro={unregistered['status']}")
+    if check == "research_horizons":
+        from ..quant.research_intel.catalog import CATALOG
+
+        horizons = set()
+        for method in CATALOG:
+            horizons.update(method.get("horizons") or [])
+        ok = (
+            len(CATALOG) >= 29
+            and {"intraday", "swing", "position", "long-term"} <= horizons
+        )
+        return _case_result(case, ok, f"methods={len(CATALOG)} horizons={sorted(horizons)}")
+    if check == "research_deep_repro":
+        from ..quant.research_intel.repro import reproduce_method
+
+        store = _BenchResearchStore()
+        garch = _bench_garch()
+        gjr = reproduce_method(store, method_id="volatility.gjr_garch", series=garch)
+        egarch = reproduce_method(store, method_id="volatility.egarch_11", series=garch)
+        evt = reproduce_method(store, method_id="risk.evt_gpd", series=garch)
+        har = reproduce_method(store, method_id="volatility.har_rv",
+                               series=_bench_intraday())
+        pairs = reproduce_method(store, method_id="statarb.cointegration",
+                                 series=_bench_pairs())
+        ok = (
+            gjr["status"] == "partial" and "gamma" in gjr["observedMetrics"]
+            and egarch["status"] == "partial" and "gamma" in egarch["observedMetrics"]
+            and evt["status"] == "partial" and "var99" in evt["observedMetrics"]
+            and har["status"] == "partial" and "betaDaily" in har["observedMetrics"]
+            and pairs["status"] == "partial" and "beta" in pairs["observedMetrics"]
+        )
+        return _case_result(case, ok, f"gjr={gjr['status']} har={har['status']} evt={evt['status']}")
+    if check == "research_visuals":
+        from ..quant.research_intel.catalog import get_catalog_method
+        from ..quant.research_intel.suitability import compare_methods
+        from ..quant.research_intel.visuals import build_research_figures
+
+        methods = [get_catalog_method("volatility.garch_11"),
+                   get_catalog_method("regime.hmm")]
+        comparison = compare_methods(methods, {"objective": "forecast volatility"})
+        result = build_research_figures(
+            methods=methods, comparison=comparison,
+            series=_bench_ar1()[:160], symbol="BENCH",
+        )
+        ok = (
+            len(result["blocks"]) >= 4
+            and all(block.get("series") for block in result["blocks"])
+            and any(figure["name"] == "suitability" for figure in result["figures"])
+        )
+        return _case_result(case, ok, f"blocks={len(result['blocks'])}")
+    if check == "research_span":
+        from ..quant.research_intel.extraction import extract_method
+        from ..quant.research_intel.llm_extract import apply_proposal
+
+        text = "The objective of this paper is to forecast volatility. We assume stationarity."
+        draft = extract_method(literature_id="lit_span", text=text)["draft"]
+        result = apply_proposal(draft, {
+            "objective": ["forecast volatility"],
+            "quotes": {"objective": "this sentence is not in the paper"},
+        }, text)
+        ok = not result["verified"] and bool(result["rejected"])
+        return _case_result(case, ok, f"verified={result['verified']} rejected={len(result['rejected'])}")
+    if check == "data_quality":
+        from ..quant.data_quality import inspect_bars
+
+        rows = _bench_ar1(n=12)
+        rows.insert(4, dict(rows[3]))
+        report = inspect_bars(rows, interval="1d", symbol="BENCH")
+        ok = report["exactDuplicates"] == 1 and not report["gate"]["allowed"]
+        return _case_result(case, ok, f"duplicates={report['exactDuplicates']} gate={report['gate']['allowed']}")
+    if check == "risk_engine":
+        from ..quant.risk_engine import check_order, kill_state
+
+        decision = check_order(
+            intent={"volume": 1.0, "price": 100.0},
+            quote={"ask": 100, "spreadPoints": 1, "contractSize": 1, "margin": 100},
+            account={"equity": 10_000, "balance": 10_000, "leverage": 1},
+            limits={"maxLot": 0.1, "maxNotional": 5000, "maxMargin": 500,
+                    "maxSpreadPoints": 5, "requireStop": False},
+        )
+        kill = kill_state(account={"equity": 9_700, "balance": 10_000},
+                          day_start_equity=10_000,
+                          limits={"maxDailyLossPct": 2.0})
+        ok = not decision["allowed"] and kill["triggered"]
+        return _case_result(case, ok, f"order={decision['allowed']} kill={kill['triggered']}")
+    if check == "oms":
+        from ..quant.oms import OrderManager, order_key
+
+        oms = OrderManager()
+        key = order_key("s", "1", "1h", "bar")
+        first = oms.create({"symbol": "X", "side": "buy", "volume": 0.01}, key=key)
+        second = oms.create({"symbol": "X", "side": "buy", "volume": 0.01}, key=key)
+        ok = first["duplicate"] is False and second["duplicate"] is True
+        return _case_result(case, ok, f"duplicate={second['duplicate']}")
+    if check == "lifecycle":
+        from ..quant.lifecycle import transitions
+
+        graph = transitions()
+        ok = "validated" not in graph["draft"] and graph["retired"] == []
+        return _case_result(case, ok, f"draft={graph['draft']}")
     return _case_result(case, False, f"unknown check {check!r}")
 
 

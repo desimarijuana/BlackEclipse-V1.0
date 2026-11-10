@@ -88,6 +88,9 @@ from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.quant_desk import router as quant_desk_router
 from .routers.quant_reports import router as quant_reports_router
+from .routers.quant_live import router as quant_live_router
+from .routers.quant_research import router as quant_research_router
+from .routers.quant_system import router as quant_system_router
 from .routers.projects import router as projects_router
 from .routers.gallery import router as gallery_router
 from .routers.pine import router as pine_router
@@ -167,6 +170,9 @@ app.include_router(transcription_router)
 app.include_router(quant_router)
 app.include_router(quant_reports_router)
 app.include_router(quant_desk_router)
+app.include_router(quant_research_router)
+app.include_router(quant_live_router)
+app.include_router(quant_system_router)
 app.include_router(projects_router)
 app.include_router(gallery_router)
 app.include_router(pine_router)

@@ -46,6 +46,9 @@ import { VersionPanel } from './version-panel';
 import { PublishButton } from './publish-button';
 import { ShareCard } from './share-card';
 import { MethodDiscoveryPanel } from './method-discovery-panel';
+import { ResearchIntelligencePanel } from './research-intelligence-panel';
+import { LiveStrategyPanel } from './live-strategy-panel';
+import { SystemHealthPanel } from './system-health-panel';
 import { ResearchJournalPanel } from './research-journal-panel';
 import { PortfolioStressLab } from './portfolio-stress-lab';
 import { ManifestPanel } from '@/components/screens/backtest/shared/manifest-panel';
@@ -696,6 +699,25 @@ export function StrategyStudioScreen() {
               setEditor(text);
               setNotice('Method spec loaded. Review it, then save and run.');
             }}
+            onError={setError}
+          />
+
+          <ResearchIntelligencePanel
+            symbol={(splitSymbols(symbol)[0] || symbol || 'BTC-USD').toUpperCase()}
+            interval={timeframe}
+            onError={setError}
+          />
+
+          <SystemHealthPanel
+            strategyId={saved?.id}
+            version={saved ? String(saved.version ?? saved.latestVersion) : undefined}
+            onError={setError}
+          />
+
+          <LiveStrategyPanel
+            strategyId={saved?.id}
+            version={saved ? String(saved.version ?? saved.latestVersion) : undefined}
+            symbol={(splitSymbols(symbol)[0] || symbol || 'BTC-USD').toUpperCase()}
             onError={setError}
           />
 

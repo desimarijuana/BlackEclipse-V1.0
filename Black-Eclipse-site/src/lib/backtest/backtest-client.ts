@@ -4,6 +4,27 @@
 // only): it lists/creates strategies, runs backtests and reads experiments the
 // runtime owns. It adds no quant logic.
 
+import type { ChartBlock } from '@/lib/response/contract';
+
+export interface ResearchMethodRow {
+  methodId: string;
+  name: string;
+  family?: string;
+  horizons?: string[];
+  lifecycle?: string | null;
+  implementation?: string | null;
+  reproduction?: string | null;
+}
+
+export interface ResearchSuitabilityRow {
+  methodId: string;
+  name: string;
+  score: number;
+  factors: Array<{ name: string; points: number; max: number; reason: string }>;
+  warnings: string[];
+  caveats: string[];
+}
+
 export interface StrategySummary {
   id: string;
   name: string;
@@ -722,6 +743,62 @@ export const backtestClient = {
     jsonFetch<MethodRecommendationResult>("/methods/recommend", {
       method: "POST", body: JSON.stringify(body),
     }),
+  researchMethods: () =>
+    jsonFetch<{ methods: ResearchMethodRow[]; total?: number; catalogOpen?: boolean }>("/methods"),
+  systemHealth: (strategyId?: string, version?: string) =>
+    jsonFetch<{
+      status: string; score: number;
+      checks: Array<{ check: string; passed: boolean; detail: string; critical: boolean }>;
+      blockers: string[]; unknown: string[];
+    }>(
+      `/system/health${strategyId && version
+        ? `?strategyId=${encodeURIComponent(strategyId)}&version=${encodeURIComponent(version)}`
+        : ""}`,
+    ),
+  livePrepare: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/live/trials", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  liveTrials: (strategyId?: string) =>
+    jsonFetch<{ trials: Array<Record<string, unknown>> }>(
+      `/live/trials${strategyId ? `?strategyId=${encodeURIComponent(strategyId)}` : ""}`,
+    ),
+  liveTrial: (trialId: string) =>
+    jsonFetch<{ trial: Record<string, unknown> }>(`/live/trials/${trialId}`),
+  liveSignal: (trialId: string, symbol?: string) =>
+    jsonFetch<{ signal: Record<string, unknown> }>(`/live/trials/${trialId}/signal`, {
+      method: "POST", body: JSON.stringify({ symbol }),
+    }),
+  liveRun: (trialId: string, body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>(`/live/trials/${trialId}/run`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  liveResults: (trialId: string) =>
+    jsonFetch<Record<string, unknown>>(`/live/trials/${trialId}/results`),
+  liveStop: (trialId: string) =>
+    jsonFetch<{ trial: Record<string, unknown> }>(`/live/trials/${trialId}/stop`, {
+      method: "POST", body: JSON.stringify({}),
+    }),
+  researchSearch: (body: Record<string, unknown>) =>
+    jsonFetch<{ literature: Array<Record<string, unknown>>; diagnostics?: unknown[] }>(
+      "/research/search", { method: "POST", body: JSON.stringify(body) },
+    ),
+  researchExtract: (body: Record<string, unknown>) =>
+    jsonFetch<Record<string, unknown>>("/research/extract", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  researchMatrix: () =>
+    jsonFetch<{ matrix: Record<string, ResearchMethodRow[]>; total: number; catalogOpen: boolean }>(
+      "/research/matrix",
+    ),
+  researchCompare: (body: Record<string, unknown>) =>
+    jsonFetch<{ comparison: ResearchSuitabilityRow[] }>("/research/compare", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  researchVisualize: (body: Record<string, unknown>) =>
+    jsonFetch<{ blocks: ChartBlock[]; figures: Array<Record<string, unknown>> }>(
+      "/research/visualize", { method: "POST", body: JSON.stringify(body) },
+    ),
   scanStructure: (body: Record<string, unknown>) =>
     jsonFetch<MarketStructure>("/methods/scan-structure", {
       method: "POST", body: JSON.stringify(body),
