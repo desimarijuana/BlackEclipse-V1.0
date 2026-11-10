@@ -1,6 +1,12 @@
 # Change Log
 
 ## 2026-11-09
+- **docs(readiness): record the first soak checkpoint and its interruption.**
+  `scripts/soak-report.ps1` over the first 0.9 h: 10 healthy, 3 failed, 76.92%
+  uptime; the app on `:3100` was down 00:06-00:16 and recovered at 00:21, with
+  every failure logged and locally escalated (not silent). Cause: concurrent
+  development restarted the instance, so the 7-day gate needs a quiet host.
+  Docs updated: `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 - **fix(eval): the published-baseline pin test follows the newest pin.**
   `test_live_baseline` still expected `task_success 0.9574` after the live lane
   was re-pinned to `live:27c280164943e63520e14422a6c953cf` (0.9748), so the full
