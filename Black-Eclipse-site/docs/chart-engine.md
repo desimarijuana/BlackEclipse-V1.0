@@ -1,6 +1,6 @@
 # The chart engine — Eclipse draws its charts with Python
 
-**Status:** Active. **Last verified:** 2026-10-22.
+**Status:** Active. **Last verified:** 2026-11-10.
 
 Eclipse renders every chart with the Python runtime's chart engine: a validated
 **chart spec** goes in, `matplotlib` draws a transparent PNG, and the picture is
@@ -33,11 +33,15 @@ Two outputs come from one spec:
 Both are produced from the SAME data, so they can never disagree.
 
 **The rest of the application is NOT part of this.** The journal, the
-portfolio, the dashboard, the backtest screen, the economics and fundamentals
-panels, the workspace widgets, the price chart, the Investor Eye map and the
-relationship graphs all stay on ECharts. They draw from live data at
-interactive rates (a price chart that redraws on every tick, a map the user
-hovers), which a server-drawn picture cannot serve.
+portfolio, the dashboard, the backtest screen's interactive equity/drawdown
+charts, the economics and fundamentals panels, the workspace widgets, the price
+chart, the Investor Eye map and the relationship graphs all stay on ECharts.
+They draw from live data at interactive rates (a price chart that redraws on
+every tick, a map the user hovers), which a server-drawn picture cannot serve.
+The one exception is the Backtest bench's computed **Quant figures** panel: it
+shows the same `ChartSpec` figures the chat shows, through the same chat chart
+surface (`ResponseChart`), because those are analysis deliverables rather than
+live canvases.
 
 ## 2. The contract
 
@@ -73,6 +77,16 @@ is a lost chart, with no diagnostic and no picture. With a named source the
 model writes ~200 characters and the reader gets the real 251-bar series,
 fitted. A source that cannot be fetched is a refusal, never a guess.
 
+**A quant figure names a stored experiment instead of a market symbol.** A
+`chart` block may carry
+`quant: { experimentId, figure }` (or a `caption`). The Python Quant Figure Kit
+builds the spec from the stored artifact (`python/harness/quant/visuals.py`), and
+the browser fetches it from
+`GET /quant/experiments/{id}/figures/{figure}`. This is the second named source
+family: the block stays tiny, the numbers never pass through the model, and the
+figure can only show what the engine measured. An unavailable figure is an
+honest empty state with the runtime's reason, never a guessed chart.
+
 **A mark's values may be written the way a person writes them.** `y` / `data`
 accept a scalar, an `[x, y]` pair (the pair carries its own x), or an object
 with named fields — `{i: 1, close: 188.7}` (a field named like an x is the x,
@@ -100,7 +114,11 @@ must be able to check `R2 = 0.87` from the picture.
 **3D is a mark, not a separate chart.** `scatter3d` (a point cloud) and
 `surface` (a grid) carry a third dimension (`z`) and live in the figure's
 `scene` — a camera, three axes and a cube — so the reader can orbit, zoom and
-pick points. The flat axes step aside for a 3D chart.
+pick points. The flat axes step aside for a 3D chart. A 3D panel also gets a
+real matplotlib 3D axes for the PNG fallback, so the picture is not a blank
+flat box under the live scene. The Quant Figure Kit uses 3D only where the
+third dimension is measured (a parameter sensitivity surface, for example) and
+falls back to a 3D point cloud when the grid is incomplete.
 
 A panel may set: `title`, `xLabel`, `yLabel`, `valueFormat`, `logScale` and
 `height` (its share of the figure). A scene is up to 6 panels.
@@ -185,6 +203,8 @@ wants the analysis, not a provenance audit.
 | The browser | `src/lib/harness/charts.ts` (`renderChart`) + `src/components/charts/plotly-chart.tsx` (the live chart) |
 | The chart library | `src/app/api/harness/charts/plotly/route.ts` (serves plotly.js from the Python package, cached) |
 | The **chat's chart blocks** | `src/lib/response/chart-spec.ts` (block -> spec) + `src/components/response/response-chart.tsx` (the picture) |
+| The **quant figure source** | `src/lib/response/chart-data.ts` (`fetchQuantFigure`) -> `GET /quant/experiments/{id}/figures/{figure}` -> `python/harness/quant/visuals.py` |
+| The **backtest figure panel** | `src/components/screens/backtest/shared/quant-figure-panel.tsx` (reuses `ResponseChart`) |
 | The drawn-chart registry | `src/lib/response/chart-registry.ts` (block id -> artifact id, for PNG/PDF export) |
 
 The picture is returned as an **artifact**, not as bytes: the browser fetches

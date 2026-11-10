@@ -1,7 +1,7 @@
 {
-  "digest": "f0a07fb63c13d9e9",
+  "digest": "0efc20067ff413f9",
   "manifestVersion": "1",
-  "toolCount": 1025,
+  "toolCount": 1040,
   "tools": [
     {
       "deprecated": false,
@@ -661,6 +661,75 @@
     },
     {
       "deprecated": false,
+      "description": "Estimate covariance (sample/EWMA/Ledoit-Wolf), risk contributions and factor exposures for a weighted portfolio.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "annualize": {
+            "type": "boolean"
+          },
+          "assetReturns": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "covariance": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "factorReturns": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "returns": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "weights": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "weights"
+        ],
+        "type": "object"
+      },
+      "name": "analyze_portfolio_risk",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Summarize a stored experiment's trades (win rate, profit factor, by-symbol/exit).",
       "effect": null,
       "inputSchema": {
@@ -1046,6 +1115,36 @@
         "type": "object"
       },
       "name": "backfill_history",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Backtest a multi-leg option position over dated chain snapshots, marked with Black-Scholes and settled at expiry. European exercise; not a surface fill model.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "commissionPerContract": {
+            "type": "number"
+          },
+          "initialCapital": {
+            "type": "number"
+          },
+          "snapshots": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "snapshots"
+        ],
+        "type": "object"
+      },
+      "name": "backtest_option_chain",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -12147,6 +12246,79 @@
     },
     {
       "deprecated": false,
+      "description": "Splice a continuous futures series and quantify the explicit roll transaction cost separately from the market roll gap.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "adjustment": {
+            "type": "string"
+          },
+          "contracts": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "costBps": {
+            "type": "number"
+          },
+          "initialCapital": {
+            "type": "number"
+          },
+          "rollDates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contracts",
+          "rollDates"
+        ],
+        "type": "object"
+      },
+      "name": "futures_roll_cost",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Describe a futures curve (contango/backwardation) and its implied carry.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "points": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "riskFree": {
+            "type": "number"
+          },
+          "spot": {
+            "type": "number"
+          },
+          "storage": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "type": "object"
+      },
+      "name": "futures_term_structure",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Build the Edge Report for a stored backtest: the A-F grade, the four axes behind it, the overfit tells, the measured numbers, and the chart specs for the equity curve, the drawdown, the Monte-Carlo percentiles, the return distribution and the P&L by market regime. The report is a document, recorded in the Artifact Center; the figures are computed, never evidence.",
       "effect": null,
       "inputSchema": {
@@ -13021,6 +13193,27 @@
         "type": "object"
       },
       "name": "get_research_health",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Return the content-hashed reproducibility manifest for an experiment (data fingerprint, code/engine version, dependency versions, seed, assumptions).",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "experimentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "experimentId"
+        ],
+        "type": "object"
+      },
+      "name": "get_run_manifest",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -18506,6 +18699,27 @@
     },
     {
       "deprecated": false,
+      "description": "List persistent research sessions.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_research_sessions",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "List the services Eclipse is running. Read-only.",
       "effect": null,
       "inputSchema": {
@@ -19984,6 +20198,81 @@
         "type": "object"
       },
       "name": "optimize_parameters",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Construct portfolio weights (min-variance/mean-variance/max-Sharpe/risk-parity/HRP/Black-Litterman) under explicit net, gross, bound and turnover constraints.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "covariance": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "currentWeights": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "expectedReturns": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "gross": {
+            "type": "number"
+          },
+          "maxTurnover": {
+            "type": "number"
+          },
+          "maxWeight": {
+            "type": "number"
+          },
+          "method": {
+            "enum": [
+              "equal_weight",
+              "min_variance",
+              "mean_variance",
+              "max_sharpe",
+              "risk_parity",
+              "hrp",
+              "black_litterman"
+            ],
+            "type": "string"
+          },
+          "minWeight": {
+            "type": "number"
+          },
+          "net": {
+            "type": "number"
+          },
+          "riskAversion": {
+            "type": "number"
+          },
+          "riskFreeRate": {
+            "type": "number"
+          },
+          "views": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "covariance"
+        ],
+        "type": "object"
+      },
+      "name": "optimize_portfolio",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -21681,6 +21970,46 @@
     },
     {
       "deprecated": false,
+      "description": "Record a hypothesis and its acceptance criterion BEFORE testing it. This is the anti-p-hacking contract; the trial ledger keeps the count honest.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "acceptance": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "period": {
+            "type": "object"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "universe": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessionId",
+          "statement"
+        ],
+        "type": "object"
+      },
+      "name": "pre_register_hypothesis",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Validate and preview a factor formula on sample or fetched data.",
       "effect": null,
       "inputSchema": {
@@ -23094,6 +23423,42 @@
     },
     {
       "deprecated": false,
+      "description": "Record one tested configuration in a research session. The ledger feeds the multiple-testing diagnostics with the REAL number of trials.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "experimentId": {
+            "type": "string"
+          },
+          "hypothesisId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "name": "record_trial",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Record effective-dated universe membership so a research universe can be resolved as-of a past date. Membership is recorded, never invented — this is the survivorship-bias control.",
       "effect": null,
       "inputSchema": {
@@ -23294,6 +23659,58 @@
       "version": "1.0.0"
     },
     {
+      "deprecated": false,
+      "description": "Build deterministic quant figures (equity, drawdown, monthly returns, exposure, trade distribution, rolling risk, costs, Monte-Carlo, regime attribution, 3D parameter surface, walk-forward) as compact chart blocks that name their source experiment. Embed the returned `blocks` verbatim; never retype the series.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "experimentId": {
+            "description": "The stored backtest experiment.",
+            "type": "string"
+          },
+          "figureSet": {
+            "description": "Alias for a single preset (core/risk/robustness/validation/everything).",
+            "type": "string"
+          },
+          "figures": {
+            "description": "Figure names or presets: core, risk, robustness, validation, everything. Defaults to core.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "monteCarloExperimentId": {
+            "description": "Monte-Carlo or regime-MC experiment.",
+            "type": "string"
+          },
+          "optimizationExperimentId": {
+            "description": "Optimization experiment for the 3D surface.",
+            "type": "string"
+          },
+          "theme": {
+            "enum": [
+              "eclipse-dark",
+              "eclipse-light"
+            ],
+            "type": "string"
+          },
+          "walkForwardExperimentId": {
+            "description": "Walk-forward experiment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "experimentId"
+        ],
+        "type": "object"
+      },
+      "name": "render_quant_figures",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
       "deprecated": true,
       "description": "Replace exact or regex text, with a required/expected occurrence count.",
       "effect": "write",
@@ -23341,6 +23758,27 @@
       "permission": "write",
       "replacement": "code_edit",
       "risk": "medium",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Re-run a stored experiment from its manifest and compare metrics and the data fingerprint. Returns REPRODUCED or DIVERGED with every differing metric.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "experimentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "experimentId"
+        ],
+        "type": "object"
+      },
+      "name": "reproduce_experiment",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
       "version": "1.0.0"
     },
     {
@@ -23495,6 +23933,27 @@
         "type": "object"
       },
       "name": "research_graph",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Return a session's hypotheses, trials, rejected ideas and open questions.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "name": "research_journal",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -24882,6 +25341,24 @@
         "type": "object"
       },
       "name": "run_python_strategy",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run the deterministic QuantBench suite (routing, math invariants, reproducibility) and return the scorecard. Live honesty cases require supplied answers.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "answers": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "run_quant_bench",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -28871,6 +29348,33 @@
     },
     {
       "deprecated": false,
+      "description": "Open a persistent research session (question, hypotheses, trials, journal) so a multi-turn research program is auditable.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "name": "start_research_session",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Start a long-running service (e.g. a dev server) on a free port and wait until it answers.",
       "effect": "external_action",
       "inputSchema": {
@@ -29557,6 +30061,66 @@
         "type": "object"
       },
       "name": "stream_market_data",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Parametric/historical VaR-ES, component VaR, and explicit asset/factor scenario P&L. Names uncovered assets instead of assuming zero.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "covariance": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "horizonDays": {
+            "type": "number"
+          },
+          "portfolioValue": {
+            "type": "number"
+          },
+          "returns": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "scenarios": {
+            "type": "object"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "weights": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "weights"
+        ],
+        "type": "object"
+      },
+      "name": "stress_portfolio",
       "permission": "read",
       "replacement": null,
       "risk": "low",

@@ -1,7 +1,7 @@
 ---
 title: Quant Engine — Trading, Backtesting & Research
 status: Current
-last-verified: 2026-10-20
+last-verified: 2026-11-10
 ---
 
 # Quant Engine — Trading, Backtesting & Research
@@ -70,6 +70,15 @@ market data → indicator context → signal (rules) → risk → order
 | Prop-firm evaluation rules as data (targets, drawdown, daily loss, consistency) | `quant/propfirm.py` |
 | Prop-firm Monte-Carlo (pass probability, days-to-pass, payout EV) | `quant/propfirm_mc.py` |
 | The Edge Report — the grade, the evidence and the figures as one artifact | `quant/edge_report.py` |
+| Method families, cards, fit ranking and market-structure diagnostics | `quant/discovery/` (taxonomy, library, diagnostics, hypotheses, synthesize, miner) |
+| Cost of carry (borrow, financing, margin), partial fills, corporate actions | `quant/carry.py`, `quant/corporate_actions.py`, `quant/execution.py` |
+| Run manifests + reproducibility | `quant/manifest.py` |
+| Research sessions, hypotheses, trials, discovered methods | `quant/store.py` (`QuantResearchSession`, `QuantHypothesis`, `QuantTrial`, `QuantMethod`) |
+| Portfolio construction, risk model, stress | `quant/portfolio_optimizer.py`, `quant/risk_model.py`, `quant/scenario.py` |
+| Historical option-chain backtest | `quant/options_backtest.py` |
+| Report / notebook export | `quant/report_export.py` |
+| QuantBench | `quant_bench/` |
+| The Quant Figure Kit — deterministic chart specs from stored artifacts | `quant/visuals.py` |
 | Pine Script runtime (a TradingView script on Eclipse's own bars) | `quant/pine.py` + `pine-engine/` |
 | Sensitivity + robustness + overfitting safeguards | `quant/robustness.py` |
 | Shared research-result envelope | `quant/research.py` |
@@ -242,7 +251,7 @@ SAME store/engine/validator as manual strategies and cites what it references.
   `calculate_performance_metrics`, `analyze_trade_log`, `compare_strategies`,
   `run_parameter_sweep`.
 - **Routes**: `/quant/signals`, `/quant/strategies/{id}/research-plan`,
-  `/quant/experiments/{id}/report`. Tool count: 68 `quant_*` tools (incl. the
+  `/quant/experiments/{id}/report`. The `quant_*` agent tools (incl. the
 vectorized engine, standalone cost diagnostics, out-of-sample, bootstrap,
 multiple-testing, option analytics, futures continuous contracts and comparison
 tools in `advanced_tools.py`). These are also exposed over REST:
@@ -411,7 +420,10 @@ available    stocks, crypto, fx, multi-symbol, multi-timeframe,
              vectorized-backtest (restricted subset), cost-diagnostics,
              out-of-sample, bootstrap, backtest-comparison, multiple-testing,
              option-pricing/greeks/implied-vol, multi-leg option strategy analytics,
-             continuous futures contracts
+             continuous futures contracts, borrow, financing, margin, partial fills,
+             corporate actions, run manifests, research sessions, method discovery,
+             method library, strategy mining, current setups, portfolio optimization,
+             risk model, stress testing, report export, QuantBench
 partial      futures (continuous-contract construction yes; backtest trades the
              continuous PROXY, not deliverables),
              options (pricing/Greeks/IV/strategy analytics + live chains yes;
@@ -742,6 +754,100 @@ Surfaces: the tools `publish_strategy`, `list_gallery`,
 `favourite_published_strategy`, `clone_published_strategy`; the routes
 `/gallery*`; and the **Strategy Gallery** widget on the Command Center.
 
+## Method discovery (`quant/discovery/`)
+
+The engine can test a method; discovery is how a user *finds* one. The loop is
+explicit and lives in its own package (documented in
+`docs/quant-method-discovery.md`):
+
+```
+method card -> structure scan -> falsifiable hypothesis -> spec
+            -> bounded mining (IS/OOS) -> the normal validation suite
+```
+
+- **Taxonomy/library** (`taxonomy.py`, `library.py`) — 14 families (trend,
+  cross-sectional momentum, mean reversion, pairs, carry, crypto funding, low
+  vol, seasonality, volatility breakout, ML, options income, event drift) with
+  thesis, edge source, signals, failure modes, regime priors, capacity and
+  validation plan. `recommend_methods` is a deterministic, explained fit score —
+  a prior, never an edge claim.
+- **Diagnostics** (`diagnostics.py`) — variance ratios, Hurst, AR(1) half-life,
+  absolute-return autocorrelation, weekday buckets, breakout frequency and an
+  optional IS/OOS stability check. Descriptive only.
+- **Hypotheses** (`hypotheses.py`) — every hypothesis carries a test, acceptance
+  rule and invalidation condition.
+- **Synthesis** (`synthesize.py`) — method → valid `StrategySpec` (with explicit
+  costs/sizing/risk); non-single-asset methods refuse with their `requires`.
+  `build_combination` composes two methods into a new validated conjunction.
+- **Mining** (`miner.py`) — bounded parameter grid, chronological IS/OOS split,
+  the REAL trial count and a Deflated Sharpe; candidates are `candidate | weak |
+  rejected`, never "validated".
+- **Current setups** — `scan_current_setups` evaluates the entry rule on the
+  latest closed bar. A condition, not an order.
+
+## Realism: carry, margin, partial fills and corporate actions
+
+A short that is free and always borrowable, or a leveraged book that is never
+margin-called, is not a defensible backtest. The engine now models:
+
+- **Borrow** (`carry.py`, `strategy.BorrowModel`): locate fee on opening a short,
+  recurring borrow accrual by calendar time, and `BORROW_UNAVAILABLE` rejection.
+- **Financing** (`carry.py`, `strategy.FinancingModel`): debit/credit interest on
+  negative/positive cash, with the day-count convention recorded.
+- **Margin** (`carry.py`, `strategy.MarginModel`): maintenance/initial requirement
+  and a liquidation at the bar close (`MARGIN_CALL`), through the same execution
+  simulator.
+- **Partial fills** (`strategy.FillModel`, `execution.py`): participation-capped
+  fills; a zero-volume or missing-volume bar does not fill rather than inventing
+  liquidity. Fills record `orderQuantity` and `fillRatio`.
+- **Corporate actions** (`corporate_actions.py`): dividends as cash and splits as
+  quantity/price basis events, applied only when the caller supplies them (an
+  adjusted series is never double-counted).
+- **Crypto funding / FX carry** helpers live in `carry.py`.
+
+All are **off/zero by default**, so existing strategies keep their exact
+behaviour; a caller opts into each cost explicitly.
+
+## Run manifests and research sessions
+
+- **Manifest** (`manifest.py`): every run carries a content-hashed record of the
+  strategies, data fingerprint (timestamp + OHLCV hash per symbol), configuration,
+  metrics, engine/code version, dependency versions and platform. The digest is
+  attached to `BacktestResult.manifest`, stored in `QuantRunManifest`, and
+  `reproduce_experiment` re-runs from it and compares metrics + fingerprint.
+- **Research sessions** (`store.py`): `QuantResearchSession` →
+  `QuantHypothesis` (pre-registered with an acceptance rule) → `QuantTrial`
+  (every tested configuration). The journal is the anti-p-hacking record; the
+  trial count is what multiple-testing diagnostics should use.
+
+## Portfolio construction, risk and stress
+
+- `risk_model.py`: sample / EWMA / Ledoit-Wolf covariance, correlations, Euler
+  risk contributions, factor exposures (OLS betas/R²/residuals), tracking error.
+- `portfolio_optimizer.py`: equal-weight, min-variance, mean-variance,
+  max-Sharpe, risk parity, HRP and Black-Litterman; explicit net/gross/bounds/
+  turnover constraints and a feasibility report.
+- `scenario.py`: parametric VaR/ES + component VaR, historical VaR/ES and worst
+  windows, explicit asset/factor scenarios (naming uncovered assets), reverse
+  stress.
+- `options_backtest.py`: multi-leg option position over dated chain snapshots,
+  marked with the same Black-Scholes model, settled at expiry. European exercise;
+  early exercise/assignment remain `partial`/`unsupported` and are reported.
+
+## Export
+
+`report_export.py` writes a stored experiment as a self-contained HTML report or
+a replayable notebook. It reads the artifact and manifest and computes nothing;
+the disclaimer and warnings travel with it.
+
+## QuantBench
+
+`quant_bench/` is the measurable contract: routing/intent, honesty/adversarial
+answers, deterministic math invariants (causality, costs, partial fills, borrow,
+corporate actions, optimizer, stress, discovery), workflow tool order and
+reproducibility. Run `python -m harness.quant_bench`; live honesty cases require
+a supplied answers file.
+
 ## The Edge Report (`quant/edge_report.py`)
 
 The verdict, the regimes and the Monte-Carlo used to be three answers in three
@@ -790,6 +896,46 @@ The routes that *judge* a result — `regime-monte-carlo`, `edge-verdict`,
 (`routers/quant_reports.py`) rather than in `routers/quant.py`, which is at its
 size budget. A route on a router is not a route until the app includes it, and
 a test now asserts the OpenAPI schema carries them.
+
+## Visual deliverables — the Quant Figure Kit
+
+Quant mode is **figure-first**: when a run produces a time series or a
+distribution, the answer leads with the computed figure and the prose
+interprets it. A figure is a deliverable, not decoration, and it is never
+authored by the model.
+
+- **One deterministic kit** (`quant/visuals.py`). Each builder reads a stored
+  experiment artifact and returns a chart-engine `ChartSpec`. It never computes
+  from a memo, a prompt or a second copy of the data, and it never invents a
+  point. A missing input raises `FigureUnavailable(reason)`; the caller receives
+  `available: false` instead of an empty picture.
+- **The vocabulary** (presets in parentheses):
+  `equity`, `underwater`, `monthly_returns`, `trade_distribution` (`core`);
+  `exposure`, `rolling_risk`, `cost_waterfall` (`risk`);
+  `montecarlo`, `regime_attribution`, `parameter_surface` (`robustness`);
+  `walkforward` (`validation`); `everything` is the union.
+- **3D is a diagnostic, not a default.** `parameter_surface` draws a real
+  `surface` only when the optimization grid is complete (one score per
+  parameter pair); an incomplete grid falls back to a `scatter3d` point cloud and
+  says so. Time series, compositions and distributions stay 2D.
+- **The block names its source.** A `chart` block may carry
+  `quant: {experimentId, figure}` instead of a series. The browser asks
+  `GET /quant/experiments/{id}/figures/{figure}` for the spec, so a 2,000-point
+  curve never travels through the model or the message.
+- **Surfaces**: the agent tool `render_quant_figures` (returns compact blocks
+  to embed), the route
+  `GET /quant/experiments/{id}/figures[/{figure}]`, the chat chart surface
+  (`response-chart.tsx`), and the shared `QuantFigurePanel` on the Backtest
+  bench (which reuses the chat surface, not a second renderer).
+- **The protocol enforces it.** `quant_intent_block` carries the visual
+  contract and figure budget; `evaluate_quant_outcome` reports
+  `a computed figure` when a series-producing tool ran and no chart was drawn.
+  A concept explanation or a one-number answer is still complete without a
+  chart: the check only applies to series-producing runs.
+- **Honesty rules carry over.** Every figure is `computed`, never evidence. A
+  long series is sampled with the number of dropped points in the footnote. A
+  monthly heatmap cell for a month the run did not cover is `0.0` for layout and
+  the footnote says it is not a measured return.
 
 ## Relationship to the Portfolio Accounting Engine
 

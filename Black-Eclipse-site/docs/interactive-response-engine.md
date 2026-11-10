@@ -736,7 +736,8 @@ untouched.
 Every block is wrapped in `BlockBoundary` (a React error boundary), so a chart
 failure cannot destroy the surrounding answer. The chart component
 (`response-chart.tsx`) maps the block to the shared `ChartSpec`, resolves a named
-`dataSource` through `/api/price-history`, asks the Python engine for the picture
+`dataSource` through `/api/price-history` (or a computed quant figure through
+`GET /quant/experiments/{id}/figures/{figure}`), asks the Python engine for the picture
 and the live figure, and renders it with **Plotly** (`plotly-chart.tsx`;
 `docs/chart-engine.md`, ADR-050 as amended 2026-10-22). The drawn PNG paints
 first and Plotly is loaded lazily, so a chart is visible immediately. A chart
@@ -777,25 +778,18 @@ states the array is one document, so the model is steered toward a single
 A result Eclipse *worked out* (`analysis_run`) does not travel through the
 `eclipse-response` contract at all: the runtime emits `analysis.completed`
 carrying the SAME bounded blob it persists (`AnalysisResult.to_blob()` — outputs,
-artifacts, provenance), the client maps it to the turn's `analysis` field, and
-`computed-result-panel.tsx` renders it under the assistant message with the
-always-visible "Worked out by Eclipse" label. The panel is never a citation: a
-computed number is not retrieved evidence. Both chat surfaces map the full turn
-(chat-dock and stock-chat), so the panel and the document panel appear
-everywhere. The code-capability headline was removed from the transcript; the
-Code screen carries the code detail.
+artifacts, provenance), and the client maps it to the turn's `analysis` field.
 
-The card is **dropped entirely** when there is nothing to show. A number with no
-provenance record is UNAVAILABLE at the runtime boundary (it is never rendered
-bare); the chat does not print an empty "this number has no record…" shell for
-it. Likewise a result with no outputs, artifact, figure or recipe renders
-nothing rather than a "Nothing came back from that." card. A real computed
-result — provenance plus data — still renders normally.
-
-The card's second line is a METHOD a person can read. A provenance detail that
-is really a debug dump of the runtime's Python object (`type <class 'dict'> ·
-keys [...]`) is dropped rather than shown — it describes the object, not the
-calculation.
+The chat transcript does **not** render a separate computed-result card for it.
+The former "Worked out by Eclipse" panel (`computed-result-panel.tsx`) was
+removed: with incidental sandbox variables it surfaced raw Python debug dumps
+(`attempts`, `full_kwargs`, …) that told the reader nothing, and the answer text
+already carries the numbers and method. Provenance and fail-closed rendering are
+unchanged at the runtime boundary — a computed number still cannot be presented
+as retrieved evidence — and computed figures still render inline through the
+response figure references, while artifacts remain available in the Artifact
+Center. The code-capability headline likewise stays off the transcript; the Code
+screen carries the code detail.
 
 ### Only Sources stays under an answer
 

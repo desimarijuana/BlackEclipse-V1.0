@@ -120,6 +120,31 @@ than a vibe — but the plan is a specification, never evidence.
 Templates (`src/lib/strategy-studio/templates.ts`) are complete, valid specs to
 start from. The UI labels them explicitly as examples, not recommendations.
 
+## Method discovery
+
+`MethodDiscoveryPanel` sits above the spec editor and is the front of the
+funnel, not a shortcut past the evidence:
+
+- **Recommend** ranks method families for the chosen asset, horizon, objective,
+  risk and series. Every fit score prints its reasons and warnings; a
+  recommendation is a prior, not an edge.
+- **Scan this series** runs the descriptive diagnostics (trend/reversion/
+  volatility clustering/seasonality) and names candidate families.
+- **Setups now** evaluates the entry rule on the latest closed bar. A setup is a
+  condition, not an order or a recommendation.
+- **Mine candidates** runs a bounded IS/OOS search, shows the real trial count
+  and the Deflated Sharpe, and labels every result `candidate | weak | rejected`.
+- **Use spec** synthesizes a valid spec into the editor. Methods that are not
+  single-asset rule strategies show their `requires` instead of being forced
+  into the DSL.
+
+`ResearchJournalPanel` is the session record: create a program, pre-register a
+hypothesis and its acceptance rule, record the current experiment as a trial,
+and see the open/rejected ideas. `PortfolioStressLab` is the expert surface for
+VaR/ES and scenario P&L from a covariance matrix or scenario map; it refuses
+missing inputs instead of assuming them. `ManifestPanel` (shared with the
+Backtest bench) shows the run digest and can reproduce the experiment.
+
 ## Authoring without JSON
 
 The spec card has two views over the same text: **Builder** and **JSON**
@@ -223,6 +248,10 @@ approval that approves itself. Live routing is refused by the engine
 | Paper deployment + track record | `.../paper-panel.tsx` |
 | Versions, diff, export | `.../version-panel.tsx` |
 | Publish to gallery | `.../publish-button.tsx` |
+| Method discovery | `.../method-discovery-panel.tsx` |
+| Research journal / trial ledger | `.../research-journal-panel.tsx` |
+| Portfolio stress lab | `.../portfolio-stress-lab.tsx` |
+| Run manifest / reproduce | `src/components/screens/backtest/shared/manifest-panel.tsx` |
 | Project binding | `.../project-link.tsx` |
 | Share card | `.../share-card.tsx` |
 | Portfolio backtest | `.../portfolio-panel.tsx` |
