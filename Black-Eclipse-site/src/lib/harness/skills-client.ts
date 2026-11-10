@@ -5,6 +5,7 @@
 // Python.
 
 import { getLLMConfig } from "@/lib/settings";
+import { resolveLLMProviderId } from "@/lib/agent/presets";
 import { checkMutationAllowed } from "@/lib/api-guard";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
@@ -309,7 +310,7 @@ export async function validateSkillInput(
 /** Resolve model settings exactly as a chat run does. */
 async function resolveModelSettings() {
   const cfg = await getLLMConfig();
-  const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
+  const provider = resolveLLMProviderId(cfg);
   return { provider, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model };
 }
 

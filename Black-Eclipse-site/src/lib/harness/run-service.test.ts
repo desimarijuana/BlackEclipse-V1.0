@@ -137,6 +137,22 @@ describe("startRun", () => {
     await expect(startRun({ input: { query: "x" } })).resolves.toBeTruthy();
   });
 
+  it("resolves an auto/mock sentinel to the saved local endpoint instead of openai", async () => {
+    // Regression: a configured Ollama endpoint saved with `provider: "mock"`
+    // was forwarded as `openai` and the runtime failed with "missing API key".
+    getLLMConfig.mockResolvedValue({
+      provider: "mock",
+      baseUrl: "http://localhost:11434/v1",
+      apiKey: "",
+      model: "deepseek-v4.1-flash:cloud",
+    });
+    runViaRuntime.mockResolvedValue({ runId: "run_local", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await startRun({ input: { query: "x" } });
+    const ms = runViaRuntime.mock.calls[0][0].modelSettings;
+    expect(ms.provider).toBe("ollama");
+    expect(ms.baseUrl).toBe("http://localhost:11434/v1");
+  });
+
   it("rejects invalid input before calling the runtime", async () => {
     await expect(startRun({ input: { query: "  " } })).rejects.toThrow(HarnessError);
     expect(runViaRuntime).not.toHaveBeenCalled();

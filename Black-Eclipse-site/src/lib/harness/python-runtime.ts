@@ -21,6 +21,7 @@ import {
 } from "fs";
 import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
+import { resolveLLMProviderId } from "@/lib/agent/presets";
 import { PYTHON_RUNTIME_DEPS } from "./runtime-config";
 import { isRecentlyHealthy, resolveStartTimeoutMs, shouldReplaceStaleRuntime } from "./runtime-supervision";
 
@@ -463,7 +464,7 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
     try {
       const { getLLMConfig } = await import("@/lib/settings");
       const cfg = await getLLMConfig();
-      const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
+      const provider = resolveLLMProviderId(cfg);
       if (provider && !process.env.HARNESS_JOB_PROVIDER) extraEnv.HARNESS_JOB_PROVIDER = provider;
       if (cfg.model && !process.env.HARNESS_JOB_MODEL) extraEnv.HARNESS_JOB_MODEL = cfg.model;
       if (cfg.baseUrl && !process.env.HARNESS_JOB_BASE_URL) extraEnv.HARNESS_JOB_BASE_URL = cfg.baseUrl;

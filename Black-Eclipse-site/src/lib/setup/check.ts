@@ -100,13 +100,17 @@ async function testAi(override?: AiCheckOverride): Promise<CheckItem> {
   const rawKey = override?.apiKey ?? saved.apiKey;
   const apiKey = rawKey === LOCAL_KEY_SENTINEL ? "" : rawKey;
 
-  if ((!override && saved.provider === "mock") || (!apiKey && !local)) {
+  // A `mock` sentinel with a saved local endpoint is a working chat setup (the
+  // runtime resolves it to the keyless local provider); only a sentinel with no
+  // usable endpoint is genuinely unconfigured.
+  const noModel = !override && saved.provider === "mock" && !local;
+  if (noModel || (!apiKey && !local)) {
     return {
       id: "ai",
       label: "Chat model",
       kind: "ai",
       status: "skipped",
-      message: !override && saved.provider === "mock"
+      message: noModel
         ? "No model configured — Chat will be unavailable."
         : "No API key configured — Chat will be unavailable.",
     };

@@ -197,6 +197,31 @@ export function presetForBaseUrl(baseUrl: string): LLMPreset | undefined {
 }
 
 /**
+ * The provider id the runtime should use for a saved LLM config.
+ *
+ * `auto` and `mock` are CONFIGURATION sentinels, not provider catalog ids — the
+ * Python runtime cannot build a model from them. Previously callers forwarded
+ * both as `openai`, so a valid local endpoint (Ollama/LM Studio) was treated as
+ * a keyed OpenAI account and every run failed with "Provider 'openai' is not
+ * configured (missing API key)" even though the local server was running.
+ *
+ * Resolve the sentinel from the endpoint the operator actually saved: the
+ * preset that owns this base URL, else the generic keyless local kind for a
+ * loopback URL, else the generic OpenAI-compatible kind for a hosted URL.
+ */
+export function resolveLLMProviderId(config: {
+  provider: string;
+  baseUrl: string;
+}): string {
+  if (config.provider && config.provider !== "auto" && config.provider !== "mock") {
+    return config.provider;
+  }
+  const preset = presetForBaseUrl(config.baseUrl);
+  if (preset) return preset.id;
+  return isLocalBaseUrl(config.baseUrl) ? "ollama" : "openai";
+}
+
+/**
  * Every env var the UI reports key status for. Kept as one list so the catalog
  * and `/api/settings` cannot disagree about what "configured" means.
  *

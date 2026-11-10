@@ -6,6 +6,7 @@
 // There is deliberately NO agent loop, tool registry or model adapter here.
 
 import { getLLMConfig } from "@/lib/settings";
+import { resolveLLMProviderId } from "@/lib/agent/presets";
 import { assertChatAutonomy, assertRunInput, validateWorkspaceRef } from "./validation";
 import { resolveChatCodeProfile } from "./chat-capability";
 import { parseChatCommand } from "./commands";
@@ -200,7 +201,7 @@ export async function resolveRunModelSettings(model?: string, role?: "code") {
 
 async function resolveModelSettings(modelOverride?: string, role?: "code") {
   const cfg = await getLLMConfig();
-  const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
+  const provider = resolveLLMProviderId(cfg);
   // An explicit composer pick wins. Otherwise a build run uses the operator's
   // coding model when one is configured; everything else keeps the chat model.
   const chosen = modelOverride?.trim()

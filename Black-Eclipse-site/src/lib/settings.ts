@@ -466,7 +466,9 @@ export async function getIntegrationsStatus(): Promise<IntegrationStatus> {
     llm: {
       provider: llm.provider,
       model: llm.model,
-      configured: llm.provider !== "mock",
+      // `auto`/`mock` with a saved local endpoint is a working configuration,
+      // not "unconfigured"; an explicit provider keeps its existing semantics.
+      configured: llm.provider !== "mock" || isLocalBaseUrl(llm.baseUrl),
     },
     yahoo: process.env.YAHOO_FINANCE_ENABLED === "true",
     fred: Boolean(process.env.FRED_API_KEY),

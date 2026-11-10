@@ -54,10 +54,14 @@ export async function register() {
       // so a provider configured in the UI is not hidden from the chat UI.
       try {
         const { getLLMConfig } = await import("@/lib/settings");
-        const { isLocalBaseUrl } = await import("@/lib/agent/presets");
+        const { isLocalBaseUrl, resolveLLMProviderId } = await import("@/lib/agent/presets");
         const cfg = await getLLMConfig();
+        // `auto`/`mock` are sentinels: resolve the provider the runtime will
+        // actually use, so a configured local endpoint is not reported as
+        // "no LLM" merely because the saved provider was never made explicit.
         const usable =
-          cfg.provider !== "mock" && (Boolean(cfg.apiKey) || isLocalBaseUrl(cfg.baseUrl));
+          resolveLLMProviderId(cfg) !== "mock" &&
+          (Boolean(cfg.apiKey) || isLocalBaseUrl(cfg.baseUrl));
         process.env.NEXT_PUBLIC_LLM_CONFIGURED = usable ? "1" : "0";
         if (usable) {
           console.log(`[startup] LLM configured (${cfg.provider}) — chat uses the real provider`);

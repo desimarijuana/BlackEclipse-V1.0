@@ -20,6 +20,7 @@ import {
   LOCAL_KEY_SENTINEL,
 } from "@/lib/settings";
 import { deleteProviderKey, PROVIDER_KEYS } from "@/lib/provider-keys";
+import { isLocalBaseUrl } from "@/lib/agent/presets";
 import type {
   OnboardingState,
   SetupCompleteInput,
@@ -254,6 +255,8 @@ export async function getAiStatus(): Promise<AiStatus> {
     model: llm.model,
     baseUrl: llm.baseUrl,
     hasKey,
-    configured: llm.provider !== "mock",
+    // `auto`/`mock` are sentinels, not a verdict: a saved local endpoint is a
+    // usable chat configuration and must not read as "unconfigured".
+    configured: llm.provider !== "mock" || isLocalBaseUrl(llm.baseUrl),
   };
 }

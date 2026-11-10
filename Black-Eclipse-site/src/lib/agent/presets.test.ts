@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { LLM_PRESETS, getLLMPreset, presetForBaseUrl, isLocalBaseUrl, CATALOG_ENV_VARS } from "./presets";
+import {
+  LLM_PRESETS,
+  getLLMPreset,
+  presetForBaseUrl,
+  isLocalBaseUrl,
+  resolveLLMProviderId,
+  CATALOG_ENV_VARS,
+} from "./presets";
 
 describe("LLM presets", () => {
   it("every preset has a usable OpenAI-compatible base URL", () => {
@@ -58,6 +65,30 @@ describe("isLocalBaseUrl", () => {
   it("rejects remote hosts and malformed URLs", () => {
     expect(isLocalBaseUrl("https://api.openai.com/v1")).toBe(false);
     expect(isLocalBaseUrl("not a url")).toBe(false);
+  });
+});
+
+describe("resolveLLMProviderId", () => {
+  it("keeps an explicit provider id", () => {
+    expect(resolveLLMProviderId({ provider: "ollama", baseUrl: "http://localhost:11434/v1" })).toBe("ollama");
+    expect(resolveLLMProviderId({ provider: "openai", baseUrl: "https://api.openai.com/v1" })).toBe("openai");
+  });
+
+  it("resolves the auto/mock sentinel from the saved local endpoint", () => {
+    // The production bug: a local Ollama endpoint saved with sentinel provider
+    // was forwarded as `openai`, which then demanded a missing OpenAI key.
+    expect(resolveLLMProviderId({ provider: "mock", baseUrl: "http://localhost:11434/v1" })).toBe("ollama");
+    expect(resolveLLMProviderId({ provider: "auto", baseUrl: "http://localhost:11434/v1" })).toBe("ollama");
+    expect(resolveLLMProviderId({ provider: "mock", baseUrl: "http://localhost:1234/v1" })).toBe("lmstudio");
+    // Same server reached over the loopback IP still resolves to a keyless local kind.
+    expect(resolveLLMProviderId({ provider: "mock", baseUrl: "http://127.0.0.1:1234/v1" })).toBe("ollama");
+  });
+
+  it("falls back to the generic kinds when no preset matches", () => {
+    // A loopback server on an unknown port is still keyless local inference.
+    expect(resolveLLMProviderId({ provider: "auto", baseUrl: "http://127.0.0.1:9999/v1" })).toBe("ollama");
+    // A hosted endpoint keeps the generic OpenAI-compatible construction.
+    expect(resolveLLMProviderId({ provider: "mock", baseUrl: "https://llm.example.com/v1" })).toBe("openai");
   });
 });
 
