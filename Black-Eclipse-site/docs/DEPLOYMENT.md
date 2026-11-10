@@ -319,6 +319,20 @@ database. Never commit a backup; `jdds.db` and `.env` stay out of git.
 
   Without a webhook it only writes to the log — a local check, not an alert.
 
+- **Windows (Task Scheduler):** `scripts/install-health-task.ps1` registers the
+  same `health-watch.sh` every 5 minutes and appends to
+  `%LOCALAPPDATA%\BlackEclipse\health.log`:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts/install-health-task.ps1 `
+    -HealthUrl http://127.0.0.1:3100/login `
+    -AlertWebhookUrl https://hooks.slack.com/services/...
+  ```
+
+  Without `-AlertWebhookUrl` the check writes to the log and the task's Last
+  Result only — a local check, not a human alert. The task runs interactively
+  (while the user is signed in); use the systemd/Prometheus path for a server.
+
 ## Incident response
 
 | Incident | First action | Channel |
