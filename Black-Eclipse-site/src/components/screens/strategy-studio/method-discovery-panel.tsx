@@ -40,6 +40,7 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
   const [structure, setStructure] = useState<MarketStructure | null>(null);
   const [setups, setSetups] = useState<CurrentSetups | null>(null);
   const [mined, setMined] = useState<MineResult | null>(null);
+  const [playbook, setPlaybook] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -72,6 +73,11 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
     setMined(await backtestClient.mineMethods({
       symbol, interval, maxTrials: 12, oosFraction: 0.3,
     }));
+  }), [run, symbol, interval]);
+
+  const showPlaybook = useCallback((methodId: string) => run(`play:${methodId}`, async () => {
+    const result = await backtestClient.tradingPlaybook({ methodId, symbol, interval });
+    setPlaybook(result.playbook);
   }), [run, symbol, interval]);
 
   const useMethod = useCallback((methodId: string) => run(`use:${methodId}`, async () => {
@@ -132,6 +138,11 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
                     Use spec
                   </button>
                 )}
+                <button type="button" onClick={() => void showPlaybook(r.methodId)}
+                  disabled={Boolean(busy)}
+                  className="rounded-lg px-1.5 py-0.5 text-[10px] text-muted-foreground disabled:opacity-50">
+                  playbook
+                </button>
                 <button type="button"
                   onClick={() => setExpanded(expanded === r.methodId ? null : r.methodId)}
                   className="rounded-lg px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -146,6 +157,33 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
               ) : null}
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {playbook ? (
+        <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Playbook — {String(playbook.name)} on {String(playbook.symbol)}
+          </p>
+          <div className="mt-1 grid gap-1 text-[10px] sm:grid-cols-2">
+            <div>
+              <p className="text-muted-foreground">Entry</p>
+              {(playbook.entry as string[] | undefined)?.map((x) => <p key={x}>• {x}</p>)}
+            </div>
+            <div>
+              <p className="text-muted-foreground">Exit</p>
+              {(playbook.exit as string[] | undefined)?.map((x) => <p key={x}>• {x}</p>)}
+            </div>
+            <div>
+              <p className="text-muted-foreground">Sizing</p>
+              <p>{String(playbook.positionSizing)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Fails when</p>
+              {(playbook.whenItFails as string[] | undefined)?.slice(0, 3).map((x) => <p key={x}>• {x}</p>)}
+            </div>
+          </div>
+          <p className="mt-1 text-[9px] text-muted-foreground">{String(playbook.disclaimer)}</p>
         </div>
       ) : null}
 

@@ -32,6 +32,7 @@ export const navigation = {
   'nav.researchData': 'Research Data',
   'nav.graphStudio': 'Graph Studio',
   'nav.tables': 'Tables',
+  'nav.sources': 'Sources',
   'nav.overview': 'Overview',
   'nav.bots': 'Bots',
 

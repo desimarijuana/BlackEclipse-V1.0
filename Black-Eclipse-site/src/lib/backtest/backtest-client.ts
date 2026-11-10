@@ -746,6 +746,10 @@ export const backtestClient = {
     jsonFetch<CurrentSetups>("/methods/setups", {
       method: "POST", body: JSON.stringify(body),
     }),
+  tradingPlaybook: (body: Record<string, unknown>) =>
+    jsonFetch<{ playbook: Record<string, unknown> }>("/methods/playbook", {
+      method: "POST", body: JSON.stringify(body),
+    }),
   saveDiscoveredMethod: (body: Record<string, unknown>) =>
     jsonFetch<Record<string, unknown>>("/discovered-methods", {
       method: "POST", body: JSON.stringify(body),
