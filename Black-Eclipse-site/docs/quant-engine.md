@@ -71,6 +71,7 @@ market data → indicator context → signal (rules) → risk → order
 | Prop-firm Monte-Carlo (pass probability, days-to-pass, payout EV) | `quant/propfirm_mc.py` |
 | The Edge Report — the grade, the evidence and the figures as one artifact | `quant/edge_report.py` |
 | Method families, cards, fit ranking and market-structure diagnostics | `quant/discovery/` (taxonomy, library, diagnostics, hypotheses, synthesize, miner) |
+| Research intelligence: scholarly search, method specs, extraction with provenance, suitability, reproduction, dossiers | `quant/research_intel/` + `routers/quant_research.py` |
 | Cost of carry (borrow, financing, margin), partial fills, corporate actions | `quant/carry.py`, `quant/corporate_actions.py`, `quant/execution.py` |
 | Run manifests + reproducibility | `quant/manifest.py` |
 | Research sessions, hypotheses, trials, discovered methods | `quant/store.py` (`QuantResearchSession`, `QuantHypothesis`, `QuantTrial`, `QuantMethod`) |
@@ -785,6 +786,107 @@ method card -> structure scan -> falsifiable hypothesis -> spec
   rejected`, never "validated".
 - **Current setups** — `scan_current_setups` evaluates the entry rule on the
   latest closed bar. A condition, not an order.
+
+## System hardening (`data_quality`, `lifecycle`, `risk_engine`, `oms`)
+
+The 10/10 foundation is in code:
+
+- **Data gate** (`quant/data_quality.py`): duplicate/conflict detection, gap
+  classification, broker parity and a content hash. A critical finding blocks
+  promotion.
+- **Lifecycle** (`quant/lifecycle.py`): `draft → specified → implemented →
+  backtested → validated → paper → live_trial → live → monitored → retired`.
+  Every transition needs an actor and evidence; an illegal jump is refused.
+- **Risk** (`quant/risk_engine.py`): risk-per-trade sizing, lot/notional/margin/
+  spread/exposure checks, daily-loss and drawdown kill. A blocked order is
+  explained, not silently sent.
+- **OMS** (`quant/oms.py`): idempotency key, legal state machine, bracket
+  validation, partial-fill accounting, reconciliation and TCA.
+- **Runner** (`quant/live_runner.py`): one claim per strategy/version/timeframe/
+  bar; restart-safe; pause/resume.
+- **Monitoring** (`quant/monitor.py`): signal parity, drift tolerances and P&L
+  attribution.
+- **Capital** (`quant/capital.py`): inverse-vol risk budgeting with a hard cap.
+- **Health** (`quant/system_health.py`): one operator view. A blocked system must
+  not send a new order.
+- **Routes** (`routers/quant_system.py`) and the Strategy Studio health panel
+  surface these checks.
+
+The live trial now claims a run key, runs the risk engine before submit and
+records OMS state. Full plan: `docs/quant-system-blueprint.md`.
+
+## Live strategy trials (`quant/live.py`)
+
+A tested strategy can be promoted to a governed live trial. The trial is not a
+new execution path: it uses the SAME broker connection, arm, mandate, margin
+cap, order count, expiry, money guardrails, reconciliation and kill switch.
+
+- **Gates:** approved strategy version, a completed backtest, the typed phrase
+  `LIVE TRIAL <id> <version>`, a live connection, a future `armedUntil`, and a
+  positive `maxMargin`. A missing paper run is a visible warning.
+- **Pin:** the live mandate uses the `workflowId` field with
+  `strategy:<id>:<version>`, so the existing mandate verification applies.
+- **Signal:** `copilot.calculate_signals` on the last closed bar. A signal is a
+  condition, not an order.
+- **Execution:** `run_once` submits one market order under the mandate when no
+  position exists for the symbol; an exit signal closes the matching positions.
+  A second run does not stack a position.
+- **Results:** account, positions, working orders and open P&L come from the
+  broker. The broker is the source of truth.
+- **Stop:** revokes the mandate. Arming stays a separate operator action in the
+  broker surface.
+
+Routes: `/quant/live/trials/*` in `routers/quant_live.py`. UI: Strategy Studio
+`live-strategy-panel.tsx`. Doc: `docs/quant-live-strategy.md`.
+
+## Research intelligence (`quant/research_intel/`)
+
+Method discovery starts from Eclipse's own library. Research intelligence adds
+the missing front half: what does the literature already say, and can Eclipse
+understand and reproduce it?
+
+- **Scholarly discovery** (`scholarly.py`, `query_planner.py`) expands a problem
+  into a topic query set and merges OpenAlex, Semantic Scholar, Crossref and
+  arXiv, deduplicating by DOI, arXiv id and title. SSRN/NBER/RePEc are reached
+  through a scoped web query and labelled `pointer`. A result is a pointer,
+  never evidence.
+- **Method specification** (`schema.py`, `catalog.py`) is a formal contract:
+  objective, inputs (with frequency), horizons, parameters, sourced equations,
+  estimation, assumptions, outputs, validation and limitations. The catalog is
+  an open, horizon-wide seed (33 methods from intraday to long-term); literature
+  extraction and `quant_register_method` add methods at runtime. Open-access PDF
+  links and citation pointers from the provider are stored. A specification
+  without an equation source fails validation and is never stored.
+- **Extraction** (`extraction.py`, `llm_extract.py`) reads sections and equations
+  from a document, keeps section + approximate page provenance, and names every
+  field it could not find in `unresolved`. An optional model proposal is accepted
+  only when each field's quote exists verbatim in the text.
+- **Suitability** (`suitability.py`) scores objective fit, data compatibility,
+  frequency, horizon, market, assumption transparency, research support,
+  reproducibility and computational feasibility. It is a methodological fit
+  score, never a probability of profit.
+- **Reproduction** (`repro.py`, `implementation.py`) is separate from trading
+  adaptation. Twelve built-in estimators run today (OU/AR(1), EWMA, realized
+  variance, GARCH, GJR-GARCH, EGARCH, HAR-RV, Engle-Granger, HMM, EVT/GPD,
+  CAPM/FF, Almgren-Chriss). `quant_attach_implementation` tests a Python
+  `run(rows, params)` and attaches it only on a pass. The worker uses Docker when
+  configured, otherwise a separate process with a scrubbed environment, a
+  timeout and an output cap. The validation matrix reports only the checks that
+  are possible.
+- **Figures** (`visuals.py`) compute method coverage, suitability, price,
+  rolling volatility, return distribution and reproduction fit from real
+  inputs. A figure with no input is `unavailable` with a reason.
+- **Dossier** (`dossier.py`) binds the question, literature, equations,
+  comparison, reproduction, validation, figures and limitations into one
+  artifact in the Artifact Center. Missing evidence is named, not hidden.
+
+Tools: `research_*` (external research, method matrix, figures) and
+`quant_list_methods` / `quant_get_method` / `quant_specify_method` /
+`quant_reproduce_method` / `quant_validate_method` / `quant_register_method` /
+`quant_build_dossier` / `quant_list_dossiers`. Routes live in
+`routers/quant_research.py`. The Strategy Studio panel is
+`research-intelligence-panel.tsx`. Full specification:
+`docs/quant-research-intelligence-plan.md`.
 
 ## Realism: carry, margin, partial fills and corporate actions
 

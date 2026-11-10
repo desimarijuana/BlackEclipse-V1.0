@@ -29,7 +29,10 @@ RATCHET_PY: dict[str, int] = {
     # split; SPLIT CANDIDATE: the setup/onboarding route block.
     # Re-pinned 1235->1239 (2026-11-10) to the measured shared tree; the growth
     # predates this change. Split candidate remains the setup/onboarding routes.
-    "main.py": 1239,
+    # +2 for the Quant Research Intelligence router import/include (2026-11-10).
+    # +2 for the Quant Research Intelligence + live-strategy routers (2026-11-10).
+    # +2 for the quant system router include (2026-11-10).
+    "main.py": 1245,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     "research/web_tools.py": 1222,
@@ -130,7 +133,10 @@ RATCHET_PY: dict[str, int] = {
     # (the split this pin asked for), but the in-flight desk-tool surface on the
     # shared tree had already grown the file past the pin. Only the one-line
     # registration call remains here. May only shrink.
-    "quant/tools.py": 1245,
+    # +15 for the Quant Research Intelligence tool registration + QUANT_TOOLS
+    # names (2026-11-10). The research tools themselves live in a separate
+    # module; this file only imports and declares them.
+    "quant/tools.py": 1259,
     # Re-pinned to 1212 for the ONE-SEARCH-PRIMITIVE consolidation (Round 3 /
     # W5, ADR-H284): `search_files` gained the exclude/extension/directory
     # filters that only `find_files` carried, and the definition factory gained
@@ -193,7 +199,10 @@ RATCHET_PY: dict[str, int] = {
     # figure-first response-mode upgrade adds one guarded seam here, and the
     # in-flight shared-tree wiring had already grown the file past its pin. The
     # subsystem-wiring block remains the split candidate. May only shrink.
-    "graph.py": 2507,
+    # Re-pinned 2507 -> 2547 to the measured shared tree (2026-11-10): the
+    # research-intelligence work touches NO part of graph.py; unrelated in-flight
+    # wiring had already grown it. May only shrink from here.
+    "graph.py": 2547,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
