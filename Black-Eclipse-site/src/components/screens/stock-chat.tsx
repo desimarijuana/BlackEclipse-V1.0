@@ -557,6 +557,49 @@ function StockChatContent() {
     return () => window.removeEventListener('be:navigate', onNavigate);
   }, []);
 
+  // localStorage must never sit on the send path. Writing the whole transcript
+  // list is synchronous and grows with every saved chat, so doing it inline made
+  // "Enter" wait for a full JSON.stringify before the bubble could paint. The
+  // in-memory store updates immediately; the cache write is coalesced and runs
+  // after paint (flushed early when the page is hidden/unloaded).
+  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cachePendingRef = useRef<Conversation[] | null>(null);
+
+  const flushConversationCache = useCallback(() => {
+    if (cacheTimerRef.current !== null) {
+      clearTimeout(cacheTimerRef.current);
+      cacheTimerRef.current = null;
+    }
+    const pending = cachePendingRef.current;
+    cachePendingRef.current = null;
+    if (pending) saveConversationsCache(localStorage, pending);
+  }, []);
+
+  const scheduleConversationCache = useCallback((updated: Conversation[]) => {
+    cachePendingRef.current = updated;
+    if (cacheTimerRef.current !== null) return;
+    cacheTimerRef.current = setTimeout(() => {
+      cacheTimerRef.current = null;
+      const pending = cachePendingRef.current;
+      cachePendingRef.current = null;
+      if (pending) saveConversationsCache(localStorage, pending);
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    const flush = () => flushConversationCache();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+      flush();
+    };
+  }, [flushConversationCache]);
+
   const saveConversations = (updated: Conversation[]) => {
     conversationsRef.current = updated;
     setConversations(updated);
@@ -564,7 +607,7 @@ function StockChatContent() {
     // sandboxed iframe, a blocked origin) — a cache write must NEVER break the
     // in-memory chat. When the list outgrows the quota the helper evicts the
     // least valuable chats instead of silently freezing on a stale snapshot.
-    saveConversationsCache(localStorage, updated);
+    scheduleConversationCache(updated);
   };
 
   // Chat organization (folders / colors / pin / rename / move) is owned by a
