@@ -67,6 +67,19 @@ def test_non_spec_methods_refuse_honestly():
         build_strategy("momentum_cross_sectional", symbol="AAPL")
 
 
+def test_playbook_renders_the_actual_rules():
+    from harness.quant.playbook import build_playbook
+
+    spec = build_strategy("trend_ema_cross", symbol="AAPL")
+    book = build_playbook(spec, symbol="AAPL",
+                          method_family={"thesis": "trend", "failure_modes": ["whipsaw"]})
+    assert book["entry"] and book["exit"]
+    assert book["positionSizing"]
+    assert book["whenItFails"] == ["whipsaw"]
+    assert book["execution"]["commission"]
+    assert "not investment advice" in book["disclaimer"].lower()
+
+
 def test_combine_methods_produces_a_new_valid_spec():
     spec = build_combination("trend_ema_cross", "volatility_breakout", symbol="AAPL")
     assert spec["derivedFrom"] == ["trend_ema_cross", "volatility_breakout"]

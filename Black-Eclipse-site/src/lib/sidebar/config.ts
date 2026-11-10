@@ -11,7 +11,7 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot, Home,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
-  Database, FlaskConical,
+  Database, FlaskConical, Server,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -62,6 +62,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
+  { id: 'sources', label: 'Sources', icon: Server, group: 'agentic' },
   { id: 'tables', label: 'Tables', icon: Database, group: 'graph' },
 ];
 

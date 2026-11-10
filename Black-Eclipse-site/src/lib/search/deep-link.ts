@@ -44,6 +44,7 @@ const ALL_TABS: Record<AppTab, true> = {
   'ml-lab': true,
   'graph-studio': true,
   tables: true,
+  sources: true,
   overview: true,
   bots: true,
   code: true,

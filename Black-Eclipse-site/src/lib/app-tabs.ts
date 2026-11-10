@@ -36,6 +36,7 @@ export const APP_TABS = [
   'ml-lab',
   'graph-studio',
   'tables',
+  'sources',
   'overview',
   'bots',
   'code',
