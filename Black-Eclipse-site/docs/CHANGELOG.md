@@ -52,6 +52,16 @@
   `docs/DECISIONS.md` (ADR-076), `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-09
+- **ops: run the v0.3.2 production build as the soak instance on Windows.** Added
+  `scripts/install-app-task.ps1`: a per-user scheduled task (2-minute ignore-new
+  watchdog + Startup shortcut, no admin) that keeps a production `next start`
+  alive, with `-AppPath`/`-DataDir` so a tagged release can run from its own
+  checkout against the real databases. Verified C3 (clean build of `v0.3.2` in a
+  pristine worktree, 297 s, `/login` 200) and C6 (login, settings, provider chat,
+  and a completed harness run with one `finance_calc` tool call returning
+  `+25.0%`). The dev server no longer restarts the soak instance; the main dev
+  `.next` was restored. Docs updated: `docs/DEPLOYMENT.md`,
+  `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 - **docs(readiness): record the first soak checkpoint and its interruption.**
   `scripts/soak-report.ps1` over the first 0.9 h: 10 healthy, 3 failed, 76.92%
   uptime; the app on `:3100` was down 00:06-00:16 and recovered at 00:21, with

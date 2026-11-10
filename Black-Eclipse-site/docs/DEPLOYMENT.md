@@ -290,9 +290,30 @@ database. Never commit a backup; `jdds.db` and `.env` stay out of git.
   `.env` if you change it. Do not run `next dev` in production — it self-restarts
   under memory pressure, which kills any agent run in flight.
 
-## Monitoring & alerts
+## Running on Windows as a service
 
-- **Liveness:** `GET /login` (public) is the container healthcheck and the
+A terminal `npm run dev` restarts on every edit and dies with its terminal, so it
+cannot pass a multi-day soak. Build once, then let a per-user scheduled task keep
+the production server up (no admin required):
+
+```powershell
+npm run build
+powershell -ExecutionPolicy Bypass -File scripts/install-app-task.ps1 -Port 3100
+```
+
+`scripts/install-app-task.ps1` registers `BlackEclipse App` with a 2-minute
+trigger (ignore-new, so it never double-starts), starts the server detached, and
+drops a sign-in shortcut in the Startup folder. Logs:
+`%LOCALAPPDATA%\BlackEclipse\app.log`.
+
+To serve a **tagged release** from a separate checkout while the working tree
+keeps moving, check the tag out into its own worktree, build it there, and pass
+`-AppPath <checkout>\Black-Eclipse-site -DataDir <main checkout>\Black-Eclipse-site`
+so the release process reads the real databases. `BE_DATA_DIR` moves
+`jdds.db`, `agent-memory.db` and `eclipse-memory.db`; `.black-eclipse/` and
+`python/.black-eclipse/` can be junctions to the main checkout.
+
+## Monitoring & alerts- **Liveness:** `GET /login` (public) is the container healthcheck and the
   external probe target.
 - **Runtime telemetry:** the operator-gated surface in
   `docs/harness/observability.md` — `/observability/status`, `health`, `metrics`,
