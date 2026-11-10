@@ -1,6 +1,12 @@
 # Change Log
 
 ## 2026-11-09
+- **release: cut `v0.3.2`.** Version bump (`package.json`, project version in
+  `package-lock.json`) and a release note capturing the measured live gate
+  (`task_success 0.9748`, hallucination 0.0, citation 1.0, financial 0.9963),
+  the evidence-safe citation gate, the deterministic finance surface, the
+  Windows operations tooling and the legal draft pack. Docs updated:
+  `docs/releases/v0.3.2.md`, `docs/CHANGELOG.md`.
 - **docs(legal): draft the hosted contract pack and adopt the DCO.** Added
   clearly-marked Draft templates for Terms, Privacy, Risk, AI Usage, Acceptable
   Use, Automated Trading, DPA, Subprocessors, Cookies, Trademark, Incident
