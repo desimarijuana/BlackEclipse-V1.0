@@ -151,6 +151,9 @@ def _normalize_results(raw: list[dict[str, Any]], *, provider: str, query: str) 
                 provider=provider,
                 ranking=idx,
                 relevance=float(item.get("relevance") or 0.0),
+                pdfUrl=item.get("pdfUrl"),
+                isOpenAccess=bool(item.get("isOpenAccess")),
+                references=list(item.get("references") or []),
             )
         )
     return out

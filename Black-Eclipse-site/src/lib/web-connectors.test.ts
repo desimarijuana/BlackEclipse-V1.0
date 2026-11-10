@@ -19,7 +19,10 @@ vi.mock("@/lib/connectors/security", () => ({
   },
 }));
 
-import { runConnectors, openAlexSearch, crossrefSearch, gdeltSearch, openverseSearch, commonsSearch } from "./web-connectors";
+import {
+  runConnectors, openAlexSearch, semanticScholarSearch, crossrefSearch,
+  gdeltSearch, openverseSearch, commonsSearch,
+} from "./web-connectors";
 
 function jsonResponse(payload: unknown, status = 200) {
   return { status, bytes: JSON.stringify(payload).length, text: JSON.stringify(payload), contentType: "application/json", headers: {} };
@@ -57,6 +60,43 @@ describe("OpenAlex academic connector", () => {
     const outcome = await openAlexSearch("nothing", 5);
     expect(outcome.results).toEqual([]);
     expect(outcome.diagnostic.category).toBe("zero_results");
+  });
+});
+
+describe("Semantic Scholar connector", () => {
+  it("normalizes DOI, abstract and year", async () => {
+    safeGet.mockResolvedValue(
+      jsonResponse({
+        data: [{
+          title: "Volatility Forecasts",
+          abstract: "A study of variance.",
+          year: 2023,
+          externalIds: { DOI: "10.3/vol" },
+        }],
+      })
+    );
+    const outcome = await semanticScholarSearch("volatility", 5);
+    expect(outcome.results[0].url).toBe("https://doi.org/10.3/vol");
+    expect(outcome.results[0].snippet).toContain("variance");
+    expect(outcome.results[0].publishedAt).toBe("2023");
+  });
+});
+
+describe("academic fan-out", () => {
+  it("merges providers and deduplicates a DOI", async () => {
+    safeGet
+      .mockResolvedValueOnce(jsonResponse({ results: [
+        { doi: "https://doi.org/10.4/same", display_name: "Same Paper" },
+      ] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [
+        { title: "Same Paper", externalIds: { DOI: "10.4/same" } },
+        { title: "Second Paper", externalIds: { DOI: "10.4/second" } },
+      ] }))
+      .mockResolvedValueOnce(jsonResponse({ message: { items: [] } }));
+    const result = await runConnectors("academic", "papers", 5);
+    expect(result.results).toHaveLength(2);
+    expect(result.provider).toContain("openalex");
+    expect(result.provider).toContain("semantic-scholar");
   });
 });
 
@@ -102,12 +142,13 @@ describe("media connectors", () => {
 });
 
 describe("runConnectors dispatch + failure honesty", () => {
-  it("falls through academic chain when the first connector fails", async () => {
+  it("keeps the academic fan-out when one connector fails", async () => {
     safeGet
       .mockRejectedValueOnce(Object.assign(new Error("boom"), { name: "OutboundError", code: "transport_error" }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(jsonResponse({ message: { items: [{ DOI: "10.3/z", title: ["Fallback"], URL: "https://doi.org/10.3/z" }] } }));
     const outcome = await runConnectors("academic", "q", 5);
-    expect(outcome.provider).toBe("crossref");
+    expect(outcome.provider).toContain("crossref");
     expect(outcome.results).toHaveLength(1);
     expect(outcome.diagnostics.some((d) => d.normalizedStatus === "failed")).toBe(true);
   });

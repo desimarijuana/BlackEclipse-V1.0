@@ -168,6 +168,11 @@ class SearchResult(BaseModel):
     provider: str = "unknown"
     ranking: int = 0
     relevance: float = 0.0
+    # Optional open-access full text and citation pointers disclosed by a
+    # scholarly provider. These are pointers, not evidence.
+    pdfUrl: Optional[str] = None
+    isOpenAccess: bool = False
+    references: list[dict[str, Any]] = Field(default_factory=list)
     retrievedAt: str = Field(default_factory=_now)
 
 

@@ -131,11 +131,64 @@ export async function openAlexSearch(query: string, limit: number): Promise<Conn
     const landing = loc && typeof loc.landing_page_url === "string" ? (loc.landing_page_url as string) : "";
     const url2 = doi || landing;
     if (!url2) continue;
+    const oa = (r.open_access ?? {}) as Record<string, unknown>;
+    const best = (r.best_oa_location ?? {}) as Record<string, unknown>;
+    const pdfUrl = typeof best.pdf_url === "string" ? best.pdf_url : null;
     results.push({
       title: String(r.display_name ?? r.title ?? "").trim() || "Untitled work",
       url: url2,
       snippet: reconstructAbstract(r.abstract_inverted_index).slice(0, 500),
       publishedAt: r.publication_date ? String(r.publication_date) : r.publication_year ? String(r.publication_year) : null,
+      pdfUrl,
+      isOpenAccess: Boolean(oa.is_oa) || Boolean(pdfUrl),
+    });
+  }
+  return results.length ? ok(provider, kind, results, got.latencyMs, 0) : empty(provider, kind, got.latencyMs);
+}
+
+// ── Academic: Semantic Scholar (citation-aware scholarly index) ─────────────
+
+export async function semanticScholarSearch(query: string, limit: number): Promise<ConnectorOutcome> {
+  const provider = "semantic-scholar";
+  const kind: ConnectorKind = "academic";
+  const max = Math.min(Math.max(limit, 1), 25);
+  const fields = "title,abstract,url,year,venue,authors,externalIds,openAccessPdf,references.title,references.externalIds";
+  const url =
+    `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}` +
+    `&limit=${max}&fields=${fields}`;
+  const got = await getJson(url, provider, kind);
+  if (!got.ok) return { results: [], diagnostic: got.diagnostic };
+  const rows = (got.payload as { data?: unknown[] })?.data;
+  if (!Array.isArray(rows) || rows.length === 0) return empty(provider, kind, got.latencyMs);
+  const results: WebSearchResult[] = [];
+  for (const row of rows) {
+    if (results.length >= limit) break;
+    const r = row as Record<string, unknown>;
+    const ids = (r.externalIds ?? {}) as Record<string, unknown>;
+    const doi = typeof ids.DOI === "string" ? ids.DOI : "";
+    const url2 = doi ? `https://doi.org/${doi}` : String(r.url ?? "").trim();
+    if (!url2) continue;
+    const oaPdf = (r.openAccessPdf ?? {}) as Record<string, unknown>;
+    const pdfUrl = typeof oaPdf.url === "string" ? oaPdf.url : null;
+    const refs = Array.isArray(r.references)
+      ? (r.references as Array<Record<string, unknown>>)
+          .filter((ref) => typeof ref.title === "string")
+          .slice(0, 50)
+          .map((ref) => ({
+            title: String(ref.title),
+            doi: typeof (ref.externalIds as Record<string, unknown> | undefined)?.DOI === "string"
+              ? String((ref.externalIds as Record<string, unknown>).DOI)
+              : null,
+          }))
+      : [];
+    results.push({
+      title: String(r.title ?? "").trim() || "Untitled work",
+      url: url2,
+      snippet: String(r.abstract ?? "").slice(0, 500),
+      publishedAt: r.year ? String(r.year) : null,
+      pdfUrl,
+      isOpenAccess: Boolean(oaPdf.isOpenAccess) || Boolean(pdfUrl),
+      references: refs,
     });
   }
   return results.length ? ok(provider, kind, results, got.latencyMs, 0) : empty(provider, kind, got.latencyMs);
@@ -263,19 +316,51 @@ export async function commonsSearch(query: string, limit: number, kind: "image" 
  * results wins; a connector failure falls through to the next; every attempt is
  * recorded. Returns at least one diagnostic (never an empty list).
  */
+function academicKey(result: WebSearchResult): string {
+  const doi = result.url.match(/10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+/i);
+  if (doi) return `doi:${doi[0].toLowerCase().replace(/\.$/, "")}`;
+  return `title:${result.title.toLowerCase().replace(/[^a-z0-9]+/g, "")}`;
+}
+
+/** Academic results are merged across providers, not first-wins. */
+async function runAcademicConnectors(
+  query: string,
+  limit: number
+): Promise<{ results: WebSearchResult[]; diagnostics: RetrievalDiagnostic[]; provider: string | null }> {
+  const connectors = [openAlexSearch, semanticScholarSearch, crossrefSearch];
+  const settled = await Promise.allSettled(connectors.map((fn) => fn(query, limit)));
+  const diagnostics: RetrievalDiagnostic[] = [];
+  const byKey = new Map<string, WebSearchResult>();
+  const providers = new Set<string>();
+  for (const outcome of settled) {
+    if (outcome.status !== "fulfilled") continue;
+    diagnostics.push(outcome.value.diagnostic);
+    if (outcome.value.results.length > 0) providers.add(outcome.value.diagnostic.provider);
+    for (const result of outcome.value.results) {
+      const key = academicKey(result);
+      if (!byKey.has(key)) byKey.set(key, result);
+    }
+  }
+  const results = [...byKey.values()].slice(0, Math.max(limit, 1) * 2);
+  return {
+    results,
+    diagnostics: diagnostics.length ? diagnostics : [],
+    provider: providers.size ? [...providers].join("+") : null,
+  };
+}
+
 export async function runConnectors(
   kind: ConnectorKind,
   query: string,
   limit: number
 ): Promise<{ results: WebSearchResult[]; diagnostics: RetrievalDiagnostic[]; provider: string | null }> {
+  if (kind === "academic") return runAcademicConnectors(query, limit);
   const chain: Array<(q: string, l: number) => Promise<ConnectorOutcome>> =
-    kind === "academic"
-      ? [openAlexSearch, crossrefSearch]
-      : kind === "news"
-        ? [gdeltSearch]
-        : kind === "image"
-          ? [openverseSearch, (q, l) => commonsSearch(q, l, "image")]
-          : [(q, l) => commonsSearch(q, l, "video"), (q, l) => commonsSearch(q, l, "image")];
+    kind === "news"
+      ? [gdeltSearch]
+      : kind === "image"
+        ? [openverseSearch, (q, l) => commonsSearch(q, l, "image")]
+        : [(q, l) => commonsSearch(q, l, "video"), (q, l) => commonsSearch(q, l, "image")];
 
   const diagnostics: RetrievalDiagnostic[] = [];
   for (const connector of chain) {

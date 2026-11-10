@@ -24,6 +24,12 @@ export interface WebSearchResult {
   url: string;
   snippet: string;
   publishedAt?: string | null;
+  /** A direct open-access PDF when the provider discloses one. */
+  pdfUrl?: string | null;
+  /** True when the provider marks the work as open access. */
+  isOpenAccess?: boolean;
+  /** Reference pointers disclosed by the provider (title + DOI). */
+  references?: Array<{ title: string; doi?: string | null }>;
 }
 
 export interface SearchAttempt {
