@@ -218,6 +218,44 @@ def draw_mark(ax: Any, mark: ChartMark, theme: ChartTheme, index: int, panel: Ch
                 pass
         return
 
+    if mark.type == "scatter3d":
+        if not hasattr(ax, "scatter3d"):
+            return
+        try:
+            import numpy as np  # noqa: PLC0415
+        except Exception:  # noqa: BLE001 - a missing numpy only loses the PNG copy
+            return
+        xs = [float(v) if v is not None else float("nan") for v in mark.x]
+        ys = [float(v) if v is not None else float("nan") for v in mark.y]
+        zs = [float(v) if v is not None else float("nan") for v in mark.z]
+        count = min(len(xs), len(ys), len(zs))
+        if count == 0:
+            return
+        ax.scatter3D(
+            np.asarray(xs[:count]), np.asarray(ys[:count]), np.asarray(zs[:count]),
+            color=color, alpha=alpha, label=mark.name, depthshade=True,
+        )
+        return
+
+    if mark.type == "surface":
+        if not hasattr(ax, "plot_surface"):
+            return
+        try:
+            import numpy as np  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            return
+        matrix = [[float(v) for v in row] for row in (mark.matrix or []) if row]
+        if len(matrix) < 2 or len(matrix[0]) < 2:
+            return
+        rows = min(len(matrix), len(mark.y) or len(matrix))
+        cols = min(len(matrix[0]), len(mark.x) or len(matrix[0]))
+        z = np.asarray([row[:cols] for row in matrix[:rows]])
+        xs = np.asarray([float(v) for v in mark.x[:cols]]) if mark.x else np.arange(cols)
+        ys = np.asarray([float(v) for v in mark.y[:rows]]) if mark.y else np.arange(rows)
+        grid_x, grid_y = np.meshgrid(xs, ys)
+        ax.plot_surface(grid_x, grid_y, z, cmap="viridis", alpha=alpha, label=mark.name)
+        return
+
     if mark.type == "histogram":
         values = _values(mark)
         if not values:

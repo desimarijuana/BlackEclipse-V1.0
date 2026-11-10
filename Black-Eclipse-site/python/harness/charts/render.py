@@ -650,7 +650,15 @@ def _render_scene(spec: ChartSpec, theme: ChartTheme, plt: Any) -> bytes:
 
     figure = plt.figure(figsize=(spec.width / DRAW_DPI, spec.height / DRAW_DPI), dpi=DRAW_DPI)
     grid = figure.add_gridspec(count, 1, height_ratios=ratios, hspace=0.34)
-    axes = [figure.add_subplot(grid[i]) for i in range(count)]
+    # A panel that carries a 3D mark gets a real 3D axes, so the PNG copy is
+    # not a blank pair of flat axes under the live Plotly scene.
+    axes = []
+    for index, panel in enumerate(panels):
+        is_3d = any(mark.type in ("scatter3d", "surface") for mark in panel.marks)
+        axes.append(
+            figure.add_subplot(grid[index], projection="3d") if is_3d
+            else figure.add_subplot(grid[index])
+        )
 
     for panel, ax in zip(panels, axes):
         setattr(ax, "_eclipse_theme", theme)
