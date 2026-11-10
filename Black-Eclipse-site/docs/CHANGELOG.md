@@ -1,6 +1,11 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(eval): the published-baseline pin test follows the newest pin.**
+  `test_live_baseline` still expected `task_success 0.9574` after the live lane
+  was re-pinned to `live:27c280164943e63520e14422a6c953cf` (0.9748), so the full
+  Python suite was red. Updated the expectation and its comment. Test-only; no
+  behaviour change. Docs updated: `docs/CHANGELOG.md`.
 - **ops: local alert escalation, soak evidence and a runnable IR control.** The
   Windows health wrapper now shows a desktop notification
   (`scripts/alert-desktop.ps1`), keeps an `ALERT-ACTIVE.txt` marker until the
