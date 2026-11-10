@@ -329,15 +329,29 @@ database. Never commit a backup; `jdds.db` and `.env` stay out of git.
     -AlertWebhookUrl https://hooks.slack.com/services/...
   ```
 
-  Without `-AlertWebhookUrl` the check writes to the log and the task's Last
-  Result only — a local check, not a human alert. The task runs interactively
-  (while the user is signed in); use the systemd/Prometheus path for a server.
+  Without `-AlertWebhookUrl` no remote human is paged, but a failure is not
+  silent: the wrapper shows a desktop notification to the signed-in operator
+  (`scripts/alert-desktop.ps1`), keeps an `ALERT-ACTIVE.txt` marker until the
+  next healthy run, and exits non-zero so the task's Last Result is red. That is
+  local evidence, not an off-machine page — set the webhook before relying on it
+  while nobody is at the machine. The task runs interactively (while the user is
+  signed in); use the systemd/Prometheus path for a server.
+
+- **Soak evidence:** `scripts/soak-report.ps1` turns the health log into the
+  exit-gate evidence — samples, failures, uptime, coverage gaps > 10 minutes and
+  the alert marker. It exits non-zero while the window is incomplete or any
+  failure/gap is recorded:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts/soak-report.ps1 -Days 7
+  ```
 
 ## Incident response
 
 | Incident | First action | Channel |
 |---|---|---|
 | Security vulnerability | Keep details out of public issues | GitHub **Security › Advisories › Report a vulnerability** (SECURITY.md) |
+| Credential / session leak | Revoke sessions with `node scripts/revoke-sessions.js --disable-user <name>` (or no flag for all), rotate `HARNESS_AUTH_SECRET`, keep the logs and the auth DB copy as evidence | On-call channel |
 | Outage / unhealthy app | Check `/observability/health` and `journalctl -u blackeclipse` / `docker compose logs app`; roll back with `git checkout <previous tag> && bash scripts/deploy.sh --force` | The operator's on-call channel wired into Alertmanager |
 | Data loss / corruption | Stop the app, restore the latest verified archive (see **Backups & restore**) | On-call channel |
 | Red weekly drift run | Triage before the next release; do not tag past a red run | `@BlackEclipse/maintainers` (CODEOWNERS) |

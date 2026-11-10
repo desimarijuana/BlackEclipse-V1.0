@@ -9,10 +9,12 @@ last-verified: 2026-11-09
 **Who this is for:** whoever is deciding whether BlackEclipse can serve real
 users, and whoever has to make that true.
 
-**This document is a plan, not a sign-off.** The release is still
-`v0.2.1-rc.1`, and `docs/releases/v0.2.1-rc.1.md` says plainly: *release
-candidate, NOT production*. The baseline below was measured on the working tree
-on 2026-11-08, not recalled.
+**This document is a plan, not a sign-off.** The current source release is
+`v0.3.2` for a single-operator, self-hosted install; the live quality gate
+passes at `task_success 0.9748` with `hallucination 0.0`. The open items are the
+time-based 7-day soak and the external inputs only a person can supply (a real
+alert webhook, counsel, a second reviewer). The baseline below was measured on
+the working tree on 2026-11-08, not recalled.
 
 > **Rule for this roadmap:** a phase is done only when its **exit gate** passes
 > with evidence that can be re-run. "It works on my machine" is not evidence,
@@ -22,20 +24,22 @@ on 2026-11-08, not recalled.
 
 ## 0. The one-screen answer
 
-The functional core is healthy; the blockers are **release hygiene, one red
-gate, deployment configuration, and an unresolved quality bar**.
+The functional core is healthy and the v0.3.2 source release ships; the open
+items are the time-based soak and the external inputs a person must supply.
 
 | # | Blocker | Current evidence |
 |---|---|---|
-| R1 | The live agent gate fails | `task_success = 0.8520 < 0.9` (`python/harness/evaluation/scoring.py:265`; `docs/harness/benchmarks.md` → `gate: FAIL`) |
-| R2 | The tree is not a release | branch `feat/graph-quant-packs`, **24 ahead / 3 behind `origin/main`**, 13 modified + 15 untracked files, HEAD untagged |
-| R3 | Lint gate is red | `npx eslint .` → 3 errors (`folder-picker.tsx:283`, `desktop-launcher.test.ts:36,37`) |
-| R4 | Production secrets are incomplete | `.env` lacks `HARNESS_AUTH_SECRET`, a provider key, `CONNECTOR_SECRET_KEY`; preflight only passes as *advisory* on loopback |
-| R5 | The container path is unverified | Docker is not installed on the current machine; no build/smoke evidence |
-| R6 | No second pair of eyes | `CODEOWNERS` names `@BlackEclipse/maintainers`, which does not exist; zero external reviews |
+| R1 | ~~The live agent gate fails~~ **closed** | `task_success 0.9748`, `hallucination 0.0`, `citation 1.0`, `financial 0.9963`; gate **PASS** (`docs/harness/benchmarks.md`) |
+| R2 | ~~The tree is not a release~~ **closed** | `v0.3.2` on `main` (`e2f2e650`), annotated tag pushed; clean of tracked changes |
+| R3 | ~~Lint gate is red~~ **closed** | `npx eslint .` → 0 errors (warnings only) |
+| R4 | Production secrets are incomplete | `.env` has `HARNESS_AUTH`; a provider key and `CONNECTOR_SECRET_KEY` remain operator inputs |
+| R5 | The container path is unverified | Docker is excluded by decision; compose files ship unverified |
+| R6 | No second pair of eyes | `CODEOWNERS` names `@BlackEclipse/maintainers`; zero external reviews |
+| R7 | No off-machine alert | The health task escalates locally (desktop + marker + non-zero); `ALERT_WEBHOOK_URL` is still unset |
+| R8 | The 7-day soak is incomplete | `scripts/soak-report.ps1`: 100% uptime so far, window incomplete (started 2026-11-09) |
 
-R1–R5 are engineering work. R6 and the legal register are not; they need a
-person and (for hosted use) counsel. See §5.
+R4 and R5 are operator inputs; R6 and the legal register need a person and
+counsel; R7 and R8 are the operations exit gate. See §5.
 
 > **Open-source release scope (v0.3.0, ADR-071).** v0.3.0 ships as **source for a
 > single-operator, self-hosted install**, not a hosted service. For that artifact
@@ -303,3 +307,6 @@ below. Do not mark a phase done because the code side is finished.
 | 2026-11-09 | Phase 4 drill | **PASS** | Rollback artifact: `v0.3.0` checked out into an isolated worktree → `npm ci` → `prisma generate` → build (180 s) → `/login` **200** on `:3005` in 2 s → stopped; worktree removed. Update path is the live `v0.3.1` instance. Remaining: 7-day soak + a real alert webhook. |
 | 2026-11-09 | Phase 4 | **soak started (Windows)** | App on `:3100` healthy (`/login` 200); `health-watch.sh` PASS; daily Task Scheduler backup installed at 03:15 (`BlackEclipse Backup`, wrapper `%LOCALAPPDATA%\BlackEclipse\backup-task.cmd`, first full snapshot running); backup→restore already proven (337 MB, 3/3 integrity). Linux systemd path documented. Update/rollback drill pending. Exit gate: 7 days, every alert reaching a named human. |
 | 2026-11-09 | P5 | **scaffolding done; exit gate open (time-based)** | Backups: `scripts/backup.sh` (SQLite backup API + `PRAGMA integrity_check`, retention) and `scripts/install-backup-timer.sh` (daily systemd timer). Monitoring: `scripts/health-watch.sh` (webhook alert, honest stderr-only fallback) and `deploy/prometheus/blackeclipse.rules.yml` (app down, health probe; runtime-metric templates). Incident path: SECURITY.md advisories + the operator's Alertmanager/on-call route, owner `@BlackEclipse/maintainers`. Drift cadence: `.github/workflows/ops-drift.yml` weekly (drift smokes, ADR, size, secrets). Updates: systemd timer and `deploy.yml` documented and unchanged. Open: the exit gate itself — one full week of a live instance with no silent failure and every alert reaching a named human. |
+| 2026-11-09 | P5 drill | **PASS (S1 session leak)** | Isolated production-posture instance (`HARNESS_AUTH=required`, temp `HARNESS_AUTH_DB`/`BE_DATA_DIR`, `:3101`): unauth API **401**; setup + login issued a session; the same cookie authenticated; `node scripts/revoke-sessions.js --disable-user` revoked it and disabled the user; the same cookie then read `authenticated:false` and the protected API **401**; re-login **401**. Added the runnable containment tool; recorded in `docs/legal/INCIDENT-RESPONSE.md`. |
+| 2026-11-09 | Phase 4 hardening | **done** | Health failures now escalate locally without a webhook: the Windows wrapper shows a desktop notification (`scripts/alert-desktop.ps1`), keeps `ALERT-ACTIVE.txt` until healthy and exits non-zero (task Last Result red). Added `scripts/soak-report.ps1` to turn `health.log` into the soak exit-gate evidence (samples, failures, uptime, gaps, marker); first checkpoint: 6/6 healthy, 100% uptime, **INCOMPLETE** (0.3 h of 7 days). Open: an off-machine `ALERT_WEBHOOK_URL`. |
+| 2026-11-09 | Release | **v0.3.2 tagged** | `e2f2e650`, annotated tag pushed with `main`; version bumped in `package.json` + the two project-version fields of `package-lock.json`; release note `docs/releases/v0.3.2.md`. Tagged gates: `tsc`, eslint 0 errors, secret scan, preflight, ADR check, size budget, published-benchmark guard 3/3. |

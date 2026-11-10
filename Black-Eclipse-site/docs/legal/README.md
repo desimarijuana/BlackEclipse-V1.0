@@ -66,7 +66,7 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 | [Trademark & Brand Policy](./TRADEMARK-POLICY.md) | Draft | Founder | Protect the name while keeping code open |
 | [Cookie / Tracking Notice](./COOKIE-NOTICE.md) | Draft | Founder | Only if a hosted deployment uses tracking |
 | [Subprocessor List](./SUBPROCESSORS.md) | Draft | Founder | Complete before a hosted launch; keep current |
-| [Incident Response Policy](./INCIDENT-RESPONSE.md) | Draft | Founder/security | Tabletop exercise still open |
+| [Incident Response Policy](./INCIDENT-RESPONSE.md) | Draft | Founder/security | S1 session-leak drill run 2026-11-09; counsel review open |
 | [Complaints & Dispute Policy](./COMPLAINTS.md) | Draft | Founder | Real channel + response targets required |
 | [Records Retention Policy](./RECORDS-RETENTION.md) | Draft | Founder | Per data class, legal hold |
 | [Regulatory Status Statement](./REGULATORY-STATUS.md) | Draft | Founder + counsel | "What we are / are not"; per market |

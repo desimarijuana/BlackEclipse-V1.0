@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-09
+- **ops: local alert escalation, soak evidence and a runnable IR control.** The
+  Windows health wrapper now shows a desktop notification
+  (`scripts/alert-desktop.ps1`), keeps an `ALERT-ACTIVE.txt` marker until the
+  next healthy run and exits non-zero (task Last Result red) when no webhook is
+  configured; `scripts/soak-report.ps1` turns `health.log` into the soak
+  exit-gate evidence (samples, failures, uptime, coverage gaps, marker). Added
+  `scripts/revoke-sessions.js` (`--list`, `--user`, `--disable-user`, `--db`) so
+  the incident-response "revoke sessions" step has a command, and ran the S1
+  session-leak drill against an isolated production-posture instance
+  (unauth 401 -> login -> revoke -> the same cookie 401; re-login as the
+  disabled user 401), recorded in `docs/legal/INCIDENT-RESPONSE.md`. Docs
+  updated: `docs/DEPLOYMENT.md`, `docs/legal/INCIDENT-RESPONSE.md`,
+  `docs/legal/README.md`, `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 - **release: cut `v0.3.2`.** Version bump (`package.json`, project version in
   `package-lock.json`) and a release note capturing the measured live gate
   (`task_success 0.9748`, hallucination 0.0, citation 1.0, financial 0.9963),

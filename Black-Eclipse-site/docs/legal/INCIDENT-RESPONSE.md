@@ -38,13 +38,61 @@ last-verified: 2026-11-09
 Keep the audit log, the affected run ids, the backup taken before recovery, and
 the timeline. A legal hold suspends deletion.
 
+## Runnable controls
+
+Each containment step has a command, not only prose:
+
+| Step | Command | What it proves |
+|---|---|---|
+| Revoke one user | `node scripts/revoke-sessions.js --disable-user <name>` | the session rows are deleted and the user is disabled |
+| Revoke every session | `node scripts/revoke-sessions.js` | all cookies stop resolving on the next request |
+| List accounts/sessions | `node scripts/revoke-sessions.js --list` | who exists, who is disabled, how many live sessions |
+| Rotate the signing key | change `HARNESS_AUTH_SECRET`, restart | every token not in the DB also stops verifying |
+| Check a leaked instance is still up | `bash scripts/health-watch.sh` | the alert path fires |
+| Disarm trading | the product's kill switch / operator disarm | no new live order is accepted |
+
+`revoke-sessions.js` takes `--db`, then `HARNESS_AUTH_DB`, then
+`.black-eclipse/auth.db`. Deleting a row takes effect on the next request; the
+app does not need a restart for it.
+
 ## Disclosure
 
 A security vulnerability is reported per `SECURITY.md`; a personal-data breach
 follows `PRIVACY-NOTICE.md` and the DPA. Public statements are factual and
 approved by the owner.
 
-## Test
+## Drill record
 
-Before hosted launch: one tabletop (S1 credential leak) and one restore drill.
-Record the date and the gaps found.
+**2026-11-09 — S1 "leaked session" tabletop + live containment drill.** Ran
+against an isolated production-posture instance (`HARNESS_AUTH=required`, a
+generated ≥32-char `HARNESS_AUTH_SECRET`, a temporary `HARNESS_AUTH_DB` and
+`BE_DATA_DIR`, port 3101), so the running soak instance was not touched.
+
+| Step | Result |
+|---|---|
+| Unauthenticated `GET /api/alerts` | **401** |
+| First-run setup + login | **200**, session cookie issued |
+| `GET /api/auth/me` with the session | `authenticated: true`, user named |
+| `node scripts/revoke-sessions.js --disable-user irdrill` | 1 session revoked, user disabled |
+| Same cookie, `GET /api/auth/me` | `authenticated: false` |
+| Same cookie, `GET /api/alerts` | **401** |
+| Login again as the disabled user | **401** |
+| No cookie, `GET /api/alerts` | **401** |
+
+Gaps found and handled:
+
+- The plan said "revoke sessions" but had no command. Added
+  `scripts/revoke-sessions.js` (`--list`, `--user`, `--disable-user`, `--db`).
+- A health failure with no webhook reached nobody. The Windows wrapper now shows
+  a desktop notification, keeps an `ALERT-ACTIVE.txt` marker and exits non-zero;
+  that is local evidence, not a pager, so `ALERT_WEBHOOK_URL` is still the
+  off-machine gate.
+- `eventcreate` cannot write a new source without elevation, so it was dropped
+  in favour of the desktop notification.
+- A protected route in a brand-new data dir returns 500 (no market DB); the
+  auth gate still answers 401 before the handler runs, which is why the drill
+  reads `/api/auth/me` for identity.
+
+Not exercised: trading disarm (no live broker in the drill), the 72-hour
+regulator notification (no real entity), and a restored backup after an actual
+breach (the restore drill already passes separately).

@@ -9,8 +9,9 @@
 #     scripts/health-watch.sh
 #
 # Exit 0 = healthy. Exit 1 = unhealthy (and, with a webhook, alerted).
-# No webhook is a WARN on stderr only: the repo cannot choose a person's
-# channel for them, and a silent local check is not an alert.
+# No webhook is a WARN on stderr only: the repo cannot choose a person's channel
+# for them. The Windows health-task wrapper turns this exit code into a desktop
+# notification; on Linux, wire this script to your alertmanager/on-call route.
 set -euo pipefail
 
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/login}"
@@ -35,7 +36,7 @@ MESSAGE="BlackEclipse is unhealthy on ${ALERT_SOURCE}: ${HEALTH_URL} -> ${CODE:-
 echo "ALERT: $MESSAGE" >&2
 
 if [ -z "$ALERT_WEBHOOK_URL" ]; then
-  echo "no ALERT_WEBHOOK_URL set; alert printed to stderr only" >&2
+  echo "no ALERT_WEBHOOK_URL set; the local wrapper (if any) owns the human alert" >&2
   exit 1
 fi
 
