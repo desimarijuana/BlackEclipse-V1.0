@@ -23,7 +23,7 @@ from typing import Any, Iterable, Literal, Optional
 QuantTier = Literal["none", "light", "standard", "deep"]
 QuantKind = Literal[
     "lookup", "analysis", "forecast", "strategy", "model",
-    "financial_model", "factor", "risk", "trade",
+    "financial_model", "factor", "risk", "trade", "discovery",
 ]
 Confidence = Literal["certain", "likely", "unsure"]
 
@@ -85,6 +85,19 @@ _DEEP_TERMS = (
     "cross validation", "overfitting", "parameter stability", "paper trade",
     "live test", "promote", "validate the strategy", "validate the model",
     "optimize", "optimise", "parameter sweep", "sensitivity",
+)
+
+# Discovery is the core of quant mode: the user wants METHODS, not a one-off
+# number and not necessarily a fully specified strategy. These phrases route to
+# the method library / structure scan / hypothesis / mining protocol.
+_DISCOVERY_TERMS = (
+    "what methods", "which methods", "methods can i", "methods should i",
+    "find a method", "find methods", "discover", "discovery", "invent",
+    "new method", "new strategy", "trading ideas", "strategy ideas",
+    "what works", "what should i trade", "setups", "set up now",
+    "screen for", "scan for", "scan the market", "mine", "mining",
+    "research ideas", "alpha ideas", "edge ideas", "generate ideas",
+    "what strategies", "which strategies", "strategy library",
 )
 
 _PREDICTION_PHRASES = (
@@ -210,6 +223,8 @@ def _prior_quant_intent(history: Optional[list[Any]]) -> Optional["QuantIntent"]
 
 
 def _kind(text: str, *, build: bool) -> QuantKind:
+    if any(_has(text, k) for k in _DISCOVERY_TERMS):
+        return "discovery"
     if any(_has(text, k) for k in (
         "dcf", "lbo", "three-statement", "three statement", "comps",
         "valuation model", "financial model",
@@ -241,10 +256,11 @@ def _kind(text: str, *, build: bool) -> QuantKind:
 
 def _missing(text: str, kind: QuantKind) -> tuple[str, ...]:
     missing: list[str] = []
-    if kind in ("forecast", "model", "strategy", "factor", "risk") and not _first(
+    if kind in ("forecast", "model", "strategy", "factor", "risk", "discovery") and not _first(
         text, _ASSET_TERMS
     ):
-        missing.append("instrument or universe")
+        missing.append("instrument or asset class" if kind == "discovery"
+                       else "instrument or universe")
     if kind in ("forecast", "strategy") and not _first(text, _HORIZON_TERMS):
         missing.append("horizon")
     return tuple(missing)
@@ -333,12 +349,13 @@ def classify_quant_intent(
                 missing=prior.missing,
             )
 
+    discovery_hit = any(_has(text, k) for k in _DISCOVERY_TERMS)
     signals = tuple(
         name for name, value in (
             ("build", build), ("model", model), ("strong", strong), ("deep", deep),
             ("metric", metric), ("analysis", analysis), ("asset", asset),
             ("horizon", horizon), ("prediction", prediction), ("lookup", lookup),
-            ("explain", explain), ("reuse", reuse),
+            ("explain", explain), ("reuse", reuse), ("discovery", discovery_hit),
         ) if value
     )
 
@@ -385,6 +402,22 @@ def classify_quant_intent(
             tier="deep" if _has(text, "backtest") or deep else "standard",
             kind=kind, confidence="likely", signals=signals,
             reasons=("reuse/catalog request",),
+        )
+
+    # Discovery: the user wants methods, ideas or setups — the core of quant
+    # mode. This is deliberately before the generic build/model branches so
+    # "find me a strategy" reaches the method library rather than only the spec
+    # synthesizer.
+    if discovery_hit:
+        deep_discovery = any(_has(text, k) for k in (
+            "mine", "mining", "invent", "discover", "discovery", "new method",
+            "new strategy", "combinations", "scan the market", "screen for",
+        ))
+        return QuantIntent(
+            tier="deep" if (deep_discovery or build or deep) else "standard",
+            kind="discovery", confidence="likely", signals=signals,
+            reasons=("method discovery request",),
+            missing=_missing(text, "discovery"),
         )
 
     # An explicit "act as a quant" / "use quantitative methods" is a standing
@@ -500,7 +533,28 @@ def quant_intent_block(
         "deliver an artifact. Do not stop at commentary.",
     ]
 
-    if intent.kind == "financial_model":
+    if intent.kind == "discovery":
+        lines.append(
+            "This is a METHOD DISCOVERY turn. The user wants quantitative methods "
+            "they can understand and trade, and potentially new ones. Work in this "
+            "order:\n"
+            "   a. check the method library (`list_method_families`) and recommend "
+            "by asset, horizon, risk, data and regime (`recommend_methods`);\n"
+            "   b. scan the actual series (`scan_market_structure`) and explain what "
+            "the data looks like before proposing anything;\n"
+            "   c. turn the structure into falsifiable hypotheses "
+            "(`generate_method_hypotheses`) — statement, test, acceptance rule, "
+            "invalidation;\n"
+            "   d. synthesize a valid spec (`synthesize_method_strategy`) or compose "
+            "two methods (`combine_methods`) for something new;\n"
+            "   e. run a bounded search (`mine_methods`) with a real trial count and "
+            "IS/OOS evidence, then the normal validation suite;\n"
+            "   f. tell the user, in plain language, HOW to trade it: entry, exit, "
+            "sizing, regime, what would invalidate it, and what is still unproven.\n"
+            "Never present a method card, a recommendation or a mined candidate as "
+            "a validated edge. Discovery produces candidates; evidence promotes them."
+        )
+    elif intent.kind == "financial_model":
         lines.append(
             "Build the financial model with the modelling tools and audit its "
             "inputs; a valuation is an estimate, never a reported fact."
@@ -532,6 +586,47 @@ def quant_intent_block(
             "level, horizon and method."
         )
 
+    lines.extend([
+        "",
+        "## Visual contract (figure-first)",
+        "The reader should SEE the result before reading the numbers. When the run",
+        "produces a time series or a distribution, lead with the figure that answers",
+        "the question and then interpret it in prose.",
+    ])
+    if _has_tool(available, "render_quant_figures"):
+        lines.append(
+            "- Use `render_quant_figures` with the experiment id. Embed the returned "
+            "`chart` blocks VERBATIM inside the one `eclipse-response` document; do "
+            "not retype their data and do not describe the chart in prose only."
+        )
+    else:
+        lines.append(
+            "- Emit a `chart` block (or use `python_chart` when bound) and embed it "
+            "in the answer; do not describe the chart in prose only."
+        )
+    lines.extend([
+        "- Figure budget: light = 0-1 (a single metric is a metric tile, not a",
+        "  chart); standard = 1 headline + up to 2 supporting; deep = 1 headline +",
+        "  up to 5 supporting, including at least one validation figure and one risk",
+        "  figure.",
+        "- Which figure: performance -> equity + underwater + monthly returns;",
+        "  costs -> cost waterfall; concentration -> trade distribution + trades vs",
+        "  holding time; risk -> exposure + rolling risk; robustness -> Monte-Carlo,",
+        "  regime attribution, parameter surface; validation -> walk-forward.",
+        "- A research figure needs its own source experiment: pass",
+        "  `monteCarloExperimentId` (Monte-Carlo/regime),",
+        "  `optimizationExperimentId` (parameter surface), or",
+        "  `walkForwardExperimentId` (walk-forward). Never point a figure at an",
+        "  artifact that does not contain it.",
+        "- 3D is a diagnostic, not decoration. Use the parameter surface only when",
+        "  two parameters genuinely vary; never use 3D for a time series, a",
+        "  composition, or a third dimension the data does not measure. When the",
+        "  grid is incomplete the tool falls back to a 3D point cloud and says so.",
+        "- A figure that cannot be computed is an honest `unavailable` with a reason.",
+        "  Never draw a decorative chart, never invent a series, and never present a",
+        "  figure as evidence: every figure is computed by Eclipse.",
+    ])
+
     if intent.tier == "light":
         lines.extend([
             "",
@@ -540,6 +635,8 @@ def quant_intent_block(
             "2. Compute with the tool (never in prose); show formula, inputs, seed",
             "   and result.",
             "3. Label the result as computed by Eclipse, not as data from a source.",
+            "4. If there is a series or distribution, show the one figure that makes",
+            "   it legible; a lone metric stays a number, not a chart.",
         ])
     else:
         lines.extend([
@@ -734,11 +831,28 @@ _COST_TERMS = (
     "impact cost",
 )
 _COMPUTE_PREFIXES = (
-    "analysis_run", "run_", "plot_", "calculate_", "compute_", "ml_", "stats_",
-    "factor_", "python_chart", "portfolio_", "price_option", "implied_volatility",
-    "build_", "create_strategy", "compile_", "generate_", "simulate_",
-    "model_catalog",
+    "analysis_run", "run_", "plot_", "render_", "calculate_", "compute_", "ml_",
+    "stats_", "factor_", "python_chart", "portfolio_", "price_option",
+    "implied_volatility", "build_", "create_strategy", "compile_", "generate_",
+    "simulate_", "model_catalog",
 )
+#: Tools that produce a series or distribution worth drawing. The figure check
+#: only applies when one of these ran, so "explain the Sharpe ratio" in quant
+#: mode is never forced to render a chart.
+_SERIES_TOOLS = frozenset({
+    "run_backtest", "run_event_driven_backtest", "run_portfolio_backtest",
+    "run_python_strategy", "run_walk_forward", "run_monte_carlo",
+    "run_regime_monte_carlo", "optimize_parameters", "run_sensitivity_analysis",
+    "run_robustness_analysis", "plot_equity_curve", "plot_drawdown",
+})
+
+#: A rendered chart block, or a tool that explicitly draws one. Prose that
+#: merely contains the word "chart" does not count.
+_FIGURE_MARKER = re.compile(
+    r'"(?:chartType|type)"\s*:\s*"(?:chart|auto)"|"quant"\s*:\s*\{',
+    re.IGNORECASE,
+)
+
 _VALIDATION_TOOLS = frozenset({
     "run_backtest", "run_portfolio_backtest", "run_walk_forward",
     "run_robustness_analysis", "run_out_of_sample_test", "run_bootstrap_test",
@@ -780,6 +894,15 @@ def evaluate_quant_outcome(
     if not text.strip():
         missing.append("a final answer")
 
+    # A run that produced a series should have DRAWN one. This is deliberately
+    # narrower than "every quantitative turn needs a chart": a one-number answer
+    # or a concept explanation is complete without a figure.
+    plotted = bool(_FIGURE_MARKER.search(text)) or bool(
+        tools & {"python_chart", "render_quant_figures"}
+    )
+    if tier in ("standard", "deep") and (tools & _SERIES_TOOLS) and not plotted:
+        missing.append("a computed figure")
+
     if tier in ("standard", "deep"):
         if not artifacts and not any(
             term in lowered for term in ("artifact", "chart", "report", "experiment")
@@ -798,6 +921,7 @@ def evaluate_quant_outcome(
         "kind": kind,
         "complete": not missing,
         "artifacts": artifacts,
+        "figures": plotted,
         "toolCalls": sorted(tools)[:40],
         "missing": missing,
     }

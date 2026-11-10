@@ -94,6 +94,14 @@ CASES: tuple[QuantCase, ...] = (
     QuantCase("close my XAUUSD position", "none", "trade", note="execution"),
     QuantCase("forecast gold for tomorrow", "none", mode="off", note="override off"),
     QuantCase("look at gold", "standard", mode="on", note="override on"),
+    # Discovery: methods, ideation, mining and current setups.
+    QuantCase("what methods can I use to trade gold", "standard", "discovery"),
+    QuantCase("which strategies work on EURUSD", "standard", "discovery"),
+    QuantCase("show me the strategy library", "standard", "discovery"),
+    QuantCase("find and invent new quantitative trading methods", "deep", "discovery"),
+    QuantCase("mine methods for gold", "deep", "discovery"),
+    QuantCase("scan the market for setups on EURUSD", "deep", "discovery"),
+    QuantCase("what should I trade today", "standard", "discovery"),
 )
 
 

@@ -207,6 +207,22 @@ SEARCH_TOOLS = [
     "search_admin",
 ]
 
+#: Large-corpus source tools. Registered by `sources/bootstrap.py` on the SAME
+#: registry. All read-only against the user's files: they open a bounded card,
+#: read a window, search by routing (metadata/FTS/DuckDB/bounded scan) or run one
+#: validated read-only SQL statement. Adding a root is an operator-only action.
+SOURCE_TOOLS = [
+    "source_roots",
+    "source_list",
+    "source_open",
+    "source_read",
+    "source_lines",
+    "source_search",
+    "source_sql",
+    "source_index",
+    "source_stats",
+]
+
 
 WEB_RESEARCH_TOOLS = [
     "web_search",
@@ -543,6 +559,9 @@ ECLIPSE_AGENT = AgentConfig(
         # Unified Retrieval / Search Intelligence: semantic, keyword and hybrid
         # search over documents, research, memory, experiences and skills.
         *SEARCH_TOOLS,
+        # Large-corpus sources: open/search/query folders and drives in place,
+        # with bounded windows and a budgeted query router. Read-only.
+        *SOURCE_TOOLS,
         # Phase 8: the analysis sandbox (compute a derived metric). OFF per run
         # unless the caller enables it (`RunRequest.analysisEnabled`).
         "analysis_run",
@@ -870,9 +889,11 @@ CODE_AGENT_TOOLS = [
     # Evidence-Driven Web Research Engine â€” research a technical question,
     # compare sources, verify a claim. Read-only; untrusted content is data.
     *WEB_RESEARCH_TOOLS,
-    # Unified Retrieval / Search Intelligence â€” find evidence across documents,
+    # Unified Retrieval / Search Intelligence — find evidence across documents,
     # research, memory, experiences and skills.
     *SEARCH_TOOLS,
+    # Large-corpus sources — open, search and query folders/drives in place.
+    *SOURCE_TOOLS,
     # Analysis sandbox (Phase 8) â€” compute a derived metric in isolation.
     "analysis_run",
     # Scaffold kits (Phase 9) â€” build a finance tool from a ready-made shape.

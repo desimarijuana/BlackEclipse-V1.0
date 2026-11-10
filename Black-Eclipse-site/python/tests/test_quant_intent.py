@@ -130,6 +130,9 @@ def test_standard_block_has_the_research_steps() -> None:
     assert "out-of-sample" in block
     assert "Never invent a metric" in block
     assert "No guaranteed return" in block
+    assert "Visual contract (figure-first)" in block
+    assert "render_quant_figures" in block
+    assert "3D is a diagnostic" in block
 
 
 def test_deep_block_names_the_synthesis_ladder() -> None:
@@ -212,7 +215,8 @@ def test_quant_surface_keeps_data_compute_and_artifacts() -> None:
     allowed = {
         "get_historical_prices", "analysis_run", "run_backtest",
         "create_strategy", "market_get_quote", "broker_bars", "python_chart",
-        "eclipse_report", "clarify", "ui_get_application_map", "video_render",
+        "render_quant_figures", "eclipse_report", "clarify", "ui_get_application_map",
+        "video_render",
         "shell_run", "order_submit",
     }
     kept, resolution = apply_quant_surface(
@@ -223,6 +227,7 @@ def test_quant_surface_keeps_data_compute_and_artifacts() -> None:
     assert "run_backtest" in kept
     assert "broker_bars" in kept
     assert "python_chart" in kept
+    assert "render_quant_figures" in kept
     assert "ui_get_application_map" not in kept
     assert "video_render" not in kept
     assert "shell_run" not in kept
@@ -294,9 +299,26 @@ def test_quant_outcome_deep_requires_validation_and_costs() -> None:
     assert "out-of-sample evidence" in missing["missing"]
     assert "cost evidence" in missing["missing"]
 
-    complete = evaluate_quant_outcome(
+    missing_figure = evaluate_quant_outcome(
         plan, tools,
         "Experiment exp_abcd1234. Walk-forward out-of-sample Sharpe 1.2 after "
         "commission and slippage.",
     )
+    assert missing_figure is not None and not missing_figure["complete"]
+    assert "a computed figure" in missing_figure["missing"]
+
+    complete = evaluate_quant_outcome(
+        plan, tools,
+        'Experiment exp_abcd1234. Walk-forward out-of-sample Sharpe 1.2 after '
+        'commission and slippage. ```eclipse-response {"blocks":[{"type":"chart",'
+        '"chartType":"auto"}]}```',
+    )
     assert complete is not None and complete["complete"]
+    assert complete["figures"] is True
+
+
+def test_quant_outcome_does_not_force_a_figure_without_a_series() -> None:
+    plan = {"tier": "standard", "kind": "forecast"}
+    result = evaluate_quant_outcome(plan, ["analysis_run"], "Chart and experiment exp_abcd1234.")
+    assert result is not None and result["complete"]
+    assert result["figures"] is False

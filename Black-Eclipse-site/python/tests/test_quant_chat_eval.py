@@ -9,6 +9,8 @@ def test_a_complete_build_answer_passes() -> None:
     result = grade_answer(
         "build a gold momentum strategy",
         "Walk-forward out-of-sample Sharpe 1.2 after commission and slippage.\n\n"
+        '```eclipse-response {"blocks":[{"type":"chart","chartType":"auto",'
+        '"quant":{"experimentId":"exp_abcd1234","figure":"equity"}}]}```\n\n'
         "Artifacts: exp_abcd1234",
         ["model_catalog", "run_backtest", "run_walk_forward"],
     )

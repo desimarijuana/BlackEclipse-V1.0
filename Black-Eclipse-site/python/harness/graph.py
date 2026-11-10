@@ -1441,6 +1441,35 @@ async def execute_run(
             _response_plan = await orchestrate_response_mode(
                 request.input.query, request.input.history, request.modelSettings
             )
+            # Quant mode is figure-first: a standard/deep quantitative turn that
+            # produced a series must not be presented as plain text just because
+            # the generic classifier saw a question it did not recognise. This
+            # only upgrades the presentation mode; it never fabricates data, and
+            # the quant protocol still says when a figure is unavailable.
+            try:
+                from .quant_intent import classify_quant_intent  # noqa: PLC0415
+                from .response_mode import plan_for_mode  # noqa: PLC0415
+
+                _quant_context = getattr(request.input, "context", None)
+                _quant_mode = (
+                    _quant_context.get("quantMode")
+                    if isinstance(_quant_context, dict) else None
+                )
+                _quant_intent = classify_quant_intent(
+                    request.input.query, getattr(request.input, "history", None),
+                    mode=_quant_mode,
+                )
+                if (
+                    _quant_intent.tier in ("standard", "deep")
+                    and _response_plan.mode not in ("visualization", "composite")
+                ):
+                    _response_plan = plan_for_mode(
+                        "visualization", "likely",
+                        "quant protocol: a computed result is presented figure-first",
+                        ("quant:figure-first",),
+                    )
+            except Exception:  # noqa: BLE001 - an upgrade must never break a run
+                pass
             _mode_block = response_mode_prompt_block(_response_plan)
             if _mode_block:
                 system_prompt = f"{system_prompt}\n\n{_mode_block}"

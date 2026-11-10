@@ -86,6 +86,7 @@ from .routers.plugins import router as plugins_router
 from .routers.ledger import router as ledger_router
 from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
+from .routers.quant_desk import router as quant_desk_router
 from .routers.quant_reports import router as quant_reports_router
 from .routers.projects import router as projects_router
 from .routers.gallery import router as gallery_router
@@ -93,6 +94,7 @@ from .routers.pine import router as pine_router
 from .routers.research import router as research_router
 from .routers.research_data import router as research_data_router
 from .routers.search import router as search_router
+from .routers.sources import router as sources_router
 from .routers.security import router as security_router, security_health_safe
 from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
@@ -164,12 +166,14 @@ app.include_router(trading_router)
 app.include_router(transcription_router)
 app.include_router(quant_router)
 app.include_router(quant_reports_router)
+app.include_router(quant_desk_router)
 app.include_router(projects_router)
 app.include_router(gallery_router)
 app.include_router(pine_router)
 app.include_router(research_router)
 app.include_router(research_data_router)
 app.include_router(search_router)
+app.include_router(sources_router)
 app.include_router(security_router)
 app.include_router(sessions_router)
 app.include_router(skills_router)
