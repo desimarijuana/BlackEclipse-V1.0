@@ -690,6 +690,7 @@ export function StrategyStudioScreen() {
         <div className="flex min-w-0 flex-col gap-4">
           <MethodDiscoveryPanel
             symbol={(splitSymbols(symbol)[0] || symbol || 'BTC-USD').toUpperCase()}
+            symbols={splitSymbols(symbol)}
             interval={timeframe}
             onUseSpec={(text) => {
               setEditor(text);

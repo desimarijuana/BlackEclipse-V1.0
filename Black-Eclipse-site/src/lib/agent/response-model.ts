@@ -539,6 +539,16 @@ const TOOL_LABELS: Record<string, string> = {
   document_compare: 'Comparing the documents',
   document_render: 'Rendering the document',
   document_capabilities: 'Checking document support',
+  // Large-corpus sources — reading in place (never copying the corpus).
+  source_roots: 'Listing source folders',
+  source_list: 'Browsing source files',
+  source_open: 'Opening the source',
+  source_read: 'Reading the source',
+  source_lines: 'Reading the source',
+  source_search: 'Searching the sources',
+  source_sql: 'Querying the source data',
+  source_index: 'Indexing the sources',
+  source_stats: 'Checking the source catalog',
   // Document Authoring — the write side (Word / Excel / PowerPoint / text).
   document_create: 'Creating the document',
   eclipse_report: 'Creating the report',

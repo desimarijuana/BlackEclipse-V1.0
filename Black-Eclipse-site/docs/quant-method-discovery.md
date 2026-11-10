@@ -90,7 +90,10 @@ user's data.
   `validated | promoted` is a separate, explicit bookkeeping decision; it does
   not create evidence.
 - **Current setups are conditions, not orders.** `scan_current_setups` evaluates
-  the entry rule on the latest *closed* bar. It never routes an order.
+  the entry rule on the latest *closed* bar; `scan_universe_setups` repeats it
+  across a bounded watchlist (max 12 symbols) and reports per-symbol failures
+  instead of hiding them. Neither routes an order or ranks a setup as a
+  recommendation.
 
 ## The discovery tools
 
@@ -105,9 +108,21 @@ user's data.
 | `combine_methods` | Two methods → a new, validated conjunction |
 | `mine_methods` | Bounded IS/OOS search, real trial count, Deflated Sharpe |
 | `scan_current_setups` | Which validated methods have an entry condition now |
+| `mine_universe_methods` | Mine the same families across a bounded universe and aggregate support |
+| `scan_universe_setups` | The same scan across a bounded watchlist (max 12 symbols) |
+| `generate_trading_playbook` | Plain-language entry/exit/sizing/risk/execution, invalidation and monitoring |
 | `save_discovered_method` | Persist a method with its spec and evidence |
 | `list_discovered_methods` | The local method catalogue |
 | `promote_discovered_method` | Explicit status transition |
+
+## The trading playbook
+
+A method that survives is still not a set of instructions. `playbook.py` renders
+the *actual spec* into a playbook: entry conditions, exits, protective legs,
+sizing, risk limits, execution assumptions, the regimes it should work in, the
+ways it fails, the invalidation conditions, and a monitoring checklist. It adds
+no rule the spec does not contain and no claim the evidence does not support; it
+always ends with the paper-first rule and the not-advice note.
 
 ## The UI
 
@@ -119,6 +134,23 @@ candidate is not a validated strategy.
 
 `ResearchJournalPanel` is where the user pre-registers hypotheses and records
 trials, so the method that survives has a defensible history.
+
+## Bringing your own data
+
+Discovery does not bundle paid data. A provider adapter is expected to supply,
+and label, the data each family declares:
+
+- OHLCV + timestamps + adjustment basis (the minimum for the single-asset rules);
+- volume for participation fills and the liquidity/capacity check;
+- option-chain snapshots (date, spot, expiry, IV, strikes) for options income;
+- multiple futures expiries + a roll schedule for carry;
+- funding rates + perp/spot prices for crypto carry;
+- point-in-time fundamentals, event dates and a survivorship-controlled universe
+  for value/quality/event methods.
+
+`recommend_methods` takes the user's `availableData` list and penalises families
+whose requirements are not met, naming the missing data. A method is never run
+on a proxy without saying so.
 
 ## Honest limits
 

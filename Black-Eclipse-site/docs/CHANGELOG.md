@@ -22,10 +22,25 @@
   Research sessions + hypothesis/trial ledger, HTML/notebook export, QuantBench
   (`python -m harness.quant_bench`), and new Strategy Studio panels (method
   discovery, research journal, portfolio stress) + shared manifest panel.
+  Trading playbook (`quant/playbook.py`, `generate_trading_playbook`) renders
+  the actual spec into entry/exit/sizing/risk/execution/invalidation/monitoring
+  instructions with the paper-first rule. Added `scan_universe_setups` +
+  `/quant/methods/universe-setups` and a "Scan watchlist" action so a user can
+  find which validated methods have an entry condition across several symbols
+  now (bounded to 12; per-symbol failures are reported, never hidden). Added
+  `mine_universe_methods` + `/quant/methods/mine-universe`: the same bounded
+  mining across up to 5 symbols, aggregated per method family with support and
+  mean OOS Sharpe, so a one-symbol fluke is visible instead of averaged away. Fixed the `sources` screen's stale
+  `lucide-react` import (now the repo icon set) so `tsc` is clean.
   Tests: `test_quant_realism.py`, `test_quant_discovery.py`,
-  `test_quant_portfolio.py`, `test_quant_desk.py`; `tsc` clean. Docs updated:
+  `test_quant_portfolio.py`, `test_quant_desk.py`; `tsc` clean. Added
+  `npm run test:quant-bench` (`scripts/quant-bench.js`), wired into
+  `.github/workflows/ci.yml`, so the scorecard is a real CI gate. Regenerated
+  `docs/harness/tool-registry.json` for the new tool surface and re-pinned
+  `scripts/size-budget.json` for the measured discovery subsystem. Docs updated:
   `docs/quant-engine.md`, `docs/strategy-studio.md`,
   `docs/quant-method-discovery.md` (new), `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` (ADR-078), `skills/ARCHITECT.md` (ADR-078),
   `docs/CHANGELOG.md`.
 - **perf(chat): make send instant on Enter.** `saveConversations` wrote the
   entire transcript list to `localStorage` synchronously inside the send
@@ -39,7 +54,8 @@
   Figure Kit (`python/harness/quant/visuals.py`) that builds equity, underwater,
   monthly returns, exposure, trade distribution/scatter, rolling risk, cost
   waterfall, Monte-Carlo, regime attribution, walk-forward and a 3D parameter
-  surface from stored artifacts. Added `render_quant_figures` and
+  surface from stored artifacts. Added the `render_quant_figures` tool
+  (`quant/visual_tools.py`) and
   `GET /quant/experiments/{id}/figures[/{figure}]`; a chart block may now name
   `quant: {experimentId, figure}` and the browser resolves the computed spec, so
   a long series never travels through the model. The quant protocol now carries
@@ -50,6 +66,30 @@
   `docs/quant-engine.md`, `docs/chart-engine.md`,
   `docs/interactive-response-engine.md`, `docs/NAVIGATION.md`,
   `docs/DECISIONS.md` (ADR-076), `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
+
+- **feat(sources): open, search and query folders/drives of any size in place.**
+  New `python/harness/sources/` layer: a dedicated SQLite catalog
+  (`.black-eclipse/sources/sources.db`) with an incremental, batched, resumable
+  scanner that stats files without opening them; a bounded probe that reads at
+  most 4 KB head + 1 KB tail and returns a *card* (magic/format, schema, page
+  count, image size, archive entries, preview) whatever the file size; windowed
+  byte/line reads; a streaming text extractor with content-defined chunks and
+  FTS5; read-only DuckDB over CSV/TSV/JSONL/Parquet bound as view `t` with a
+  statement allowlist, memory limit and spill directory; and a query router that
+  derives candidates from the catalog and chooses metadata / FTS / DuckDB /
+  bounded parallel scan, with time, byte, result and cancellation budgets plus
+  honest partial reporting. Adaptive background indexing makes the second query
+  fast; optional semantic reranking (`HARNESS_SOURCES_SEMANTIC=1`) embeds chunks
+  through the existing `search.embeddings.EmbeddingService` and scores a bounded
+  candidate subset, never the whole corpus. Agent tools `source_roots/list/open/
+  read/lines/search/sql/index/stats` (read-only; adding a root is operator-only)
+  register on the ONE registry and are advertised on the Eclipse and Code agents;
+  routes live in `python/harness/routers/sources.py` and are proxied by
+  `/api/sources/*`, with a new Sources tab (roots, scan progress, routed search,
+  bounded preview, SQL runner). Tests: `python/tests/test_sources_core.py`,
+  `test_sources_query_tools.py`. Docs updated: `docs/harness/large-sources.md`
+  (new), `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-077),
+  `skills/ARCHITECT.md`, `docs/CHANGELOG.md`. `no doc change` — n/a.
 
 ## 2026-11-09
 - **ops: run the v0.3.2 production build as the soak instance on Windows.** Added

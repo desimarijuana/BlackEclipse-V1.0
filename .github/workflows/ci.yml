@@ -101,6 +101,9 @@ jobs:
           npx playwright install --with-deps chromium
           npm run test:drift
 
+      - name: QuantBench (deterministic quant contract)
+        run: npm run test:quant-bench
+
       - name: Evaluation gates
         run: npm run test:evals
 

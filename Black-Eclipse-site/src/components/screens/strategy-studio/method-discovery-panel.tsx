@@ -26,12 +26,13 @@ function inferAsset(symbol: string): string {
 
 export interface MethodDiscoveryPanelProps {
   symbol: string;
+  symbols?: string[];
   interval: string;
   onUseSpec: (specText: string) => void;
   onError?: (message: string | null) => void;
 }
 
-export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: MethodDiscoveryPanelProps) {
+export function MethodDiscoveryPanel({ symbol, symbols, interval, onUseSpec, onError }: MethodDiscoveryPanelProps) {
   const [assetClass, setAssetClass] = useState(() => inferAsset(symbol));
   const [horizon, setHorizon] = useState('swing');
   const [objective, setObjective] = useState('growth');
@@ -41,6 +42,8 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
   const [setups, setSetups] = useState<CurrentSetups | null>(null);
   const [mined, setMined] = useState<MineResult | null>(null);
   const [playbook, setPlaybook] = useState<Record<string, unknown> | null>(null);
+  const [universe, setUniverse] = useState<Awaited<ReturnType<typeof backtestClient.universeSetups>> | null>(null);
+  const [universeMine, setUniverseMine] = useState<Awaited<ReturnType<typeof backtestClient.mineUniverse>> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -68,6 +71,18 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
   const scanSetups = useCallback(() => run('setups', async () => {
     setSetups(await backtestClient.currentSetups({ symbol, interval }));
   }), [run, symbol, interval]);
+
+  const scanWatchlist = useCallback(() => run('universe', async () => {
+    const list = (symbols?.length ? symbols : [symbol]).map((s) => s.toUpperCase());
+    setUniverse(await backtestClient.universeSetups({ symbols: list, interval }));
+  }), [run, symbols, symbol, interval]);
+
+  const mineAcross = useCallback(() => run('mine-universe', async () => {
+    const list = (symbols?.length ? symbols : [symbol]).map((s) => s.toUpperCase());
+    setUniverseMine(await backtestClient.mineUniverse({
+      symbols: list, interval, maxTrials: 6,
+    }));
+  }), [run, symbols, symbol, interval]);
 
   const mine = useCallback(() => run('mine', async () => {
     setMined(await backtestClient.mineMethods({
@@ -113,7 +128,13 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
         <Action onClick={recommend} busy={busy === 'recommend'} label="Recommend methods" />
         <Action onClick={scan} busy={busy === 'scan'} label="Scan this series" />
         <Action onClick={scanSetups} busy={busy === 'setups'} label="Setups now" />
+        {(symbols?.length ?? 0) > 1 ? (
+          <Action onClick={scanWatchlist} busy={busy === 'universe'} label="Scan watchlist" />
+        ) : null}
         <Action onClick={mine} busy={busy === 'mine'} label="Mine candidates" />
+        {(symbols?.length ?? 0) > 1 ? (
+          <Action onClick={mineAcross} busy={busy === 'mine-universe'} label="Mine universe" />
+        ) : null}
       </div>
 
       {recs.length > 0 ? (
@@ -157,6 +178,54 @@ export function MethodDiscoveryPanel({ symbol, interval, onUseSpec, onError }: M
               ) : null}
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {universeMine ? (
+        <div className="mt-3 rounded-xl border border-white/5 bg-black/10 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Universe mine · {universeMine.perSymbol.length} symbols ·{' '}
+            {universeMine.failures.length} failed
+          </p>
+          {universeMine.rankedMethods.length ? (
+            <ul className="mt-1 space-y-0.5 text-[10px]">
+              {universeMine.rankedMethods.slice(0, 6).map((r) => (
+                <li key={r.methodId} className="font-mono">
+                  {r.methodId} · {r.support}/{universeMine.perSymbol.length} symbols ·
+                  OOS {r.meanOosSharpe === null ? '—' : r.meanOosSharpe.toFixed(2)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-[11px] text-muted-foreground">No method survived across the universe.</p>
+          )}
+          <p className="mt-1 text-[9px] text-muted-foreground">{universeMine.note}</p>
+        </div>
+      ) : null}
+
+      {universe ? (
+        <div className="mt-3 rounded-xl border border-white/5 bg-black/10 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Watchlist scan · {universe.activeCount} setup(s) across {universe.symbolsWithSetups} of{' '}
+            {universe.symbols.length} symbols
+          </p>
+          {universe.active.length ? (
+            <ul className="mt-1 space-y-0.5 font-mono text-[10px]">
+              {universe.active.slice(0, 12).map((s) => (
+                <li key={`${s.symbol}:${s.methodId}`}>
+                  {s.symbol} · {s.methodId} · {s.direction}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-[11px] text-muted-foreground">No active entry conditions.</p>
+          )}
+          {universe.failures.length ? (
+            <p className="mt-1 text-[9px] text-amber-300">
+              {universe.failures.length} symbol(s) could not be scanned.
+            </p>
+          ) : null}
+          <p className="mt-1 text-[9px] text-muted-foreground">{universe.note}</p>
         </div>
       ) : null}
 

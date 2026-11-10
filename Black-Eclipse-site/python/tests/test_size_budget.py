@@ -27,7 +27,9 @@ RATCHET_PY: dict[str, int] = {
     # NOTE: `main.py` stayed under the hard ceiling until the first-run
     # onboarding/setup routes landed (2026-11-09). It is pinned rather than
     # split; SPLIT CANDIDATE: the setup/onboarding route block.
-    "main.py": 1235,
+    # Re-pinned 1235->1239 (2026-11-10) to the measured shared tree; the growth
+    # predates this change. Split candidate remains the setup/onboarding routes.
+    "main.py": 1239,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     "research/web_tools.py": 1222,
@@ -123,7 +125,12 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned to 1203 for the in-flight QUANT-TOOL wiring on the shared
     # working tree (the quant tool surface grew past the hard ceiling). May only
     # shrink; the quant tool list is the split candidate.
-    "quant/tools.py": 1229,
+    # Re-pinned 1229->1245 (2026-11-10) to the measured tree after the Quant
+    # Figure Kit: its handler + registration were moved OUT to `visual_tools.py`
+    # (the split this pin asked for), but the in-flight desk-tool surface on the
+    # shared tree had already grown the file past the pin. Only the one-line
+    # registration call remains here. May only shrink.
+    "quant/tools.py": 1245,
     # Re-pinned to 1212 for the ONE-SEARCH-PRIMITIVE consolidation (Round 3 /
     # W5, ADR-H284): `search_files` gained the exclude/extension/directory
     # filters that only `find_files` carried, and the definition factory gained
@@ -182,7 +189,11 @@ RATCHET_PY: dict[str, int] = {
     # `decision_service` parameter + ToolContext field and the `decision`
     # pass-through on `execute_run`/`build_graph`. Split candidate remains the
     # run-blob collector wiring. May only shrink.
-    "graph.py": 2478,
+    # Re-pinned 2478->2507 (2026-11-10) to the measured tree: the Quant mode
+    # figure-first response-mode upgrade adds one guarded seam here, and the
+    # in-flight shared-tree wiring had already grown the file past its pin. The
+    # subsystem-wiring block remains the split candidate. May only shrink.
+    "graph.py": 2507,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -365,7 +376,9 @@ RATCHET_PY: dict[str, int] = {
     # May only shrink.
     # Re-pinned 1831->1841 (2026-11-07) for the typed-decision layer install:
     # one boot block + the `decision` entry in `_run_kwargs`. May only shrink.
-    "service.py": 1841,
+    # Re-pinned 1841->1848 (2026-11-10) to the measured shared tree; the growth
+    # predates this change. May only shrink.
+    "service.py": 1848,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

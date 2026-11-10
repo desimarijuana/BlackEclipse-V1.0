@@ -1,7 +1,7 @@
 ---
 title: Strategy Studio — the guided quant workspace
 status: Current
-last-verified: 2026-10-28
+last-verified: 2026-11-10
 ---
 
 # Strategy Studio

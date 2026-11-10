@@ -22,7 +22,7 @@ describe('defaultSidebarConfig', () => {
     // the explicit expected list â€” not a count derived from the source under
     // test â€” so adding/removing a section fails here on purpose.
     expect(config.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
     ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
@@ -64,7 +64,7 @@ describe('v1 migration', () => {
     // (only the first 12 get F1..F12). This is the explicit expected list, so a
     // change to the canonical section count fails here.
     expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
     ]);
   });
 
@@ -167,7 +167,7 @@ describe('v1 migration', () => {
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(drifted));
     const loaded = loadSidebarConfig();
     expect(loaded.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
     ]);
     expect(loaded.shortcutsCustomized).toBe(false);
   });
@@ -248,7 +248,7 @@ describe('nav groups (Terminal / Agentic)', () => {
 
   it('keeps ChatBot, Skills, Eclipse Memory and Artifacts in the Agentic menu', () => {
     const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
-    expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'skills']);
+    expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'skills', 'sources']);
   });
 
   it('graph mode uses Overview as its one page, plus Tables', () => {

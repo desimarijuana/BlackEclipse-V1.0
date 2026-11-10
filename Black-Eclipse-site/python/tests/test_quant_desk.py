@@ -63,6 +63,46 @@ def test_manifest_round_trip_and_compare(tmp_path):
     assert manifest["schemaVersion"].startswith("quant-run-manifest-")
 
 
+def test_universe_setups_scans_a_watchlist(monkeypatch):
+    import asyncio
+    from harness.quant import discovery_tools as dt
+
+    series = D.series_from_rows("A", "1d", F.bull_market("A", n=160))
+
+    async def fake_rows(ctx, symbol, interval, start, end):
+        return [], series
+
+    monkeypatch.setattr(dt, "_load_rows", fake_rows)
+    _, data = asyncio.run(dt.scan_universe_setups_tool(
+        {"symbols": ["A", "B"], "interval": "1d"}, object()
+    ))
+    assert data["status"] == "OK"
+    assert data["symbols"] == ["A", "B"]
+    assert data["activeCount"] >= 0
+    assert data["failures"] == []
+
+
+def test_universe_mining_aggregates_support(monkeypatch):
+    import asyncio
+    from harness.quant import discovery_tools as dt
+
+    rows = F.bull_market("A", n=320)
+    series = D.series_from_rows("A", "1d", rows)
+
+    async def fake_rows(ctx, symbol, interval, start, end):
+        return rows, series
+
+    monkeypatch.setattr(dt, "_load_rows", fake_rows)
+    _, data = asyncio.run(dt.mine_universe_methods_tool(
+        {"symbols": ["A", "B"], "maxSymbols": 2, "maxTrials": 3, "oosFraction": 0.3},
+        object(),
+    ))
+    assert data["status"] == "OK"
+    assert len(data["perSymbol"]) == 2
+    assert isinstance(data["rankedMethods"], list)
+    assert data["failures"] == []
+
+
 def test_quant_bench_passes_its_graded_suite():
     report = run_benchmark()
     assert report["status"] == "PASS", report["failures"]

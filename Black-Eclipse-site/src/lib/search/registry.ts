@@ -106,6 +106,7 @@ export const LAUNCHER_ORDER = [
   'page-skills',
   'page-memory',
   'page-artifacts',
+  'page-sources',
   'page-tables',
   'page-code',
   'page-bots',
@@ -231,6 +232,7 @@ registerPage({ id: 'page-research-data', kind: 'page', title: 'Research Data', a
 // Sidebar-visible screens that previously had no palette entry.
 registerPage({ id: 'page-overview', kind: 'page', title: 'Graph Studio', aliases: ['graph studio', 'overview', 'graph', 'workflows', 'workflow gallery'], keywords: ['graph', 'studio', 'overview', 'workflow', 'gallery', 'nodes', 'canvas'], icon: 'dashboard', tab: 'overview', rankBoost: 1.1 });
 registerPage({ id: 'page-artifacts', kind: 'page', title: 'Artifacts', aliases: ['artifacts', 'artifact center', 'artifact gallery', 'files center'], keywords: ['artifacts', 'artifact', 'gallery', 'files', 'deliverables'], icon: 'artifacts', tab: 'artifacts', rankBoost: 1.1 });
+registerPage({ id: 'page-sources', kind: 'page', title: 'Sources', aliases: ['sources', 'source roots', 'large files', 'folders', 'drives', 'corpus', 'big data files'], keywords: ['sources', 'folders', 'drives', 'catalog', 'large', 'files', 'corpus', 'parquet', 'csv', 'scan', 'search files'], icon: 'sources', tab: 'sources', rankBoost: 1.1 });
 registerPage({ id: 'page-tables', kind: 'page', title: 'Tables', aliases: ['tables', 'data tables', 'table editor'], keywords: ['tables', 'table', 'data', 'rows'], icon: 'tables', tab: 'tables' });
 // Shell-reachable screens outside the sidebar (ChatBot tools land here).
 registerPage({ id: 'page-tasks', kind: 'page', title: 'Tasks', aliases: ['tasks', 'task list', 'agent tasks', 'todo'], keywords: ['tasks', 'task', 'todo', 'plan', 'checklist'], icon: 'tasks', tab: 'tasks' });

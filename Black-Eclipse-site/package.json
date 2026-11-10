@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node scripts/test-python.js && node scripts/test-evals.js",
     "test:py": "node scripts/test-python.js",
+    "test:quant-bench": "node scripts/quant-bench.js",
     "rotate:changelog": "node scripts/rotate-changelog.js",
     "eval:registry": "node scripts/generate-tool-registry.js",
     "eval:benchmarks": "node scripts/generate-benchmarks.js",

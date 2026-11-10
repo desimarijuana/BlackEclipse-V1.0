@@ -117,6 +117,7 @@ const ArtifactsScreen = dynamic(
   () => import('@/components/screens/artifacts/artifacts-screen').then((m) => m.ArtifactsScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const SourcesScreen = dynamic(() => import('@/components/screens/sources/sources-screen').then((m) => m.SourcesScreen), { ssr: false, loading: () => <ScreenSkeleton /> });
 const CanvasPane = dynamic(
   () => import('@/components/screens/canvas/canvas-dock').then((m) => m.CanvasDock),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -1510,6 +1511,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'artifacts' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <ArtifactsScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('sources') && (
+            <div className={cn('w-full h-full', activeTab === 'sources' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <SourcesScreen active={activeTab === 'sources'} />
               </div>
             </div>
           )}

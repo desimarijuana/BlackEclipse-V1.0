@@ -450,6 +450,56 @@ async def mine(body: MethodMineBody, _: bool = Depends(require_operator)) -> dic
         raise _http(exc) from exc
 
 
+class UniverseMineBody(BaseModel):
+    symbols: list[str] = Field(min_length=1)
+    interval: str = "1d"
+    methodIds: Optional[list[str]] = None
+    maxTrials: int = 6
+    maxSymbols: int = 5
+    oosFraction: float = 0.3
+    combinations: int = 0
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
+@router.post("/quant/methods/mine-universe")
+async def mine_universe(body: UniverseMineBody, _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.discovery_tools import mine_universe_methods_tool  # noqa: PLC0415
+        _, data = await mine_universe_methods_tool(body.model_dump(), service)
+        if data.get("status") == "ERROR":
+            raise _http(Exception(str(data.get("error"))))
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class UniverseSetupsBody(BaseModel):
+    symbols: list[str] = Field(min_length=1)
+    interval: str = "1d"
+    methodIds: Optional[list[str]] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    maxSymbols: int = 12
+
+
+@router.post("/quant/methods/universe-setups")
+async def universe_setups(body: UniverseSetupsBody,
+                          _: bool = Depends(require_operator)) -> dict:
+    try:
+        from ..quant.discovery_tools import scan_universe_setups_tool  # noqa: PLC0415
+        _, data = await scan_universe_setups_tool(body.model_dump(), service)
+        if data.get("status") == "ERROR":
+            raise _http(Exception(str(data.get("error"))))
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 class PlaybookBody(BaseModel):
     methodId: Optional[str] = None
     strategyId: Optional[str] = None

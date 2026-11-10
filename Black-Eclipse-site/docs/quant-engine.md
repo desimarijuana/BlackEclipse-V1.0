@@ -79,6 +79,7 @@ market data → indicator context → signal (rules) → risk → order
 | Report / notebook export | `quant/report_export.py` |
 | QuantBench | `quant_bench/` |
 | The Quant Figure Kit — deterministic chart specs from stored artifacts | `quant/visuals.py` |
+| The Quant Figure Kit's agent tool (`render_quant_figures`) | `quant/visual_tools.py` |
 | Pine Script runtime (a TradingView script on Eclipse's own bars) | `quant/pine.py` + `pine-engine/` |
 | Sensitivity + robustness + overfitting safeguards | `quant/robustness.py` |
 | Shared research-result envelope | `quant/research.py` |
@@ -845,8 +846,8 @@ the disclaimer and warnings travel with it.
 `quant_bench/` is the measurable contract: routing/intent, honesty/adversarial
 answers, deterministic math invariants (causality, costs, partial fills, borrow,
 corporate actions, optimizer, stress, discovery), workflow tool order and
-reproducibility. Run `python -m harness.quant_bench`; live honesty cases require
-a supplied answers file.
+reproducibility. Run `python -m harness.quant_bench` (or
+`npm run test:quant-bench`); live honesty cases require a supplied answers file.
 
 ## The Edge Report (`quant/edge_report.py`)
 

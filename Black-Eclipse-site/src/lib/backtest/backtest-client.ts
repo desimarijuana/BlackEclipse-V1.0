@@ -746,6 +746,25 @@ export const backtestClient = {
     jsonFetch<CurrentSetups>("/methods/setups", {
       method: "POST", body: JSON.stringify(body),
     }),
+  mineUniverse: (body: Record<string, unknown>) =>
+    jsonFetch<{
+      interval: string; symbols: string[];
+      perSymbol: Array<{ symbol: string; trialCount: number; selected?: MinedMethod | null; rejectedCount: number }>;
+      rankedMethods: Array<{ methodId: string; support: number; supportedSymbols: number; meanOosSharpe: number | null; symbols: string[] }>;
+      failures: Array<{ symbol: string; reason: string }>;
+      warnings: string[];
+      note: string;
+    }>("/methods/mine-universe", {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  universeSetups: (body: Record<string, unknown>) =>
+    jsonFetch<{
+      interval: string; symbols: string[];
+      active: Array<{ symbol: string; methodId: string; name?: string; direction: string; bar?: string | null; close?: number }>;
+      activeCount: number; symbolsWithSetups: number;
+      failures: Array<{ symbol: string; reason: string }>;
+      note: string;
+    }>("/methods/universe-setups", { method: "POST", body: JSON.stringify(body) }),
   tradingPlaybook: (body: Record<string, unknown>) =>
     jsonFetch<{ playbook: Record<string, unknown> }>("/methods/playbook", {
       method: "POST", body: JSON.stringify(body),

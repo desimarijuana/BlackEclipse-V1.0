@@ -1,7 +1,7 @@
 {
-  "digest": "0efc20067ff413f9",
+  "digest": "8366b5efb5abe558",
   "manifestVersion": "1",
-  "toolCount": 1040,
+  "toolCount": 1065,
   "tools": [
     {
       "deprecated": false,
@@ -6891,6 +6891,44 @@
     },
     {
       "deprecated": false,
+      "description": "Compose two single-asset methods into a NEW conjunction (e.g. trend entry + volatility filter), then validate the combined spec.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "filterMethodId": {
+            "type": "string"
+          },
+          "filterParams": {
+            "type": "object"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "primaryMethodId": {
+            "type": "string"
+          },
+          "primaryParams": {
+            "type": "object"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "primaryMethodId",
+          "filterMethodId",
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "combine_methods",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Run one allowlisted check (typecheck, lint, unit tests, python tests, build, format check, read-only git) inside the project's own copy. The command is chosen from a fixed table — no shell, no arbitrary program — and every run is recorded. Refused unless the session may run checks.",
       "effect": "external_action",
       "inputSchema": {
@@ -11488,6 +11526,34 @@
     },
     {
       "deprecated": false,
+      "description": "Export a stored experiment as a self-contained HTML report or a replayable notebook, with metrics, assumptions, warnings and the run digest.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "experimentId": {
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "html",
+              "notebook"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "experimentId"
+        ],
+        "type": "object"
+      },
+      "name": "export_research_report",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Export a stored strategy version as a portable, checksummed bundle zip (manifest + canonical IR). The IR is the source of truth, independent of UI.",
       "effect": null,
       "inputSchema": {
@@ -12370,6 +12436,33 @@
     },
     {
       "deprecated": false,
+      "description": "Turn market-structure diagnostics into falsifiable hypotheses with tests, acceptance rules and invalidation conditions.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "diagnostics": {
+            "type": "object"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "max": {
+            "type": "integer"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "generate_method_hypotheses",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Build a Markdown report grounded in a stored experiment (metrics, warnings, trades, reproducibility) — never fabricated.",
       "effect": null,
       "inputSchema": {
@@ -12387,6 +12480,45 @@
         "type": "object"
       },
       "name": "generate_strategy_report",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Turn a method or a stored, tested strategy into a plain-language playbook: entry, exit, sizing, risk, execution assumptions, regime fit, invalidation, monitoring and the paper-first rule. Adds no rule the spec does not contain.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "experimentId": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "spec": {
+            "type": "object"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "generate_trading_playbook",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -12938,6 +13070,33 @@
         "type": "object"
       },
       "name": "get_market_snapshot",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Explain one method: thesis, edge source, signals, failure modes, regime fit, validation plan, capacity and an example spec.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "interval": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId"
+        ],
+        "type": "object"
+      },
+      "name": "get_method_card",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -18570,6 +18729,27 @@
     },
     {
       "deprecated": false,
+      "description": "List persisted discovered methods and their status.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_discovered_methods",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "List stored experiments (optionally for one strategy).",
       "effect": null,
       "inputSchema": {
@@ -18605,6 +18785,33 @@
         "type": "object"
       },
       "name": "list_factor_definitions",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the quantitative method families a user can understand and choose from, filterable by category, asset class, horizon and complexity.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "assetClass": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "string"
+          },
+          "maxComplexity": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_method_families",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -19258,6 +19465,102 @@
         "type": "object"
       },
       "name": "memory_search_native",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Search a bounded grid of method parameterizations with an IS/OOS split, record the REAL trial count, and deflate the selected Sharpe. Returns candidates, not validated strategies.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "combinations": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "maxTrials": {
+            "type": "integer"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "oosFraction": {
+            "type": "number"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "mine_methods",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Mine the same method families across a bounded universe (max 5 symbols) and aggregate per-method support and mean OOS Sharpe. Shows when an edge is one lucky symbol rather than a robust family.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "combinations": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "maxSymbols": {
+            "type": "integer"
+          },
+          "maxTrials": {
+            "type": "integer"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "oosFraction": {
+            "type": "number"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "type": "object"
+      },
+      "name": "mine_universe_methods",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -22537,6 +22840,34 @@
     },
     {
       "deprecated": false,
+      "description": "Move a discovered method to validated/promoted/rejected. Promotion is a bookkeeping decision; it does not create evidence.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "methodId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "promote_discovered_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Promote a validated factor into a persisted, approval-gated quant strategy and run its cross-sectional factor portfolio through the quant experiment store.",
       "effect": null,
       "inputSchema": {
@@ -23416,6 +23747,60 @@
         "type": "object"
       },
       "name": "read_task_tree",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Rank method families for a user's asset class, horizon, risk tolerance, objective, available data and regime. Deterministic and explainable.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "allowShort": {
+            "type": "boolean"
+          },
+          "assetClass": {
+            "type": "string"
+          },
+          "availableData": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "capital": {
+            "type": "number"
+          },
+          "complexityMax": {
+            "type": "integer"
+          },
+          "horizon": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "regime": {
+            "type": "string"
+          },
+          "riskTolerance": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "recommend_methods",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -26163,6 +26548,42 @@
     },
     {
       "deprecated": false,
+      "description": "Persist a discovered/composed method with its spec and evidence so it can be reused, versioned and promoted.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "evidence": {
+            "type": "object"
+          },
+          "methodFamily": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "object"
+          },
+          "status": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "save_discovered_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Build a ready-made finance tool from a short description of the job — a new data source, a ratio, a backtest, a chart indicator, a portfolio analysis, an import job, a repeatable research routine. Eclipse writes the files into the task's own copy, runs the check that proves it works, and keeps it for you to review. Nothing turns itself on.",
       "effect": "write",
       "inputSchema": {
@@ -26186,6 +26607,117 @@
       "permission": "write",
       "replacement": null,
       "risk": "medium",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Evaluate a set of validated methods on the latest closed bar and report which have an active long/short setup now. A condition, not an order.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "scan_current_setups",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Analyze a series for trend/mean-reversion/volatility-clustering/seasonality and suggest method families to test. Descriptive, not a signal.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "oosFraction": {
+            "type": "number"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "scan_market_structure",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Scan a bounded watchlist (max 12 symbols) for methods with an active entry condition on the latest closed bar. Ranks nothing as a recommendation; a setup is a condition, not an order.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "maxSymbols": {
+            "type": "integer"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "type": "object"
+      },
+      "name": "scan_universe_setups",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
       "version": "1.0.0"
     },
     {
@@ -29282,6 +29814,118 @@
     },
     {
       "deprecated": false,
+      "description": "Build or extend the text index for a root (bounded by files/time). Optional semantic=true also embeds chunks when an embedding provider is configured.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "budget_s": {
+            "type": "number"
+          },
+          "limit_files": {
+            "type": "integer"
+          },
+          "root_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "semantic": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "source_index",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read a bounded range of lines from a text source. Line numbers are 1-based.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "relpath": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "source_lines",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List catalogued files under a root/prefix. Metadata only; use source_open before reading.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_id"
+        ],
+        "type": "object"
+      },
+      "name": "source_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Open any catalogued file or folder and return a bounded card: format, size, schema/pages, preview, index state. Never loads the whole file.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Absolute path inside a registered root",
+            "type": "string"
+          },
+          "relpath": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "source_open",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Score a source for a research type (authority/relevance/freshness/completeness), explainably.",
       "effect": null,
       "inputSchema": {
@@ -29305,6 +29949,166 @@
         "type": "object"
       },
       "name": "source_rank",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read a bounded byte/text window from a source file at an offset. For large files, call repeatedly instead of asking for everything.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "length": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "relpath": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "source_read",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the registered source roots (folders/drives) and their scan/index state.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "source_roots",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Search the corpus. mode=auto routes between metadata, full-text and a bounded raw scan; use raw for regex, metadata for filename/size/date, similar for semantic.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "case_sensitive": {
+            "type": "boolean"
+          },
+          "klass": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "max_size": {
+            "type": "integer"
+          },
+          "min_size": {
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "auto",
+              "metadata",
+              "text",
+              "raw",
+              "similar"
+            ],
+            "type": "string"
+          },
+          "modified_after": {
+            "type": "number"
+          },
+          "name_like": {
+            "type": "string"
+          },
+          "path_prefix": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "regex": {
+            "type": "boolean"
+          },
+          "root_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "source_search",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run ONE read-only SQL statement (DuckDB) over a CSV/TSV/JSONL/Parquet source registered as view `t`. Use for counts, filters, group-bys and aggregates that must stay exact.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "all_root_files": {
+            "type": "boolean"
+          },
+          "max_rows": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "relpath": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "sql": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sql"
+        ],
+        "type": "object"
+      },
+      "name": "source_sql",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Report catalog size, class breakdown, index coverage and whether semantic search is available.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "source_stats",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -30253,6 +31057,40 @@
         "type": "object"
       },
       "name": "submit_statistical_analysis",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Turn a method family into a valid StrategySpec with explicit costs, sizing and risk, ready for the normal backtest/validation path.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "interval": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId",
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "synthesize_method_strategy",
       "permission": "read",
       "replacement": null,
       "risk": "low",

@@ -102,6 +102,7 @@ CASES: tuple[QuantCase, ...] = (
     QuantCase("mine methods for gold", "deep", "discovery"),
     QuantCase("scan the market for setups on EURUSD", "deep", "discovery"),
     QuantCase("what should I trade today", "standard", "discovery"),
+    QuantCase("find me a strategy for gold", "standard", "discovery"),
 )
 
 

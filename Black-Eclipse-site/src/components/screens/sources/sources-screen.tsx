@@ -7,10 +7,10 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertCircle, Database, FileText, FolderPlus, HardDrive,
+  AlertCircle, Database, FileText, FolderPlus, Server as HardDrive,
   Image as ImageIcon, Layers, Loader2, Play, RefreshCw, Search, Table2,
   Terminal, Trash2, X,
-} from 'lucide-react';
+} from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import {
   addRoot, humanBytes, indexSources, listRoots, openSource, readWindow,

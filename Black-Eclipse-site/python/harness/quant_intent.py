@@ -92,7 +92,9 @@ _DEEP_TERMS = (
 # the method library / structure scan / hypothesis / mining protocol.
 _DISCOVERY_TERMS = (
     "what methods", "which methods", "methods can i", "methods should i",
-    "find a method", "find methods", "discover", "discovery", "invent",
+    "find a method", "find methods", "find a strategy", "find me a strategy",
+    "find strategies", "what strategy", "which strategy", "give me ideas",
+    "ideas for trading", "discover", "discovery", "invent",
     "new method", "new strategy", "trading ideas", "strategy ideas",
     "what works", "what should i trade", "setups", "set up now",
     "screen for", "scan for", "scan the market", "mine", "mining",

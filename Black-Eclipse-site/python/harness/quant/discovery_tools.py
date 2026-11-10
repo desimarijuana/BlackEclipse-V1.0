@@ -22,7 +22,8 @@ DISCOVERY_TOOLS: tuple[str, ...] = (
     "list_method_families", "get_method_card", "recommend_methods",
     "scan_market_structure", "generate_method_hypotheses",
     "synthesize_method_strategy", "combine_methods", "mine_methods",
-    "scan_current_setups", "generate_trading_playbook",
+    "mine_universe_methods", "scan_current_setups", "scan_universe_setups",
+    "generate_trading_playbook",
     "save_discovered_method", "list_discovered_methods",
     "promote_discovered_method",
 )
@@ -215,57 +216,198 @@ async def mine_methods_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         return _err(exc)
 
 
+async def mine_universe_methods_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Mine the same method families across a bounded universe and aggregate support."""
+    try:
+        symbols = [str(s).strip().upper() for s in (args.get("symbols") or []) if str(s).strip()]
+        if not symbols:
+            raise QuantError("pass at least one symbol")
+        max_symbols = int(args.get("maxSymbols") or 5)
+        if len(symbols) > max_symbols:
+            raise QuantError(f"at most {max_symbols} symbols per universe mine",
+                             detail={"symbols": len(symbols)})
+        interval = str(args.get("interval") or "1d")
+        max_trials = int(args.get("maxTrials") or 6)
+        method_ids = args.get("methodIds")
+        per_symbol = []
+        failures = []
+        for symbol in symbols:
+            try:
+                rows, _ = await _load_rows(
+                    ctx, symbol, interval, args.get("start"), args.get("end")
+                )
+                result = mine_methods(
+                    rows, symbol=symbol, interval=interval, method_ids=method_ids,
+                    max_trials=max_trials, oos_fraction=float(args.get("oosFraction") or 0.3),
+                    combinations=int(args.get("combinations") or 0),
+                )
+                per_symbol.append({
+                    "symbol": symbol, "trialCount": result["trialCount"],
+                    "selected": result.get("selected"),
+                    "rejectedCount": result["rejectedCount"],
+                })
+            except Exception as exc:  # noqa: BLE001
+                failures.append({"symbol": symbol, "reason": str(exc)})
+
+        # Aggregate support per method family: how many symbols selected it, and
+        # the mean OOS Sharpe of those selections. A method with one lucky symbol
+        # is visible as support=1, not hidden inside an average.
+        aggregate: dict[str, dict[str, Any]] = {}
+        for row in per_symbol:
+            selected = row.get("selected")
+            if not selected:
+                continue
+            method_id = selected.get("methodId")
+            oos = (selected.get("outOfSample") or {}).get("sharpe")
+            entry = aggregate.setdefault(method_id, {
+                "methodId": method_id, "support": 0, "sharpes": [],
+                "symbols": [],
+            })
+            entry["support"] += 1
+            entry["symbols"].append(row["symbol"])
+            if oos is not None:
+                entry["sharpes"].append(float(oos))
+        ranked = []
+        for entry in aggregate.values():
+            sharpes = entry.pop("sharpes")
+            entry["meanOosSharpe"] = (sum(sharpes) / len(sharpes)) if sharpes else None
+            entry["supportedSymbols"] = entry["support"] / max(1, len(per_symbol))
+            ranked.append(entry)
+        ranked.sort(key=lambda e: (-e["support"], -(e["meanOosSharpe"] or -99)))
+        text = (f"Mined {len(per_symbol)} symbols ({len(failures)} failed); "
+                f"{len(ranked)} method family/families survived at least one symbol.\n"
+                + "\n".join(
+                    f"- {r['methodId']}: {r['support']}/{len(per_symbol)} symbols, "
+                    f"mean OOS Sharpe {r['meanOosSharpe']}"
+                    for r in ranked[:8]
+                )
+                if ranked else
+                f"No method survived across {len(per_symbol)} symbols.")
+        return text, {
+            "status": "OK", "interval": interval, "symbols": symbols,
+            "perSymbol": per_symbol, "rankedMethods": ranked, "failures": failures,
+            "warnings": [
+                "cross-symbol support is evidence of robustness, not proof; a method "
+                "can still fail on a new symbol or regime",
+                "each symbol's trial count is real; do not treat the aggregate as free",
+            ],
+            "note": "universe mining ranks candidates; the normal validation gates still apply",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 # ── Current setups ──────────────────────────────────────────────────────────
+
+async def _setups_for_symbol(ctx: Any, symbol: str, interval: str,
+                             method_ids: list[str], start: Any = None,
+                             end: Any = None) -> dict[str, Any]:
+    from .engine import build_context  # noqa: PLC0415
+    from . import rules as rule_eval  # noqa: PLC0415
+    from .strategy import parse_strategy  # noqa: PLC0415
+
+    _, series = await _load_rows(ctx, symbol, interval, start, end)
+    setups = []
+    for method_id in method_ids:
+        try:
+            synthesized = synthesize_method(method_id, symbol=symbol, interval=interval)
+            spec = parse_strategy(synthesized["spec"])
+            ctx_arrays, _ = build_context(spec, symbol, series, {})
+            i = series.length - 1
+            long_rule = spec.rules.entry.long
+            short_rule = spec.rules.entry.short
+            is_long = bool(long_rule and rule_eval.evaluate(long_rule, ctx_arrays, i))
+            is_short = bool(short_rule and rule_eval.evaluate(short_rule, ctx_arrays, i))
+            direction = "long" if is_long else "short" if is_short else "none"
+            setups.append({
+                "methodId": method_id,
+                "name": synthesized["spec"]["strategy"]["name"],
+                "direction": direction,
+                "bar": series.timestamps[i],
+                "close": float(series.close[i]),
+                "reason": ("the entry condition is true on the latest closed bar"
+                           if direction != "none"
+                           else "no entry condition on the latest closed bar"),
+            })
+        except Exception as exc:  # noqa: BLE001
+            setups.append({"methodId": method_id, "direction": "error",
+                           "reason": str(exc)})
+    active = [s for s in setups if s["direction"] in ("long", "short")]
+    return {
+        "symbol": symbol, "interval": interval,
+        "bar": series.timestamps[-1] if series.length else None,
+        "setups": setups, "active": active,
+    }
+
+
+_DEFAULT_SETUP_METHODS = [
+    "trend_ema_cross", "trend_donchian_breakout",
+    "mean_reversion_bollinger", "mean_reversion_rsi", "volatility_breakout",
+]
+
 
 async def scan_current_setups_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     """Evaluate synthesized methods on the latest bar: is there a setup now?"""
     try:
-        from .engine import build_context  # noqa: PLC0415
-        from . import rules as rule_eval  # noqa: PLC0415
-
         symbol = str(args["symbol"])
         interval = str(args.get("interval") or "1d")
-        rows, series = await _load_rows(ctx, symbol, interval, args.get("start"), args.get("end"))
-        method_ids = args.get("methodIds") or [
-            "trend_ema_cross", "trend_donchian_breakout",
-            "mean_reversion_bollinger", "mean_reversion_rsi", "volatility_breakout",
-        ]
-        from .strategy import parse_strategy  # noqa: PLC0415
-        setups = []
-        for method_id in method_ids:
-            try:
-                synthesized = synthesize_method(method_id, symbol=symbol, interval=interval)
-                spec = parse_strategy(synthesized["spec"])
-                ctx_arrays, _ = build_context(spec, symbol, series, {})
-                i = series.length - 1
-                long_rule = spec.rules.entry.long
-                short_rule = spec.rules.entry.short
-                is_long = bool(long_rule and rule_eval.evaluate(long_rule, ctx_arrays, i))
-                is_short = bool(short_rule and rule_eval.evaluate(short_rule, ctx_arrays, i))
-                direction = "long" if is_long else "short" if is_short else "none"
-                setups.append({
-                    "methodId": method_id,
-                    "name": synthesized["spec"]["strategy"]["name"],
-                    "direction": direction,
-                    "bar": series.timestamps[i],
-                    "close": float(series.close[i]),
-                    "reason": ("the entry condition is true on the latest closed bar"
-                               if direction != "none"
-                               else "no entry condition on the latest closed bar"),
-                })
-            except Exception as exc:  # noqa: BLE001
-                setups.append({"methodId": method_id, "direction": "error",
-                               "reason": str(exc)})
-        active = [s for s in setups if s["direction"] in ("long", "short")]
+        result = await _setups_for_symbol(
+            ctx, symbol, interval,
+            args.get("methodIds") or _DEFAULT_SETUP_METHODS,
+            args.get("start"), args.get("end"),
+        )
+        active = result["active"]
         text = (f"{len(active)} active setup(s) for {symbol} on {interval}.\n"
                 + "\n".join(f"- {s['name']}: {s['direction']}" for s in active)
                 if active else
                 f"No method has an active entry on the latest {symbol} {interval} bar.")
         return text, {
-            "status": "OK", "symbol": symbol, "interval": interval,
-            "bar": series.timestamps[-1] if series.length else None,
-            "setups": setups, "active": active,
+            "status": "OK", **result,
             "note": "a setup is a condition, not an order or a recommendation",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
+async def scan_universe_setups_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Scan a bounded watchlist for methods with an active entry condition now."""
+    try:
+        symbols = [str(s).strip().upper() for s in (args.get("symbols") or []) if str(s).strip()]
+        if not symbols:
+            raise QuantError("pass at least one symbol")
+        if len(symbols) > int(args.get("maxSymbols") or 12):
+            raise QuantError(f"at most {args.get('maxSymbols') or 12} symbols per scan",
+                             detail={"symbols": len(symbols)})
+        interval = str(args.get("interval") or "1d")
+        method_ids = args.get("methodIds") or _DEFAULT_SETUP_METHODS
+        rows = []
+        failures = []
+        for symbol in symbols:
+            try:
+                result = await _setups_for_symbol(
+                    ctx, symbol, interval, method_ids,
+                    args.get("start"), args.get("end"),
+                )
+                for setup in result["active"]:
+                    rows.append({
+                        "symbol": symbol, "methodId": setup["methodId"],
+                        "name": setup.get("name"), "direction": setup["direction"],
+                        "bar": result["bar"], "close": setup.get("close"),
+                    })
+            except Exception as exc:  # noqa: BLE001 - one symbol cannot kill the scan
+                failures.append({"symbol": symbol, "reason": str(exc)})
+        rows.sort(key=lambda r: (r["symbol"], r["methodId"]))
+        symbol_count = len({r['symbol'] for r in rows})
+        text = (f"{len(rows)} active setup(s) across {symbol_count} of {len(symbols)} symbols.\n"
+                + "\n".join(f"- {r['symbol']} · {r['methodId']}: {r['direction']}" for r in rows[:20])
+                if rows else
+                f"No active setup across {len(symbols)} symbols on the latest closed bar.")
+        return text, {
+            "status": "OK", "interval": interval, "symbols": symbols,
+            "active": rows, "activeCount": len(rows),
+            "symbolsWithSetups": symbol_count, "failures": failures,
+            "note": "a setup is a condition, not an order or a recommendation; "
+                    "each method still needs its own validation before use",
         }
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
@@ -433,6 +575,26 @@ def register_discovery_tools(registry: Any) -> list[str]:
              "methodIds": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"}},
              "required": ["symbol"]}, 60_000)
+    _def("mine_universe_methods",
+         "Mine the same method families across a bounded universe (max 5 symbols) and "
+         "aggregate per-method support and mean OOS Sharpe. Shows when an edge is one "
+         "lucky symbol rather than a robust family.",
+         mine_universe_methods_tool, {"type": "object", "properties": {
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "interval": {"type": "string"}, "methodIds": {"type": "array", "items": {"type": "string"}},
+             "maxTrials": {"type": "integer"}, "maxSymbols": {"type": "integer"},
+             "oosFraction": {"type": "number"}, "combinations": {"type": "integer"},
+             "start": {"type": "string"}, "end": {"type": "string"}},
+             "required": ["symbols"]}, 300_000)
+    _def("scan_universe_setups",
+         "Scan a bounded watchlist (max 12 symbols) for methods with an active entry "
+         "condition on the latest closed bar. Ranks nothing as a recommendation; a "
+         "setup is a condition, not an order.",
+         scan_universe_setups_tool, {"type": "object", "properties": {
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "interval": {"type": "string"}, "methodIds": {"type": "array", "items": {"type": "string"}},
+             "start": {"type": "string"}, "end": {"type": "string"},
+             "maxSymbols": {"type": "integer"}}, "required": ["symbols"]}, 180_000)
     _def("generate_trading_playbook",
          "Turn a method or a stored, tested strategy into a plain-language playbook: "
          "entry, exit, sizing, risk, execution assumptions, regime fit, invalidation, "

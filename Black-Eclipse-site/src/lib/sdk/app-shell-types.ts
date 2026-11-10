@@ -51,6 +51,7 @@ export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'skills', label: 'Skills', group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', group: 'agentic' },
+  { id: 'sources', label: 'Sources', group: 'agentic' },
   { id: 'tables', label: 'Tables', group: 'graph' },
 ];
 

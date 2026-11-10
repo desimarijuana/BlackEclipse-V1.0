@@ -82,6 +82,7 @@ def test_code_agent_has_no_finance_tool():
         COMPUTER_TOOLS,
         DOCUMENT_TOOLS,
         SEARCH_TOOLS,
+        SOURCE_TOOLS,
         VISION_TOOLS,
         WEB_RESEARCH_TOOLS,
     )
@@ -103,7 +104,7 @@ def test_code_agent_has_no_finance_tool():
         "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
     } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(VISION_TOOLS)
         - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS) - set(SEARCH_TOOLS)
-        - set(TASK_TOOLS))
+        - set(SOURCE_TOOLS) - set(TASK_TOOLS))
 
 
 def test_code_agent_does_not_allow_mcp():
