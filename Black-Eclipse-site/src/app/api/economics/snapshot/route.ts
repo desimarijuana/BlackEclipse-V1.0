@@ -55,10 +55,12 @@ function startBackgroundRebuild() {
     .finally(() => { rebuildInFlight = false; });
 }
 
-// GET /api/economics/snapshot — key central-bank rates + key prints with vintage.
-export async function GET() {
+// GET /api/economics/snapshot?refresh=1 — key central-bank rates + key prints
+// with vintage. `refresh=1` bypasses the SWR cache and rebuilds from providers.
+export async function GET(request: Request) {
+  const force = new URL(request.url).searchParams.get("refresh") === "1";
   try {
-    if (cache) {
+    if (!force && cache) {
       if (Date.now() - cache.t < CACHE_TTL_MS) return NextResponse.json(cache.data);
       startBackgroundRebuild();
       return NextResponse.json(cache.data);

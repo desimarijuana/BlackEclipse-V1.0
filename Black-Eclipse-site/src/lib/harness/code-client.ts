@@ -631,6 +631,28 @@ export async function listTrustedRoots(): Promise<TrustedRoot[]> {
   return body.roots ?? [];
 }
 
+export interface WorkspaceRoots {
+  roots: TrustedRoot[];
+  /**
+   * The server-resolved folder a run uses when no per-chat root is bound:
+   * a selected trusted root, an operator override, or the built-in repo.
+   * Read-only context for the UI — it is not itself an approved root id.
+   */
+  defaultRoot: string | null;
+}
+
+/** Approved roots plus the default (unbound) workspace folder. */
+export async function getWorkspaceRoots(): Promise<WorkspaceRoots> {
+  const body = await request<{ roots: TrustedRoot[]; defaultRoot?: string | null }>(
+    "/workspace/roots",
+    { method: "GET" },
+  );
+  return {
+    roots: body.roots ?? [],
+    defaultRoot: typeof body.defaultRoot === "string" ? body.defaultRoot : null,
+  };
+}
+
 /** Create one folder inside the directory the picker is showing. */
 export async function createBrowsedFolder(
   path: string, name: string,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeOfficialEvents, type CalendarEvent } from "./calendar";
+import { filterUpcoming, mergeOfficialEvents, type CalendarEvent } from "./calendar";
 
 function mirror(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -35,6 +35,60 @@ function official(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
     ...overrides,
   };
 }
+
+describe("filterUpcoming", () => {
+  const now = Date.parse("2026-11-09T12:00:00Z");
+  const event = (date: string): CalendarEvent => ({
+    id: date,
+    date,
+    country: "US",
+    title: "Release",
+    importance: "high",
+    actual: null,
+    forecast: null,
+    previous: null,
+  });
+
+  it("drops past events beyond the overnight grace window", () => {
+    const events = [event("2026-11-08T00:00:00Z"), event("2026-11-09T12:00:00Z")];
+    const out = filterUpcoming(events, { now, days: 30 });
+    expect(out.map((e) => e.date)).toEqual(["2026-11-09T12:00:00Z"]);
+  });
+
+  it("keeps a release from the last 12 hours", () => {
+    const out = filterUpcoming([event("2026-11-09T02:00:00Z")], { now, days: 30 });
+    expect(out).toHaveLength(1);
+  });
+
+  it("applies the horizon and sorts ascending", () => {
+    const events = [
+      event("2026-12-01T00:00:00Z"),
+      event("2026-11-12T00:00:00Z"),
+      event("2026-11-20T00:00:00Z"),
+    ];
+    const week = filterUpcoming(events, { now, days: 7 });
+    expect(week.map((e) => e.date)).toEqual(["2026-11-12T00:00:00Z"]);
+  });
+
+  it("days=null removes the upper bound", () => {
+    const events = [event("2027-06-01T00:00:00Z")];
+    expect(filterUpcoming(events, { now, days: null })).toHaveLength(1);
+  });
+
+  it("past mode returns the lookback window newest-first", () => {
+    const events = [
+      event("2026-11-02T00:00:00Z"),
+      event("2026-11-08T00:00:00Z"),
+      event("2026-11-09T12:00:00Z"),
+      event("2026-11-10T00:00:00Z"),
+    ];
+    const released = filterUpcoming(events, { now, days: 3, past: true });
+    expect(released.map((e) => e.date)).toEqual([
+      "2026-11-09T12:00:00Z",
+      "2026-11-08T00:00:00Z",
+    ]);
+  });
+});
 
 describe("mergeOfficialEvents", () => {
   it("upgrades the date to the official one but keeps mirror values", () => {

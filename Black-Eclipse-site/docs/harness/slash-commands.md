@@ -93,6 +93,92 @@ every routed command.
 Handlers are injected through `CommandDeps`, so the router is fully
 unit-testable without a live runtime.
 
+### High-risk confirmation, rate limits and audit
+
+- **Two-step confirmation.** A `high` or `critical` risk command does **not** run
+  on its first invocation. The router returns `status: "pending"` with a warning
+  card and the exact re-run command, including a single-use `--confirm <token>`.
+  The token is bound to the command id, its positionals/flags, the actor and the
+  operator flag, expires after five minutes, and is consumed once
+  (`command-confirm.ts`). Replaying it, changing an argument, or using it from a
+  different actor returns `pending` again with a fresh token. `/terminal` and
+  `/code` are the current high-risk commands; the contract test requires every
+  future high/critical command to declare a `confirm` flag.
+- **Risk-based rate limits.** The router keeps a sliding window per
+  actor + command id (`command-rate-limit.ts`): critical 4/min, high 6/min,
+  medium 20/min, low 60/min, none 120/min. A command can override it with
+  `rateLimit: { windowMs, limit }`. A refused call returns `denied` with
+  `RATE_LIMITED` and a retry-after. The check runs after authorization, so a
+  non-operator cannot burn a bucket.
+- **Durable audit.** Every terminal result (completed, failed, denied, pending,
+  invalid, unknown) is appended to `.black-eclipse/command-audit.jsonl` as one
+  redacted JSON line (`command-audit.ts`): command id/name, actor, operator,
+  status, risk/approval, duration, skill/run id and an error **code** — never
+  output, arguments or secrets. The file rotates at 2 MB to `…jsonl.1`.
+  `/history [limit]` reads it newest-first; `/usage --commands` aggregates it
+  (status counts, runs per command, p50/p95 duration, high-risk count).
+  The sink is injected through `CommandDeps.audit`, so tests never touch the
+  real file.
+
+### Project command packs (local extensions)
+
+A user can add their own commands in `.black-eclipse/commands.json` without
+touching the source tree:
+
+```json
+{
+  "version": 1,
+  "commands": [{
+    "name": "morning-brief",
+    "aliases": ["brief"],
+    "summary": "Produce my morning market brief.",
+    "description": "Summarize overnight moves, my watchlist and the calendar.",
+    "category": "research",
+    "args": [{ "name": "focus", "description": "Optional focus.", "variadic": true }],
+    "prompt": "Produce my morning brief. Focus: {{focus}}."
+  }]
+}
+```
+
+- They are **agent-turn commands only** (`handler: agent.plugin`): the pack
+  supplies a prompt template (`{{arg}}`, `{{flag.name}}`, `{{args}}`), and the
+  normal agent turn runs under the normal tool policy. A pack can never register
+  a routed handler, widen authority, or shadow a builtin name/alias.
+- `command-plugins.ts` validates names, aliases, categories, args/flags, caps
+  (50 commands, 10 args, 10 flags) and length limits. Invalid entries are
+  reported in the manifest's `errors[]`, never silently executed.
+- `run-service.ts` loads the pack for a slash-leading turn and passes it to
+  `buildAgentInstruction(text, projectCommands)`; the composer fetches
+  `GET /api/harness/commands` once and merges the `source: "project"` entries
+  into the palette (with a **project** badge).
+- **Manifest.** `GET /api/harness/commands` returns the canonical catalog
+  (builtins + validated project commands) with `available`, args/flags, risk,
+  examples and `source`. It omits `agentPrompt` and sets a stable ETag so a
+  revalidating client gets `304`.
+
+### Typed UI intents (navigation without markdown links)
+
+A command can return a `ui` intent in its result:
+
+```ts
+{ type: "navigate", tab: "alerts", subroute?: string, params?: Record<string, string> }
+{ type: "openCanvas", artifactId?: string }
+```
+
+- The router carries it on `CommandResult.ui`; the chat stream adds it to
+  `client.final`, `events.ts` validates it (`navigate` needs a string `tab`,
+  `openCanvas` has no required fields), `use-agent-run` stores it on the turn,
+  and `stock-chat.tsx` dispatches it through the SAME destination store as the
+  ⌘K bar (`useCommandStore.dispatch`, or openCanvas).
+- It is **data, not code**. Non-UI surfaces (remote channels, CLI) receive the
+  text result and ignore the intent.
+- Commands using it today:
+  - `/canvas [artifactId]` → `openCanvas`
+  - `/open <tab>` (alias `/go`) → `navigate`; the tab is validated against the
+    single `APP_TABS` vocabulary.
+- The intent is dispatched once per completed turn, after the answer is
+  persisted. It never runs on the server and cannot execute tools.
+
 ### Contract enforcement (not just documentation)
 
 - **Handler targets are verified.** `command-registry.contract.test.ts` fails CI
@@ -110,10 +196,28 @@ unit-testable without a live runtime.
 
 ## Where it is wired
 
-- **Composer palette** — `src/components/chat/chat-input.tsx` renders
-  `searchCommands()` results (category, argument hint, availability) with
-  keyboard navigation. Typing `/` never executes; selection only inserts
-  `/name `.
+- **Composer palette** — `src/components/chat/command-palette.tsx` renders the
+  inline palette (`useCommandPalette` + `CommandPaletteBody`): grouped by
+  category, with Pinned → Recent at the top, each row's argument hint,
+  availability, risk/operator gate and a detail footer (description, usage,
+  aliases). `command-palette-model.ts` owns the pure ordering (so the highlighted
+  index always matches the rendered list). Typing `/` never executes; selection
+  only inserts `/name `.
+- **⌘K / Ctrl+K** — `src/components/chat/command-dialog.tsx` opens the same
+  surface as a centered dialog with its own search box and a two-column
+  list/detail layout. It is independent of the draft; selection inserts
+  `/name ` into the composer. Only the visible composer answers the shortcut,
+  so a keep-alive tab cannot open a second dialog.
+- **Recents and pins** — `src/lib/harness/command-history.ts` stores the last
+  50 command names and up to 24 pins in `localStorage` (`be.command.history.v1`,
+  `be.command.favorites.v1`). This is a UI convenience, never an authority; the
+  server audit remains the record of what ran.
+- **Argument completion** — `src/lib/harness/command-suggest.ts` detects the
+  completion-bearing argument under a command and calls
+  `GET /api/harness/suggest?provider=…&q=…` (skills, symbols, portfolios,
+  workflows, models). `command-suggestions.tsx` renders the candidates with
+  arrow/Enter/Tab/Esc handling. The route is read-only and degrades to an empty
+  list (never a blocking error) when a subsystem is unavailable.
 - **Chat surfaces** — both `/api/harness/chat` and `/api/harness/chat/stream`
   intercept a routed command *before* starting an agent run. The stream route
   emits a synthetic `client.run` / `client.final` / `stream.end` sequence, so the
@@ -131,22 +235,39 @@ Backed by real handlers/endpoints:
 - Runtime: `/help` (bare = grouped catalog; `/help <command>` = one command's
   full contract with arguments, flags, risk, approval and examples), `/status`
   (alias `/health`), `/compact`, `/tasks` (alias `/plans`), `/workflows`,
-  `/agents`, `/models` (alias `/providers`), `/tools`, `/usage` (alias `/cost`).
+  `/agents`, `/models` (alias `/providers`), `/tools`, `/usage` (alias `/cost`;
+  `/usage --commands` summarizes the command audit), `/history` (alias
+  `/audit` — recent redacted command executions).
 - Markets / portfolio / memory / MCP: `/market` (gateway providers + health),
-  `/quote` (`/quotes` — JDdS quotes with honest freshness), `/portfolio` (real
-  portfolios), `/memory` (overview + recent), `/mcp` (configured servers).
+  `/alerts` (alert watches + running monitor count), `/news [query|--ticker]`
+  (stored headlines with source/sentiment/time; never a live fetch), `/quote`
+  (`/quotes` — JDdS quotes with honest freshness), `/portfolio` (real
+  portfolios), `/theses [symbol]` (tracked theses), `/journal [all|open|closed]`
+  (recorded trades + the journal's own P&L), `/memory` (overview + recent, or
+  `/memory <query>` to search), `/mcp` (configured servers).
 - Research / web: `/research`, `/deep-research` (alias `/deep`), `/web`
   (alias `/browse`), `/read` (alias `/summarize`) — all through the web research
   engine, returning the answer with its sources.
 - Quant: `/backtest` — lists saved strategies, or backtests one by id.
-- Dev: `/code` (start a code task), `/terminal` (aliases `/run`, `/sh` — run a
+- Runtime surfaces: `/open <tab>` (alias `/go` — navigate via a typed UI intent),
+  `/jobs` (scheduled/watched jobs), `/artifacts` (recent
+  Artifact Center rows), `/sessions` (durable chat sessions), and `/stop`
+  (aliases `/cancel` — list active runs, or cancel one by id; operator-gated).
+  All are read-only except an explicit `/stop <runId>`, which calls the same
+  cooperative cancellation route as the Stop button.
+- Dev: `/code` (start a code task), `/git [status|diff|log] [--staged]`
+  (read-only repository inspection; stage/commit/push are intentionally not chat
+  commands), `/canvas [artifactId]` (open the inline Canvas via a typed UI
+  intent), `/terminal` (aliases `/run`, `/sh` — run a
   shell command; operator- and effect-gated). `/terminal` takes
   `--shell powershell|cmd|wsl|bash` and `--cwd <path>`; on Windows the host
   default is PowerShell, so use `--shell cmd` for cmd.exe-specific syntax. The
   result card shows the requested shell, the resolved working directory, the
   exit code, duration, and honest `timedOut` / `truncated` markers. The handler
   unwraps the Python route's `{ success, result }` envelope, so stdout/stderr are
-  real output rather than an empty result.
+  real output rather than an empty result. Both `/terminal` and `/code` are
+  high-risk: they return a `pending` confirmation card first and run only when
+  re-sent with the single-use `--confirm <token>`.
 - Visual: `/anatomy` (aliases `/visualize`, `/mechanism`) — explain a concept as
   an interactive **3D model** (an orbitable `model3d` block with labelled parts,
   mechanism recipes and step-through stages); an agent-turn command that authors a
@@ -170,6 +291,14 @@ Commands that call a subsystem (research, quant, code, terminal, quotes) reuse
 the **same front-door APIs the UI uses** — the router makes a loopback call to
 `/api/...`, so a command never re-implements an engine. `/terminal` requires the
 operator gate; a non-operator is refused before anything runs.
+
+The workspace readers (`/alerts`, `/news`, `/theses`, `/journal`, `/jobs`,
+`/artifacts`, `/sessions`, `/git`) are thin read-only projections of the app's
+existing front doors: they return only rows the API returned and never write.
+`/stop <runId>` is the one mutation in this group and uses the same cooperative
+cancellation route as the Stop button (operator-gated). They live in
+`src/lib/harness/command-handlers-workspace.ts`, so adding a new reader does not
+grow the main dispatch file.
 
 ## Manual compaction — `/compact`
 
@@ -250,8 +379,23 @@ explicit command surfaces.
 - `src/lib/harness/command-registry.test.ts` — resolution, aliases, conflicts,
   availability, search, argument hints.
 - `src/lib/harness/command-registry.contract.test.ts` — registry↔handler
-  coverage, self-describing commands, risk/approval invariants, completion
-  providers, deprecation/unavailability metadata, `/help <command>`.
+  coverage, self-describing commands, risk/approval invariants, the `confirm`
+  flag on high-risk commands, completion providers, deprecation/unavailability
+  metadata, `/help <command>`.
+- `src/lib/harness/command-audit.test.ts` — status/risk aggregation, per-command
+  percentiles, empty and single-row audits.
+- `src/lib/harness/command-palette-model.test.ts` — pinned → recent → category
+  ordering, de-duplication, search-section behavior, flat/section agreement.
+- `src/lib/harness/command-history.test.ts` — recents de-duplication and cap,
+  pin/unpin, clear-history-keeps-pins, empty-name rejection.
+- `src/lib/harness/command-suggest.test.ts` — completion argument detection,
+  variadic token replacement, flags/prose/commands without a provider.
+- `src/app/api/harness/suggest/route.test.ts` — provider allowlist, skills/
+  symbols/portfolios/workflows/models mapping, unavailable degradation.
+- `src/lib/harness/command-plugins.test.ts` — valid packs, builtin name/alias
+  collisions, invalid names/prompts/args, missing vs invalid JSON.
+- `src/app/api/harness/commands/route.test.ts` — builtin + project manifest,
+  omitted prompt template, stable ETag/304.
 - `src/lib/harness/command-parser.test.ts` — quoting, escapes, Unicode, enum and
   required-arg validation, pass-through flags.
 - `src/lib/harness/command-agent.test.ts` — `/skill` rewrites into a skill-authoring
@@ -259,7 +403,13 @@ explicit command surfaces.
   `chart` directive; non-agent commands and prose return null.
 - `src/lib/harness/command-router.test.ts` — unknown/invalid/unavailable/denied
   paths, `/help`, `/status`, `/skills`, `/skills run`, operator gating,
-  `/skill-create` requiring a real source.
+  `/skill-create` requiring a real source, the workspace readers
+  (`/alerts`, `/news`, `/theses`, `/journal`, `/jobs`, `/artifacts`,
+  `/sessions`, `/git`, `/stop`, `/memory <query>`), the confirmation/replay
+  flow, rate limiting + recovery, `/history`, `/usage --commands`, audit
+  append, and the `/canvas` / `/open` UI intents.
+- `src/lib/agent/events.test.ts` — `client.final` carries a validated typed UI
+  intent.
 - `src/app/api/harness/command/route.test.ts` — the direct route, including the
   agent-turn path.
 
@@ -273,8 +423,16 @@ explicit command surfaces.
 - The direct `POST /api/harness/command` path runs `/skill` non-streaming, so the
   `skill_create` approval is deny-and-retry there; use the chat surfaces for the
   approval-card flow.
-- `command-handlers.ts` is the largest module in the family (~860 lines); the next
-  extraction candidate is the per-domain renderers (research/quant/dev).
+- `command-handlers.ts` still carries the original domain handlers (~1,000
+  lines); the read-only workspace readers already live in
+  `command-handlers-workspace.ts`. The next extraction candidates are the
+  research/quant/dev renderers and the per-domain command specs.
+- The confirmation card is **copy-paste** — it shows the exact `--confirm`
+  command. There is no click-to-approve button yet because the response contract
+  has no typed confirm action.
+- The command audit is a local JSONL file with a 2 MB roll, not a database; it
+  does not sync across machines and a server restart invalidates pending
+  confirmation tokens.
 - **Mentions (`@`).** The `@` sibling — naming a bot or group chat so the main
   chat delegates the turn to it — is a separate surface documented in
   `docs/harness/mentions.md`.

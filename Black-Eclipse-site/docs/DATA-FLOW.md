@@ -203,8 +203,10 @@ The **economic calendar** merges two sources instead of inventing a schedule:
 the Fincept release mirror (actual/forecast/previous values) and official
 institution schedules. `src/lib/economics/calendars/` has one adapter per source,
 each reading the institution's own page: `fomc.ts` (Federal Reserve meeting
-calendar, preserving its tentative marker), `bls.ts` (CPI + Employment
-Situation release dates/times), `bea.ts` (GDP + PCE), `ecb.ts` (Governing
+calendar, preserving its tentative marker), `bls.ts` (CPI, Employment
+Situation, PPI, JOLTS, ECI, Real Earnings, Import/Export Prices and Productivity
+& Costs release dates/times), `bea.ts` (GDP + PCE), `census.ts` (Advance
+Retail Sales), `ecb.ts` (Governing
 Council decision days), `boe.ts` (MPC dates) and `boj.ts` (MPM dates). `index.ts`
 fans out independently, so one institution's outage is a warning, not a blank
 calendar. `mergeOfficialEvents` upgrades a mirror row's date to the official one
@@ -212,19 +214,31 @@ without discarding its values, matching by release family (CPI, NFP, GDP, PCE,
 FOMC, ECB, BoE, BoJ) rather than exact title. If both sources fail the route
 serves the last-known-good calendar as `source: "cached"`, or
 `source: "unavailable"` with an empty list when there is none — there is no
-synthetic-date fallback.
+synthetic-date fallback. The API filters to a request horizon
+(`/api/economics/calendar?days=7|30|90|all`, default 30) so a past mirror row is
+never presented as upcoming; the cached payload stays the full feed and the
+filter runs per request. `?past=1` instead returns the last `days` of releases,
+newest first, so the UI can offer an Upcoming/Released toggle with actuals.
 
 Slow-moving snapshot and calendar payloads are also persisted in `SystemConfig`
 (`src/lib/economics/state-cache.ts`). A provider gap is backfilled from the last
 confirmed value and labelled `CACHED` with its confirmation date; a fresh
-provider value is never overwritten.
+provider value is never overwritten. `?refresh=1` on the snapshot and calendar
+routes bypasses the in-memory SWR cache, and the snapshot header summarises how
+many metrics are LIVE, WEB, CACHED or UNAVAILABLE.
 
 When a structured snapshot metric is missing, `src/lib/economics/enrichment.ts`
 applies the screener's search pattern: web search → keep official statistical
-hosts only (BLS, BEA, FRED, central banks) → fetch the page → extract a labelled,
-range-checked number and date. Such values carry `state: "WEB"` plus the source
-URL; they never replace a `LIVE` structured value and are refused when the
-label/number/date triple is not deterministic.
+hosts only (BLS, BEA, FRED, central banks, national statistics offices) → fetch
+the page → extract a labelled, range-checked number and date. A `WEB_SPECS` map
+covers every snapshot metric family — policy rates, CPI, unemployment, GDP, the
+US 10Y and the payroll level (thousands) — so a provider outage degrades to an official-page value rather than
+a blank card. Such values carry `state: "WEB"` plus the source URL; they never
+replace a `LIVE` structured value and are refused when the label/number/date
+triple is not deterministic. At most eight gaps are enriched per snapshot.
+Operators can correct a discontinued or renamed FRED id without a code change via
+the `SystemConfig` key `econ:fred-series-overrides`
+(`{ "<metric id>": "<FRED id>" }`); the effective id is what the card reports.
 
 ### SEC filing index
 
@@ -232,9 +246,25 @@ label/number/date triple is not deterministic.
 submissions index (form, filed, period, accession, primary document). The native
 route `GET /api/stocks/[symbol]/filings` wraps it with rate limiting and a
 30-minute cache; the Fundamentals panel renders the same data in its **Filings**
-tab (`src/components/screens/fundamentals/filings-section.tsx`). It is US-only —
-a non-US market returns `not_covered`, and a filing without a provider-published
-document renders no link.
+tab (`src/components/screens/fundamentals/filings-section.tsx`). SEC EDGAR covers
+US issuers; a market without a filing adapter returns `not_covered`, and a filing
+without a provider-published document renders no link. The company detail also
+renders this section standalone when a symbol has no fundamentals, because the
+filing list does not depend on statement data.
+
+Pakistan is the first non-US market with a real filing list:
+`src/lib/fundamentals/filings/psx-announcements.ts` reads the PSX company page's
+`#announcements` tables (Financial Results, Board Meetings, Others) into the
+same `{ form, filed, accession, document, description }` row shape. The
+per-company route branches to it when `market=PK`; it never falls back to
+pretending financial periods are filings, and a market with no adapter still
+returns `not_covered`.
+
+Filing-list coverage is currently **US (SEC EDGAR)** and **PK (PSX)**. Other
+markets return `not_covered` with an explicit message; they need a real
+per-exchange adapter because the keyless public routes are either absent
+(Companies House requires a key and a company-number mapping) or blocked/
+session-gated (NSE/BSE, ASX, EDINET).
 
 For a market-wide view, `src/lib/economics/sec-filings-feed.ts` parses EDGAR's
 current-events Atom feed (`browse-edgar?action=getcurrent&output=atom`) into
@@ -242,7 +272,28 @@ company, CIK, form, filed date/time, item summary and the filing index URL.
 `GET /api/economics/filings?form=8-K&limit=40` serves it with a 3-minute cache,
 and the Economics **SEC Filings** tab (`filings-feed.tsx`) renders the newest
 filings with form filters. The form is applied at the source; an unparseable
-entry is dropped, never guessed.
+entry is dropped, never guessed. The route enriches rows with a ticker via the
+cached SEC `company_tickers` reverse map (CIK→ticker); unmapped issuers keep a
+null ticker, and a known ticker links to that symbol's chart. The same feed
+powers the Command Center **Recent SEC Filings** widget; one DataHub topic per
+form (`sec:filings:<form>`) lets the widget's config switch between 8-K, 10-K,
+10-Q, S-1, 13F, Form 4 and the unfiltered feed.
+
+The same tab offers **full-text search** over every filing.
+`src/lib/economics/edgar-search.ts` queries the SEC's official index
+(`efts.sec.gov/LATEST/search-index`), normalizes hits to the same filing shape,
+and builds document URLs only from the SEC's own accession + filename pair.
+`GET /api/economics/filings/search?q=...&forms=8-K,10-K&start=...&end=...`
+returns `{ filings, total, query }` with a 3-minute cache; short queries and
+malformed dates are rejected before any network call. The filings tab exposes
+the form and date-window controls; search results are limited to the same page
+size as the latest feed.
+
+The latest-feed route persists its last good result in `SystemConfig`, so a
+restart or provider outage serves the previous feed marked `cached`. Both the
+feed and search accept `?refresh=1` to bypass their in-memory caches. The
+per-company panel exposes the form/category filter and a filed-date range; PSX
+uses the same controls with its three announcement categories.
 
 ### Investor Eye world state
 

@@ -1,6 +1,7 @@
 import { guardMutation } from "@/lib/api-guard";
 import { executeCommandFromText, type CommandResult } from "@/lib/harness/command-router";
 import { buildAgentInstruction } from "@/lib/harness/command-agent";
+import { loadProjectCommands } from "@/lib/harness/command-plugins";
 import { isOperatorRequest } from "@/lib/harness/skills-client";
 import { chatWithAgent } from "@/lib/harness/run-service";
 
@@ -33,7 +34,10 @@ export async function POST(request: Request): Promise<Response> {
   // Agent-turn commands (e.g. `/skill`) run the agent loop: they rewrite the
   // query into a directive and produce a normal answer. `chatWithAgent` applies
   // the same rewrite, so pass the raw text straight through.
-  const agentCommand = buildAgentInstruction(text);
+  const projectCommands = text.trimStart().startsWith("/")
+    ? (await loadProjectCommands()).commands
+    : [];
+  const agentCommand = buildAgentInstruction(text, projectCommands);
   if (agentCommand) {
     try {
       const out = await chatWithAgent(text);

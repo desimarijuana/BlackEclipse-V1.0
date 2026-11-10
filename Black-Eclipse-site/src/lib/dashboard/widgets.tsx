@@ -409,6 +409,36 @@ export function EconomicCalendarWidget() {
   );
 }
 
+export function RecentSecFilingsWidget({ placement }: { placement?: WidgetPlacement }) {
+  const form = (placement?.config?.form as string) || '8-K';
+  const topic = form === 'all' ? 'sec:filings:all' : `sec:filings:${form}`;
+  const t = useTopic<{ filings: Array<{ id: string; company: string; ticker?: string | null; form: string; filed: string | null; url: string }> }>(topic);
+  const filings = t.data?.filings ?? [];
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Recent SEC Filings" hint={form === 'all' ? 'ALL' : form} />
+      {filings.length === 0 ? <EmptyNote>Loading filings…</EmptyNote> : (
+        <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-hide">
+          {filings.slice(0, 8).map(f => (
+            <a
+              key={f.id}
+              href={f.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 rounded px-1 -mx-1 text-[10px] hover:bg-accent/20 transition-colors"
+            >
+              <span className="w-[42px] shrink-0 font-mono text-muted-foreground/70">{f.filed?.slice(5) ?? '—'}</span>
+              <span className="w-9 shrink-0 truncate font-mono text-primary">{f.ticker ?? '—'}</span>
+              <span className="flex-1 truncate text-foreground">{f.company}</span>
+              <span className="font-mono text-muted-foreground">{f.form}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StockQuoteWidget() {
   const t = useTopic<{ quotes: QuoteRow[] }>('market:quote:AAPL');
   const q = t.data?.quotes?.[0];

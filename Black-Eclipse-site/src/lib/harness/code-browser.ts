@@ -281,6 +281,22 @@ export async function listTrustedRoots(): Promise<TrustedRoot[]> {
   return body.roots ?? [];
 }
 
+export interface WorkspaceRoots {
+  roots: TrustedRoot[];
+  /** Server-resolved folder used when no per-chat root is bound (read-only). */
+  defaultRoot: string | null;
+}
+
+export async function getWorkspaceRoots(): Promise<WorkspaceRoots> {
+  const body = await api<{ roots: TrustedRoot[]; defaultRoot?: string | null }>(
+    `${workspaceBase()}/api/workspace/roots`,
+  );
+  return {
+    roots: body.roots ?? [],
+    defaultRoot: typeof body.defaultRoot === 'string' ? body.defaultRoot : null,
+  };
+}
+
 export async function approveTrustedRoot(path: string, label?: string): Promise<TrustedRoot> {
   const body = await api<{ root: TrustedRoot }>(`${workspaceBase()}/api/workspace/roots`, {
     method: 'POST',

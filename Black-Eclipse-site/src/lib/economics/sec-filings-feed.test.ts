@@ -96,4 +96,12 @@ describe("fetchLatestFilings", () => {
     const get = vi.fn().mockResolvedValue({ status: 503, text: "", headers: {}, url: "x", contentType: null, bytes: 0 });
     await expect(fetchLatestFilings({}, { get: get as never })).rejects.toThrow(/HTTP 503/);
   });
+
+  it("refresh=true bypasses the in-memory cache", async () => {
+    const get = vi.fn().mockResolvedValue({ status: 200, text: XML, headers: {}, url: "x", contentType: "application/atom+xml", bytes: XML.length });
+    await fetchLatestFilings({ form: "8-K", limit: 2 }, { get: get as never, now: () => 1000 });
+    const refreshed = await fetchLatestFilings({ form: "8-K", limit: 2, refresh: true }, { get: get as never, now: () => 2000 });
+    expect(refreshed.cached).toBe(false);
+    expect(get).toHaveBeenCalledTimes(2);
+  });
 });

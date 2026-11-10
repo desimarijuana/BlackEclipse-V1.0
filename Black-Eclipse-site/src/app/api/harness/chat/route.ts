@@ -99,6 +99,7 @@ export async function POST(request: Request) {
           content: cmdResult.output,
           runId: newRunId(),
           command: cmdResult.command,
+          ...(cmdResult.ui ? { ui: cmdResult.ui } : {}),
           documentsUsed: [],
         });
       }

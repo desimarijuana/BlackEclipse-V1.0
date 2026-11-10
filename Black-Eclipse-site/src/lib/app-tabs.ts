@@ -8,34 +8,37 @@
 // This module is the single declaration. Both consumers re-export it, so the two
 // can no longer disagree (the `app-tabs.test.ts` guard also pins them equal).
 
-export type AppTab =
-  | 'chat'
-  | 'home'
-  | 'news'
-  | 'discovery'
-  | 'heatmap'
-  | 'chart'
-  | 'economics'
-  | 'portfolio'
-  | 'journal'
-  | 'settings'
-  | 'alerts'
-  | 'dashboard'
-  | 'market-workspace'
-  | 'investor-eye'
-  | 'skills'
-  | 'memory'
-  | 'artifacts'
-  | 'tasks'
-  | 'pages'
-  | 'ui-builder'
-  | 'backtest'
-  | 'strategy-studio'
-  | 'research-data'
-  | 'factor-lab'
-  | 'ml-lab'
-  | 'graph-studio'
-  | 'tables'
-  | 'overview'
-  | 'bots'
-  | 'code';
+export const APP_TABS = [
+  'chat',
+  'home',
+  'news',
+  'discovery',
+  'heatmap',
+  'chart',
+  'economics',
+  'portfolio',
+  'journal',
+  'settings',
+  'alerts',
+  'dashboard',
+  'market-workspace',
+  'investor-eye',
+  'skills',
+  'memory',
+  'artifacts',
+  'tasks',
+  'pages',
+  'ui-builder',
+  'backtest',
+  'strategy-studio',
+  'research-data',
+  'factor-lab',
+  'ml-lab',
+  'graph-studio',
+  'tables',
+  'overview',
+  'bots',
+  'code',
+] as const;
+
+export type AppTab = (typeof APP_TABS)[number];

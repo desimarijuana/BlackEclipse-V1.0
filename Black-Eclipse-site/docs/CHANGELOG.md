@@ -1,6 +1,60 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(commands): typed UI intents + `/canvas` and `/open`.** A routed command
+  can now return a typed `ui` intent — `{type:"navigate", tab, subroute?, params?}`
+  or `{type:"openCanvas", artifactId?}` — on `CommandResult`, carried through the
+  chat stream's `client.final`, validated in `events.ts`, stored on the turn and
+  dispatched once by `stock-chat.tsx` through the same `useCommandStore`
+  destination path as ⌘K. It is data, never code: remote/CLI surfaces ignore it.
+  `/canvas [artifactId]` opens the inline Canvas and `/open <tab>` (alias `/go`)
+  navigates, with tabs validated against the single `APP_TABS` vocabulary (now a
+  const tuple with `AppTab` derived from it). Router and event tests cover the
+  intents. The command-registry ratchet moved 1444→1499.
+  Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
+- **feat(dashboard/economics): configurable filings widget + calendar health.**
+  The Command Center **Recent SEC Filings** widget gained a Form type config
+  (8-K, 10-K, 10-Q, S-1, 13F, Form 4, All) backed by one DataHub topic per form.
+  The calendar header now reports tentative releases alongside source warnings.
+  Docs: `docs/DATA-FLOW.md`.
+- **feat(economics/filings): unblock the remaining gaps.** Added a runtime
+  `SystemConfig` override for FRED series ids (`econ:fred-series-overrides`) so a
+  discontinued/renamed id can be corrected without a code change — the exact
+  replacement still needs an operator with working FRED access. Filing-list
+  coverage is now stated explicitly per market in the company panel (US SEC, PK
+  PSX, otherwise "no adapter yet"); keyless per-exchange routes for ASX, NSE/BSE
+  and EDINET were probed and are not usable (404/403), and Companies House needs
+  a key plus a company-number map. Docs: `docs/DATA-FLOW.md`.
+- **feat(economics): released/actuals calendar view.** `/api/economics/calendar`
+  now accepts `?past=1`, returning the last `days` of releases newest-first; the
+  Calendar UI gained an Upcoming/Released toggle alongside the horizon controls,
+  making the Actual column useful for post-release review. Docs:
+  `docs/DATA-FLOW.md`.
+- **feat(economics/filings): remaining quick wins.** (1) Unit-aware web fallback
+  now covers the payroll level (thousands), not just percentage metrics. (2) The
+  per-company filings panel exposes a filed-date range for every market and a
+  PSX category filter for Pakistan. (3) The market-wide feed persists its last
+  good result in `SystemConfig`, serves it as `cached` on failure, and both the
+  feed and full-text search accept `?refresh=1`. (4) The calendar header now
+  surfaces source warnings. Docs: `docs/DATA-FLOW.md`.
+- **feat(commands): canonical manifest + local project command packs.** Added
+  `GET /api/harness/commands`, the read-only manifest generated from the same
+  registry the router executes (builtins + validated project commands, with
+  `source`, `available`, args/flags/risk/examples, a stable ETag and `304`
+  revalidation; `agentPrompt` is omitted). Local packs in
+  `.black-eclipse/commands.json` add **agent-turn-only** commands
+  (`handler: agent.plugin`) with a prompt template supporting `{{arg}}`,
+  `{{flag.name}}` and `{{args}}`; `command-plugins.ts` validates names, aliases,
+  categories, args/flags and caps, reports invalid entries, and can never
+  shadow a builtin, register a routed handler or widen authority.
+  `run-service.ts` loads the pack for slash-leading turns, and
+  `use-project-commands.ts` merges the manifest's `source: "project"` entries
+  into the `/` palette and ⌘K dialog with a **project** badge. `resolveCommand`,
+  `searchCommands`, `parseCommandInvocation`, `parseAndBind` and
+  `buildAgentInstruction` gained an optional `extra` command list (builtins win
+  collisions). Tests cover the loader, prompt interpolation, palette merge and
+  manifest/ETag.
+  Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
 - **feat(economics): real refresh + data-health summary.** Snapshot Refresh now
   sends `?refresh=1` and actually bypasses the SWR cache (it previously returned
   the same cached payload); the calendar gained a refresh button with the same

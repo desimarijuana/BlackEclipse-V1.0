@@ -10,6 +10,7 @@ import { assertChatAutonomy, assertRunInput, validateWorkspaceRef } from "./vali
 import { resolveChatCodeProfile } from "./chat-capability";
 import { parseChatCommand } from "./commands";
 import { buildAgentInstruction } from "./command-agent";
+import { loadProjectCommands } from "./command-plugins";
 import { getAgentPreset } from "./agent-presets";
 import { runViaRuntime, startRunBackground, type RunRequestPayload } from "./python-client";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
@@ -100,7 +101,10 @@ export async function chatWithAgent(
   // (`/eclipsesdk`) forces the profile deterministically; otherwise the
   // classifier decides. A classifier failure is an ordinary turn (null).
   // An AGENT-turn command (`/skill`) rewrites the query and runs normally.
-  const agentCommand = buildAgentInstruction(query);
+  const projectCommands = query.trimStart().startsWith("/")
+    ? (await loadProjectCommands()).commands
+    : [];
+  const agentCommand = buildAgentInstruction(query, projectCommands);
   const parsedCommand = agentCommand ? null : parseChatCommand(query);
   const effectiveQuery = agentCommand
     ? agentCommand.instruction
@@ -286,7 +290,10 @@ export async function startChatRun(
   // classifier. An AGENT-turn command (`/skill`) rewrites the query into a
   // directive and runs as a normal turn. An unknown `/token` or ordinary text
   // falls through unchanged.
-  const agentCommand = buildAgentInstruction(query);
+  const projectCommands = query.trimStart().startsWith("/")
+    ? (await loadProjectCommands()).commands
+    : [];
+  const agentCommand = buildAgentInstruction(query, projectCommands);
   const parsedCommand = agentCommand ? null : parseChatCommand(query);
   const effectiveQuery = agentCommand
     ? agentCommand.instruction

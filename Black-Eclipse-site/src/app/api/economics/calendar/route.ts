@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchEconomicCalendar, type EconomicCalendar } from "@/lib/economics/calendar";
+import { fetchEconomicCalendar, filterUpcoming, type EconomicCalendar } from "@/lib/economics/calendar";
 import { readLastGood, writeLastGood } from "@/lib/economics/state-cache";
 
 export const dynamic = "force-dynamic";
@@ -44,23 +44,39 @@ function startBackgroundRebuild() {
     .finally(() => { rebuildInFlight = false; });
 }
 
-// GET /api/economics/calendar — upcoming releases with actual/forecast/previous.
-export async function GET() {
+// GET /api/economics/calendar?days=30 — upcoming releases with
+// actual/forecast/previous. `days=all` removes the upper bound. The cached
+// payload is always the full feed; filtering happens per request.
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const rawDays = url.searchParams.get("days");
+  const force = url.searchParams.get("refresh") === "1";
+  const past = url.searchParams.get("past") === "1";
+  let days: number | null = 30;
+  if (rawDays === "all" || rawDays === "0") {
+    days = null;
+  } else if (rawDays !== null) {
+    const parsed = Number(rawDays);
+    days = Number.isFinite(parsed) && parsed > 0 && parsed <= 365 ? parsed : 30;
+  }
+  const respond = (data: EconomicCalendar) =>
+    NextResponse.json({ ...data, events: filterUpcoming(data.events, { days, past }), days: days ?? "all", past });
+
   try {
-    if (cache) {
-      if (Date.now() - cache.t < CACHE_TTL_MS) return NextResponse.json(cache.data);
+    if (!force && cache) {
+      if (Date.now() - cache.t < CACHE_TTL_MS) return respond(cache.data);
       startBackgroundRebuild();
-      return NextResponse.json(cache.data);
+      return respond(cache.data);
     }
     const data = await finalize(await fetchEconomicCalendar());
     cache = { t: Date.now(), data };
-    return NextResponse.json(data);
+    return respond(data);
   } catch (err) {
     console.error("[api/economics/calendar] GET error:", err);
     const last = await readLastGood<EconomicCalendar>("calendar");
     if (last?.data?.events?.length) {
-      return NextResponse.json({ ...last.data, source: "cached" });
+      return respond({ ...last.data, source: "cached" });
     }
-    return NextResponse.json({ events: [], source: "unavailable", warnings: [] }, { status: 200 });
+    return NextResponse.json({ events: [], source: "unavailable", warnings: [], days: days ?? "all", past }, { status: 200 });
   }
 }

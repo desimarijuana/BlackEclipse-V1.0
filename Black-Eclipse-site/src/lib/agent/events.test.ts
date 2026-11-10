@@ -277,6 +277,17 @@ describe('normalizeHarnessEvent', () => {
     });
   });
 
+  it('carries a typed command UI intent on client.final', () => {
+    const ui = { type: 'navigate' as const, tab: 'alerts' as const };
+    const e = normalizeHarnessEvent('client.final', {
+      runId: 'r',
+      status: 'completed',
+      output: 'Opening alerts.',
+      ui,
+    });
+    expect(e).toMatchObject({ kind: 'final', ui });
+  });
+
   it('carries Phase 4 research metadata on client.final', () => {
     const research = { status: 'partial', metadata: { limitations: ['x'] } };
     const e = normalizeHarnessEvent('client.final', {

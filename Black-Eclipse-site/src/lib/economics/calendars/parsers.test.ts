@@ -4,6 +4,7 @@ import { parseBeaSchedule } from "./bea";
 import { parseEcbSchedule } from "./ecb";
 import { parseBoeSchedule } from "./boe";
 import { parseBojSchedule } from "./boj";
+import { parseCensusRetailSchedule } from "./census";
 
 describe("official schedule parsers", () => {
   it("BLS: reads the explicit release date and time", () => {
@@ -16,6 +17,12 @@ describe("official schedule parsers", () => {
     const events = parseBlsSchedule(html, { title: "US Consumer Price Index (CPI)", url: "https://www.bls.gov/x" });
     expect(events.map((e) => e.date)).toEqual(["2026-11-10", "2026-12-10"]);
     expect(events[0]).toMatchObject({ time: "08:30 AM ET", country: "US", importance: "high" });
+  });
+
+  it("BLS: carries the configured importance", () => {
+    const html = `<table class="release-list"><tbody><tr><td>October 2026</td><td>Nov. 14, 2026</td><td>08:30 AM</td></tr></tbody></table>`;
+    const [event] = parseBlsSchedule(html, { title: "US Producer Price Index (PPI)", url: "u", importance: "medium" });
+    expect(event.importance).toBe("medium");
   });
 
   it("BEA: keeps GDP/PCE rows and ignores unrelated releases", () => {
@@ -57,6 +64,18 @@ describe("official schedule parsers", () => {
     const events = parseBoeSchedule(html);
     expect(events.map((e) => e.date)).toEqual(["2026-02-05", "2026-12-17", "2027-02-04"]);
     expect(events.every((e) => e.confirmed)).toBe(true);
+  });
+
+  it("Census: reads Advance Monthly Retail Trade release dates", () => {
+    const html = `
+      <table><tbody>
+        <tr><td><strong>Data Month</strong></td><td><strong>Release Date at 8:30 am</strong></td></tr>
+        <tr><td>October 2026</td><td>November 17, 2026</td></tr>
+        <tr><td>November 2026</td><td>December 16, 2026</td></tr>
+      </tbody></table>`;
+    const events = parseCensusRetailSchedule(html);
+    expect(events.map((e) => e.date)).toEqual(["2026-11-17", "2026-12-16"]);
+    expect(events[0]).toMatchObject({ title: "US Advance Retail Sales", time: "08:30 AM ET", importance: "high" });
   });
 
   it("BoJ: takes the final day of a two-day meeting", () => {

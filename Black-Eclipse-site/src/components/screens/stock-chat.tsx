@@ -184,12 +184,30 @@ import { sound } from '@/lib/sounds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
+import type { CommandUiAction } from '@/lib/harness/command-ui';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
 import { canHandleKeyboardEvent, hasBlockingKeyboardDialog, isKeyboardEventAvailable } from '@/lib/keyboard';
 import { isFocusModeShortcut, isNewChatShortcut, isSettingsShortcut, isThemeShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
 import { cn } from '@/lib/utils';
+
+/** Apply a typed command intent through the SAME destination store the ⌘K bar uses. */
+function applyCommandUi(ui: CommandUiAction | undefined): void {
+  if (!ui) return;
+  if (ui.type === 'openCanvas') {
+    useCommandStore.getState().dispatch({
+      tab: 'chat',
+      ...(ui.artifactId ? { params: { artifactId: ui.artifactId } } : {}),
+    });
+    return;
+  }
+  useCommandStore.getState().dispatch({
+    tab: ui.tab,
+    ...(ui.subroute ? { subroute: ui.subroute } : {}),
+    ...(ui.params ? { params: ui.params } : {}),
+  });
+}
 
 function ScreenSkeleton() {
   // Chunk-load placeholder for next/dynamic screens. Kept minimal and
@@ -848,6 +866,7 @@ function StockChatContent() {
 
     try {
       const finalTurn = await agentRun.start({ history, userText, chatId, model: chatModel.displayModel || undefined, reasoningEffort: reasoningEffort.effort });
+      applyCommandUi(finalTurn.ui);
       setSessionRefreshKey((k) => k + 1);
       // A finished reply is an incoming message, not a generic success.
       if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
@@ -1275,11 +1294,9 @@ function StockChatContent() {
                       searchProjectFiles={searchProjectFiles}
                       onReferenceFile={sessionController.attachProjectFile}
                     />
-                    <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <SessionBar session={sessionController} />
-                        <ProjectChip chatId={activeConversationId ?? undefined} />
-                      </div>
+                    <div className="flex max-w-full items-center gap-2 px-4 md:px-6">
+                      <SessionBar session={sessionController} />
+                      <ProjectChip chatId={activeConversationId ?? undefined} />
                     </div>
                   </div>
                 ) : (

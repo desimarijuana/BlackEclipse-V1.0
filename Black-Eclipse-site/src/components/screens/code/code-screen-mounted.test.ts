@@ -39,7 +39,8 @@ describe('the Builder surface is mounted', () => {
   });
 
   it('`code` is a real tab, deep-linkable, with a palette page', () => {
-    expect(tabs).toMatch(/\|\s*'code'/);
+    // `APP_TABS` is a const tuple; `AppTab` is derived from it.
+    expect(tabs).toContain("'code',");
     expect(deepLink).toContain('code: true');
     expect(registry).toContain("tab: 'code'");
   });

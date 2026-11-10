@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { listTrustedRoots } from "@/lib/harness/code-client";
+import { getWorkspaceRoots, listTrustedRoots } from "@/lib/harness/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import {
   readSessionProject,
@@ -30,14 +30,17 @@ export async function GET(request: Request) {
 
   const project = await readSessionProject(chatId);
   let roots: Awaited<ReturnType<typeof listTrustedRoots>> = [];
+  let defaultRoot: string | null = null;
   let runtime = "ready";
   try {
-    roots = await listTrustedRoots();
+    const workspace = await getWorkspaceRoots();
+    roots = workspace.roots;
+    defaultRoot = workspace.defaultRoot;
   } catch (err) {
     // The binding is still readable; only the folder list is unavailable.
     runtime = err instanceof HarnessRuntimeUnavailable ? "unavailable" : "error";
   }
-  return NextResponse.json({ success: true, project, roots, runtime });
+  return NextResponse.json({ success: true, project, roots, runtime, defaultRoot });
 }
 
 export async function POST(request: Request) {

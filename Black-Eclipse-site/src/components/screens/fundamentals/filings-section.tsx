@@ -35,14 +35,25 @@ interface FilingsPayload {
   cached?: boolean;
 }
 
-const FORM_FILTERS = ['All', '10-K', '10-Q', '8-K', '4', 'DEF 14A', '20-F', '6-K'];
+const SEC_FORMS = ['All', '10-K', '10-Q', '8-K', '4', 'DEF 14A', '20-F', '6-K'];
+const PSX_CATEGORIES = ['All', 'Financial Results', 'Board Meetings', 'Others'];
 
 export function FilingsSection({ symbol, market }: { symbol: string; market: string }) {
   const [payload, setPayload] = useState<FilingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState('All');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+  const isUs = (market || 'US').toUpperCase() === 'US';
+  const marketLabel = (market || 'US').toUpperCase();
+  const options = isUs ? SEC_FORMS : PSX_CATEGORIES;
+  const coverageNote = isUs
+    ? 'EDGAR submissions index'
+    : marketLabel === 'PK'
+      ? 'PSX company announcements · Pakistan Stock Exchange'
+      : `No filing-list adapter for ${marketLabel} yet. Covered markets: US (SEC EDGAR) and PK (PSX).`;
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +63,8 @@ export function FilingsSection({ symbol, market }: { symbol: string; market: str
       try {
         const qs = new URLSearchParams({ market: market || 'US' });
         if (form !== 'All') qs.set('form', form);
+        if (start) qs.set('date_from', start);
+        if (end) qs.set('date_to', end);
         const res = await fetch(`/api/stocks/${encodeURIComponent(symbol)}/filings?${qs.toString()}`, {
           cache: 'no-store',
         });
@@ -75,7 +88,7 @@ export function FilingsSection({ symbol, market }: { symbol: string; market: str
     return () => {
       cancelled = true;
     };
-  }, [symbol, market, form, reloadKey]);
+  }, [symbol, market, form, isUs, start, end, reloadKey]);
 
   const filings = useMemo(() => payload?.filings ?? [], [payload]);
   const unavailable = payload && payload.status !== 'OK';
@@ -84,26 +97,58 @@ export function FilingsSection({ symbol, market }: { symbol: string; market: str
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-[13px] font-semibold uppercase tracking-[0.05em] text-foreground">SEC filings</p>
+          <p className="text-[13px] font-semibold uppercase tracking-[0.05em] text-foreground">
+            {isUs ? 'SEC filings' : 'Company filings'}
+          </p>
           <p className="mt-1 text-[12px] text-muted-foreground">
             {payload?.provider === 'sec-edgar'
               ? `EDGAR submissions index${payload.entityName ? ` · ${payload.entityName}` : ''}${payload.cik ? ` · CIK ${payload.cik}` : ''}`
-              : 'US issuers only — non-US filing indexes are handled by the provider layer.'}
+              : payload?.provider === 'psx'
+                ? 'PSX company announcements · Pakistan Stock Exchange'
+                : coverageNote}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select
             value={form}
             onChange={(e) => setForm(e.target.value)}
             className="h-8 rounded-lg border border-border/30 bg-background/40 px-2 font-mono text-[11px] text-foreground outline-none focus:border-primary"
-            aria-label="Filter by form type"
+            aria-label={isUs ? 'Filter by form type' : 'Filter by announcement category'}
           >
-            {FORM_FILTERS.map((f) => (
+            {options.map((f) => (
               <option key={f} value={f}>
                 {f}
               </option>
             ))}
           </select>
+          <div className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+            <input
+              type="date"
+              value={start}
+              max={end || undefined}
+              onChange={(e) => setStart(e.target.value)}
+              className="h-8 rounded-lg border border-border/30 bg-background/40 px-2 text-[11px] text-foreground outline-none focus:border-primary"
+              aria-label="Filed from"
+            />
+            <span>–</span>
+            <input
+              type="date"
+              value={end}
+              min={start || undefined}
+              onChange={(e) => setEnd(e.target.value)}
+              className="h-8 rounded-lg border border-border/30 bg-background/40 px-2 text-[11px] text-foreground outline-none focus:border-primary"
+              aria-label="Filed to"
+            />
+            {(start || end) && (
+              <button
+                onClick={() => { setStart(''); setEnd(''); }}
+                className="ml-1 text-muted-foreground hover:text-foreground cursor-pointer"
+                aria-label="Clear filing date range"
+              >
+                clear
+              </button>
+            )}
+          </div>
           <button
             onClick={() => setReloadKey((k) => k + 1)}
             className="h-8 w-8 inline-flex items-center justify-center rounded-lg glass-card-subtle border border-border/20 text-muted-foreground hover:text-foreground cursor-pointer"
@@ -131,7 +176,7 @@ export function FilingsSection({ symbol, market }: { symbol: string; market: str
           <FileText size={18} className="mx-auto text-muted-foreground/60" />
           <p className="mt-2 font-mono text-[12px] text-foreground">UNAVAILABLE</p>
           <p className="mt-1 text-[12px] text-muted-foreground">
-            {payload?.error ?? payload?.reason ?? payload?.note ?? `No SEC filings returned for ${symbol}.`}
+            {payload?.error ?? payload?.reason ?? payload?.note ?? `No filings returned for ${symbol}.`}
           </p>
         </div>
       )}

@@ -37,3 +37,28 @@ export async function writeLastGood<T>(name: string, data: T): Promise<void> {
     // Best-effort: persistence must never fail a data response.
   }
 }
+
+// ── Plain JSON config (operator-tunable, not a last-good snapshot) ──────────
+
+export async function readJsonConfig<T>(key: string): Promise<T | null> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { key } });
+    if (!row?.value) return null;
+    return JSON.parse(row.value) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeJsonConfig<T>(key: string, value: T): Promise<void> {
+  try {
+    const serialized = JSON.stringify(value);
+    await prisma.systemConfig.upsert({
+      where: { key },
+      update: { value: serialized },
+      create: { key, value: serialized },
+    });
+  } catch {
+    // Best-effort.
+  }
+}

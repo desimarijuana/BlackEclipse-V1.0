@@ -15,36 +15,22 @@ import {
 import type { BoundArgs } from "./command-parser";
 import { callout, dataTable, heading, keyValue, markdown } from "./command-render";
 import type { ResponseBlock } from "@/lib/response/contract";
+import { APP_TABS, type AppTab } from "@/lib/app-tabs";
 import type { LearnDraftResult, SkillDetail, SkillExecutionResult, SkillSummary } from "./skills-types";
-import type { CommandContext, CommandDeps, CommandResult, CommandRunStatus, CompactionPayload } from "./command-router";
+import type { CommandDeps } from "./command-router";
+import {
+  fail,
+  frontDoorError,
+  invalid,
+  str,
+  type Handler,
+  type HandlerOutput,
+} from "./command-handler-kit";
+import { workspaceHandlers } from "./command-handlers-workspace";
+import { summarizeCommandAudit } from "./command-audit";
 
-export interface HandlerOutput {
-  status: CommandRunStatus;
-  blocks?: ResponseBlock[];
-  markdownText?: string;
-  error?: { code: string; message: string };
-  compaction?: CompactionPayload;
-  meta?: CommandResult["meta"];
-}
-
-type Handler = (
-  ctx: CommandContext,
-  spec: CommandSpec,
-  args: BoundArgs,
-  deps: CommandDeps,
-) => Promise<HandlerOutput>;
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-export function fail(code: string, message: string): HandlerOutput {
-  return { status: "failed", error: { code, message } };
-}
-
-function invalid(code: string, message: string): HandlerOutput {
-  return { status: "invalid", error: { code, message } };
-}
+export { fail, frontDoorError };
+export type { HandlerOutput };
 
 /** One command's full contract: usage, arguments, flags, risk and examples. */
 function renderCommandDetail(spec: CommandSpec): ResponseBlock[] {
@@ -124,6 +110,8 @@ function renderCommandDetail(spec: CommandSpec): ResponseBlock[] {
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 export const handlers: Record<string, Handler> = {
+  ...workspaceHandlers,
+
   "native.help": async (_ctx, _spec, args, _deps) => {
     const topic = (Array.isArray(args.positionals.command) ? (args.positionals.command as string[]) : [])
       .join(" ")
@@ -178,6 +166,29 @@ export const handlers: Record<string, Handler> = {
       );
     }
     return { status: "completed", blocks };
+  },
+
+  "native.canvas": async (_ctx, _spec, args, _deps) => {
+    const artifactId = str(args.positionals.artifactId).trim();
+    return {
+      status: "completed",
+      markdownText: artifactId
+        ? `Opening Canvas artifact \`${artifactId}\`.`
+        : "Opening Eclipse Canvas.",
+      ui: { type: "openCanvas", ...(artifactId ? { artifactId } : {}) },
+    };
+  },
+
+  "native.open": async (_ctx, _spec, args, _deps) => {
+    const tab = str(args.positionals.tab).trim() as AppTab;
+    if (!(APP_TABS as readonly string[]).includes(tab)) {
+      return invalid("OPEN_TARGET", `Unknown tab \`${tab}\`. Use one of: ${APP_TABS.join(", ")}.`);
+    }
+    return {
+      status: "completed",
+      markdownText: `Opening **${tab}**.`,
+      ui: { type: "navigate", tab },
+    };
   },
 
   "runtime.status": async (_ctx, _spec, _args, deps) => {
@@ -362,7 +373,48 @@ export const handlers: Record<string, Handler> = {
     return { status: "completed", blocks };
   },
 
-  "admin.usage": async (_ctx, _spec, _args, deps) => {
+  "admin.usage": async (_ctx, _spec, args, deps) => {
+    if (args.flags.commands === true) {
+      const events = await deps.audit.read(500);
+      const summary = summarizeCommandAudit(events);
+      const blocks: ResponseBlock[] = [
+        heading("Command usage", 2),
+        keyValue("Totals", [
+          { label: "Commands", value: summary.total },
+          { label: "Completed", value: summary.byStatus.completed ?? 0 },
+          { label: "Failed", value: summary.byStatus.failed ?? 0 },
+          { label: "Denied", value: summary.byStatus.denied ?? 0 },
+          { label: "Pending confirmation", value: summary.byStatus.pending ?? 0 },
+          { label: "High-risk runs", value: summary.highRisk },
+        ]),
+      ];
+      if (!summary.byCommand.length) {
+        blocks.push(callout("note", "No command history", "The audit is empty; run a command first."));
+        return { status: "completed", blocks };
+      }
+      blocks.push(
+        dataTable("By command", [
+          { key: "command", label: "Command" },
+          { key: "runs", label: "Runs" },
+          { key: "completed", label: "Completed" },
+          { key: "failed", label: "Failed" },
+          { key: "p50", label: "p50 ms" },
+          { key: "p95", label: "p95 ms" },
+          { key: "last", label: "Last run" },
+        ], summary.byCommand.slice(0, 20).map((row) => ({
+          command: `/${row.command}`,
+          runs: row.runs,
+          completed: row.completed,
+          failed: row.failed,
+          p50: row.p50Ms,
+          p95: row.p95Ms,
+          last: row.lastAt,
+        }))),
+        callout("note", "From the command audit", "Counts and timings are real command executions; they are not model token usage."),
+      );
+      return { status: "completed", blocks };
+    }
+
     const summary = await deps.usage.summary(30);
     const totals = summary.totals;
     const blocks: ResponseBlock[] = [
@@ -453,7 +505,45 @@ export const handlers: Record<string, Handler> = {
     return { status: "completed", blocks };
   },
 
-  "memory.memory": async (_ctx, _spec, _args, deps) => {
+  "memory.memory": async (_ctx, _spec, args, deps) => {
+    const query = (Array.isArray(args.positionals.query) ? (args.positionals.query as string[]) : [])
+      .join(" ")
+      .trim();
+    if (query) {
+      const { ok, status, data } = await deps.frontDoor.request(
+        `/api/eclipse-memory/memories?q=${encodeURIComponent(query)}&limit=25`,
+        { timeoutMs: 60_000 },
+      );
+      if (!ok) return fail("MEMORY_SEARCH_FAILED", frontDoorError(data, status));
+      const payload = (data ?? {}) as { memories?: unknown; total?: unknown };
+      const rows = Array.isArray(payload.memories)
+        ? (payload.memories.filter((row) => row && typeof row === "object") as Array<Record<string, unknown>>)
+        : [];
+      const blocks: ResponseBlock[] = [
+        heading("Memory search", 2),
+        markdown(`Query: **${query}** · ${rows.length} match${rows.length === 1 ? "" : "es"}.`),
+      ];
+      if (!rows.length) {
+        blocks.push(callout("note", "No matches", "No memory row matched that query."));
+        return { status: "completed", blocks };
+      }
+      blocks.push(dataTable("Matches", [
+        { key: "content", label: "Content" },
+        { key: "type", label: "Type" },
+        { key: "scope", label: "Scope" },
+        { key: "status", label: "Status" },
+      ], rows.map((m) => {
+        const content = str(m.content);
+        return {
+          content: content.length > 180 ? `${content.slice(0, 179)}…` : content || "—",
+          type: str(m.memoryType) || str(m.memory_type),
+          scope: str(m.scope),
+          status: str(m.status),
+        };
+      })));
+      return { status: "completed", blocks };
+    }
+
     const [overview, memories] = await Promise.all([
       deps.memory.overview(),
       deps.memory.list({ limit: 25 }),
@@ -850,12 +940,6 @@ export const handlers: Record<string, Handler> = {
     );
   },
 };
-
-export function frontDoorError(data: unknown, status: number): string {
-  const d = (data ?? {}) as { error?: unknown; detail?: unknown };
-  const msg = typeof d.error === "string" ? d.error : typeof d.detail === "string" ? d.detail : undefined;
-  return msg ?? `request failed (HTTP ${status})`;
-}
 
 function researchBlocks(title: string, result: unknown): ResponseBlock[] {
   const r = (result ?? {}) as Record<string, unknown>;

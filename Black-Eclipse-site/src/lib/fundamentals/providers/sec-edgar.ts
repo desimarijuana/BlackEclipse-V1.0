@@ -99,6 +99,29 @@ export async function resolveSecCik(symbol: string): Promise<number | null> {
   return map.get(ticker) ?? null;
 }
 
+/**
+ * Reverse lookup for feed rows: CIK → ticker. Built from the same cached
+ * company_tickers map (ticker→CIK), so the two directions can never drift.
+ * Unmapped issuers are omitted — a CIK without a public ticker (funds, trusts)
+ * must not receive a guessed symbol.
+ */
+export async function resolveSecTickers(
+  ciks: Array<string | null | undefined>,
+): Promise<Record<string, string>> {
+  const map = await loadCikMap();
+  const reverse = new Map<number, string>();
+  for (const [ticker, cik] of map) {
+    if (!reverse.has(cik)) reverse.set(cik, ticker);
+  }
+  const out: Record<string, string> = {};
+  for (const raw of ciks) {
+    if (!raw) continue;
+    const ticker = reverse.get(Number(raw));
+    if (ticker) out[raw] = ticker;
+  }
+  return out;
+}
+
 // ── XBRL fact extraction ────────────────────────────────────────────────────
 
 interface XbrlUnitEntry {

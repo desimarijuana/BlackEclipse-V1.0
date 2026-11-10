@@ -112,8 +112,22 @@ def create_browsed_folder(
 
 @router.get("/workspace/roots")
 def list_roots(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Approved roots, plus the folder a run would use with no per-chat binding.
+
+    `defaultRoot` is the server-resolved effective root (a selected trusted root,
+    an operator override, or the built-in repo) and is READ-ONLY context for the
+    project chip: it lets the UI show where work will happen before any folder is
+    bound. It is not an approval — binding still requires an approved root id.
+    """
+    from ..code.workspace import default_root  # noqa: PLC0415
+
     store = service.trusted_root_store()
-    return {"success": True, "roots": [r.to_dict() for r in store.list()]}
+    resolved = default_root()
+    return {
+        "success": True,
+        "roots": [r.to_dict() for r in store.list()],
+        "defaultRoot": str(resolved) if resolved else None,
+    }
 
 
 @router.post("/workspace/roots")

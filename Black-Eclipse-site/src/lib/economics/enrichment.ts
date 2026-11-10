@@ -36,6 +36,11 @@ export const ECON_OFFICIAL_DOMAINS = [
   "ons.gov.uk",
   "stats.gov.cn",
   "statcan.gc.ca",
+  "mospi.gov.in",
+  "pbs.gov.pk",
+  "stat.go.jp",
+  "ec.europa.eu",
+  "census.gov",
 ];
 
 export function isOfficialEconHost(url: string): boolean {
@@ -100,7 +105,7 @@ export function extractMetricFromText(
   return { value: raw, asOf: parseAsOf(text, match.index) };
 }
 
-const MAX_ENRICHMENTS = 5;
+const MAX_ENRICHMENTS = 8;
 
 /**
  * Try to fill a single missing metric from official web sources. Returns null

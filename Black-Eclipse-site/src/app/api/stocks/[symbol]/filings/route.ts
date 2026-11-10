@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchCapability } from "@/lib/harness/data-bridge";
+import { fetchPsxAnnouncements, toPsxFilingRows } from "@/lib/fundamentals/filings/psx-announcements";
 import { rateLimit, clientKey } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -61,13 +62,48 @@ export async function GET(
   try {
     let pending = inFlight.get(key);
     if (!pending) {
-      pending = fetchCapability("sec_filing_list", {
-        symbol,
-        market,
-        ...(form ? { form } : {}),
-        ...(dateFrom ? { date_from: dateFrom } : {}),
-        ...(dateTo ? { date_to: dateTo } : {}),
-      }) as Promise<Record<string, unknown>>;
+      if (market === "PK") {
+        pending = (async (): Promise<Record<string, unknown>> => {
+          const rows = await fetchPsxAnnouncements(symbol);
+          const filtered = rows.filter((row) => {
+            if (form && row.category.toUpperCase() !== form.toUpperCase()) return false;
+            if (dateFrom && row.date < dateFrom) return false;
+            if (dateTo && row.date > dateTo) return false;
+            return true;
+          });
+          if (filtered.length === 0) {
+            return {
+              status: "UNAVAILABLE",
+              code: "no_data",
+              error: `PSX returned no matching announcements for ${symbol}.`,
+              symbol,
+              market: "PK",
+              provider: "psx",
+              retrievedAt: new Date().toISOString(),
+              filings: [],
+            };
+          }
+          return {
+            status: "OK",
+            symbol,
+            market: "PK",
+            provider: "psx",
+            retrievedAt: new Date().toISOString(),
+            matched: filtered.length,
+            count: filtered.length,
+            truncated: false,
+            filings: toPsxFilingRows(filtered),
+          };
+        })();
+      } else {
+        pending = fetchCapability("sec_filing_list", {
+          symbol,
+          market,
+          ...(form ? { form } : {}),
+          ...(dateFrom ? { date_from: dateFrom } : {}),
+          ...(dateTo ? { date_to: dateTo } : {}),
+        }) as Promise<Record<string, unknown>>;
+      }
       inFlight.set(key, pending);
       void pending.finally(() => inFlight.delete(key));
     }

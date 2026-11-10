@@ -77,6 +77,7 @@ export function AlertNotificationProvider() {
           kind: req.kind ?? 'alert',
           title,
           body,
+          url: req.url,
         });
       }
     },

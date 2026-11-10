@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, ArrowUp, Pause, Loader2, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen, MessageSquareText } from '@/lib/icons';
+import { Plus, ArrowUp, Pause, Loader2, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen, MessageSquareText } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { ProviderLogo } from '@/components/providers/provider-logo';
 import { VoiceInputButton } from './voice-input-button';
@@ -31,12 +31,13 @@ import { QuantModeControl } from './quant-mode-control';
 import { ChoicesModeControl } from './choices-mode-control';
 import { PlanModeControl } from './plan-mode-control';
 import { TradeApprovalBanner } from './trade-approval-banner';
-import {
-  commandArgHint,
-  isCommandAvailable,
-  searchCommands,
-  type CommandSpec,
-} from '@/lib/harness/command-registry';
+import { resolveCommand, type CommandSpec } from '@/lib/harness/command-registry';
+import { recordCommandRun, useCommandMemory } from '@/lib/harness/command-history';
+import { useCommandSuggestions } from '@/lib/harness/command-suggest';
+import { useProjectCommands } from '@/lib/harness/use-project-commands';
+import { ActiveCommandBadge, CommandPalette, useCommandPalette } from './command-palette';
+import { CommandPaletteDialog } from './command-dialog';
+import { CommandSuggestions } from './command-suggestions';
 import { searchMentions, mentionedTargets, type MentionTarget } from '@/lib/bots/mentions';
 import { isLongPaste } from '@/lib/chat/paste';
 import { originLabel, describeSource, folderOf, type FileRef } from '@/lib/chat/file-sources';
@@ -268,34 +269,36 @@ export function ChatInput({
   }, []);
 
   // ── Slash-command palette ──────────────────────────────────────────────
-  // Typing a bare `/word` (no space yet) opens a small menu of matching chat
-  // commands. Selecting one inserts `/name ` and focuses the composer so the
-  // user types the instruction. Distinct from the global `/` shortcut, which
-  // focuses this composer (and only fires while it is NOT focused).
-  const [commandHighlight, setCommandHighlight] = useState(0);
-  const commandToken = useMemo(() => {
-    const t = query.trimStart();
-    if (!t.startsWith('/')) return null;
-    const body = t.slice(1);
-    if (/\s/.test(body)) return null; // past the command word: the rest is the instruction
-    return body.toLowerCase();
-  }, [query]);
-  const commandMatches = useMemo<CommandSpec[]>(() => {
-    if (commandToken === null) return [];
-    // No cap: the palette is scrollable, so every command is reachable. Typing a
-    // prefix narrows the list.
-    return searchCommands(commandToken);
-  }, [commandToken]);
-  const commandMenuOpen = commandToken !== null && commandMatches.length > 0;
-  useEffect(() => { setCommandHighlight(0); }, [commandToken]);
-
-  // Keep the keyboard-highlighted option visible as the user arrows through a
-  // long, scrollable palette (otherwise the list scrolls but never follows).
-  const commandListRef = useRef<HTMLDivElement>(null);
+  // Typing a bare `/word` (no space yet) opens the shared command palette.
+  // Selecting one inserts `/name ` and focuses the composer. The palette owns
+  // grouping, recents/pins and the detail pane; ⌘K opens the full dialog.
+  const {
+    token: commandToken,
+    sections: commandSections,
+    flat: commandMatches,
+    open: commandMenuOpen,
+    highlight: commandHighlight,
+    setHighlight: setCommandHighlight,
+    listRef: commandListRef,
+  } = useCommandPalette(query);
+  const { favorites: commandFavorites } = useCommandMemory();
+  const projectCommands = useProjectCommands();
+  const [commandDialogOpen, setCommandDialogOpen] = useState(false);
+  const suggestions = useCommandSuggestions(query, true);
+  const suggestionListRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = commandListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    const el = suggestionListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
     el?.scrollIntoView({ block: 'nearest' });
-  }, [commandHighlight, commandMenuOpen]);
+  }, [suggestions.highlight, suggestions.visible]);
+  const applySuggestion = useCallback(
+    (value: string) => {
+      const next = suggestions.apply(value);
+      if (next === null) return;
+      setQuery(`${next} `);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [suggestions, setQuery],
+  );
 
   const completeCommand = useCallback(
     (c: CommandSpec) => {
@@ -308,12 +311,37 @@ export function ChatInput({
   // A recognized command already followed by an instruction: show a badge.
   const activeCommand = useMemo<CommandSpec | null>(() => {
     const m = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)\s/.exec(query);
-    if (!m) return null;
-    const tok = m[1].toLowerCase();
-    return searchCommands(tok, { includeUnavailable: true }).find(
-      (c) => c.name === tok || c.aliases.includes(tok),
-    ) ?? null;
-  }, [query]);
+    return m ? (resolveCommand(m[1], projectCommands) ?? null) : null;
+  }, [query, projectCommands]);
+
+  // ⌘K / Ctrl+K opens the full command dialog. Only the visible composer answers
+  // so a keep-alive tab cannot open a second palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      const el = textareaRef.current;
+      if (!el || !isKeyboardScopeVisible(el)) return;
+      e.preventDefault();
+      setCommandDialogOpen(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Remember the command (not the prose) when a draft is submitted. Consecutive
+  // duplicates are de-duplicated by the store, so the form/keydown double path
+  // is harmless.
+  const recordDraftCommand = useCallback(() => {
+    const m = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)/.exec(queryRef.current);
+    if (m) recordCommandRun(m[1]);
+  }, []);
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      recordDraftCommand();
+      onSend(e);
+    },
+    [onSend, recordDraftCommand],
+  );
 
   // ── Bot / group / file `@mention` palette ────────────────────────────────
   // Typing `@word` (start of text or after a space, no space yet) opens a menu of
@@ -422,6 +450,32 @@ export function ChatInput({
         return;
       }
     }
+    // Argument suggestions (skills, symbols, …) take priority over sending: the
+    // user is completing an argument, not finishing the command.
+    if (suggestions.visible && !e.nativeEvent.isComposing) {
+      const count = suggestions.candidates.length;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        suggestions.setHighlight((suggestions.highlight + 1) % count);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        suggestions.setHighlight((suggestions.highlight - 1 + count) % count);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const candidate = suggestions.candidates[Math.min(suggestions.highlight, count - 1)];
+        if (candidate) applySuggestion(candidate.value);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        suggestions.dismiss();
+        return;
+      }
+    }
     // While the command menu is open, the arrows navigate it and Enter/Tab
     // completes the highlighted command (instead of sending).
     if (commandMenuOpen) {
@@ -451,15 +505,12 @@ export function ChatInput({
     // so submit is always forwarded and the host decides send-vs-queue.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
+      recordDraftCommand();
       onSend(e);
     }
   };
 
   const filled = Math.max(0, Math.min(1, contextFraction ?? 0));
-  const commandSummary = useCallback(
-    (c: CommandSpec) => (c.summaryKey ? t(c.summaryKey) : c.summary),
-    [t],
-  );
 
   // The `/` palette is PORTALED to <body> so its backdrop blur samples the real
   // page instead of a scoped backdrop root (the app shell's glass surfaces),
@@ -467,7 +518,7 @@ export function ChatInput({
   const formRef = useRef<HTMLFormElement>(null);
   const [paletteBox, setPaletteBox] = useState<{ left: number; width: number; bottom: number } | null>(null);
   useLayoutEffect(() => {
-    if (!commandMenuOpen && !mentionMenuOpen) {
+    if (!commandMenuOpen && !mentionMenuOpen && !suggestions.visible) {
       setPaletteBox(null);
       return;
     }
@@ -484,7 +535,7 @@ export function ChatInput({
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [commandMenuOpen, mentionMenuOpen]);
+  }, [commandMenuOpen, mentionMenuOpen, suggestions.visible]);
 
   // Insert a token (e.g. `/` or `@`) at the end of the draft and keep focus in
   // the composer so the corresponding palette opens immediately.
@@ -613,24 +664,7 @@ export function ChatInput({
           })}
         </div>
       )}
-      {activeCommand && (
-        <div className="mb-2 flex items-center gap-1.5">
-          <span
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
-              isCommandAvailable(activeCommand)
-                ? 'border-primary/30 bg-primary/10 text-primary'
-                : 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-            )}
-          >
-            <Command size={11} className="shrink-0" />
-            {commandSummary(activeCommand)}
-            {!isCommandAvailable(activeCommand) && (
-              <span className="ml-1 text-[9px] uppercase tracking-wide opacity-80">not available</span>
-            )}
-          </span>
-        </div>
-      )}
+      {activeCommand && <ActiveCommandBadge spec={activeCommand} />}
       {activeMentions.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Mentioned bots and group chats">
           {activeMentions.map((m) => (
@@ -650,70 +684,34 @@ export function ChatInput({
           ))}
         </div>
       )}
-      {commandMenuOpen && paletteBox && typeof document !== 'undefined' &&
-        createPortal(
-          <div
-            ref={commandListRef}
-            role="listbox"
-            aria-label={t('code.command.paletteLabel')}
-            style={{
-              position: 'fixed',
-              left: paletteBox.left,
-              width: paletteBox.width,
-              bottom: paletteBox.bottom,
-            }}
-            className="z-[120] max-h-[50vh] overflow-y-auto rounded-2xl glass-command-popover shadow-lg"
-          >
-          <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
-            {t('code.command.paletteLabel')}
-          </div>
-          {commandMatches.map((c, i) => {
-            const available = isCommandAvailable(c);
-            const hint = commandArgHint(c);
-            const gates = [
-              c.permissions.approval === 'operator' ? 'operator' : '',
-              c.risk === 'high' || c.risk === 'critical' ? `${c.risk} risk` : '',
-            ].filter(Boolean).join(' · ');
-            return (
-              <button
-                key={c.name}
-                type="button"
-                role="option"
-                aria-selected={i === commandHighlight}
-                aria-disabled={!available}
-                onMouseEnter={() => setCommandHighlight(i)}
-                // onMouseDown (not onClick) so the textarea does not blur/lose the
-                // selection before the command is inserted.
-                onMouseDown={(e) => { e.preventDefault(); completeCommand(c); }}
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                  i === commandHighlight ? 'bg-accent/40' : 'hover:bg-accent/25',
-                  !available && 'opacity-60',
-                )}
-              >
-                <Command size={13} className={cn('shrink-0', available ? 'text-primary' : 'text-amber-400/70')} />
-                <span className="font-mono text-xs">/{c.name}</span>
-                {hint && <span className="hidden font-mono text-[10px] text-muted-foreground/50 sm:inline">{hint}</span>}
-                <span className="ml-1 min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-                  {commandSummary(c)}
-                </span>
-                <span className="shrink-0 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
-                  {c.category}
-                </span>
-                {gates && (
-                  <span className="shrink-0 rounded-full bg-rose-400/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-rose-300/80">
-                    {gates}
-                  </span>
-                )}
-                {!available && (
-                  <span className="shrink-0 text-[9px] uppercase tracking-wide text-amber-400/70">soon</span>
-                )}
-              </button>
-            );
-          })}
-          </div>,
-          document.body,
-        )}
+      <CommandPalette
+        anchor={paletteBox}
+        open={commandMenuOpen}
+        query={commandToken ?? ''}
+        sections={commandSections}
+        flat={commandMatches}
+        highlight={commandHighlight}
+        favorites={commandFavorites}
+        onHighlight={setCommandHighlight}
+        onSelect={completeCommand}
+        listRef={commandListRef}
+      />
+      <CommandSuggestions
+        anchor={paletteBox}
+        open={suggestions.visible}
+        context={suggestions.context}
+        candidates={suggestions.candidates}
+        loading={suggestions.loading}
+        highlight={suggestions.highlight}
+        onHighlight={suggestions.setHighlight}
+        onSelect={applySuggestion}
+        listRef={suggestionListRef}
+      />
+      <CommandPaletteDialog
+        open={commandDialogOpen}
+        onOpenChange={setCommandDialogOpen}
+        onSelect={completeCommand}
+      />
       {mentionMenuOpen && paletteBox && typeof document !== 'undefined' &&
         createPortal(
           <div
@@ -799,7 +797,7 @@ export function ChatInput({
           </div>,
           document.body,
         )}
-      <form ref={formRef} onSubmit={onSend} aria-busy={busy} className="relative flex flex-col w-full glass-composer border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-visible">
+      <form ref={formRef} onSubmit={handleSubmit} aria-busy={busy} className="relative flex flex-col w-full glass-composer border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-visible">
         <textarea 
           ref={textareaRef}
           rows={1}

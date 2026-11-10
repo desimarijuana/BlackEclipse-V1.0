@@ -72,8 +72,28 @@ describe('useNotificationsStore', () => {
     expect(items.find((n) => n.tab === 'chat')?.read).toBe(false);
   });
 
-  it('markAllRead clears every tab at once (header action)', () => {
+  it('markRead clears exactly one item', () => {
     const store = useNotificationsStore.getState();
+    store.push({ id: 'a', tab: 'news', title: 'Story', url: 'https://example.com/a' });
+    store.push({ id: 'b', tab: 'news', title: 'Other' });
+    useNotificationsStore.getState().markRead('a');
+    const { items } = useNotificationsStore.getState();
+    expect(items.find((n) => n.id === 'a')?.read).toBe(true);
+    expect(items.find((n) => n.id === 'b')?.read).toBe(false);
+    expect(items.find((n) => n.id === 'a')?.url).toBe('https://example.com/a');
+  });
+
+  it('drops non-http source links', () => {
+    useNotificationsStore.getState().push({
+      id: 'a',
+      tab: 'news',
+      title: 'Story',
+      url: 'javascript:alert(1)',
+    });
+    expect(useNotificationsStore.getState().items[0].url).toBeUndefined();
+  });
+
+  it('markAllRead clears every tab at once (header action)', () => {    const store = useNotificationsStore.getState();
     store.push({ id: 'a', tab: 'alerts', title: 'Alert' });
     store.push({ id: 'b', tab: 'tasks', title: 'Task' });
     store.push({ id: 'c', tab: 'chat', title: 'Approval' });

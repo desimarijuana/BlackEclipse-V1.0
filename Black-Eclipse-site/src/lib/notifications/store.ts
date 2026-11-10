@@ -30,6 +30,11 @@ export interface AppNotification {
   kind: NotificationKind;
   title: string;
   body: string;
+  /**
+   * Original source link (news stories). When present, selecting the item
+   * opens this URL instead of navigating to the owning in-app tab.
+   */
+  url?: string;
   /** Epoch ms. */
   at: number;
   read: boolean;
@@ -42,6 +47,8 @@ export interface NotificationInput {
   kind?: NotificationKind;
   title: string;
   body?: string;
+  /** Original source link; only http(s) URLs are kept. */
+  url?: string;
 }
 
 /**
@@ -56,6 +63,8 @@ export interface NotificationRequest {
   tab?: AppTab;
   kind?: NotificationKind;
   sound?: SoundName;
+  /** Original source link — makes the ledger item open the real story. */
+  url?: string;
   /** Alert id, so a re-fire replaces the previous desktop notification. */
   alertId?: string;
   /** Test raises a toast but is never recorded in the center. */
@@ -81,9 +90,23 @@ function isStoredNotification(value: unknown): value is AppNotification {
     VALID_TABS.has(value.tab) &&
     typeof value.title === 'string' &&
     (value.body === undefined || typeof value.body === 'string') &&
+    (value.url === undefined || typeof value.url === 'string') &&
     typeof value.at === 'number' &&
     typeof value.read === 'boolean'
   );
+}
+
+/** Only absolute http(s) links are clickable; anything else is dropped. */
+export function sanitizeNotificationUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function read(): AppNotification[] {
@@ -96,7 +119,12 @@ function read(): AppNotification[] {
     if (!Array.isArray(list)) return [];
     return list
       .filter(isStoredNotification)
-      .map((n) => ({ ...n, kind: n.kind ?? 'alert', body: n.body ?? '' }))
+      .map((n) => ({
+        ...n,
+        kind: n.kind ?? 'alert',
+        body: n.body ?? '',
+        url: sanitizeNotificationUrl(n.url),
+      }))
       .slice(0, MAX_NOTIFICATIONS);
   } catch {
     return [];
@@ -143,6 +171,8 @@ export interface NotificationsStore {
   /** Record one event. Returns false when the id was already recorded. */
   push: (input: NotificationInput) => boolean;
   markTabRead: (tab: AppTab) => void;
+  /** Mark exactly one item read (used when opening its source link). */
+  markRead: (id: string) => void;
   /** Clear the unread state across every tab (header "Mark all read"). */
   markAllRead: () => void;
   /**
@@ -172,6 +202,7 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
       kind: input.kind ?? 'alert',
       title: input.title,
       body: input.body ?? '',
+      url: sanitizeNotificationUrl(input.url),
       at: Date.now(),
       // Visible tab: it is already in front of the operator — no badge.
       read: input.tab === activeTab,
@@ -189,6 +220,15 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
     const { items } = get();
     if (!items.some((n) => n.tab === tab && !n.read)) return;
     const next = items.map((n) => (n.tab === tab && !n.read ? { ...n, read: true } : n));
+    persist(next);
+    set({ items: next });
+  },
+
+  markRead: (id) => {
+    const { items } = get();
+    const target = items.find((n) => n.id === id);
+    if (!target || target.read) return;
+    const next = items.map((n) => (n.id === id ? { ...n, read: true } : n));
     persist(next);
     set({ items: next });
   },

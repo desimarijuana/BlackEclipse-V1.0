@@ -278,19 +278,25 @@ export function bindArgs(spec: CommandSpec, tokenResult: TokenizeResult): BoundA
  * A path such as `/usr/bin` is NOT a command (the token must be followed by
  * whitespace or end-of-text).
  */
-export function parseCommandInvocation(text: string | null | undefined): CommandInvocation | null {
+export function parseCommandInvocation(
+  text: string | null | undefined,
+  extra: readonly CommandSpec[] = [],
+): CommandInvocation | null {
   const raw = text ?? "";
   const match = /^\s*\/([A-Za-z][A-Za-z0-9_-]*)(?:\s+([\s\S]*))?$/.exec(raw);
   if (!match) return null;
   const name = match[1].toLowerCase();
   const rest = (match[2] ?? "").trim();
-  const spec = resolveCommand(name) ?? null;
+  const spec = resolveCommand(name, extra) ?? null;
   return { spec, name, rest, unknown: !spec, raw };
 }
 
 /** Convenience: parse and bind in one call. Returns null for ordinary text. */
-export function parseAndBind(text: string): { invocation: CommandInvocation; args: BoundArgs } | null {
-  const invocation = parseCommandInvocation(text);
+export function parseAndBind(
+  text: string,
+  extra: readonly CommandSpec[] = [],
+): { invocation: CommandInvocation; args: BoundArgs } | null {
+  const invocation = parseCommandInvocation(text, extra);
   if (!invocation) return null;
   const tokenized = tokenizeArgs(invocation.rest);
   const args = invocation.spec

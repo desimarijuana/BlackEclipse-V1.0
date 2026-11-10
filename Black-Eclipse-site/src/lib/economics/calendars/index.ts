@@ -9,6 +9,7 @@ import { fetchBeaSchedules } from "./bea";
 import { fetchEcbSchedule } from "./ecb";
 import { fetchBoeSchedule } from "./boe";
 import { fetchBojSchedule } from "./boj";
+import { fetchCensusRetailSchedule } from "./census";
 import { dedupe, type OfficialEvent } from "./types";
 
 export type { OfficialEvent } from "./types";
@@ -38,6 +39,7 @@ function adapters(): Adapter[] {
     { id: "ecb", run: fetchEcbSchedule },
     { id: "boe", run: fetchBoeSchedule },
     { id: "boj", run: fetchBojSchedule },
+    { id: "census-retail", run: fetchCensusRetailSchedule },
   ];
 }
 

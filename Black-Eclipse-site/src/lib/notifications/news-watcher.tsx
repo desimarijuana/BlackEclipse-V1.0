@@ -42,11 +42,12 @@ function readWatchlist(): string[] {
   }
 }
 
-function announce(notification: { id: string; title: string; body: string }): void {
+function announce(notification: { id: string; title: string; body: string; url?: string }): void {
   const detail: NotificationRequest = {
     id: notification.id,
     title: notification.title,
     body: notification.body,
+    url: notification.url,
     tab: 'news',
     kind: 'alert',
     sound: 'notification',

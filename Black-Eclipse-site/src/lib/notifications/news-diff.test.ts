@@ -47,6 +47,17 @@ describe('buildNewsNotifications', () => {
   it('skips malformed rows instead of inventing entries', () => {
     expect(buildNewsNotifications([{ id: '', headline: 'x' }], [{ id: 'e', title: '' }])).toEqual([]);
   });
+
+  it('carries the original story link, but only absolute http(s) ones', () => {
+    const [linked] = buildNewsNotifications(
+      [{ ...alert, url: 'https://www.reuters.com/markets/a' }],
+      [],
+    );
+    expect(linked.url).toBe('https://www.reuters.com/markets/a');
+
+    const [relative] = buildNewsNotifications([{ ...alert, url: '/news' }], []);
+    expect(relative.url).toBeUndefined();
+  });
 });
 
 describe('diffNewsNotifications', () => {

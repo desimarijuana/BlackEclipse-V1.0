@@ -1,6 +1,21 @@
 import { describe, it, expect } from "vitest";
 
 import { buildAgentInstruction } from "./command-agent";
+import { resolveCommand, type CommandSpec } from "./command-registry";
+
+const projectBrief: CommandSpec = {
+  ...resolveCommand("skill")!,
+  id: "project.brief",
+  name: "brief",
+  aliases: [],
+  summary: "Morning brief",
+  description: "Produce a morning brief.",
+  handler: { type: "agent", target: "agent.plugin" },
+  source: "project",
+  agentPrompt: "Brief {{focus}} short={{flag.short}} args={{args}}",
+  args: [{ name: "focus", description: "Focus", variadic: true }],
+  flags: [{ name: "short", description: "Short", type: "boolean" }],
+};
 
 describe("buildAgentInstruction", () => {
   it("rewrites /skill into a skill-authoring directive", () => {
@@ -10,6 +25,13 @@ describe("buildAgentInstruction", () => {
     expect(cmd.instruction).toContain("Research tokenomics for a token");
     expect(cmd.instruction).toContain("skill_create");
     expect(cmd.instruction).toContain("Skills page");
+  });
+
+  it("interpolates a project command prompt and requires the pack to be supplied", () => {
+    const cmd = buildAgentInstruction("/brief rates --short", [projectBrief])!;
+    expect(cmd.command).toBe("brief");
+    expect(cmd.instruction).toBe("Brief rates short=true args=rates");
+    expect(buildAgentInstruction("/brief rates")).toBeNull();
   });
 
   it("asks for details when only a name is given", () => {

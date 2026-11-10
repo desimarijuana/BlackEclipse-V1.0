@@ -9,7 +9,13 @@ const NON_DISPATCHED: ReadonlySet<CommandHandlerType> = new Set(["agent", "profi
 
 // Completion providers the client knows how to resolve. Adding a provider means
 // adding it here and to the palette's resolver.
-const COMPLETION_PROVIDERS = new Set(["skills"]);
+const COMPLETION_PROVIDERS = new Set([
+  "skills",
+  "symbols",
+  "portfolios",
+  "workflows",
+  "models",
+]);
 
 describe("command registry contract", () => {
   it("has unique stable ids", () => {
@@ -45,6 +51,14 @@ describe("command registry contract", () => {
       .filter((c) => c.permissions.approval !== "operator")
       .map((c) => c.id);
     expect(unsafe).toEqual([]);
+  });
+
+  it("high and critical risk commands declare the confirm flag", () => {
+    const missing = allCommands()
+      .filter((c) => c.risk === "high" || c.risk === "critical")
+      .filter((c) => !c.flags.some((flag) => flag.name === "confirm"))
+      .map((c) => c.id);
+    expect(missing).toEqual([]);
   });
 
   it("only uses known completion providers", () => {

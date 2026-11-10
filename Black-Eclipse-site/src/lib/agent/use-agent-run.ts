@@ -227,6 +227,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.documents) t.documents = event.documents;
           if (event.images) t.images = event.images;
           if (event.video) t.video = event.video;
+          if (event.ui) t.ui = event.ui;
           t.pendingApproval = undefined;
           t.pendingClarification = undefined;
           if (event.error) {

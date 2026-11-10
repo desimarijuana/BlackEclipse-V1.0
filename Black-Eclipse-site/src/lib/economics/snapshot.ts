@@ -6,6 +6,7 @@
 
 import { isHtmlPayload } from "./fetch";
 import { enrichMetrics, type WebMetricSpec } from "./enrichment";
+import { readJsonConfig } from "./state-cache";
 
 export type SnapshotState = "LIVE" | "WEB" | "CACHED" | "UNAVAILABLE";
 
@@ -109,40 +110,97 @@ function yoy(points: { date: string; value: number }[]): { date: string; value: 
 // Conservative, labelled patterns for the web fallback. A metric without a spec
 // is never web-enriched. Each pattern anchors a label to a number so a headline
 // or unrelated figure cannot be mistaken for the release.
+function percentSpec(
+  query: string,
+  label: string,
+  min = -30,
+  max = 50,
+): WebMetricSpec {
+  return {
+    query,
+    pattern: new RegExp(`(?:${label})[^.]{0,180}?(-?\\d{1,3}\\.\\d{1,2})\\s*(?:percent|%)`, "i"),
+    min,
+    max,
+  };
+}
+
+/** A level reported in thousands, e.g. total nonfarm payroll employment. */
+function thousandsSpec(
+  query: string,
+  label: string,
+  min: number,
+  max: number,
+): WebMetricSpec {
+  return {
+    query,
+    pattern: new RegExp(
+      `(?:${label})[^.]{0,180}?(\\d{1,3}(?:,\\d{3})*)\\s*(?:thousand|,000)`,
+      "i",
+    ),
+    min,
+    max,
+  };
+}
+
 const WEB_SPECS: Record<string, WebMetricSpec> = {
-  "us-cpi": {
-    query: "BLS consumer price index latest 12-month percent change site:bls.gov",
-    pattern: /(?:consumer price index|CPI)[^.]{0,180}?(\d{1,2}\.\d)\s*(?:percent|%)/i,
-    min: -5,
-    max: 30,
-  },
-  "us-unemp": {
-    query: "BLS unemployment rate latest site:bls.gov",
-    pattern: /unemployment rate[^.]{0,140}?(\d{1,2}\.\d)\s*(?:percent|%)/i,
-    min: 0,
-    max: 30,
-  },
-  "us-10y": {
-    query: "10-year treasury yield latest site:treasury.gov",
-    pattern: /10[- ]year[^.]{0,140}?(\d{1,2}\.\d{1,3})\s*(?:percent|%)/i,
-    min: 0,
-    max: 25,
-  },
-  "fed-funds": {
-    query: "federal funds target range latest site:federalreserve.gov",
-    pattern: /(?:federal funds|target range)[^.]{0,180}?(\d{1,2}\.\d{1,2})\s*(?:percent|%)/i,
-    min: 0,
-    max: 25,
-  },
+  // ── Central-bank policy rates ──
+  "fed-funds": percentSpec("federal funds target range latest site:federalreserve.gov", "federal funds|target range", 0, 25),
+  "boe-rate": percentSpec("Bank of England Bank Rate latest site:bankofengland.co.uk", "bank rate", 0, 25),
+  "ecb-rate": percentSpec("ECB deposit facility rate latest site:ecb.europa.eu", "deposit facility rate|deposit rate", -1, 25),
+  "boj-rate": percentSpec("Bank of Japan policy rate latest site:boj.or.jp", "policy rate|policy interest rate", -2, 25),
+  "rba-rate": percentSpec("Reserve Bank of Australia cash rate latest site:rba.gov.au", "cash rate", 0, 25),
+  "rbnz-rate": percentSpec("Reserve Bank of New Zealand official cash rate latest site:rbnz.govt.nz", "official cash rate", 0, 25),
+  "boc-rate": percentSpec("Bank of Canada overnight rate latest site:bankofcanada.ca", "overnight rate|policy interest rate", 0, 25),
+  "snb-rate": percentSpec("Swiss National Bank policy rate latest site:snb.ch", "policy rate", -2, 25),
+  "rbi-rate": percentSpec("RBI repo rate latest site:rbi.org.in", "repo rate", 0, 25),
+  "sbp-rate": percentSpec("State Bank of Pakistan policy rate latest site:sbp.org.pk", "policy rate", 0, 30),
+  "pboc-rate": percentSpec("China loan prime rate latest site:pbc.gov.cn", "loan prime rate|LPR", 0, 25),
+
+  // ── CPI / inflation (YoY) ──
+  "us-cpi": percentSpec("BLS consumer price index latest 12-month percent change site:bls.gov", "consumer price index|CPI", -5, 30),
+  "us-nfp": thousandsSpec("BLS total nonfarm payroll employment latest site:bls.gov", "total nonfarm payroll employment|nonfarm payroll employment", 100000, 250000),
+  "in-cpi": percentSpec("India CPI inflation latest site:mospi.gov.in", "consumer price index|CPI|inflation", -5, 40),
+  "pk-cpi": percentSpec("Pakistan CPI inflation latest site:pbs.gov.pk", "consumer price index|CPI|inflation", -5, 40),
+  "cn-cpi": percentSpec("China CPI latest site:stats.gov.cn", "consumer price index|CPI", -5, 40),
+  "gb-cpi": percentSpec("UK CPI latest site:ons.gov.uk", "consumer price index|CPI", -5, 30),
+  "eu-cpi": percentSpec("euro area HICP latest site:ec.europa.eu/eurostat", "harmonised index of consumer prices|HICP|inflation", -5, 30),
+  "jp-cpi": percentSpec("Japan CPI latest site:stat.go.jp", "consumer price index|CPI", -5, 30),
+  "ca-cpi": percentSpec("Canada CPI latest site:statcan.gc.ca", "consumer price index|CPI", -5, 30),
+
+  // ── Unemployment ──
+  "us-unemp": percentSpec("BLS unemployment rate latest site:bls.gov", "unemployment rate", 0, 30),
+  "in-unemp": percentSpec("India unemployment rate latest site:mospi.gov.in", "unemployment rate", 0, 40),
+  "pk-unemp": percentSpec("Pakistan unemployment rate latest site:pbs.gov.pk", "unemployment rate", 0, 40),
+  "gb-unemp": percentSpec("UK unemployment rate latest site:ons.gov.uk", "unemployment rate", 0, 30),
+  "eu-unemp": percentSpec("euro area unemployment rate latest site:ec.europa.eu/eurostat", "unemployment rate", 0, 30),
+  "jp-unemp": percentSpec("Japan unemployment rate latest site:stat.go.jp", "unemployment rate", 0, 30),
+  "ca-unemp": percentSpec("Canada unemployment rate latest site:statcan.gc.ca", "unemployment rate", 0, 30),
+
+  // ── GDP growth (YoY) ──
+  "us-gdp": percentSpec("US real GDP growth latest site:bea.gov", "gross domestic product|GDP", -30, 50),
+  "in-gdp": percentSpec("India GDP growth latest site:mospi.gov.in", "gross domestic product|GDP", -30, 50),
+  "pk-gdp": percentSpec("Pakistan GDP growth latest site:pbs.gov.pk", "gross domestic product|GDP", -30, 50),
+  "cn-gdp": percentSpec("China GDP growth latest site:stats.gov.cn", "gross domestic product|GDP", -30, 50),
+
+  // ── Yields ──
+  "us-10y": percentSpec("10-year treasury yield latest site:treasury.gov", "10[- ]year", 0, 25),
 };
 
 export async function buildSnapshot(
   options: { webFallback?: boolean } = {},
 ): Promise<{ metrics: SnapshotMetric[]; builtAt: string }> {
+  // Operators can correct a discontinued/renamed FRED id without a code change:
+  // SystemConfig key `econ:fred-series-overrides` = { "<metric id>": "<FRED id>" }.
+  const overrides =
+    (await readJsonConfig<Record<string, string>>("econ:fred-series-overrides")) ?? {};
+
   const specs: { id: string; label: string; region: string; country: string; kind: SnapshotMetric["kind"]; unit: string; fred: FREDMeta }[] = [
     ...RATE_SOURCES.map((r) => ({ id: r.id, label: r.label, region: r.region, country: r.country, kind: "rate" as const, unit: "%", fred: r.fred })),
     ...PRINT_SOURCES.map((p) => ({ id: p.id, label: p.label, region: p.region, country: p.country, kind: p.kind, unit: p.unit, fred: p.fred })),
-  ];
+  ].map((spec) => ({
+    ...spec,
+    fred: { ...spec.fred, fredId: overrides[spec.id]?.trim() || spec.fred.fredId },
+  }));
 
   const metrics = await Promise.all(
     specs.map(async (s): Promise<SnapshotMetric> => {

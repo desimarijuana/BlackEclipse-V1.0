@@ -89,6 +89,19 @@ const BUILDERS: Record<string, InstructionBuilder> = {
       .filter((line) => line !== "")
       .join("\n");
   },
+  "agent.plugin": (spec, args) => {
+    const template = spec.agentPrompt?.trim() ?? "";
+    if (!template) return "";
+    const vars: Record<string, string> = { args: args.all.join(" ") };
+    for (const [name, value] of Object.entries(args.positionals)) {
+      vars[name] = Array.isArray(value) ? value.join(" ") : String(value ?? "");
+    }
+    for (const [name, value] of Object.entries(args.flags)) {
+      vars[`flag.${name}`] = String(value);
+    }
+    return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_match, key: string) => vars[key] ?? "");
+  },
+
   "agent.visual": (_spec, args) => {
     const subject = (Array.isArray(args.positionals.subject) ? (args.positionals.subject as string[]) : [])
       .join(" ")
@@ -125,11 +138,15 @@ const BUILDERS: Record<string, InstructionBuilder> = {
  * command name and the rewritten instruction. Otherwise null (ordinary text, an
  * unknown token, or a directly-executed command).
  */
-export function buildAgentInstruction(text: string | null | undefined): AgentCommand | null {
-  const invocation = parseCommandInvocation(text);
+export function buildAgentInstruction(
+  text: string | null | undefined,
+  extra: readonly CommandSpec[] = [],
+): AgentCommand | null {
+  const invocation = parseCommandInvocation(text, extra);
   if (!invocation?.spec || invocation.spec.handler.type !== "agent") return null;
   const builder = BUILDERS[invocation.spec.handler.target];
   if (!builder) return null;
   const args = bindArgs(invocation.spec, tokenizeArgs(invocation.rest));
-  return { command: invocation.spec.name, instruction: builder(invocation.spec, args) };
+  const instruction = builder(invocation.spec, args).trim();
+  return instruction ? { command: invocation.spec.name, instruction } : null;
 }

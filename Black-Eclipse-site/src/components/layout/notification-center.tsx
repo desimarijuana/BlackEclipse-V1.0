@@ -7,9 +7,11 @@
 //   price/news alerts · background tasks · approvals · agent runs · bots.
 //
 // It renders a bell with an unread count in the TopBar and a frosted panel that
-// lists the full ledger, filters by kind, and jumps to the owning tab on click.
-// Opening the panel does NOT mark items read — only selecting one (or Mark all
-// read) does, so an operator can scan unread items without losing the signal.
+// lists the full ledger, filters by kind, and opens what the item points at:
+// the original story link when it carries one (news alerts), otherwise the
+// owning tab. Opening the panel does NOT mark items read — only selecting one
+// (or Mark all read) does, so an operator can scan unread items without losing
+// the signal.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import {
@@ -17,6 +19,7 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  ExternalLink,
   ListChecks,
   ShieldAlert,
   Sparkles,
@@ -87,9 +90,16 @@ function timeAgo(ms: number): string {
   return `${days}d ago`;
 }
 
-/** Open the tab that owns a notification (the SPA shell listens for this). */
+/** Open what a notification points at: the real source when it carries a link,
+ *  otherwise the tab that owns it (the SPA shell listens for that). */
 function openNotification(item: AppNotification) {
-  useNotificationsStore.getState().markTabRead(item.tab);
+  const store = useNotificationsStore.getState();
+  store.markRead(item.id);
+  if (item.url) {
+    window.open(item.url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  store.markTabRead(item.tab);
   window.dispatchEvent(new CustomEvent('be:navigate', { detail: { tab: item.tab } }));
 }
 
@@ -170,7 +180,7 @@ export function NotificationCenter() {
           role="dialog"
           aria-label="Notifications"
           tabIndex={-1}
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-[140] w-[380px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card-strong shadow-2xl outline-none animate-fade-in-up"
+          className="absolute right-0 top-[calc(100%+0.5rem)] z-[140] w-[420px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-white/10 dark:border-white/5 glass-card-strong shadow-2xl outline-none animate-fade-in-up"
         >
           {/* Header */}
           <div className="flex items-center gap-2 border-b border-border/20 px-4 py-3">
@@ -262,17 +272,17 @@ export function NotificationCenter() {
                           <Icon size={13} className={meta.accent} weight="regular" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1.5">
-                            <span className="truncate text-[11px] font-semibold text-foreground">
+                          <span className="flex items-start gap-1.5">
+                            <span className="min-w-0 flex-1 whitespace-normal break-words text-[11px] font-semibold leading-snug text-foreground">
                               {item.title}
                             </span>
                             {!item.read && (
                               <span
                                 aria-label="Unread"
-                                className="size-1.5 shrink-0 rounded-full bg-rose-400"
+                                className="mt-1 size-1.5 shrink-0 rounded-full bg-rose-400"
                               />
                             )}
-                            <span className="ml-auto shrink-0 text-[9px] font-mono text-muted-foreground">
+                            <span className="shrink-0 pt-px text-[9px] font-mono text-muted-foreground">
                               {timeAgo(item.at)}
                             </span>
                           </span>
@@ -283,6 +293,12 @@ export function NotificationCenter() {
                           )}
                           <span className="mt-1 inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-muted-foreground/70">
                             {meta.label} · {item.tab}
+                            {item.url && (
+                              <>
+                                <ExternalLink size={9} weight="bold" />
+                                <span className="normal-case tracking-normal">source</span>
+                              </>
+                            )}
                           </span>
                         </span>
                       </button>

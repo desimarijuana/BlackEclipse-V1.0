@@ -869,6 +869,15 @@ export const en = {
   // user sees the job ("build or change something inside Eclipse"), never a
   // mechanism word.
   'code.command.paletteLabel': 'Commands',
+  'code.command.dialogLabel': 'Command palette',
+  'code.command.searchPlaceholder': 'Search commands…',
+  'code.command.pinned': 'Pinned',
+  'code.command.recent': 'Recent',
+  'code.command.noMatches': 'No matching commands.',
+  'code.command.aliases': 'Aliases',
+  'code.command.examples': 'Examples',
+  'code.command.selectHint': '↑↓ navigate · Enter insert · Esc close',
+  'code.command.suggestions': 'Suggestions',
   'code.command.eclipsesdk': 'Build or change something inside Eclipse.',
   'code.command.app': 'Control your Eclipse app through the typed SDK.',
 

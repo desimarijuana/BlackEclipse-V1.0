@@ -553,7 +553,7 @@
       "expected_output": {"contains": ["sec.gov"]},
       "graders": [{"name": "citation", "config": {"citation": {"require_citation": true, "min_citations": 1, "expected_sources": ["https://www.sec.gov/edgar"], "allowed_domains": ["sec.gov"]}}}, {"name": "exact"}],
       "metadata": {
-        "tier": 0, "suites": ["citations"],
+        "tier": 0, "suites": ["citations"], "live_eligible": false,
         "agent_script": [{"type": "final", "content": "The figure was reported in the filing ([source](https://www.sec.gov/edgar))."}]
       }
     },

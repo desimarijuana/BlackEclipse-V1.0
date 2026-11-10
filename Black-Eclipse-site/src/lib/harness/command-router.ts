@@ -15,7 +15,16 @@ import {
   type CommandSpec,
 } from "./command-registry";
 import { parseAndBind, type BoundArgs, type CommandInvocation } from "./command-parser";
-import { callout, fenceEnvelope } from "./command-render";
+import { callout, fenceEnvelope, markdown } from "./command-render";
+import { appendCommandAudit, readCommandAudit } from "./command-audit";
+import {
+  buildConfirmationCommand,
+  commandFingerprint,
+  consumeConfirmation,
+  issueConfirmation,
+} from "./command-confirm";
+import { checkCommandRateLimit } from "./command-rate-limit";
+import type { CommandUiAction } from "./command-ui";
 import { fail, frontDoorError, handlers, type HandlerOutput } from "./command-handlers";
 import { redactSecrets } from "./errors";
 import {
@@ -60,6 +69,7 @@ export type CommandRunStatus =
   | "unavailable"
   | "invalid"
   | "denied"
+  | "pending"
   | "unknown";
 
 export interface CommandAuditEvent {
@@ -98,6 +108,8 @@ export interface CommandResult {
   error?: { code: string; message: string };
   /** A real compaction produced by `/compact`; persisted by the chat route. */
   compaction?: CompactionPayload;
+  /** A typed client intent (`navigate`, `openCanvas`); never executed server-side. */
+  ui?: CommandUiAction;
   meta?: {
     skillId?: string;
     skillVersion?: string;
@@ -187,6 +199,11 @@ export interface CommandDeps {
   };
   mcp: { list(): Promise<Awaited<ReturnType<typeof listMCPServers>>> };
   usage: { summary(days: number): Promise<Awaited<ReturnType<typeof getUsageSummaryFromRuntime>>> };
+  /** Durable command audit sink. Injected so tests never touch `.black-eclipse`. */
+  audit: {
+    append(event: CommandAuditEvent): Promise<void>;
+    read(limit?: number): Promise<CommandAuditEvent[]>;
+  };
   now(): number;
 }
 
@@ -271,6 +288,10 @@ export function defaultCommandDeps(origin?: string): CommandDeps {
     },
     mcp: { list: () => listMCPServers() },
     usage: { summary: (days) => getUsageSummaryFromRuntime(days) },
+    audit: {
+      append: (event) => appendCommandAudit(event),
+      read: (limit) => readCommandAudit(limit),
+    },
     now: () => Date.now(),
   };
 }
@@ -278,6 +299,7 @@ export function defaultCommandDeps(origin?: string): CommandDeps {
 function errorMarkdown(result: CommandResult): string {
   const title = result.status === "invalid" ? "Invalid command" :
     result.status === "denied" ? "Not authorized" :
+    result.status === "pending" ? "Confirmation required" :
     result.status === "unavailable" ? "Command unavailable" :
     result.status === "unsupported" ? "Unsupported capability" :
     result.status === "unknown" ? "Unknown command" : "Command failed";
@@ -306,6 +328,7 @@ function buildResult(
     output: "",
     error: output.error,
     compaction: output.compaction,
+    ui: output.ui,
     meta: output.meta,
     audit: {
       commandId,
@@ -345,56 +368,122 @@ export async function executeCommand(
   const { spec, name } = invocation;
   const actor = ctx.actor ?? "user";
 
+  // Every terminal result (success, refusal, pending confirmation) is audited.
+  const finish = (result: CommandResult): CommandResult => {
+    try {
+      console.info("[command]", JSON.stringify(result.audit));
+    } catch {
+      /* audit logging must never break execution */
+    }
+    void deps.audit.append(result.audit).catch(() => {
+      /* the audit file is best-effort; it never blocks a command */
+    });
+    return result;
+  };
+
   // Resolve.
   if (!spec) {
-    return buildResult(null, name, { ...ctx, actor }, "unknown", startedAt, deps, {
+    return finish(buildResult(null, name, { ...ctx, actor }, "unknown", startedAt, deps, {
       status: "unknown",
       error: { code: "UNKNOWN_COMMAND", message: `No command \`/${name}\`. Type \`/help\` to see the catalog.` },
-    });
+    }));
   }
 
   // Validate.
   if (args.errors.length) {
     const message = `${args.errors.map((e) => e.message).join(" ")} Usage: \`/${spec.name} ${commandArgHint(spec)}\`.`.trim();
-    return buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
+    return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
       status: "invalid",
       error: { code: args.errors[0].code, message },
-    });
+    }));
   }
 
   // Availability.
   if (!isCommandAvailable(spec)) {
-    return buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
+    return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
       status: "unavailable",
       error: {
         code: "COMMAND_UNAVAILABLE",
         message: `\`/${spec.name}\` is registered but not available yet. ${spec.unavailabilityReason ?? ""}`.trim(),
       },
-    });
+    }));
   }
 
   // Authorization.
   if (spec.permissions.approval === "operator" && !ctx.operator) {
-    return buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
+    return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
       status: "denied",
       error: { code: "NOT_AUTHORIZED", message: `\`/${spec.name}\` requires an authorized operator.` },
-    });
+    }));
+  }
+
+  // Rate limit (after authorization so a non-operator cannot burn the bucket).
+  const rate = checkCommandRateLimit(spec, actor, startedAt);
+  if (!rate.ok) {
+    return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
+      status: "denied",
+      error: {
+        code: "RATE_LIMITED",
+        message: `\`/${spec.name}\` is rate limited (${rate.limit} per window). Try again in ${rate.retryAfterSec ?? 60}s.`,
+      },
+    }));
+  }
+
+  // Confirmation for high/critical risk. The first call issues a one-time token;
+  // the exact re-run with `--confirm <token>` consumes it and executes.
+  if (spec.risk === "high" || spec.risk === "critical") {
+    const fingerprint = commandFingerprint(spec, args);
+    const provided = typeof args.flags.confirm === "string" ? args.flags.confirm.trim() : "";
+    const approved = provided
+      ? consumeConfirmation(provided, {
+          commandId: spec.id,
+          fingerprint,
+          actor,
+          operator: ctx.operator,
+          now: startedAt,
+        })
+      : false;
+    if (!approved) {
+      const { token } = issueConfirmation({
+        commandId: spec.id,
+        fingerprint,
+        actor,
+        operator: ctx.operator,
+        now: startedAt,
+      });
+      const command = buildConfirmationCommand(spec, invocation.rest, token);
+      const reason = provided
+        ? "That confirmation token is invalid, expired or already used. Nothing ran. Send the new command below to approve."
+        : `\`/${spec.name}\` is ${spec.risk}-risk and has not run. Send the exact command below within 5 minutes to approve it. The token is single-use and bound to these arguments.`;
+      return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
+        status: "pending",
+        blocks: [
+          callout("warning", "Confirmation required", reason),
+          markdown("```\n" + command + "\n```"),
+        ],
+      }));
+    }
   }
 
   // Execute.
   const handler = handlers[spec.handler.target];
   if (!handler) {
-    return buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
+    return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, {
       status: "unsupported",
       error: {
         code: "HANDLER_NOT_IMPLEMENTED",
         message: `\`/${spec.name}\` has no handler for \`${spec.handler.target}\`.`,
       },
-    });
+    }));
   }
 
   const invoke = (): Promise<HandlerOutput> => {
-    const task = handler({ ...ctx, actor }, spec, args, deps);
+    let task: Promise<HandlerOutput>;
+    try {
+      task = handler({ ...ctx, actor }, spec, args, deps);
+    } catch (err) {
+      return Promise.resolve(fail("EXECUTION_ERROR", redactSecrets(err instanceof Error ? err.message : String(err))));
+    }
     if (!spec.timeoutMs || spec.timeoutMs <= 0) {
       return task.catch((err: unknown) =>
         fail("EXECUTION_ERROR", redactSecrets(err instanceof Error ? err.message : String(err))),
@@ -443,14 +532,7 @@ export async function executeCommand(
     };
   }
 
-  const result = buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, output);
-  try {
-    // Structured audit (no secrets; command ids and statuses only).
-    console.info("[command]", JSON.stringify(result.audit));
-  } catch {
-    /* audit logging must never break execution */
-  }
-  return result;
+  return finish(buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, output));
 }
 
 /**

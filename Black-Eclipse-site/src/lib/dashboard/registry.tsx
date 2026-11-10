@@ -28,6 +28,7 @@ export {
 import {
   MarketIndicesWidget, ForexPairsWidget, CryptoMarketsWidget, CommoditiesWidget,
   TopMoversWidget, SectorHeatmapWidget, NewsFeedWidget, EconomicCalendarWidget,
+  RecentSecFilingsWidget,
   EarningsCalendarWidget,
   StockQuoteWidget, WatchlistWidget,
   RecentFilesWidget, AgentErrorsWidget, WebScraperWidget,
@@ -80,6 +81,12 @@ registerTopic(jsonTopic('market:commodities', '/api/commodities', { ttl: 120_000
 registerTopic(jsonTopic('market:forex', '/api/forex', { ttl: 120_000, interval: 60_000 }));
 registerTopic(jsonTopic('news:feed', '/api/news?limit=30', { ttl: 60_000, interval: 30_000 }));
 registerTopic(jsonTopic('econ:calendar', '/api/economics/calendar', { ttl: 300_000, interval: 120_000 }));
+// One filings topic per form so the widget's config can switch without a
+// dynamic-topic registration race. `all` is the unfiltered latest feed.
+for (const form of ['8-K', '10-K', '10-Q', 'S-1', '13F-HR', '4', 'all']) {
+  const query = form === 'all' ? 'limit=8' : `form=${encodeURIComponent(form)}&limit=8`;
+  registerTopic(jsonTopic(`sec:filings:${form}`, `/api/economics/filings?${query}`, { ttl: 120_000, interval: 120_000 }));
+}
 // Earnings calendar — server-cached 6h upstream, so a modest client cadence.
 registerTopic(jsonTopic('earnings:calendar', '/api/earnings', { ttl: 1_800_000, interval: 1_800_000 }));
 registerTopic(jsonTopic('market:quote:AAPL', '/api/quote?symbols=AAPL', { ttl: 60_000, interval: 30_000 }));
@@ -164,6 +171,17 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   mdef('candle-chart', 'research', 'Candle Chart', 'Candlesticks for the active market’s lead instrument.', 'candlestick', ['large', 'full'], (p) => <CandleChartWidget placement={p} />),
   mdef('stock-screener', 'research', 'Stock Screener', 'Live JDDS rows ranked by market cap for the chosen market.', 'table', ['large', 'full'], (p) => <StockScreenerWidget placement={p} />),
   def('economic-calendar', 'research', 'Economic Calendar', 'Upcoming macro events.', 'calendar', ['medium', 'large'], () => <EconomicCalendarWidget />, ['econ:calendar']),
+  def('recent-sec-filings', 'research', 'Recent SEC Filings', 'Newest filings across US issuers.', 'file-text', ['medium', 'large'], (p) => <RecentSecFilingsWidget placement={p} />,
+    ['sec:filings:8-K', 'sec:filings:10-K', 'sec:filings:10-Q', 'sec:filings:S-1', 'sec:filings:13F-HR', 'sec:filings:4', 'sec:filings:all'],
+    [{ key: 'form', label: 'Form type', type: 'select', default: '8-K', options: [
+      { value: '8-K', label: '8-K' },
+      { value: '10-K', label: '10-K' },
+      { value: '10-Q', label: '10-Q' },
+      { value: 'S-1', label: 'S-1' },
+      { value: '13F-HR', label: '13F' },
+      { value: '4', label: 'Form 4' },
+      { value: 'all', label: 'All forms' },
+    ] }]),
   def('earnings-calendar', 'research', 'Earnings Calendar', 'Upcoming company earnings — date, BMO/AMC and EPS estimate.', 'calendar', ['medium', 'large'], () => <EarningsCalendarWidget />, ['earnings:calendar']),
   def('news-category', 'research', 'News by Category', 'Category-filtered headlines.', 'newspaper', ['medium', 'large'], () => <NewsCategoryWidget />, ['news:feed']),
   def('project-scope', 'research', 'Project Scope', 'The project the chat is scoped to: its strategies, backtests and artifacts.', 'folder-plus', ['small', 'medium'], () => <ProjectScopeWidget />),

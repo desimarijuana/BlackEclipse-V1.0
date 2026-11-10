@@ -25,6 +25,8 @@ export interface WatchedNewsAlert {
   source?: string | null;
   ticker?: string | null;
   timestamp?: string | null;
+  /** Original article link from the alerts payload. */
+  url?: string | null;
 }
 
 export interface WatchedNewsEvent {
@@ -42,6 +44,19 @@ export interface NewsNotification {
   id: string;
   title: string;
   body: string;
+  /** The story's original source link, when the row carries one. */
+  url?: string;
+}
+
+/** Only absolute http(s) story links are kept — never a relative feed path. */
+function sourceUrl(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function levelLabel(level: string | null | undefined): string {
@@ -74,7 +89,7 @@ export function buildNewsNotifications(
     ]
       .filter(Boolean)
       .join(' · ');
-    out.push({ id: `news:${alert.id}`, title: alert.headline, body });
+    out.push({ id: `news:${alert.id}`, title: alert.headline, body, url: sourceUrl(alert.url) });
   }
 
   for (const event of events) {

@@ -120,6 +120,7 @@ export async function POST(request: Request) {
             status: result.status === "failed" ? "failed" : "completed",
             output: result.output,
             ...(result.status === "failed" ? { error: result.error?.message } : {}),
+            ...(result.ui ? { ui: result.ui } : {}),
             provider: null,
             model: null,
           });

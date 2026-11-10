@@ -36,6 +36,10 @@ class _StubRootStore:
             created_at="", last_used_at=None, selected=self._selected,
         ) if self._selected else None
 
+    def list(self):
+        root = self.selected()
+        return [root] if root else []
+
 
 class _StubService:
     def __init__(self, root_path: str) -> None:
@@ -61,6 +65,16 @@ def editor_app(tmp_path, monkeypatch):
     app = FastAPI()
     app.include_router(ws_router.router)
     return TestClient(app), root
+
+
+def test_roots_expose_the_default_folder(editor_app):
+    client, root = editor_app
+    resp = client.get("/workspace/roots")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["roots"][0]["id"] == "root_test"
+    # The chip shows where an unbound run would work; it is read-only context.
+    assert body["defaultRoot"] == os.path.realpath(str(root))
 
 
 def test_list_and_read_and_write(editor_app):

@@ -6,7 +6,7 @@ import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 import {
   X, TrendingUp, BarChart2, Layers,
-  HelpCircle, Landmark, Gauge, ChartCandlestick,
+  HelpCircle, Landmark, Gauge, ChartCandlestick, ScrollText,
 } from '@/lib/icons';
 import { ChartWidget } from '@/components/chart/chart-widget';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,7 @@ import {
   UnavailableState as FundamentalsUnavailable,
   ErrorState as FundamentalsError,
 } from '@/components/screens/fundamentals/panel';
+import { FilingsSection } from '@/components/screens/fundamentals/filings-section';
 import { computeTechnical } from '@/lib/company/technical';
 import { computeCompanyRisk } from '@/lib/company/risk';
 import { useCompanyNews } from '@/lib/company/use-company-news';
@@ -702,6 +703,18 @@ export function TradingViewChart({
           )}
           {!fund.loading && (!fund.data || fund.data.periods.length === 0) && (
             <ResearchedFinancialsSection research={research} symbol={symbol} />
+          )}
+
+          {/* Filings are independent of fundamentals: a company with no
+              statement data must still be able to open its official filing list. */}
+          {!fund.loading && !(fund.data && fund.data.periods.length > 0) && (
+            <SectionShell
+              icon={<ScrollText size={14} className="text-primary" />}
+              title="Filings"
+              subtitle="official filing index"
+            >
+              <FilingsSection symbol={symbol} market={fundamentalsMarket} />
+            </SectionShell>
           )}
 
           {/* Recent news — clamped list */}

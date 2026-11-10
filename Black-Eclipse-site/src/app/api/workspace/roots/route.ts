@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { approveTrustedRoot, listTrustedRoots } from "@/lib/harness/code-client";
+import { approveTrustedRoot, getWorkspaceRoots } from "@/lib/harness/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { corsPreflight, localCors } from "@/lib/workspace/cors";
 
 export const dynamic = "force-dynamic";
 
-// GET  /api/workspace/roots — the approved workspace folders.
+// GET  /api/workspace/roots — approved workspace folders + the default folder
+//      a run uses with no per-chat binding (read-only context for the chip).
 // POST /api/workspace/roots — approve a folder (the picker's "open" action).
 export async function GET(request: Request) {
   try {
-    const roots = await listTrustedRoots();
-    return NextResponse.json({ success: true, roots }, { headers: localCors(request) });
+    const { roots, defaultRoot } = await getWorkspaceRoots();
+    return NextResponse.json(
+      { success: true, roots, defaultRoot },
+      { headers: localCors(request) },
+    );
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
     return NextResponse.json(

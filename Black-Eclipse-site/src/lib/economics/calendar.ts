@@ -139,6 +139,32 @@ export interface EconomicCalendar {
   warnings: string[];
 }
 
+/**
+ * Keep only events inside the requested window. `days: null` means no upper
+ * bound. Upcoming mode drops events older than a 12-hour overnight grace window;
+ * `past: true` instead returns releases inside the last `days`, newest first.
+ */
+export function filterUpcoming(
+  events: CalendarEvent[],
+  window: { now?: number; days?: number | null; past?: boolean } = {},
+): CalendarEvent[] {
+  const now = window.now ?? Date.now();
+  const days = window.days === undefined ? 30 : window.days;
+  const span = days && days > 0 ? days * 24 * 60 * 60 * 1000 : Number.POSITIVE_INFINITY;
+  const past = window.past === true;
+  return events
+    .filter((event) => {
+      const ts = Date.parse(event.date);
+      if (!Number.isFinite(ts)) return false;
+      if (past) return ts <= now && ts >= now - span;
+      return ts >= now - 12 * 60 * 60 * 1000 && ts <= now + span;
+    })
+    .sort((a, b) => {
+      const delta = Date.parse(a.date) - Date.parse(b.date);
+      return past ? -delta : delta;
+    });
+}
+
 export async function fetchEconomicCalendar(): Promise<EconomicCalendar> {
   const warnings: string[] = [];
   let mirror: CalendarEvent[] = [];

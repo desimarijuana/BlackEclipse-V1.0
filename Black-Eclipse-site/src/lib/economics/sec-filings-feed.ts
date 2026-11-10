@@ -16,6 +16,7 @@ export interface EdgarFiling {
   id: string;
   company: string;
   cik: string | null;
+  ticker?: string | null;
   form: string;
   filed: string | null;
   /** Provider timestamp (ISO) — useful for ordering. */
@@ -106,7 +107,7 @@ export interface FilingsFeedResult {
 }
 
 export async function fetchLatestFilings(
-  options: { form?: string; limit?: number } = {},
+  options: { form?: string; limit?: number; refresh?: boolean } = {},
   deps: { get?: typeof safeGet; now?: () => number } = {},
 ): Promise<FilingsFeedResult> {
   const form = (options.form ?? "").trim();
@@ -116,7 +117,7 @@ export async function fetchLatestFilings(
   const now = deps.now ?? Date.now;
 
   const hit = cache.get(key);
-  if (hit && now() - hit.at < CACHE_TTL_MS) {
+  if (!options.refresh && hit && now() - hit.at < CACHE_TTL_MS) {
     return {
       filings: hit.filings,
       form,

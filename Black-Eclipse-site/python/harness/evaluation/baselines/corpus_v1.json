@@ -1,8 +1,8 @@
 {
   "agentVersion": "0.1.0",
   "dataset": "eclipse-benchmark",
-  "datasetChecksum": "d58138f007d654c4d3bddd6614706da5",
-  "gitCommit": "1350e1ed8dc0571ce560de72cf17c3b1fd5ef710",
+  "datasetChecksum": "02ee208d73ff3061b83e2a785c20810c",
+  "gitCommit": "908d55ca1c4e0c1a7259c89d6e07ee378be68a4e",
   "metrics": {
     "aggregates": {
       "artifact_delivery": 1.0,
@@ -131,13 +131,13 @@
         "unmeasured": 0
       }
     },
-    "datasetChecksum": "d58138f007d654c4d3bddd6614706da5",
+    "datasetChecksum": "02ee208d73ff3061b83e2a785c20810c",
     "passRate": 0.9957983193277311,
     "tier": 0
   },
   "name": "nightly-corpus",
-  "recordedAt": "2026-11-09T17:32:59.515771+00:00",
-  "runId": "nightly-20261109-172917-412919",
+  "recordedAt": "2026-11-10T03:34:42.246819+00:00",
+  "runId": "nightly-20261110-033145-2ddef7",
   "split": "validation",
   "taskCount": 244
 }

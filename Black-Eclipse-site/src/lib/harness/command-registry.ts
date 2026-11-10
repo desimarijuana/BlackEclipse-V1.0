@@ -9,6 +9,7 @@
 // the client (autocomplete) and the server (routing) without side effects.
 
 import type { TranslationKey } from "@/lib/i18n/types";
+import { APP_TABS } from "@/lib/app-tabs";
 
 export type CommandCategory =
   | "runtime"
@@ -22,6 +23,21 @@ export type CommandCategory =
   | "visual"
   | "memory"
   | "admin";
+
+/** Every category, in the order the palette groups them. */
+export const COMMAND_CATEGORIES: readonly CommandCategory[] = [
+  "runtime",
+  "skills",
+  "research",
+  "markets",
+  "portfolio",
+  "quant",
+  "visual",
+  "web",
+  "dev",
+  "memory",
+  "admin",
+];
 
 /** Lifecycle. Only `available` commands are shown as runnable. */
 export type CommandStatus = "available" | "unavailable" | "deprecated" | "experimental";
@@ -126,6 +142,8 @@ export interface CommandSpec {
   timeoutMs?: number;
   retries?: number;
   idempotent?: boolean;
+  /** Override the risk-based rate limit (window/limit per actor+command). */
+  rateLimit?: { windowMs: number; limit: number };
   output: CommandOutputSpec;
   examples: readonly string[];
   deprecation?: CommandDeprecation | null;
@@ -135,6 +153,10 @@ export interface CommandSpec {
   summaryKey?: TranslationKey;
   /** Why an `unavailable` command cannot run yet (shown to the user, never hidden). */
   unavailabilityReason?: string;
+  /** Origin of the command. Builtins come from this file; project commands are local packs. */
+  source?: "builtin" | "project";
+  /** Agent-turn project command prompt template (`{{arg}}` placeholders). */
+  agentPrompt?: string;
 }
 
 const V = "1.0.0";
@@ -667,15 +689,15 @@ const USAGE: CommandSpec = {
   version: V,
   status: "available",
   args: [],
-  flags: [],
+  flags: [{ name: "commands", description: "Summarize command executions from the audit instead of tokens.", type: "boolean" }],
   handler: { type: "runtime", target: "admin.usage" },
   permissions: { approval: "none" },
   risk: "none",
   executionMode: "sync",
   timeoutMs: 30_000,
   idempotent: true,
-  output: { type: "response", summary: "A usage summary." },
-  examples: ["/usage"],
+  output: { type: "response", summary: "A token or command-usage summary." },
+  examples: ["/usage", "/usage --commands"],
 };
 
 const MARKET: CommandSpec = {
@@ -726,13 +748,14 @@ const MEMORY: CommandSpec = {
   id: "memory.memory",
   name: "memory",
   aliases: [],
-  summary: "Show Eclipse memory overview and recent memories.",
-  description: "Show the Eclipse memory overview and the most recent memory records from the dedicated memory database.",
+  summary: "Show the memory overview, or search memories.",
+  description:
+    "With no argument, show the Eclipse memory overview and the most recent records. With a query, search the memory explorer instead.",
   category: "memory",
   tags: ["memory"],
   version: V,
   status: "available",
-  args: [],
+  args: [{ name: "query", description: "Search memory content.", variadic: true }],
   flags: [],
   handler: { type: "native", target: "memory.memory" },
   permissions: { approval: "none" },
@@ -740,8 +763,8 @@ const MEMORY: CommandSpec = {
   executionMode: "sync",
   timeoutMs: 30_000,
   idempotent: true,
-  output: { type: "response", summary: "A memory overview and recent records." },
-  examples: ["/memory"],
+  output: { type: "response", summary: "A memory overview or matching memory rows." },
+  examples: ["/memory", "/memory search concentration risk"],
 };
 
 const MCP: CommandSpec = {
@@ -779,7 +802,12 @@ const QUOTE: CommandSpec = {
   tags: ["markets", "quote", "jdds"],
   version: V,
   status: "available",
-  args: [{ name: "symbols", description: "One or more symbols (e.g. AAPL BTC OGDC).", variadic: true }],
+  args: [{
+    name: "symbols",
+    description: "One or more symbols (e.g. AAPL BTC OGDC).",
+    variadic: true,
+    completion: "symbols",
+  }],
   flags: [],
   handler: { type: "native", target: "markets.quote" },
   permissions: { approval: "none" },
@@ -914,6 +942,7 @@ const CODE: CommandSpec = {
   flags: [
     { name: "autonomy", description: "Autonomy profile.", type: "string", values: ["plan_only", "edit_verify"] },
     { name: "budget", description: "How long the build may run.", type: "string", values: ["small", "standard", "deep"] },
+    { name: "confirm", description: "Single-use confirmation token from the first invocation.", type: "string" },
   ],
   handler: { type: "native", target: "code.task" },
   permissions: { approval: "operator" },
@@ -948,6 +977,11 @@ const TERMINAL: CommandSpec = {
       description: "Working directory, relative to the workspace root.",
       type: "string",
     },
+    {
+      name: "confirm",
+      description: "Single-use confirmation token from the first invocation.",
+      type: "string",
+    },
   ],
   handler: { type: "native", target: "runtime.terminal" },
   permissions: { approval: "operator" },
@@ -961,6 +995,299 @@ const TERMINAL: CommandSpec = {
     "/terminal --shell cmd dir /s",
     "/terminal --shell powershell --cwd src npm run test",
   ],
+};
+
+const ALERTS: CommandSpec = {
+  id: "markets.alerts",
+  name: "alerts",
+  aliases: [],
+  summary: "List price and condition alert watches.",
+  description:
+    "List the alert watches recorded by the alert engine, their symbols, status and last-fired time. Read-only: create or edit watches in the Price Alerts screen.",
+  category: "markets",
+  tags: ["markets", "alerts"],
+  version: V,
+  status: "available",
+  args: [],
+  flags: [],
+  handler: { type: "native", target: "markets.alerts" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 30_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of alert watches." },
+  examples: ["/alerts"],
+};
+
+const NEWS: CommandSpec = {
+  id: "markets.news",
+  name: "news",
+  aliases: [],
+  summary: "Show the latest stored news.",
+  description:
+    "Query the local news store and show the latest headlines with their source, ticker, sentiment and time. A bare symbol is treated as a ticker; free text uses the store's search. Read-only — no feed is fetched live.",
+  category: "markets",
+  tags: ["news", "markets"],
+  version: V,
+  status: "available",
+  args: [{ name: "query", description: "Free-text search, or a ticker such as AAPL.", variadic: true }],
+  flags: [
+    { name: "ticker", description: "Filter to one ticker.", type: "string" },
+    { name: "sort", description: "Newest first, or market-moving importance.", type: "string", values: ["newest", "importance"], default: "newest" },
+  ],
+  handler: { type: "native", target: "markets.news" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 60_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of recent headlines." },
+  examples: ["/news", "/news nvidia", "/news --ticker AAPL", "/news --sort importance"],
+};
+
+const THESES: CommandSpec = {
+  id: "portfolio.theses",
+  name: "theses",
+  aliases: ["thesis"],
+  summary: "List tracked investment theses.",
+  description: "List the persisted theses, optionally filtered to one symbol. Read-only.",
+  category: "portfolio",
+  tags: ["portfolio", "theses", "research"],
+  version: V,
+  status: "available",
+  args: [{ name: "symbol", description: "Only show theses for this symbol.", required: false, completion: "symbols" }],
+  flags: [],
+  handler: { type: "native", target: "portfolio.theses" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 30_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of theses." },
+  examples: ["/theses", "/theses AAPL"],
+};
+
+const JOURNAL: CommandSpec = {
+  id: "portfolio.journal",
+  name: "journal",
+  aliases: [],
+  summary: "Summarize recorded journal trades.",
+  description:
+    "Show recorded trades with the journal's own P&L, optionally filtered to open or closed positions. This is the journal's rows, never a broker statement.",
+  category: "portfolio",
+  tags: ["portfolio", "journal", "trades"],
+  version: V,
+  status: "available",
+  args: [{
+    name: "filter",
+    description: "Which trades to show.",
+    type: "enum",
+    values: ["all", "open", "closed"],
+    default: "all",
+  }],
+  flags: [],
+  handler: { type: "native", target: "portfolio.journal" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 60_000,
+  idempotent: true,
+  output: { type: "response", summary: "Recorded trade rows and a net-P&L summary." },
+  examples: ["/journal", "/journal open", "/journal closed"],
+};
+
+const JOBS: CommandSpec = {
+  id: "runtime.jobs",
+  name: "jobs",
+  aliases: [],
+  summary: "List scheduled and watched jobs.",
+  description: "List the jobs owned by the scheduler, their schedule, enabled state and last run. Read-only.",
+  category: "runtime",
+  tags: ["jobs", "scheduler"],
+  version: V,
+  status: "available",
+  args: [],
+  flags: [],
+  handler: { type: "native", target: "runtime.jobs" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 30_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of jobs." },
+  examples: ["/jobs"],
+};
+
+const ARTIFACTS: CommandSpec = {
+  id: "runtime.artifacts",
+  name: "artifacts",
+  aliases: ["artifact"],
+  summary: "List recent artifacts.",
+  description: "List the most recent entries in the Artifact Center (runs, Canvas, reports). Read-only.",
+  category: "runtime",
+  tags: ["artifacts", "files"],
+  version: V,
+  status: "available",
+  args: [],
+  flags: [],
+  handler: { type: "native", target: "runtime.artifacts" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 60_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of recent artifacts." },
+  examples: ["/artifacts"],
+};
+
+const SESSIONS: CommandSpec = {
+  id: "runtime.sessions",
+  name: "sessions",
+  aliases: ["session"],
+  summary: "List recent chat sessions.",
+  description: "List the durable chat sessions recorded by the runtime, newest first. Read-only.",
+  category: "runtime",
+  tags: ["sessions", "chat"],
+  version: V,
+  status: "available",
+  args: [],
+  flags: [],
+  handler: { type: "native", target: "runtime.sessions" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 60_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of recent sessions." },
+  examples: ["/sessions"],
+};
+
+const GIT: CommandSpec = {
+  id: "dev.git",
+  name: "git",
+  aliases: [],
+  summary: "Read the repository status, diff or log.",
+  description:
+    "Read-only git inspection: status (branch, ahead/behind, changed files), diff (working tree or --staged), or the recent log. Stage/commit/push are deliberately not exposed as chat commands.",
+  category: "dev",
+  tags: ["dev", "git"],
+  version: V,
+  status: "available",
+  args: [{
+    name: "action",
+    description: "What to inspect.",
+    type: "enum",
+    values: ["status", "diff", "log"],
+    default: "status",
+  }],
+  flags: [{ name: "staged", description: "Show the staged diff instead of the working tree.", type: "boolean" }],
+  handler: { type: "native", target: "dev.git" },
+  permissions: { approval: "none" },
+  risk: "low",
+  executionMode: "sync",
+  timeoutMs: 60_000,
+  idempotent: true,
+  output: { type: "response", summary: "Git status, a diff, or the recent log." },
+  examples: ["/git", "/git diff", "/git diff --staged", "/git log"],
+};
+
+const STOP: CommandSpec = {
+  id: "runtime.stop",
+  name: "stop",
+  aliases: ["cancel"],
+  summary: "List active runs or cancel one by id.",
+  description:
+    "With no argument, list runs that are created or running. With a run id, request cooperative cancellation in the runtime. Operator-gated.",
+  category: "runtime",
+  tags: ["runs", "cancel"],
+  version: V,
+  status: "available",
+  args: [{ name: "runId", description: "The run id to cancel (omit to list active runs).", required: false }],
+  flags: [],
+  handler: { type: "native", target: "runtime.stop" },
+  permissions: { approval: "operator" },
+  risk: "medium",
+  executionMode: "sync",
+  timeoutMs: 30_000,
+  idempotent: false,
+  output: { type: "response", summary: "Active runs, or the cancellation result." },
+  examples: ["/stop", "/stop run_abc123"],
+};
+
+const CANVAS: CommandSpec = {
+  id: "visual.canvas",
+  name: "canvas",
+  aliases: ["doc"],
+  summary: "Open Eclipse Canvas.",
+  description:
+    "Open the inline Canvas workspace for editable documents, code and reports. The command returns a typed UI intent; a non-UI surface (remote channel/CLI) shows the message but does not navigate.",
+  category: "dev",
+  tags: ["canvas", "documents", "code"],
+  version: V,
+  status: "available",
+  args: [{ name: "artifactId", description: "Optional Canvas artifact id to open.", required: false }],
+  flags: [],
+  handler: { type: "native", target: "native.canvas" },
+  permissions: { approval: "none" },
+  risk: "none",
+  executionMode: "sync",
+  timeoutMs: 5_000,
+  idempotent: true,
+  output: { type: "response", summary: "A client intent to open the Canvas pane." },
+  examples: ["/canvas"],
+};
+
+const OPEN: CommandSpec = {
+  id: "runtime.open",
+  name: "open",
+  aliases: ["go"],
+  summary: "Open an Eclipse tab.",
+  description:
+    "Navigate the app to a tab through a typed UI intent (not a markdown link). Client-only: remote/CLI surfaces receive the message but do not navigate.",
+  category: "runtime",
+  tags: ["navigation", "ui"],
+  version: V,
+  status: "available",
+  args: [{
+    name: "tab",
+    description: "The tab to open.",
+    required: true,
+    type: "enum",
+    values: APP_TABS,
+  }],
+  flags: [],
+  handler: { type: "native", target: "native.open" },
+  permissions: { approval: "none" },
+  risk: "none",
+  executionMode: "sync",
+  timeoutMs: 5_000,
+  idempotent: true,
+  output: { type: "response", summary: "A client intent to switch tabs." },
+  examples: ["/open alerts", "/open journal", "/open artifacts"],
+};
+
+const HISTORY: CommandSpec = {
+  id: "runtime.history",
+  name: "history",
+  aliases: ["audit"],
+  summary: "Show recent command executions from the audit.",
+  description:
+    "Read the durable command audit, newest first: command, status, actor, operator/risk and duration. This is the record of what ran — not the chat transcript and not model output.",
+  category: "runtime",
+  tags: ["audit", "history", "commands"],
+  version: V,
+  status: "available",
+  args: [{ name: "limit", description: "How many recent entries to show (1–200).", type: "number", default: 20 }],
+  flags: [],
+  handler: { type: "native", target: "runtime.history" },
+  permissions: { approval: "none" },
+  risk: "none",
+  executionMode: "sync",
+  timeoutMs: 10_000,
+  idempotent: true,
+  output: { type: "response", summary: "A table of recent command audit entries." },
+  examples: ["/history", "/history 50"],
 };
 
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
@@ -981,8 +1308,12 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   TOOLS,
   USAGE,
   MARKET,
+  ALERTS,
+  NEWS,
   QUOTE,
   PORTFOLIO,
+  THESES,
+  JOURNAL,
   MEMORY,
   MCP,
   RESEARCH,
@@ -992,6 +1323,14 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   BACKTEST,
   CODE,
   TERMINAL,
+  JOBS,
+  ARTIFACTS,
+  SESSIONS,
+  GIT,
+  CANVAS,
+  OPEN,
+  STOP,
+  HISTORY,
   ANATOMY,
   VISUAL,
   APP,
@@ -1009,10 +1348,14 @@ export function isCommandAvailable(spec: CommandSpec): boolean {
   return spec.status === "available" && spec.handler.type !== "unsupported";
 }
 
-/** Resolve a command by canonical name or alias (case-insensitive, leading slash optional). */
-export function resolveCommand(name: string): CommandSpec | undefined {
+/**
+ * Resolve a command by canonical name or alias (case-insensitive, leading slash
+ * optional). `extra` carries project commands; builtins win a collision.
+ */
+export function resolveCommand(name: string, extra: readonly CommandSpec[] = []): CommandSpec | undefined {
   const token = normalizeToken(name);
-  return COMMAND_REGISTRY.find((c) => c.name === token || c.aliases.includes(token));
+  return COMMAND_REGISTRY.find((c) => c.name === token || c.aliases.includes(token))
+    ?? extra.find((c) => c.name === token || c.aliases.includes(token));
 }
 
 export function allCommands(): readonly CommandSpec[] {
@@ -1093,9 +1436,19 @@ function scoreCommand(spec: CommandSpec, query: string): number {
  * Search commands by prefix, alias, tag, or fuzzy name match. Deterministic
  * (stable ordering) so autocomplete does not reorder between keystrokes.
  */
-export function searchCommands(query: string, filter: CommandListFilter = {}): CommandSpec[] {
+export function searchCommands(
+  query: string,
+  filter: CommandListFilter = {},
+  extra: readonly CommandSpec[] = [],
+): CommandSpec[] {
   const q = (query ?? "").trim().toLowerCase();
-  const pool = listCommands(filter);
+  const extraPool = extra.filter((c) => {
+    if (filter.category && c.category !== filter.category) return false;
+    if (filter.status && c.status !== filter.status) return false;
+    if (filter.includeUnavailable === false && !isCommandAvailable(c)) return false;
+    return true;
+  });
+  const pool = [...listCommands(filter), ...extraPool];
   if (!q) {
     return pool.slice().sort((a, b) => a.name.localeCompare(b.name));
   }

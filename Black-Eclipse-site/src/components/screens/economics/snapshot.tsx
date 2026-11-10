@@ -79,10 +79,10 @@ export function SnapshotView() {
   const [research, setResearch] = useState<ResearchResult | null>(null);
   const [researchLoading, setResearchLoading] = useState(false);
 
-  const load = async () => {
+  const load = async (force = false) => {
     setError(null);
     try {
-      const res = await fetch('/api/economics/snapshot');
+      const res = await fetch(`/api/economics/snapshot${force ? '?refresh=1' : ''}`, { cache: 'no-store' });
       const d = await res.json();
       setData(d);
     } catch {
@@ -96,7 +96,7 @@ export function SnapshotView() {
 
   const refresh = async () => {
     setRefreshing(true);
-    try { await load(); } finally { setRefreshing(false); }
+    try { await load(true); } finally { setRefreshing(false); }
   };
 
   const runAnalysis = async () => {
@@ -146,6 +146,9 @@ export function SnapshotView() {
   const rates = data?.metrics.filter((m) => m.kind === 'rate') ?? [];
   const prints = data?.metrics.filter((m) => m.kind !== 'rate') ?? [];
   const builtAt = data?.builtAt ? new Date(data.builtAt) : null;
+  const counts = { LIVE: 0, WEB: 0, CACHED: 0, UNAVAILABLE: 0 };
+  for (const metric of data?.metrics ?? []) counts[metric.state] += 1;
+  const total = data?.metrics.length ?? 0;
 
   return (
     <div ref={rootRef} data-keyboard-scope="Macro snapshot" className="flex flex-col gap-6">
@@ -154,6 +157,11 @@ export function SnapshotView() {
         <p className="text-[10px] font-mono text-muted-foreground/70">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 align-middle" />
           {builtAt ? `Global Macro Snapshot · built ${builtAt.toUTCString()}` : 'Global Macro Snapshot'}
+          {total > 0 && (
+            <span className="ml-2 text-muted-foreground/60">
+              · {counts.LIVE} live · {counts.WEB} web · {counts.CACHED} cached · {counts.UNAVAILABLE} unavailable
+            </span>
+          )}
         </p>
         <div className="flex gap-2">
           <button
@@ -222,10 +230,12 @@ export function SnapshotView() {
           Data provenance
         </p>
         <p className="text-[13px] text-muted-foreground leading-relaxed">
-          Every metric above is pulled from the FRED public CSV feed and shows its value, the{' '}
-          <span className="font-mono text-foreground">“as of”</span> vintage, and the exact series fetched. No number on
-          this screen is invented — a card with no data stays marked <span className="font-mono text-foreground">unavailable</span>{' '}
-          rather than being filled with a placeholder.
+          Each metric shows its value, the <span className="font-mono text-foreground">“as of”</span> vintage, and its
+          exact source. <span className="font-mono text-foreground">LIVE</span> comes from the FRED public CSV feed;{' '}
+          <span className="font-mono text-foreground">WEB</span> is a labelled value found on an official statistical
+          page when the feed was unavailable; <span className="font-mono text-foreground">CACHED</span> is the last
+          confirmed value while providers recover. No number on this screen is invented — a card with no data stays
+          marked <span className="font-mono text-foreground">unavailable</span>.
         </p>
       </div>
     </div>

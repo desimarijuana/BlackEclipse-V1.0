@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles, ExternalLink } from '@/lib/icons';
+import { Loader2, Sparkles, ExternalLink, RefreshCw } from '@/lib/icons';
 
 interface CalendarEvent {
   id: string;
@@ -31,6 +31,13 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'high', label: 'High' },
   { id: 'medium', label: 'Medium' },
   { id: 'low', label: 'Low' },
+];
+
+const HORIZONS: { id: '7' | '30' | '90' | 'all'; label: string }[] = [
+  { id: '7', label: '7d' },
+  { id: '30', label: '30d' },
+  { id: '90', label: '90d' },
+  { id: 'all', label: 'All' },
 ];
 
 const IMP_DOT: Record<CalendarEvent['importance'], string> = {
@@ -66,27 +73,34 @@ const FOCUS_PATTERNS: Record<string, RegExp> = {
 export function CalendarView({ focus }: { focus?: string } = {}) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [source, setSource] = useState<string>('');
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
+  const [horizon, setHorizon] = useState<'7' | '30' | '90' | 'all'>('30');
+  const [mode, setMode] = useState<'upcoming' | 'released'>('upcoming');
+  const [reload, setReload] = useState(0);
   const [analyzedId, setAnalyzedId] = useState<string | null>(null);
   const [research, setResearch] = useState<ResearchResult | null>(null);
   const [researchLoading, setResearchLoading] = useState(false);
 
   useEffect(() => {
     void (async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const res = await fetch('/api/economics/calendar');
+        const res = await fetch(`/api/economics/calendar?days=${horizon}${mode === 'released' ? '&past=1' : ''}${reload > 0 ? '&refresh=1' : ''}`, { cache: 'no-store' });
         const d = await res.json();
         setEvents(d.events || []);
         setSource(d.source || '');
+        setWarnings(Array.isArray(d.warnings) ? d.warnings : []);
       } catch {
         setError('Failed to load the economic calendar');
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [horizon, mode, reload]);
 
   const analyzeEvent = async (e: CalendarEvent) => {
     setAnalyzedId(e.id);
@@ -113,7 +127,7 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
     }
   };
 
-  if (loading) {
+  if (loading && events.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground text-xs font-mono">
         <Loader2 size={14} className="animate-spin" /> Loading economic calendar…
@@ -135,6 +149,7 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
     ? [...visible].sort((a, b) => Number(isFocused(b)) - Number(isFocused(a)))
     : visible;
 
+  const tentative = events.filter((e) => e.confirmed === false).length;
   const sourceLabel =
     source === 'mirror+official'
       ? 'mirror + official schedules'
@@ -153,29 +168,70 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[10px] font-mono text-muted-foreground/70">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 align-middle" />
-          Economic Calendar{sourceLabel ? ` · ${sourceLabel}` : ''} · {events.length} releases
+          Economic Calendar{sourceLabel ? ` · ${sourceLabel}` : ''} · {events.length} {mode === 'released' ? 'released' : 'upcoming'}
+          {tentative > 0 && <span className="ml-2 text-amber-300/80">· {tentative} tentative</span>}
+          {warnings.length > 0 && <span className="ml-2 text-amber-300/80" title={warnings.join(' · ')}>· {warnings.length} source warning{warnings.length === 1 ? '' : 's'}</span>}
         </p>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Calendar filters">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              aria-pressed={filter === f.id}
-              className={`h-8 px-3.5 rounded-full border font-mono text-[11px] transition-colors cursor-pointer ${
-                filter === f.id
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'border-border/30 text-muted-foreground hover:border-foreground hover:text-foreground'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex overflow-hidden rounded-full border border-border/30" role="group" aria-label="Calendar mode">
+            {(['upcoming', 'released'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => { setMode(m); setReload(0); }}
+                aria-pressed={mode === m}
+                className={`h-8 px-3 font-mono text-[11px] capitalize cursor-pointer transition-colors ${
+                  mode === m ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Calendar horizon">
+            {HORIZONS.map((h) => (
+              <button
+                key={h.id}
+                onClick={() => { setHorizon(h.id); setReload(0); }}
+                aria-pressed={horizon === h.id}
+                className={`h-8 px-3 rounded-full border font-mono text-[11px] transition-colors cursor-pointer ${
+                  horizon === h.id
+                    ? 'bg-primary/10 border-primary text-primary'
+                    : 'border-border/30 text-muted-foreground hover:border-foreground hover:text-foreground'
+                }`}
+              >
+                {h.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Calendar filters">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                aria-pressed={filter === f.id}
+                className={`h-8 px-3.5 rounded-full border font-mono text-[11px] transition-colors cursor-pointer ${
+                  filter === f.id
+                    ? 'bg-primary/10 border-primary text-primary'
+                    : 'border-border/30 text-muted-foreground hover:border-foreground hover:text-foreground'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setReload((r) => r + 1)}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg glass-card-subtle border border-border/20 text-muted-foreground hover:text-foreground cursor-pointer"
+            aria-label="Refresh calendar"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 
       {visible.length === 0 && (
         <div className="py-8 text-center text-[12px] font-mono text-muted-foreground border border-dashed border-border/25 rounded-xl">
-          No upcoming releases found.
+          No releases in this window.
         </div>
       )}
 
