@@ -45,6 +45,10 @@ import { PaperPanel, type PaperRun } from './paper-panel';
 import { VersionPanel } from './version-panel';
 import { PublishButton } from './publish-button';
 import { ShareCard } from './share-card';
+import { MethodDiscoveryPanel } from './method-discovery-panel';
+import { ResearchJournalPanel } from './research-journal-panel';
+import { PortfolioStressLab } from './portfolio-stress-lab';
+import { ManifestPanel } from '@/components/screens/backtest/shared/manifest-panel';
 import { paperHealth } from '@/lib/strategy-studio/paper-health';
 import { buildShareCardInput } from '@/lib/strategy-studio/share-card';
 import { ShieldCheck } from '@/lib/icons';
@@ -684,6 +688,16 @@ export function StrategyStudioScreen() {
 
         {/* ── Right: spec, results ── */}
         <div className="flex min-w-0 flex-col gap-4">
+          <MethodDiscoveryPanel
+            symbol={(splitSymbols(symbol)[0] || symbol || 'BTC-USD').toUpperCase()}
+            interval={timeframe}
+            onUseSpec={(text) => {
+              setEditor(text);
+              setNotice('Method spec loaded. Review it, then save and run.');
+            }}
+            onError={setError}
+          />
+
           <SpecCard
             editor={editor}
             onEditor={setEditor}
@@ -737,6 +751,18 @@ export function StrategyStudioScreen() {
         onRun={bt.runPortfolio}
         onError={setError}
       />
+
+      <ResearchJournalPanel
+        strategyId={saved?.id ?? null}
+        experimentId={result?.experimentId ?? null}
+        onError={setError}
+      />
+
+      <PortfolioStressLab symbols={splitSymbols(symbol)} onError={setError} />
+
+      {activeExperimentId ? (
+        <ManifestPanel experimentId={activeExperimentId} />
+      ) : null}
 
       {saved || result ? <ShareCard input={shareInput} /> : null}
 
