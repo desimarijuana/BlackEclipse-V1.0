@@ -6,8 +6,11 @@
 // empty space, and minimize / maximize / close at the right. The browser front
 // door never mounts it — `hasDesktopShell()` gates on Tauri's global bridge.
 //
-// Tabs are the SPA's top-level pages, not independent webviews. Switching a tab
-// calls `onSelectTab`, so the existing keep-alive panels preserve each page.
+// Tabs are INSTANCES, not a de-duplicated page set. `+` appends a real tab that
+// starts on the Chat page with a fresh session; navigating inside that tab moves
+// it to the page the user picks (sidebar, palette, deep link). Closing the last
+// tab is refused. Switching a tab calls `onSelectTab`, so the existing
+// keep-alive panels preserve each page.
 //
 // Window chrome prefers the core window API (minimize / toggleMaximize / close /
 // startDragging) and falls back to the `be-window-action` event bridge used by
@@ -39,11 +42,14 @@ import { navLabelKey } from '@/lib/i18n/nav';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
-  addTab,
+  appendTab,
+  createTab,
   moveTab,
   readStoredTabs,
   removeTab,
   saveStoredTabs,
+  setTabPage,
+  type DesktopTab,
 } from '@/lib/desktop/tabs';
 
 interface TabMeta {
@@ -164,56 +170,82 @@ export function DesktopTabBar({
 }: {
   activeTab: AppTab;
   onSelectTab: (tab: AppTab) => void;
-  /** `+` starts a fresh session and lands on the Chat page. */
+  /** `+` starts a fresh session and lands the new tab on the Chat page. */
   onNewChat?: () => void;
 }) {
   const t = useT();
+  const bootTab = useRef(activeTab);
+  const bootId = useRef('boot');
   const [desktop, setDesktop] = useState(false);
   const [restored, setRestored] = useState(false);
-  const [tabs, setTabs] = useState<AppTab[]>([activeTab]);
-  const [dragging, setDragging] = useState<AppTab | null>(null);
-  const bootTab = useRef(activeTab);
+  const [tabs, setTabs] = useState<DesktopTab[]>(() => [
+    createTab(bootTab.current, bootId.current),
+  ]);
+  const [activeId, setActiveId] = useState(bootId.current);
+  const [dragging, setDragging] = useState<string | null>(null);
 
   // Detect the shell after mount (the Tauri bridge does not exist during SSR).
-  // Restore the previous session's open pages once, keeping the URL/boot tab.
+  // Restore the previous session's tabs once, keeping the URL/boot page open.
   useEffect(() => {
     if (!hasDesktopShell()) return;
     setDesktop(true);
     const stored = readStoredTabs();
     if (stored.length > 0) {
-      const boot = bootTab.current;
-      setTabs(stored.includes(boot) ? stored : [...stored, boot]);
+      const boot = stored.find((tab) => tab.page === bootTab.current);
+      if (boot) {
+        setTabs(stored);
+        setActiveId(boot.id);
+      } else {
+        const added = appendTab(stored, bootTab.current);
+        setTabs(added.tabs);
+        setActiveId(added.tab.id);
+      }
     }
     setRestored(true);
   }, []);
 
-  // Every page the user opens (sidebar, palette, deep link) earns a tab.
+  // In-app navigation (sidebar, palette, deep link) moves the ACTIVE tab.
   useEffect(() => {
     if (!desktop) return;
-    setTabs((prev) => addTab(prev, activeTab));
-  }, [activeTab, desktop]);
+    setTabs((prev) => setTabPage(prev, activeId, activeTab));
+  }, [activeTab, activeId, desktop]);
 
   useEffect(() => {
     if (!desktop || !restored) return;
     saveStoredTabs(tabs);
   }, [tabs, desktop, restored]);
 
+  const select = useCallback(
+    (tab: DesktopTab) => {
+      setActiveId(tab.id);
+      onSelectTab(tab.page);
+    },
+    [onSelectTab],
+  );
+
   const close = useCallback(
-    (tab: AppTab) => {
-      const result = removeTab(tabs, tab, activeTab);
+    (id: string) => {
+      const result = removeTab(tabs, id, activeId);
       if (result.tabs === tabs) return;
       setTabs(result.tabs);
-      if (result.activeTab !== activeTab) onSelectTab(result.activeTab);
+      if (result.activeId !== activeId) {
+        const next = result.tabs.find((tab) => tab.id === result.activeId);
+        setActiveId(result.activeId);
+        if (next) onSelectTab(next.page);
+      }
     },
-    [tabs, activeTab, onSelectTab],
+    [tabs, activeId, onSelectTab],
   );
 
   const newTab = useCallback(() => {
-    // No page picker: a new tab is a fresh Chat session, and any page can be
-    // opened from it afterwards (sidebar, palette, deep link).
+    // A real new tab instance: it starts as a fresh Chat session, and whatever
+    // page the user opens next becomes that tab's page.
+    const { tabs: next, tab } = appendTab(tabs, 'chat');
+    setTabs(next);
+    setActiveId(tab.id);
     onNewChat?.();
     onSelectTab('chat');
-  }, [onNewChat, onSelectTab]);
+  }, [tabs, onNewChat, onSelectTab]);
 
   const labelFor = useCallback(
     (tab: AppTab) => {
@@ -228,7 +260,7 @@ export function DesktopTabBar({
   return (
     <div
       data-be-drag=""
-      className="relative z-30 flex h-10 w-full shrink-0 select-none items-stretch bg-background pl-2"
+      className="desktop-tab-bar relative z-30 flex h-10 w-full shrink-0 select-none items-stretch pl-2"
       onMouseDown={(event) => {
         if (event.button !== 0 || !isChromeTarget(event.target)) return;
         beginWindowDrag();
@@ -240,58 +272,58 @@ export function DesktopTabBar({
     >
       <div
         role="tablist"
-        aria-label="Open pages"
+        aria-label="Open tabs"
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-hide py-1.5 pr-2"
       >
         {tabs.map((tab) => {
-          const meta = metaFor(tab);
+          const meta = metaFor(tab.page);
           const Icon = meta.icon;
-          const active = tab === activeTab;
-          const label = labelFor(tab);
+          const active = tab.id === activeId;
+          const label = labelFor(tab.page);
           return (
             <div
-              key={tab}
+              key={tab.id}
               role="tab"
               aria-selected={active}
               tabIndex={0}
               draggable
               data-be-no-drag=""
               title={`${label} — drag to reorder`}
-              onClick={() => onSelectTab(tab)}
+              onClick={() => select(tab)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  onSelectTab(tab);
+                  select(tab);
                 }
               }}
               onAuxClick={(event) => {
-                if (event.button === 1) close(tab);
+                if (event.button === 1) close(tab.id);
               }}
               onDragStart={(event) => {
-                setDragging(tab);
+                setDragging(tab.id);
                 event.dataTransfer.effectAllowed = 'move';
                 try {
-                  event.dataTransfer.setData('text/plain', tab);
+                  event.dataTransfer.setData('text/plain', tab.id);
                 } catch {
                   /* some webviews refuse setData without a drag image */
                 }
               }}
               onDragOver={(event) => {
-                if (!dragging || dragging === tab) return;
+                if (!dragging || dragging === tab.id) return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
               }}
               onDrop={(event) => {
                 event.preventDefault();
-                if (dragging && dragging !== tab) {
-                  setTabs((prev) => moveTab(prev, dragging, tab));
+                if (dragging && dragging !== tab.id) {
+                  setTabs((prev) => moveTab(prev, dragging, tab.id));
                 }
                 setDragging(null);
               }}
               onDragEnd={() => setDragging(null)}
               className={cn(
                 'group/tab flex h-7 min-w-0 max-w-[220px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pl-2.5 pr-1 text-[11.5px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-white/20',
-                dragging === tab && 'opacity-50',
+                dragging === tab.id && 'opacity-50',
                 active
                   ? 'bg-white/[0.08] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
                   : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
@@ -305,7 +337,7 @@ export function DesktopTabBar({
                 title="Close tab"
                 onClick={(event) => {
                   event.stopPropagation();
-                  close(tab);
+                  close(tab.id);
                 }}
                 className={cn(
                   'ml-0.5 grid h-4 w-4 shrink-0 place-items-center rounded text-muted-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground',
@@ -322,8 +354,8 @@ export function DesktopTabBar({
           type="button"
           data-be-no-drag=""
           onClick={newTab}
-          aria-label="New chat tab"
-          title="New chat tab"
+          aria-label="New tab"
+          title="New tab"
           className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-white/20"
         >
           <Plus size={13} />

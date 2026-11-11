@@ -1,57 +1,101 @@
 import { describe, expect, it } from 'vitest';
-import { addTab, moveTab, parseStoredTabs, removeTab } from './tabs';
+import {
+  appendTab,
+  createTab,
+  moveTab,
+  parseStoredTabs,
+  removeTab,
+  setTabPage,
+  type DesktopTab,
+} from './tabs';
 import type { AppTab } from '@/lib/app-tabs';
 
+const tab = (id: string, page: AppTab = 'chat'): DesktopTab => ({ id, page });
+
 describe('desktop tabs', () => {
-  it('adds a tab once and keeps open order', () => {
-    expect(addTab(['chat'], 'home')).toEqual(['chat', 'home']);
-    expect(addTab(['chat', 'home'], 'home')).toEqual(['chat', 'home']);
+  it('appends tab instances, including duplicate pages', () => {
+    const first = appendTab([], 'chat');
+    const second = appendTab(first.tabs, 'chat');
+    expect(second.tabs.map((item) => item.page)).toEqual(['chat', 'chat']);
+    expect(new Set(second.tabs.map((item) => item.id)).size).toBe(2);
+  });
+
+  it('creates a tab with a stable id when given one', () => {
+    expect(createTab('home', 'boot')).toEqual({ id: 'boot', page: 'home' });
   });
 
   it('closing a background tab keeps the active one', () => {
-    expect(removeTab(['chat', 'home', 'news'], 'home', 'news')).toEqual({
-      tabs: ['chat', 'news'],
-      activeTab: 'news',
+    expect(removeTab([tab('a'), tab('b', 'home'), tab('c', 'news')], 'b', 'c')).toEqual({
+      tabs: [tab('a'), tab('c', 'news')],
+      activeId: 'c',
     });
   });
 
   it('closing the active tab activates its neighbour', () => {
-    expect(removeTab(['chat', 'home', 'news'], 'home', 'home')).toEqual({
-      tabs: ['chat', 'news'],
-      activeTab: 'news',
+    expect(removeTab([tab('a'), tab('b', 'home'), tab('c', 'news')], 'b', 'b')).toEqual({
+      tabs: [tab('a'), tab('c', 'news')],
+      activeId: 'c',
     });
   });
 
   it('closing the right-most active tab falls back to the new last tab', () => {
-    expect(removeTab(['chat', 'home'], 'home', 'home')).toEqual({
-      tabs: ['chat'],
-      activeTab: 'chat',
+    expect(removeTab([tab('a'), tab('b', 'home')], 'b', 'b')).toEqual({
+      tabs: [tab('a')],
+      activeId: 'a',
     });
   });
 
   it('never closes the last tab', () => {
-    const tabs = ['chat'] as const;
-    const result = removeTab([...tabs], 'chat', 'chat');
-    expect(result.tabs).toEqual(['chat']);
-    expect(result.activeTab).toBe('chat');
+    const tabs = [tab('a')];
+    const result = removeTab(tabs, 'a', 'a');
+    expect(result.tabs).toBe(tabs);
+    expect(result.activeId).toBe('a');
   });
 
   it('reorders a dragged tab into the target slot', () => {
-    expect(moveTab(['chat', 'home', 'news'], 'news', 'chat')).toEqual(['news', 'chat', 'home']);
-    expect(moveTab(['chat', 'home', 'news'], 'chat', 'news')).toEqual(['home', 'news', 'chat']);
+    const tabs = [tab('a'), tab('b', 'home'), tab('c', 'news')];
+    expect(moveTab(tabs, 'c', 'a').map((item) => item.id)).toEqual(['c', 'a', 'b']);
+    expect(moveTab(tabs, 'a', 'c').map((item) => item.id)).toEqual(['b', 'c', 'a']);
   });
 
   it('ignores unknown or no-op reorders', () => {
-    const tabs: AppTab[] = ['chat', 'home'];
-    expect(moveTab(tabs, 'chat', 'chat')).toBe(tabs);
-    expect(moveTab(tabs, 'news' as AppTab, 'home')).toBe(tabs);
+    const tabs = [tab('a'), tab('b', 'home')];
+    expect(moveTab(tabs, 'a', 'a')).toBe(tabs);
+    expect(moveTab(tabs, 'missing', 'b')).toBe(tabs);
+  });
+
+  it('moves the active tab when its page changes', () => {
+    const tabs = [tab('a'), tab('b', 'home')];
+    expect(setTabPage(tabs, 'a', 'portfolio')).toEqual([
+      tab('a', 'portfolio'),
+      tab('b', 'home'),
+    ]);
+    expect(setTabPage(tabs, 'a', 'chat')).toBe(tabs);
+    expect(setTabPage(tabs, 'missing', 'chart')).toBe(tabs);
+  });
+
+  it('parses current tabs and migrates the legacy page-only list', () => {
+    expect(parseStoredTabs('[{"id":"a","page":"chat"},{"id":"b","page":"home"}]')).toEqual([
+      tab('a'),
+      tab('b', 'home'),
+    ]);
+    const migrated = parseStoredTabs('["chat","home"]');
+    expect(migrated.map((item) => item.page)).toEqual(['chat', 'home']);
+    expect(migrated.every((item) => item.id.length > 0)).toBe(true);
   });
 
   it('drops unknown or malformed stored tabs', () => {
-    expect(parseStoredTabs('["chat","home"]')).toEqual(['chat', 'home']);
-    expect(parseStoredTabs('["chat","not-a-tab",3]')).toEqual(['chat']);
+    expect(parseStoredTabs('[{"id":"a","page":"not-a-tab"},{"page":"home"},3]')).toEqual([
+      { id: expect.any(String), page: 'home' },
+    ]);
     expect(parseStoredTabs('{"tabs":["chat"]}')).toEqual([]);
     expect(parseStoredTabs('not json')).toEqual([]);
     expect(parseStoredTabs(null)).toEqual([]);
+  });
+
+  it('drops duplicate tab ids on restore', () => {
+    expect(parseStoredTabs('[{"id":"a","page":"chat"},{"id":"a","page":"home"}]')).toEqual([
+      tab('a'),
+    ]);
   });
 });

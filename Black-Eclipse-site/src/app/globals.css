@@ -1481,6 +1481,17 @@ html.theme-glass-off .sidebar-root {
 html:not(.dark).theme-glass-off .sidebar-root {
   background-color: rgba(255, 255, 255, 0.92) !important;
 }
+/* Frameless desktop title bar. Paint it with the SAME resolved page background
+ * as the ChatBot landing (`--app-bg-color` / dark variant), falling back to the
+ * theme `--background`, so the tab strip reads as part of the page instead of a
+ * separate darker band. A wallpaper mode resolves these to `transparent`, which
+ * lets the page's own pattern show through. */
+.desktop-tab-bar {
+  background-color: var(--app-bg-color, var(--background));
+}
+html.dark .desktop-tab-bar {
+  background-color: var(--app-bg-color-dark, var(--app-bg-color, var(--background)));
+}
 /* Page background treatment (Settings â€º General â€º Background). The theme's
  * pattern (`--page-bg-image`) paints on the shell (body + .app-page-bg) so it
  * covers every tab. A chosen wallpaper is NOT painted on the shell â€” it is

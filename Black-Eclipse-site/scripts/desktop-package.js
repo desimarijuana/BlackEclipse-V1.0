@@ -335,6 +335,33 @@ function buildPacks() {
 
   fs.writeFileSync(path.join(packsRoot, "manifest.json"), JSON.stringify({ packs: manifest }, null, 2));
   console.log(`  pack manifest: ${manifest.length} packs`);
+
+  // Archives for distribution. GitHub hashes and `winget` both want a file, and a
+  // stub installer cannot fetch a folder. `tar -a` produces a real zip on Windows.
+  const { execFileSync } = require("child_process");
+  const crypto = require("crypto");
+  const entries = [];
+
+  for (const pack of manifest) {
+    const zipPath = path.join(packsRoot, `${pack.name}.zip`);
+    try {
+      fs.rmSync(zipPath, { force: true });
+      execFileSync("tar", ["-a", "-cf", zipPath, "-C", path.join(packsRoot, pack.name), "."], {
+        stdio: "ignore",
+      });
+      const sha256 = crypto.createHash("sha256").update(fs.readFileSync(zipPath)).digest("hex");
+      const zipBytes = fs.statSync(zipPath).size;
+      entries.push({ ...pack, zip: `packs/${pack.name}.zip`, zipBytes, sha256 });
+      console.log(`  pack ${pack.name}.zip: ${(zipBytes / 1024 / 1024).toFixed(0)} MB`);
+    } catch (err) {
+      console.log(`  pack ${pack.name}.zip: FAILED (${err.message})`);
+    }
+  }
+
+  fs.writeFileSync(
+    path.join(packsRoot, "manifest.json"),
+    JSON.stringify({ packs: entries }, null, 2)
+  );
 }
 
 buildPacks();

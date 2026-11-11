@@ -75,6 +75,27 @@ const INIT_SCRIPT: &str = r#"
   }
   if (!emit) return;
 
+  // Frameless chrome tint. The app's tab strip uses the resolved page background
+  // (`--app-bg-color` / dark variant); older front-end builds hard-coded a flat
+  // token. Inject the rule so the title bar matches the theme immediately, and
+  // remove it once every shipped payload carries `.desktop-tab-bar`.
+  function paintChrome() {
+    try {
+      if (document.getElementById('be-chrome-bg')) return;
+      var s = document.createElement('style');
+      s.id = 'be-chrome-bg';
+      s.textContent =
+        '[data-be-drag],.desktop-tab-bar{background-color:var(--app-bg-color,var(--background))!important}' +
+        'html.dark [data-be-drag],html.dark .desktop-tab-bar{background-color:var(--app-bg-color-dark,var(--app-bg-color,var(--background)))!important}';
+      (document.head || document.documentElement).appendChild(s);
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', paintChrome);
+  } else {
+    paintChrome();
+  }
+
   // Desktop default: turn OS notifications ON for a first run, without ever
   // overriding a user who has explicitly turned them off. The storage key is the
   // one `src/lib/alerts/browser-notifier.ts` reads. The browser keeps its opt-in
@@ -82,6 +103,16 @@ const INIT_SCRIPT: &str = r#"
   try {
     if (window.localStorage.getItem('be_alerts_browser_v1') === null) {
       window.localStorage.setItem('be_alerts_browser_v1', '1');
+    }
+  } catch (e) {}
+
+  // One-time desktop migration: an earlier session may have persisted the icon
+  // rail as the sidebar state. Expand it once so the desktop shell opens with the
+  // full sidebar; a later manual collapse is preserved (the marker stays set).
+  try {
+    if (window.localStorage.getItem('be_desktop_sidebar_full_v1') === null) {
+      window.localStorage.setItem('be_sidebar_collapsed_v1', '0');
+      window.localStorage.setItem('be_desktop_sidebar_full_v1', '1');
     }
   } catch (e) {}
 
@@ -192,6 +223,10 @@ struct AppState {
     /// to the browser path and must never be killed on quit.
     owns_server: AtomicBool,
     quitting: AtomicBool,
+    /// Presentation state for the borderless window. Windows' native `maximize`
+    /// fills the whole monitor (taskbar included) for a frameless window, so the
+    /// shell emulates maximize by filling the monitor's WORK AREA instead.
+    maximized: AtomicBool,
 }
 
 fn log_line(line: &str) {
@@ -687,6 +722,94 @@ fn desktop_diag_report(payload: String) {
 /// Window chrome actions. The app is served from a remote (loopback) origin,
 /// where app-defined commands are denied, so the webview reaches this through
 /// the `be-window` event; the bundled splash can invoke the command directly.
+/// The active monitor's work area as `(x, y, width, height)` in physical pixels.
+fn work_area_of(app: &AppHandle) -> Option<(i32, i32, u32, u32)> {
+    let win = app.get_webview_window("main")?;
+    let monitor = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let work = monitor.work_area();
+    Some((work.position.x, work.position.y, work.size.width, work.size.height))
+}
+
+/// Emulated maximize for a frameless window: fill the monitor's WORK AREA so the
+/// Windows taskbar stays visible. Native `maximize()` on `decorations(false)`
+/// covers the taskbar, which hid the bottom of the app.
+fn fill_work_area(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some((x, y, width, height)) = work_area_of(app) else {
+        return;
+    };
+    // A frameless window still has invisible resize borders: size the INNER
+    // area so the visible content (not the invisible frame) ends at the work
+    // area's bottom edge.
+    let (border_w, border_h) = match (win.outer_size(), win.inner_size()) {
+        (Ok(outer), Ok(inner)) => (
+            outer.width.saturating_sub(inner.width),
+            outer.height.saturating_sub(inner.height),
+        ),
+        _ => (0, 0),
+    };
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    let _ = win.set_size(tauri::PhysicalSize::new(
+        width.saturating_sub(border_w),
+        height.saturating_sub(border_h),
+    ));
+    log_line(&format!(
+        "[window] fill work area {width}x{height} at {x},{y} (border {border_w}x{border_h})"
+    ));
+}
+
+/// Restore the last windowed bounds saved before the emulated maximize.
+fn restore_windowed(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let state = app.state::<AppState>();
+    let (width, height, x, y) = match state.prefs.lock() {
+        Ok(prefs) => (prefs.width, prefs.height, prefs.x, prefs.y),
+        Err(_) => return,
+    };
+    let _ = win.set_size(tauri::PhysicalSize::new(width, height));
+    if let (Some(x), Some(y)) = (x, y) {
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+fn toggle_maximize(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.maximized.load(Ordering::SeqCst) {
+        state.maximized.store(false, Ordering::SeqCst);
+        if let Ok(mut prefs) = state.prefs.lock() {
+            prefs.maximized = false;
+            save_prefs(&state.prefs_file, &prefs);
+        }
+        restore_windowed(app);
+    } else {
+        // Remember the windowed geometry BEFORE filling the work area; the
+        // Resized event that follows must not overwrite it (persist_bounds
+        // skips while `maximized` is set).
+        if let Some(win) = app.get_webview_window("main") {
+            if let (Ok(size), Ok(pos)) = (win.inner_size(), win.outer_position()) {
+                if let Ok(mut prefs) = state.prefs.lock() {
+                    prefs.width = size.width;
+                    prefs.height = size.height;
+                    prefs.x = Some(pos.x);
+                    prefs.y = Some(pos.y);
+                    prefs.maximized = true;
+                    save_prefs(&state.prefs_file, &prefs);
+                }
+            }
+        }
+        state.maximized.store(true, Ordering::SeqCst);
+        fill_work_area(app);
+    }
+}
+
 fn perform_window_action(app: &AppHandle, action: &str) {
     let win = match app.get_webview_window("main") {
         Some(win) => win,
@@ -697,13 +820,7 @@ fn perform_window_action(app: &AppHandle, action: &str) {
         "minimize" => {
             let _ = win.minimize();
         }
-        "toggle-maximize" => {
-            if win.is_maximized().unwrap_or(false) {
-                let _ = win.unmaximize();
-            } else {
-                let _ = win.maximize();
-            }
-        }
+        "toggle-maximize" => toggle_maximize(app),
         "close" => {
             let _ = win.close();
         }
@@ -772,10 +889,69 @@ fn show_window(app: &AppHandle) {
     }
 }
 
+/// Saved bounds can exceed the monitor's WORK AREA (a previous resize, a
+/// different taskbar size, a resolution change). Restoring them verbatim puts
+/// the bottom of the frameless window under the Windows taskbar. Clamp both the
+/// size and the position to the work area of the monitor the window belongs to.
+fn clamped_bounds(app: &AppHandle, prefs: &Prefs) -> (f64, f64, Option<(f64, f64)>) {
+    // Pick the monitor that physically contains the saved point. `monitor_from_point`
+    // takes LOGICAL coordinates, while prefs are physical, so scan the monitor
+    // rects directly and fall back to the primary monitor.
+    let monitor = app
+        .available_monitors()
+        .ok()
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let origin = monitor.position();
+                let size = monitor.size();
+                match (prefs.x, prefs.y) {
+                    (Some(x), Some(y)) => {
+                        x >= origin.x
+                            && x < origin.x + size.width as i32
+                            && y >= origin.y
+                            && y < origin.y + size.height as i32
+                    }
+                    _ => false,
+                }
+            })
+        })
+        .or_else(|| app.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        return (
+            prefs.width as f64,
+            prefs.height as f64,
+            prefs.x.zip(prefs.y).map(|(x, y)| (x as f64, y as f64)),
+        );
+    };
+
+    let work = monitor.work_area();
+    // Builder sizes/positions are LOGICAL; prefs and the work area are physical.
+    let scale = monitor.scale_factor().max(0.5);
+    let min_w = 880.0 * scale;
+    let min_h = 620.0 * scale;
+    let max_w = (work.size.width as f64).max(min_w);
+    let max_h = (work.size.height as f64).max(min_h);
+    let width_px = (prefs.width as f64).clamp(min_w, max_w);
+    let height_px = (prefs.height as f64).clamp(min_h, max_h);
+
+    let position = prefs.x.zip(prefs.y).map(|(x, y)| {
+        let max_x = (work.position.x + work.size.width as i32 - width_px as i32).max(work.position.x);
+        let max_y = (work.position.y + work.size.height as i32 - height_px as i32).max(work.position.y);
+        (
+            x.clamp(work.position.x, max_x) as f64 / scale,
+            y.clamp(work.position.y, max_y) as f64 / scale,
+        )
+    });
+
+    (width_px / scale, height_px / scale, position)
+}
+
 fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> {
+    let (width, height, position) = clamped_bounds(app, prefs);
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(SPLASH.into()))
         .title("Black Eclipse")
-        .inner_size(prefs.width as f64, prefs.height as f64)
+        .inner_size(width, height)
         .min_inner_size(880.0, 620.0)
         // Frameless: the app's own tab strip is the title bar (drag region +
         // minimize/maximize/close). The native title text/logo is gone; the
@@ -784,16 +960,24 @@ fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> 
         .background_color(tauri::window::Color(10, 10, 12, 255))
         .initialization_script(INIT_SCRIPT);
 
-    if let (Some(x), Some(y)) = (prefs.x, prefs.y) {
-        builder = builder.position(x as f64, y as f64);
+    if let Some((x, y)) = position {
+        builder = builder.position(x, y);
     } else {
         builder = builder.center();
     }
 
     let win = builder.build()?;
 
+    log_line(&format!(
+        "[window] restore inner={}x{} logical at {:?}; actual={:?}",
+        width.round(),
+        height.round(),
+        position,
+        win.inner_size().ok()
+    ));
+
     if prefs.maximized {
-        let _ = win.maximize();
+        fill_work_area(app);
     }
 
     Ok(win)
@@ -801,6 +985,10 @@ fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> 
 
 fn persist_bounds(app: &AppHandle) {
     let state = app.state::<AppState>();
+    // Emulated maximize must not overwrite the saved WINDOWED geometry.
+    if state.maximized.load(Ordering::SeqCst) {
+        return;
+    }
     let prefs_file = state.prefs_file.clone();
     let win = match app.get_webview_window("main") {
         Some(w) => w,
@@ -922,6 +1110,7 @@ fn main() {
             supervising: AtomicBool::new(false),
             owns_server: AtomicBool::new(false),
             quitting: AtomicBool::new(false),
+            maximized: AtomicBool::new(prefs.maximized),
         })
         .invoke_handler(tauri::generate_handler![
             desktop_notify,

@@ -1,6 +1,23 @@
 # Change Log
 
 ## 2026-11-10
+- **build(desktop): publish packs as archives with hashes.** The five optional
+  packs were assembled as folders, which a browser or a stub installer cannot
+  fetch. `desktop-package.js` now writes `dist/packs/<name>.zip` (via the
+  Windows-shipped `tar -a`), records `zipBytes` and the SHA-256 in
+  `dist/packs/manifest.json`, and the release workflow uploads the archives plus
+  the manifest and attaches them to the release. Nothing in the installed app
+  changed. Docs: no doc change beyond this entry — the pack catalogue in
+  `docs/desktop-size-plan.md` is unchanged.
+- **fix(desktop): real tab instances, and the window no longer hides under the
+  taskbar.** `+` used to re-select the single Chat page; tabs are now instances
+  (`{ id, page }`, v2 storage with a v1 migration), so `+` appends a real tab
+  that starts on a fresh Chat session and later follows whatever page the user
+  opens in it — duplicates like two Chat or two Portfolio tabs are allowed,
+  drag-reorder and close are id-based. Saved window bounds are clamped to the
+  monitor's work area on launch (`clamped_bounds`), fixing a 1924×1092 restore
+  on a 1920×1080 screen whose bottom sat behind the Windows taskbar. Docs
+  updated: `desktop/README.md`, `docs/CHANGELOG.md`.
 - **ci(desktop): install only what packaging needs on the runner.** The
   `npm ci` postinstall hook also performs global link wiring and git-hook
   installation — developer-machine concerns that can fail on a clean runner and
@@ -26,9 +43,13 @@
   (`minimize` / `toggleMaximize` / `close` / `startDragging`) with the event
   bridge as fallback, and `capabilities/default.json` grants those four window
   permissions plus an internals-based `plugin:event|emit` fallback in the init
-  script. Tabs can be dragged to reorder (new pure `moveTab`), the strip uses
-  `bg-background` to match the ChatBot page instead of `#0D0D0D`, and the `+`
-  button immediately opens a fresh Chat session instead of a page-picker menu.
+  script. Tabs can be dragged to reorder (new pure `moveTab`), the strip paints
+  from the same resolved page-background vars as the ChatBot landing
+  (`--app-bg-color` / dark variant, falling back to `--background`) instead of a
+  flat `#0D0D0D`, and the `+` button immediately opens a fresh Chat session
+  instead of a page-picker menu. Until the next payload build ships
+  `.desktop-tab-bar`, the shell's init script injects that one rule so the
+  installed chrome matches immediately.
   Docs updated: `desktop/README.md` (window chrome + bridge fallback),
   `docs/CHANGELOG.md`.
 - **feat(setup): redesigned first-run onboarding as a two-column stepper.** The

@@ -41,11 +41,17 @@ without the TLS reverse proxy the browser path uses for `https://blackeclipse`.
 
 The window is **frameless** (`decorations(false)`): the app's
 `DesktopTabBar` (`src/components/layout/desktop-tab-bar.tsx`) is the title bar.
-It shows the open top-level pages as tabs, remembers them in
-`localStorage`, and provides the drag region plus minimize/maximize/close. Tabs
-can be dragged to reorder and closed with their `X` (the last tab stays open).
-`+` starts a fresh Chat session immediately — there is no page picker; any page
-can be opened afterwards from the sidebar, palette or a deep link.
+It shows the open pages as tabs, remembers them in `localStorage`, and provides
+the drag region plus minimize/maximize/close. Tabs are **instances**, not a
+de-duplicated page set: `+` appends a real new tab that starts on a fresh Chat
+session, and navigating inside that tab (sidebar, palette, deep link) moves the
+tab to the page you chose — so two Chat (or Portfolio, …) tabs can coexist.
+Tabs can be dragged to reorder and closed with their `X` (the last tab stays
+open).
+
+Saved window bounds are clamped to the monitor's **work area** on launch
+(`clamped_bounds`), so a size saved on a different taskbar/resolution can never
+put the bottom of the frameless window under the Windows taskbar.
 
 Window actions prefer the **core window API**
 (`window.__TAURI__.window.getCurrentWindow()`), which needs the explicit

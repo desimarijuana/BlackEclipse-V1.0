@@ -99,6 +99,8 @@ jobs:
             Black-Eclipse-site/dist/BlackEclipse-Setup-*.exe
             Black-Eclipse-site/dist/SHA256SUMS.txt
             Black-Eclipse-site/dist/winget/**
+            Black-Eclipse-site/dist/packs/*.zip
+            Black-Eclipse-site/dist/packs/manifest.json
           if-no-files-found: error
 
       - name: Publish the GitHub Release
@@ -128,3 +130,5 @@ jobs:
           files: |
             Black-Eclipse-site/dist/BlackEclipse-Setup-*.exe
             Black-Eclipse-site/dist/SHA256SUMS.txt
+            Black-Eclipse-site/dist/packs/*.zip
+            Black-Eclipse-site/dist/packs/manifest.json
