@@ -80,6 +80,13 @@ async function eclipse({ restart = false } = {}) {
   if (running && !restart && process.env.BE_FORCE_BUILD !== "1") {
     log(`already running (HTTP ${running}) — leaving it up: http://blackeclipse`);
     log(`use "black eclipse --restart" (or "black build") to force a rebuild`);
+    // The app can be alive while the front door is not (its own task keeps the
+    // app up; the door is a separate process). Without a door the browser gets a
+    // refused connection, so make sure it is serving too.
+    const { ensureFrontDoor } = require("../scripts/lib/front-door");
+    const door = ensureFrontDoor();
+    if (door.started) log("front door was not running — started it (http://blackeclipse)");
+    else if (door.live) log(`front door is up (${door.live.proto}://${door.live.host})`);
     return;
   }
 
@@ -223,6 +230,75 @@ function runReset(args) {
   process.exit(result.status ?? 1);
 }
 
+// ─── black proxy ───────────────────────────────────────────────────────────
+// The front door (`scripts/local-proxy.js`) is long-lived on purpose: it answers
+// `https://blackeclipse` with the branded offline page when the app is stopped.
+// `on` installs the per-user sign-in task and starts it now; `off` stops it and
+// removes the task; `status` reports both.
+async function proxyCommand(sub) {
+  const root = projectRoot();
+  const { installProxyTask, removeProxyTask, taskExists, TASK_NAME } = require("../scripts/lib/proxy-task");
+  const { liveProxy } = require("../scripts/lib/proxy-state");
+  const { tlsAvailable } = require("../scripts/lib/tls");
+
+  if (sub === "off" || sub === "stop") {
+    spawnSync(process.execPath, [path.join(root, "scripts", "local-proxy-stop.js")], {
+      stdio: "inherit",
+      cwd: root,
+      env: process.env,
+    });
+    const removed = removeProxyTask();
+    log(
+      removed.ok
+        ? `sign-in autostart removed — the front door will not start automatically (${TASK_NAME})`
+        : `could not remove the sign-in autostart (${removed.reason || "unknown"}); the process is stopped`
+    );
+    return;
+  }
+
+  if (sub === "status") {
+    const live = liveProxy();
+    log(
+      live
+        ? `front door: UP — ${live.proto}://${live.host || "blackeclipse"} -> ${live.target} (pid ${live.pid})`
+        : "front door: DOWN (a stopped app would show the browser's error page)"
+    );
+    const installed = taskExists();
+    log(`sign-in autostart: ${installed ? "installed" : "not installed"}${installed ? ` (${TASK_NAME})` : ""}`);
+    const app = await isUp(PORT);
+    log(`app: ${app ? `UP (HTTP ${app}) -> ${live ? `${live.proto}://${live.host}` : `http://127.0.0.1:${PORT}`}` : "DOWN"}`);
+    return;
+  }
+
+  if (sub === "on" || sub === "install") {
+    const installed = installProxyTask();
+    log(
+      installed.ok
+        ? `sign-in autostart ${installed.method === "startup" ? "added to the Startup folder" : `installed (${TASK_NAME})`}`
+        : `could not install the sign-in autostart: ${installed.reason}`
+    );
+    const live = liveProxy();
+    if (live) {
+      log(`front door already running (pid ${live.pid}) — ${live.proto}://${live.host}`);
+      return;
+    }
+    const child = spawn(process.execPath, [path.join(root, "scripts", "local-proxy.js")], {
+      cwd: root,
+      env: process.env,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    const tls = tlsAvailable();
+    log(`front door started — ${tls ? "https" : "http"}://blackeclipse stays available when the app is stopped`);
+    return;
+  }
+
+  log(`unknown proxy command "${sub}" — use: black proxy on | off | status`);
+  process.exit(1);
+}
+
 // ─── routing ───────────────────────────────────────────────────────────────
 async function main() {
   const [, , cmd, ...rest] = process.argv;
@@ -240,6 +316,9 @@ async function main() {
       break;
     case "status":
       await status();
+      break;
+    case "proxy":
+      await proxyCommand((rest[0] || "status").toLowerCase());
       break;
     case "build":
       forceBuild();
@@ -290,6 +369,11 @@ Commands:
   eclipse      start the production site (fast) [default]
   dev          start the development server (hot reload)
   stop         stop production (--all also stops development)
+               the front door stays up and serves the offline page
+  proxy        the always-on front door (http://blackeclipse):
+                 black proxy on       start it now + start it at sign-in
+                 black proxy off      stop it + remove the sign-in task
+                 black proxy status   is it up? is the app up?
   status       check both servers
   build        force a production rebuild
   desktop      (re)install the desktop shortcut and its app icon

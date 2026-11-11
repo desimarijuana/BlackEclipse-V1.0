@@ -60,7 +60,11 @@ of the menu and by **Alt+T / Alt+A / Alt+B / Alt+G**. The active mode lives in
 the sidebar store (`mode`) and is **per shell**: each browser tab/window keeps
 its own choice in `sessionStorage`, so switching to Bots in one tab never drags
 another open tab out of its mode. The switcher, keyboard dispatch and
-programmatic navigation still read/write the one value for that shell. Order
+programmatic navigation still read/write the one value for that shell. The
+desktop shell's browser-style tabs are in-page instances inside ONE shell, so
+they cannot use `sessionStorage` for this: each `DesktopTab` records its own
+`mode` and the tab strip replays it on switch (`applyTabMode` never echoes to
+the app-wide nav store), keeping a Bots tab and a Command Center tab separate. Order
 and visibility are mirrored app-wide through `/api/sdk/app` (JDDS
 `SystemConfig` key `eclipse_app_shell_nav`); `localStorage` is the instant cache
 and the shared mode seed for newly opened shells, and SSE
@@ -151,6 +155,38 @@ directly. There is no saved start-screen preference (`src/lib/general-prefs.ts`
 keeps only the destructive-action confirmation; a legacy `startScreen` value in
 stored JSON is ignored).
 
+**When the app is not running (offline fallback).** A stopped app has no server
+to render anything, so a refresh would show the browser's
+`ERR_CONNECTION_REFUSED` page. Two layers make that impossible in practice:
+
+1. **The always-on front door.** `scripts/local-proxy.js` is a long-lived
+   process (not a child of the app): launchers attach to it
+   (`scripts/lib/proxy-state.js`), it records its PID in
+   `.black-eclipse/proxy-state.json`, and a per-user sign-in autostart
+   (`scripts/lib/proxy-task.js`, `black proxy on|off`: a Task Scheduler entry, or
+   a hidden Startup-folder launcher when the policy refuses) restarts it after a
+   reboot. When the upstream Next server refuses a connection, a **navigation**
+   is answered with the branded page from `scripts/lib/proxy-offline.js`
+   (cached from `/offline`, with a built-in fallback); every other path gets a
+   plain `503`, so health probes and the page's reconnect check can never read
+   the card as "the app is up". The page's **Start BlackEclipse** button posts to
+   `/__eclipse/start`, which boots the app with `BE_NO_PROXY=1`. The desktop
+   launcher re-raises the door after its own `taskkill /T` tree stop (that kill
+   reaches every child, including the door).
+2. **The service worker** (`public/sw.js`, registered by `OfflineReady` in
+   `src/app/layout.tsx`) covers the case where the front door itself is down
+   (first launch on a fresh profile, a hard reload, cleared site data). It
+   intercepts **page navigations only** and answers a network failure — or a
+   `502` from an older front door — with the cached `/offline` document.
+
+Either path renders the same self-contained page, produced by
+`src/app/offline/route.ts` + `src/lib/offline/page.ts` with the **user's saved
+app-wide theme** (`themeCssVars`) and the inlined shipped wordmark. API calls,
+chunks, assets, POSTs and the app's own 4xx/5xx pages are never intercepted.
+The worker needs a secure context (`https://blackeclipse` or loopback); on a
+plain-http hostname it silently does not register, and the front door's card
+covers that origin instead.
+
 ## Layer 1 — Screens & components
 
 ```
@@ -209,7 +245,12 @@ Two mechanisms:
       it to CSS custom properties and injects them via a managed
       `<style id="eclipse-theme-overrides">`; color tokens are scoped by the
       theme's `scheme` — `html.dark` for dark, `html:not(.dark)` for light — while
-      typography/shape/scale/glass tokens apply globally. **`scheme` is the source
+      typography/shape/scale/glass tokens apply globally. The theme (and the
+      page-background vars) is hydrated once at the **root** by `ThemeHydrator`
+      in `src/app/layout.tsx`, so standalone routes (`/events`, `/fabric`,
+      `/recovery`, `/theses`, `/alerts`, `/terminal`, `/login`, `/app-view`,
+      `/figure`) paint the saved theme too — they used to fall back to the
+      shipped `:root` light tokens (a grey page). **`scheme` is the source
       of truth for the `<html class="dark">` flag**: the store toggles it on every
       apply (it was previously hardcoded in `layout.tsx`, which now only seeds the
       dark default plus a small pre-paint script that removes `dark` for a saved

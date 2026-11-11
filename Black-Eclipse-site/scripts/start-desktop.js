@@ -47,7 +47,6 @@ const TLS_DISABLED = ["0", "false", "no", "off"].includes(
 const HOME_URL =
   process.env.BE_DESKTOP_URL ||
   (!TLS_DISABLED && tlsAvailable() ? "https://blackeclipse" : "http://blackeclipse");
-const PROXY_STOP = path.join(__dirname, "local-proxy-stop.js");
 const SESSION_FILE = path.join(ROOT, ".black-eclipse", "desktop-session.json");
 const LOG_FILE = path.join(ROOT, ".black-eclipse", "desktop-launch.log");
 // Next's own stdout/stderr used to go to the hidden console, so a server crash
@@ -317,18 +316,10 @@ function liveTabs(session) {
 
 function stopExisting() {
   log("stopping any existing production instance...");
+  // The front door is deliberately left running: it is shared and long-lived,
+  // and it will answer with the branded offline page during the rebuild gap.
   try {
     killPort(APP_PORT);
-  } catch {
-    /* best effort */
-  }
-  try {
-    spawnSync(process.execPath, [PROXY_STOP], {
-      cwd: ROOT,
-      stdio: "ignore",
-      windowsHide: true,
-      env: process.env,
-    });
   } catch {
     /* best effort */
   }
@@ -446,19 +437,15 @@ function stopServer(child) {
 
 function stopAll(child) {
   // Nothing we started (e.g. a second click that found a managed app already
-  // running): never tear down that app's proxy on the way out.
+  // running): never tear down that app on the way out.
   if (!child) return;
   stopServer(child);
-  try {
-    spawnSync(process.execPath, [PROXY_STOP], {
-      cwd: ROOT,
-      stdio: "ignore",
-      windowsHide: true,
-      env: process.env,
-    });
-  } catch {
-    /* best effort */
-  }
+  // `taskkill /T` walks the whole process tree, so it takes the front door down
+  // with the app. Re-raise it immediately: the door is what keeps a later visit
+  // on the branded page instead of a refused connection. (Spawn is synchronous;
+  // the new door retries the port until the old one releases it.)
+  const { ensureFrontDoor } = require("./lib/front-door");
+  if (ensureFrontDoor().started) log("front door re-raised — it will show the offline page");
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

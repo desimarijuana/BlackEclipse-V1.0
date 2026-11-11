@@ -1,6 +1,53 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(shell): the front door is now resident, so stopping Eclipse can never
+  show the browser's `ERR_CONNECTION_REFUSED` page.** The branded offline card
+  only helped when a service worker was already installed; the real gap was that
+  the local proxy was a child of the launcher and died with the app, leaving
+  nothing listening on the origin. `scripts/local-proxy.js` is now a long-lived
+  process: launchers attach to a live one (`scripts/lib/proxy-state.js`,
+  `.black-eclipse/proxy-state.json`) instead of spawning/killing their own, a
+  per-user sign-in autostart (`scripts/lib/proxy-task.js` — a Task Scheduler
+  entry, or a hidden Startup-folder launcher when the policy refuses;
+  `black proxy on|off|status`) re-raises it after a reboot, and `black eclipse` /
+  `npm run up` re-raise a missing door even when the app is already running. While the app is down it
+  answers PAGE NAVIGATIONS with the themed, branded `/offline` card
+  (`scripts/lib/proxy-offline.js`, cached from the app with a built-in fallback)
+  and every other path with a plain `503`, so health probes and the page's
+  reconnect check cannot read the card as "app up". The card's button now boots
+  the app through `POST /__eclipse/start` (`BE_NO_PROXY=1`, guarded by loopback
+  + a control header). The service worker stays as the second layer for the door
+  itself being down, and `start-desktop.js` no longer stops the door on exit.
+  Verified live on alternate ports: proxied page while up, cached themed card
+  while down, `503` for assets/non-navigations, guarded control surface, stale
+  state ignored. Docs updated: `docs/ARCHITECTURE.md` (Layer 0),
+  `docs/local-hostname.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md` (ADR-079), `docs/CHANGELOG.md`.
+- **polish(desktop): smooth, cursor-gated tab dragging.** The pointer drag now
+  animates with FLIP: each tab that changes slot slides from its old X to its
+  new X (170ms, `cubic-bezier(0.2,0.8,0.2,1)`) instead of snapping, and a newer
+  reorder cancels the older animation so rapid drags never stack transforms.
+  Insertion is decided by crossing a neighbour's MIDPOINT (stable under reflow,
+  no oscillation), the strip auto-scrolls near either edge, and the dragged tab
+  is lifted (ring + shadow + slight fade). The grab cursor is applied only while
+  a drag is active; hovering a tab shows the normal arrow, so there is no false
+  drag affordance. Mouse/pen only — touch still scrolls the strip.
+  Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
+- **feat(shell): a branded "Eclipse is offline" page replaces the browser's
+  `ERR_CONNECTION_REFUSED` screen.** When the local server stops, nothing is
+  listening on the origin, so the browser painted its own error page with the
+  browser's chrome and wording — a stopped Eclipse looked like a broken website.
+  A service worker (`public/sw.js`, registered by `OfflineReady`) now handles
+  **page navigations only**: a network error or the local proxy's `502` is
+  answered with a cached `/offline` document rendered through the user's saved
+  app-wide theme (`src/lib/offline/page.ts`, `src/app/offline/route.ts`), with
+  the inlined shipped wordmark. The card says the local server stopped, shows
+  `black eclipse`, probes a static asset every 2 s and reloads into the app when
+  it answers. API calls, chunks, assets, POSTs and the app's own 4xx/5xx pages
+  still pass through untouched; `/offline` is public and `sw.js` sits outside the
+  middleware matcher so a signed-out tab still gets the page. Docs updated:
+  `docs/ARCHITECTURE.md` (Layer 0), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **feat(desktop): cross-platform **runtime** verified — all three smoke tests
   pass.** CI run `43084460874` on `9180767`: Windows, Ubuntu and macOS all green,
   and each one launched its real artifact and answered HTTP 200 —
@@ -333,6 +380,27 @@
   `docs/harness/roadmap/round-5-core-integrity.md`,
   `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
   `docs/harness/tool-registry.json`, `docs/CHANGELOG.md`.
+- **feat(harness): C4 goal/plan/evidence — verify the work, not the prose.** A
+  run may carry `input.context.c4Plan` (objective + acceptance + steps, or a
+  `planId` to continue). `harness/goals/` stores the goal plan view, the
+  `EvidenceClaim`/handle ledger and plan iterations on `agent-memory.db`. Tool
+  results contribute handles (run record, file+sha, tool output, artifact,
+  citation, record, computation); the answer seam records checkable sentences
+  (numbers, finance shapes, URLs, test/build and produced-file claims) and a
+  deterministic verifier registry rejects a finance number with no
+  computation/report/citation/record, a URL with no citation, a pass claim with
+  no check, or a file claim with no artifact. A rejection with budget left diverts
+  through the bounded replan (max 2), supersedes the failed draft's answer claims
+  but keeps its tool evidence; otherwise the step fails and the answer discloses
+  the unverified claims. The checkpoint carries `planId`/`planIteration`/`stepId`,
+  so a later run continues the first non-verified step after a kill, and
+  `GET /runs/{id}/outcome` exposes `goal` + `evidence` blocks. New tests:
+  `test_c4_{goals,verifiers,plan_runtime,answer,replan,resume,outcome}.py`.
+  Docs updated: `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H353),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/CHANGELOG.md`.
 - **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
   unsupported mark is named, not silently drawn as a line.** The live
   `response_block_schema` digest (and the injected prompt digest) now includes

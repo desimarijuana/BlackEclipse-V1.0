@@ -148,7 +148,8 @@ npm run dev:local    # `next dev -H 127.0.0.1` (loopback, no proxy)
 npm run proxy        # the front door on 127.0.0.1:80
 ```
 
-`Ctrl+C` once stops the app and the proxy together.
+`Ctrl+C` stops the app. The front door stays up on purpose (it answers with the
+branded offline page when the app is stopped) — see **Stop it** below.
 
 ### One canonical origin
 
@@ -209,12 +210,25 @@ Notes:
 
 ## 3. Stop it
 
-- `Ctrl+C` in the terminal running `npm run dev` / `npm run up` / `black` — that
-  launcher stops the app **and** the proxy together.
-- If a proxy is ever left behind (e.g. you ran it separately): `npm run proxy:stop`.
+The front door is **long-lived on purpose**. Stopping the app (Ctrl+C, closing
+its tab, `black stop`) leaves the proxy running, so the next visit to
+`https://blackeclipse` gets the branded **offline** page instead of the
+browser's `ERR_CONNECTION_REFUSED` screen. That page states that the app is not
+running, and its **Start BlackEclipse** button asks the proxy to boot the app
+again (`POST /__eclipse/start`; the proxy runs `scripts/local-host.js` with
+`BE_NO_PROXY=1`, so it never competes for its own port).
 
-The proxy is **not** installed as a Windows service or scheduled task — it runs
-only while that terminal stays open. Nothing starts automatically on boot.
+- Stop the **app** only: `black stop` (the door stays up).
+- Stop the **door**: `npm run proxy:stop` / `black proxy off`.
+- See both: `black proxy status`.
+
+**Nothing to start by hand.** On Windows the first production launch registers a
+per-user sign-in autostart, no admin: a `BlackEclipse Front Door` scheduled task
+(`schtasks /SC ONLOGON`) or, on machines where Task Scheduler refuses, a hidden
+launcher in the user's **Startup** folder. Either way the door is listening
+before you open a browser after a reboot. Opt out with `BE_PROXY_TASK=0`; remove
+it with `black proxy off`; re-add it with `black proxy on`. If neither mechanism
+is available the app still runs — only the automatic restart at sign-in is lost.
 
 ## 4. Keep it private (local machine only)
 
@@ -251,8 +265,15 @@ cannot free it, move the proxy to another port — but then the URL needs the po
 back (`http://blackeclipse:8080`), which defeats the goal, so prefer freeing 80.
 Then `npm run proxy:stop` and `npm run proxy` again.
 
-**`502 upstream ... not reachable`.** The app on `:3000` is not running (or not
-ready yet after a cold compile). Start it / wait for it, then reload.
+**"BlackEclipse is offline" card.** That is the front door working as designed:
+the proxy is up but the app on `:3100` is not. Press **Start BlackEclipse** on
+the card, or `black eclipse`. Assets other than a page load still get a `503`
+(never the HTML card), so health probes and the page's own reconnect check stay
+honest.
+
+**Landed on the browser's `ERR_CONNECTION_REFUSED`.** Nothing is listening —
+neither the app nor the front door. Start the door (`black proxy on`, or just
+`black eclipse`), and it will take over from there.
 
 **Browser cached the old host.** Hard-reload (`Ctrl+Shift+R`).
 

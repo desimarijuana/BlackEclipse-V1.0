@@ -23,7 +23,7 @@ import { authConfig, authMisconfigured } from "@/lib/auth/config";
 import { readCookie, verifySessionToken, AUTH_COOKIE } from "@/lib/auth/token";
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/|sounds/|backgrounds/).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/|sounds/|backgrounds/|sw.js).*)"],
 };
 
 // `/api/channels/webhook/` is a PUBLIC inbound endpoint: an external provider
@@ -33,7 +33,10 @@ export const config = {
 // `/api/webhooks/` is the same shape for workflow webhooks: the handler proves
 // authenticity with an HMAC over the raw body (or a token header), so the
 // session gate is bypassed there and nowhere else.
-const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/channels/webhook/", "/api/webhooks/", "/figure"];
+// `/offline` is the page the service worker shows when the local app is not
+// running. It must render for a signed-out visitor: the whole point is that the
+// server may have stopped mid-session and the browser is asking for a page.
+const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/channels/webhook/", "/api/webhooks/", "/figure", "/offline"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));

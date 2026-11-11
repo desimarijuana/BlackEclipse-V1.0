@@ -33,6 +33,11 @@ isUp(PORT, 10_000).then((running) => {
   if (running && !restart) {
     log(`already running (HTTP ${running}) — leaving it up: http://blackeclipse`);
     log(`use "npm run up -- --restart" to force a rebuild/restart`);
+    // The app and the front door are separate processes; make sure the door is
+    // serving so the browser never lands on a refused connection.
+    const { ensureFrontDoor } = require("./lib/front-door");
+    const door = ensureFrontDoor();
+    if (door.started) log("front door was not running — started it (http://blackeclipse)");
     return;
   }
   start();

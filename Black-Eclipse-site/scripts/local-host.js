@@ -21,14 +21,23 @@
 // (all interfaces) or `npm run dev:local` (loopback, no proxy).
 
 const { spawn } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 const dns = require("dns");
 const { nextBin } = require("./lib/server");
 const { tlsAvailable } = require("./lib/tls");
 const { profileFor, childEnv } = require("./lib/profiles");
+const { liveProxy, pidAlive } = require("./lib/proxy-state");
+const { ensureProxyTask } = require("./lib/proxy-task");
 
 const ROOT = path.join(__dirname, "..");
 const APP_HOST = "127.0.0.1";
+// `BE_NO_PROXY=1` runs the app WITHOUT the front door. Used by the offline
+// page's "Start" button: the front door is already running (it served the page)
+// and spawning a second one would fight for the same port.
+const NO_PROXY = ["1", "true", "yes", "on"].includes(
+  String(process.env.BE_NO_PROXY || "").trim().toLowerCase()
+);
 // TLS is used whenever a certificate is provisioned (`npm run setup:tls`) and
 // the operator has not disabled it. This is what makes https://blackeclipse a
 // secure context so desktop notifications work.
@@ -63,7 +72,19 @@ function makeRewriter(port, shown) {
   return (chunk) => chunk.toString().replace(re, shown);
 }
 
+// The front door OUTLIVES the app: it is spawned detached, with its output in a
+// log file (not a pipe back to this process), and never killed on exit. That is
+// what lets `https://blackeclipse` answer with the branded offline page after the
+// server stops instead of refusing the connection.
 function startProxy(appPort, { useTls, proxyPort }) {
+  const logPath = path.join(ROOT, ".black-eclipse", "proxy.log");
+  let fd = null;
+  try {
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fd = fs.openSync(logPath, "a");
+  } catch {
+    /* fall back to no output */
+  }
   const child = spawn(process.execPath, [path.join(__dirname, "local-proxy.js")], {
     cwd: ROOT,
     env: {
@@ -72,25 +93,25 @@ function startProxy(appPort, { useTls, proxyPort }) {
       BE_PROXY_TLS: useTls ? "1" : "0",
       BE_PROXY_TARGET: `http://${APP_HOST}:${appPort}`,
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: fd === null ? "ignore" : ["ignore", fd, fd],
+    detached: true,
     windowsHide: true,
   });
-  let ready = false;
-  child.stdout.on("data", (d) => {
-    // Forward proxy output too: the desktop launcher captures this stream, and
-    // a proxy that fails to bind must not disappear into a hidden console.
-    process.stdout.write(d);
-    if (d.toString().includes("listening")) ready = true;
-  });
-  child.stderr.on("data", (d) => process.stderr.write(d));
-  child.on("exit", () => {
-    if (!ready) {
-      log(`proxy could not start on port ${proxyPort}.`);
-      log(`  If a stale proxy is running:  npm run proxy:stop  (then restart)`);
-      log(`  The app still runs directly on http://${APP_HOST}:${appPort}.`);
-    }
-  });
+  child.unref();
+  log(`front door started (pid ${child.pid}) — it stays up when the app stops`);
+  log(`  log: ${logPath}`);
   return child;
+}
+
+/** Replace a front door whose port/target/TLS no longer match this launch. */
+function stopStaleProxy(state) {
+  if (!state || !pidAlive(state.pid)) return;
+  log(`front door settings changed — restarting the running one (pid ${state.pid})`);
+  try {
+    process.kill(state.pid);
+  } catch {
+    /* already gone */
+  }
 }
 
 function runProfile({ mode = "start", port } = {}) {
@@ -99,29 +120,30 @@ function runProfile({ mode = "start", port } = {}) {
   const env = childEnv(profile);
   const name = localName();
 
-  let proxy = null;
   let shown;
   let proto = "http";
 
-  if (profile.proxy) {
+  if (profile.proxy && !NO_PROXY) {
     const useTls = !TLS_DISABLED && tlsAvailable(name);
     proto = useTls ? "https" : "http";
     shown = `${proto}://${name}`;
     const proxyPort = parseInt(process.env.BE_PROXY_PORT || (useTls ? "443" : "80"), 10);
-    proxy = startProxy(appPort, { useTls, proxyPort });
+    const target = `http://${APP_HOST}:${appPort}`;
+    // Attach to the door that is already up (it may be resident from an earlier
+    // launch or from the sign-in task). Only replace it when its port, target or
+    // TLS mode no longer matches this launch.
+    const live = liveProxy();
+    if (live && Number(live.port) === proxyPort && live.target === target && Boolean(live.tls) === useTls) {
+      log(`using the front door already running (pid ${live.pid}) — it is shared, not restarted`);
+    } else {
+      if (live) stopStaleProxy(live);
+      startProxy(appPort, { useTls, proxyPort });
+    }
     // One canonical origin for production, so every alias shares storage.
     if (env.BE_CANONICAL_HOST === undefined) env.BE_CANONICAL_HOST = name;
-    process.on("exit", () => {
-      try {
-        proxy?.kill();
-      } catch {}
-    });
-    process.on("SIGINT", () => {
-      try {
-        proxy?.kill();
-      } catch {}
-      process.exit(0);
-    });
+    // Keep the front door available at the next sign-in too (Windows, per-user,
+    // no admin). Best effort and silent: a failure never blocks the app.
+    ensureProxyTask(log);
   } else {
     shown = `http://${APP_HOST}:${appPort}`;
   }
@@ -160,9 +182,9 @@ function runProfile({ mode = "start", port } = {}) {
   child.stderr.on("data", (d) => process.stderr.write(rewrite(d)));
 
   const cleanup = () => {
-    try {
-      proxy?.kill();
-    } catch {}
+    // The front door is intentionally NOT stopped here: keeping it up is what
+    // makes the next page load show the branded offline card instead of a
+    // refused connection. `npm run proxy:stop` / `black proxy off` ends it.
   };
   process.on("SIGINT", () => {
     try {

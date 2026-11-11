@@ -1,14 +1,18 @@
 #!/usr/bin/env node
-// Stop the local hostname proxy — `npm run proxy:stop`.
+// Stop the local hostname front door — `npm run proxy:stop` / `black proxy off`.
 //
-// Finds whatever is listening on the proxy's port(s) and terminates it. In TLS
-// mode the proxy serves HTTPS on :443 AND an http→https redirect on :80, so both
-// are stopped; in plain-http mode only :80. This is intentionally NOT a Windows
-// service or scheduled task: the proxy is a plain foreground process you start
-// and stop yourself.
+// Finds whatever is listening on the front door's port(s) and terminates it. In
+// TLS mode it serves HTTPS on :443 AND an http→https redirect on :80, so both
+// are stopped; in plain-http mode only :80.
+//
+// This is the ONLY way the door is stopped: launchers no longer kill it when the
+// app exits, because keeping it up is what shows the branded offline page
+// instead of a refused connection. `black proxy off` also removes the per-user
+// sign-in task so it does not come back at the next login.
 
 const { execSync } = require("child_process");
 const { tlsAvailable } = require("./lib/tls");
+const { readProxyState, clearProxyState } = require("./lib/proxy-state");
 
 const TLS_DISABLED = ["0", "false", "no", "off"].includes(
   String(process.env.BE_PROXY_TLS || "").trim().toLowerCase()
@@ -57,4 +61,6 @@ for (const port of ports) {
     }
   }
 }
+const state = readProxyState();
+if (state) clearProxyState(state.pid);
 if (any) console.log(`[proxy:stop] stopped.`);

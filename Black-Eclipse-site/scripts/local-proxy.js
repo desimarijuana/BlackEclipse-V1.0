@@ -25,8 +25,11 @@
 //   * WebSocket upgrades (Next dev HMR at /_next/webpack-hmr) are forwarded, so
 //     hot module replacement works through the hostname.
 //
-// It is intentionally not installed as a service or scheduled task. Start it in
-// a terminal and stop it with Ctrl+C (or `npm run proxy:stop`).
+// It is a LONG-LIVED front door, not a child of the app: stopping the app (or
+// closing its tab) leaves this process running, and it answers with the branded
+// `/offline` page instead of a refused connection. A per-user sign-in task keeps
+// it available after a reboot (`black proxy on`). Stop it explicitly with
+// Ctrl+C, `npm run proxy:stop`, or `black proxy off`.
 //
 // Config (all optional):
 //   BE_PROXY_TLS         1/0 — allow TLS when a cert exists (default 1)
@@ -39,7 +42,14 @@
 const http = require("http");
 const https = require("https");
 const net = require("net");
+const path = require("path");
+const { spawn } = require("child_process");
 const { tlsConfig } = require("./lib/tls");
+const { PROD } = require("./lib/profiles");
+const { writeProxyState, clearProxyState } = require("./lib/proxy-state");
+const { isNavigation, saveCachedPage, offlinePage } = require("./lib/proxy-offline");
+
+const ROOT = path.join(__dirname, "..");
 
 // TLS termination (optional). When a locally-trusted certificate is present
 // (provisioned by `npm run setup:tls`) and BE_PROXY_TLS is not disabled, the
@@ -57,7 +67,10 @@ const LISTEN_PORT = parseInt(process.env.BE_PROXY_PORT || (USE_TLS ? "443" : "80
 const LISTEN_HOST = (process.env.BE_PROXY_HOST || "127.0.0.1").trim();
 const REDIRECT_PORT = parseInt(process.env.BE_PROXY_REDIRECT_PORT || "80", 10);
 const TARGET = new URL(
-  process.env.BE_PROXY_TARGET || `http://127.0.0.1:${process.env.PORT || "3000"}`
+  // Default is the PRODUCTION app port, not 3000: the front door is started on
+  // its own (at sign-in, and when the offline page asks for the app), with no
+  // launcher environment to consult. The dev profile never uses a proxy.
+  process.env.BE_PROXY_TARGET || `http://127.0.0.1:${PROD.appPort}`
 );
 
 const TARGET_HOST = TARGET.hostname;
@@ -99,7 +112,189 @@ function forwardedHeaders(req) {
   return headers;
 }
 
+// ── The "app is offline" front door ─────────────────────────────────────────
+//
+// The proxy is the only process that can answer when the Next server is down, so
+// it must answer with the branded page — never a refused connection or a bare
+// 502. The page itself is rendered by the app (`/offline`, with the user's
+// theme) and cached here; `lib/proxy-offline.js` owns the caching + fallback.
+
+const CONTROL_PREFIX = "/__eclipse/";
+let startingSince = 0;
+let lastCacheRefresh = 0;
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+
+function isLoopback(addr) {
+  return !addr || addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+/** A control request must come from this origin (no cross-site form posts). */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === String(req.headers.host || "");
+  } catch {
+    return false;
+  }
+}
+
+/** One cheap request to the app; resolves true when anything answers. */
+function upstreamAnswers(timeoutMs = 700) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { protocol: TARGET.protocol, hostname: TARGET_HOST, port: TARGET_PORT, method: "GET", path: "/", timeout: timeoutMs },
+      (res) => {
+        res.resume();
+        resolve((res.statusCode || 500) < 500);
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on("error", () => resolve(false));
+    req.end();
+  });
+}
+
+/**
+ * Pull a fresh copy of `/offline` from the app so the cached page follows the
+ * user's theme. Throttled, best effort, and never awaited by a request.
+ */
+function refreshOfflinePage() {
+  const now = Date.now();
+  if (now - lastCacheRefresh < 5 * 60 * 1000) return;
+  lastCacheRefresh = now;
+  const req = http.request(
+    {
+      protocol: TARGET.protocol,
+      hostname: TARGET_HOST,
+      port: TARGET_PORT,
+      method: "GET",
+      path: "/offline",
+      timeout: 4000,
+      headers: {
+        accept: "text/html",
+        // Present the PUBLIC identity so the app's canonical-host middleware does
+        // not answer with a 307 to the very host we are fetching from.
+        host: process.env.BE_LOCAL_HOSTNAME || "blackeclipse",
+        "x-forwarded-host": process.env.BE_LOCAL_HOSTNAME || "blackeclipse",
+        "x-forwarded-proto": PUBLIC_PROTO,
+      },
+    },
+    (res) => {
+      if ((res.statusCode || 500) !== 200) {
+        res.resume();
+        return;
+      }
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 600 * 1024) res.destroy();
+      });
+      res.on("end", () => saveCachedPage(body));
+    }
+  );
+  req.on("timeout", () => req.destroy());
+  req.on("error", () => {});
+  req.end();
+}
+
+/** Boot the app on behalf of the offline page's button. */
+function launchApp() {
+  const now = Date.now();
+  if (startingSince && now - startingSince < 45_000) return false;
+  startingSince = now;
+  try {
+    const env = { ...process.env, BE_NO_PROXY: "1" };
+    // Never inherit a stale control/proxy environment into the app launcher.
+    delete env.BE_PROXY_TARGET;
+    delete env.BE_PROXY_PORT;
+    delete env.BE_PROXY_OWNER;
+    const child = spawn(process.execPath, [path.join(ROOT, "scripts", "local-host.js"), "start"], {
+      cwd: ROOT,
+      env,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    log("start requested from the offline page — booting the app");
+    return true;
+  } catch (err) {
+    startingSince = 0;
+    log(`could not start the app: ${err.message}`);
+    return false;
+  }
+}
+
+async function handleControl(req, res, route) {
+  // Drain any body: the control surface never reads it, and an unread body can
+  // hold the socket open.
+  req.resume();
+  if (!isLoopback(req.socket && req.socket.remoteAddress)) {
+    sendJson(res, 403, { error: "loopback only" });
+    return;
+  }
+  if (route === "/__eclipse/ping") {
+    sendJson(res, 200, { ok: true, pid: process.pid, port: LISTEN_PORT, proto: PUBLIC_PROTO });
+    return;
+  }
+  if (route === "/__eclipse/status") {
+    sendJson(res, 200, {
+      proxy: { pid: process.pid, port: LISTEN_PORT, proto: PUBLIC_PROTO, target: TARGET_ORIGIN },
+      app: (await upstreamAnswers()) ? "up" : "down",
+    });
+    return;
+  }
+  if (route === "/__eclipse/start" && req.method === "POST") {
+    // A cross-site page cannot set this header, and it must match this origin.
+    if (req.headers["x-eclipse-control"] !== "1" || !sameOrigin(req)) {
+      sendJson(res, 403, { error: "forbidden" });
+      return;
+    }
+    const started = launchApp();
+    sendJson(res, started ? 202 : 409, started ? { starting: true } : { starting: false });
+    return;
+  }
+  sendJson(res, 404, { error: "not found" });
+}
+
+/** The branded page for a page load, or a small honest 503 for everything else. */
+function serveUnavailable(req, res, err) {
+  if (isNavigation(req)) {
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-eclipse-offline": "1",
+    });
+    res.end(offlinePage());
+    log(`app is down (${err.code || err.message}) — served the offline page`);
+    return;
+  }
+  res.writeHead(503, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+    "retry-after": "3",
+  });
+  res.end(`BlackEclipse is not running (${err.code || err.message}).\nStart it with:  black eclipse\n`);
+}
+
 function handleRequest(req, res) {
+  const route = String(req.url || "/").split("?")[0];
+  if (route.startsWith(CONTROL_PREFIX)) {
+    handleControl(req, res, route).catch(() => {
+      if (!res.headersSent) sendJson(res, 500, { error: "control failure" });
+    });
+    return;
+  }
+
   const upstream = http.request(
     {
       protocol: TARGET.protocol,
@@ -112,6 +307,8 @@ function handleRequest(req, res) {
     (upstreamRes) => {
       res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
       upstreamRes.pipe(res);
+      // The app answered a page: keep the offline copy in step with the theme.
+      if ((upstreamRes.statusCode || 500) < 400 && isNavigation(req)) refreshOfflinePage();
     }
   );
 
@@ -120,11 +317,7 @@ function handleRequest(req, res) {
       res.destroy();
       return;
     }
-    res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
-    res.end(
-      `BlackEclipse proxy: upstream ${TARGET_ORIGIN} is not reachable (${err.code || err.message}).\n` +
-        `Start the app first: npm run dev   (or  npm run up)\n`
-    );
+    serveUnavailable(req, res, err);
   });
 
   req.pipe(upstream);
@@ -169,12 +362,22 @@ server.on("clientError", (err, socket) => {
 });
 
 let listening = false;
+// Replacing a door (settings changed, or one already running from an earlier
+// launch) can take a moment to release the port. Retry briefly instead of
+// failing the front door for the whole session.
+let bindAttempts = 0;
+const MAX_BIND_ATTEMPTS = 16;
 
 server.on("error", (err) => {
   // Only listen-time failures are fatal. A transient server-level error after
   // the socket is open (e.g. a reset on a keep-alive connection) must NOT kill
   // the proxy and silently break every later request.
   if (!listening && err.code === "EADDRINUSE") {
+    if (bindAttempts < MAX_BIND_ATTEMPTS) {
+      bindAttempts += 1;
+      setTimeout(() => server.listen(LISTEN_PORT, LISTEN_HOST), 250);
+      return;
+    }
     log(`port ${LISTEN_PORT} is already in use.`);
     log(`Find the owner:  Get-NetTCPConnection -LocalPort ${LISTEN_PORT} -State Listen`);
     log(`Stop it:         npm run proxy:stop`);
@@ -189,14 +392,30 @@ server.on("error", (err) => {
 
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   listening = true;
-  log(`listening on ${PUBLIC_PROTO}://blackeclipse  (${LISTEN_HOST}:${LISTEN_PORT})`);
+  // Announce the door to every launcher (`lib/proxy-state.js`): a later
+  // `black eclipse` attaches to THIS process instead of starting a second one,
+  // and the app stopping no longer takes the front door with it.
+  writeProxyState({
+    pid: process.pid,
+    port: LISTEN_PORT,
+    redirectPort: USE_TLS ? REDIRECT_PORT : null,
+    tls: USE_TLS,
+    proto: PUBLIC_PROTO,
+    host: process.env.BE_LOCAL_HOSTNAME || "blackeclipse",
+    target: TARGET_ORIGIN,
+    startedAt: Date.now(),
+  });
+  log(`listening on ${PUBLIC_PROTO}://${process.env.BE_LOCAL_HOSTNAME || "blackeclipse"}  (${LISTEN_HOST}:${LISTEN_PORT})`);
   log(`forwarding to ${TARGET_ORIGIN}`);
   log(
     USE_TLS
       ? "TLS terminated here — https://blackeclipse is a secure context (desktop notifications available)."
       : "plain http (run `npm run setup:tls` to enable https and desktop notifications)."
   );
-  log(`this machine only — not reachable from the local network. Ctrl+C to stop.`);
+  log(`this machine only — not reachable from the local network.`);
+  log(`stays up when the app stops and serves the branded offline page. Stop: npm run proxy:stop`);
+  // Cache the themed offline page while the app is answering (best effort).
+  refreshOfflinePage();
 });
 
 // When serving HTTPS, also answer plain HTTP on the redirect port and send the
@@ -219,6 +438,7 @@ if (USE_TLS && REDIRECT_PORT !== LISTEN_PORT) {
 
 function shutdown() {
   log("shutting down");
+  clearProxyState(process.pid);
   if (redirectServer) {
     try {
       redirectServer.close();
@@ -230,3 +450,4 @@ function shutdown() {
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+process.on("exit", () => clearProxyState(process.pid));
