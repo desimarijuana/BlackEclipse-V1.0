@@ -41,17 +41,28 @@ without the TLS reverse proxy the browser path uses for `https://blackeclipse`.
 
 The window is **frameless** (`decorations(false)`): the app's
 `DesktopTabBar` (`src/components/layout/desktop-tab-bar.tsx`) is the title bar.
-It shows the open pages as tabs, remembers them in `localStorage`, and provides
-the drag region plus minimize/maximize/close. Tabs are **instances**, not a
+It lives at the top of the CONTENT column, so the sidebar spans the full page
+height on the left and the tabs start to its right, in line with the page. It
+shows the open pages as tabs, remembers them in `localStorage`, and provides the
+drag region plus minimize/maximize/close. Tabs are **instances**, not a
 de-duplicated page set: `+` appends a real new tab that starts on a fresh Chat
 session, and navigating inside that tab (sidebar, palette, deep link) moves the
 tab to the page you chose — so two Chat (or Portfolio, …) tabs can coexist.
 Tabs can be dragged to reorder and closed with their `X` (the last tab stays
-open).
+open). Keyboard: `Ctrl/Cmd+Shift+Home` moves the active tab to the first slot,
+`Ctrl/Cmd+Shift+End` to the last, and `Ctrl/Cmd+Shift+PageUp/PageDown` (or ←/→)
+one slot at a time.
 
 Saved window bounds are clamped to the monitor's **work area** on launch
 (`clamped_bounds`), so a size saved on a different taskbar/resolution can never
-put the bottom of the frameless window under the Windows taskbar.
+put the bottom of the frameless window under the Windows taskbar. Maximizing is
+emulated (`fill_work_area`), not native: a borderless native maximize fills the
+whole monitor (taskbar included), so the shell sizes the inner area to the work
+area instead and keeps the windowed bounds to restore.
+
+The desktop shell also always opens with the **full sidebar**. The icon rail is
+a runtime choice (Ctrl/Cmd+B); `readStoredCollapsed` ignores a persisted
+collapsed state when the Tauri bridge is present.
 
 Window actions prefer the **core window API**
 (`window.__TAURI__.window.getCurrentWindow()`), which needs the explicit

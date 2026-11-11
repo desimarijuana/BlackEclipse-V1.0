@@ -1207,7 +1207,6 @@ function StockChatContent() {
       {/* Market Regime panel — headless; opened from the global search / shell.
           Not a header control. */}
       <MarketRegimeControl />
-      <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} onNewChat={handleNewChat} />
 
       {/* The primary row: sidebar | main column | optional right-docked terminal.
           The terminal is a REAL column here, so the main panel shrinks to make
@@ -1236,6 +1235,7 @@ function StockChatContent() {
               'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
           )}
         >
+        <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} onNewChat={handleNewChat} />
         {/* ChatBot wallpaper. Sits in the main content panel (right of the
             sidebar) so it resizes with the panel and stays fully visible when
             the sidebar opens/closes. Rendered only on the chat landing (empty

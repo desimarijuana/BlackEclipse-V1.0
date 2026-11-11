@@ -61,6 +61,12 @@ export const SIDEBAR_COLLAPSED_KEY = 'be_sidebar_collapsed_v1';
 
 function readStoredCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
+  // The desktop shell's frameless window always opens with the FULL sidebar.
+  // The icon rail stays available at runtime (Ctrl/Cmd+B), but a collapsed state
+  // from an earlier session must not shrink the sidebar on launch — that is what
+  // made the desktop app look like it was missing its sidebar.
+  const bridge = window as unknown as { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
+  if (bridge.__TAURI__ || bridge.__TAURI_INTERNALS__) return false;
   try {
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
   } catch {

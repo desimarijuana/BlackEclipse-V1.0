@@ -1,6 +1,33 @@
 # Change Log
 
 ## 2026-11-10
+- **feat(desktop): keyboard tab reordering.** The tab strip could be reordered by
+  dragging; it now also moves the ACTIVE tab with `Ctrl/Cmd+Shift+Home` (first),
+  `Ctrl/Cmd+Shift+End` (last), and `Ctrl/Cmd+Shift+PageUp/PageDown` (or ←/→, one
+  slot). Chords are skipped while typing or behind a modal via
+  `canHandleKeyboardEvent`, the moved tab is scrolled into view, and the four
+  chords are listed in the shortcuts dialog (`src/lib/shortcuts.ts`). Pure
+  `moveTabBy` / `moveTabToEdge` helpers keep the reorder rules testable.
+  Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
+- **fix(desktop): sidebar spans the full page; tabs start to its right.** The
+  full-width tab strip sat ABOVE the sidebar+content row, and the sidebar's
+  `h-full` resolved against the root height, so it overflowed by exactly the tab
+  bar (measured live: sidebar 43.2→851.2 in an 808px viewport) and its bottom
+  entries — broker/settings — were clipped. `DesktopTabBar` moved inside the
+  content column, so the sidebar owns the full height at the window's left edge
+  and the tab strip begins after it, aligned with the content. Verified via CDP:
+  sidebar `top=0`, `height=808`; tab strip starts at `x = sidebar width`.
+- **fix(desktop): maximize keeps the taskbar visible; the full sidebar opens by
+  default.** Native `maximize()` on a `decorations(false)` window fills the whole
+  monitor, so the bottom of the app sat under the Windows taskbar no matter what
+  bounds were restored. Maximize is now emulated by sizing the inner area to the
+  monitor's work area (`fill_work_area`, with the windowed bounds preserved for
+  restore and `persist_bounds` skipping emulated-maximize resizes), re-asserted
+  after first paint because Windows can apply the initial size asynchronously.
+  The desktop store hydrates expanded: `readStoredCollapsed` returns false when
+  the Tauri bridge is present, so an earlier collapsed session no longer leaves
+  the shell with only the icon rail (runtime Ctrl/Cmd+B still works). Docs
+  updated: `desktop/README.md`, `docs/CHANGELOG.md`.
 - **chore: revert build pollution in `tsconfig.json`.** A payload build appends
   `.next-desktop/types` to `include`, and it was committed by mistake. Removed.
   The restore guard in `desktop-payload.js` already prevents this at build time;

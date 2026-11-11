@@ -3,6 +3,8 @@ import {
   appendTab,
   createTab,
   moveTab,
+  moveTabBy,
+  moveTabToEdge,
   parseStoredTabs,
   removeTab,
   setTabPage,
@@ -62,6 +64,22 @@ describe('desktop tabs', () => {
     const tabs = [tab('a'), tab('b', 'home')];
     expect(moveTab(tabs, 'a', 'a')).toBe(tabs);
     expect(moveTab(tabs, 'missing', 'b')).toBe(tabs);
+  });
+
+  it('moves a tab one slot at a time and stops at the edges', () => {
+    const tabs = [tab('a'), tab('b', 'home'), tab('c', 'news')];
+    expect(moveTabBy(tabs, 'b', -1).map((item) => item.id)).toEqual(['b', 'a', 'c']);
+    expect(moveTabBy(tabs, 'b', 1).map((item) => item.id)).toEqual(['a', 'c', 'b']);
+    expect(moveTabBy(tabs, 'a', -1)).toBe(tabs);
+    expect(moveTabBy(tabs, 'c', 1)).toBe(tabs);
+    expect(moveTabBy(tabs, 'missing', 1)).toBe(tabs);
+  });
+
+  it('moves a tab to the first or last slot', () => {
+    const tabs = [tab('a'), tab('b', 'home'), tab('c', 'news')];
+    expect(moveTabToEdge(tabs, 'c', 'first').map((item) => item.id)).toEqual(['c', 'a', 'b']);
+    expect(moveTabToEdge(tabs, 'a', 'last').map((item) => item.id)).toEqual(['b', 'c', 'a']);
+    expect(moveTabToEdge(tabs, 'a', 'first')).toBe(tabs);
   });
 
   it('moves the active tab when its page changes', () => {

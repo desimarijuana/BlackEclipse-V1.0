@@ -106,14 +106,11 @@ const INIT_SCRIPT: &str = r#"
     }
   } catch (e) {}
 
-  // One-time desktop migration: an earlier session may have persisted the icon
-  // rail as the sidebar state. Expand it once so the desktop shell opens with the
-  // full sidebar; a later manual collapse is preserved (the marker stays set).
+  // Desktop default: open with the FULL sidebar. The icon rail is a choice the
+  // user can still make at runtime (Ctrl/Cmd+B); it must not be restored from an
+  // earlier session and leave the desktop shell looking collapsed.
   try {
-    if (window.localStorage.getItem('be_desktop_sidebar_full_v1') === null) {
-      window.localStorage.setItem('be_sidebar_collapsed_v1', '0');
-      window.localStorage.setItem('be_desktop_sidebar_full_v1', '1');
-    }
+    window.localStorage.setItem('be_sidebar_collapsed_v1', '0');
   } catch (e) {}
 
   function NativeNotification(title, opts) {    opts = opts || {};
@@ -760,7 +757,9 @@ fn fill_work_area(app: &AppHandle) {
         height.saturating_sub(border_h),
     ));
     log_line(&format!(
-        "[window] fill work area {width}x{height} at {x},{y} (border {border_w}x{border_h})"
+        "[window] fill work area {width}x{height} at {x},{y} (border {border_w}x{border_h}) -> inner={:?} outer={:?}",
+        win.inner_size().ok(),
+        win.outer_size().ok()
     ));
 }
 
@@ -977,7 +976,13 @@ fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> 
     ));
 
     if prefs.maximized {
-        fill_work_area(app);
+        // Re-assert after the first paint: Windows can apply the builder size
+        // asynchronously, which would otherwise undo the work-area fill.
+        let app_for_fill = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            fill_work_area(&app_for_fill);
+        });
     }
 
     Ok(win)

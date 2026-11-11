@@ -41,10 +41,13 @@ import { DEFAULT_SIDEBAR_SECTIONS } from '@/lib/sidebar/config';
 import { navLabelKey } from '@/lib/i18n/nav';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { canHandleKeyboardEvent } from '@/lib/keyboard';
 import {
   appendTab,
   createTab,
   moveTab,
+  moveTabBy,
+  moveTabToEdge,
   readStoredTabs,
   removeTab,
   saveStoredTabs,
@@ -183,6 +186,7 @@ export function DesktopTabBar({
   ]);
   const [activeId, setActiveId] = useState(bootId.current);
   const [dragging, setDragging] = useState<string | null>(null);
+  const tabListRef = useRef<HTMLDivElement>(null);
 
   // Detect the shell after mount (the Tauri bridge does not exist during SSR).
   // Restore the previous session's tabs once, keeping the URL/boot page open.
@@ -255,6 +259,44 @@ export function DesktopTabBar({
     [t],
   );
 
+  // Keyboard reorder for the active tab: Ctrl/Cmd+Shift+Home/End jump to an
+  // edge, Ctrl/Cmd+Shift+PageUp/PageDown (or ←/→) step one slot. Skipped while
+  // typing or behind a modal, exactly like every other chord.
+  useEffect(() => {
+    if (!desktop) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) return;
+      if (!canHandleKeyboardEvent(event)) return;
+      let next: DesktopTab[] | null = null;
+      switch (event.key) {
+        case 'Home':
+          next = moveTabToEdge(tabs, activeId, 'first');
+          break;
+        case 'End':
+          next = moveTabToEdge(tabs, activeId, 'last');
+          break;
+        case 'PageUp':
+        case 'ArrowLeft':
+          next = moveTabBy(tabs, activeId, -1);
+          break;
+        case 'PageDown':
+        case 'ArrowRight':
+          next = moveTabBy(tabs, activeId, 1);
+          break;
+      }
+      if (!next || next === tabs) return;
+      event.preventDefault();
+      setTabs(next);
+      requestAnimationFrame(() => {
+        tabListRef.current
+          ?.querySelector('[role="tab"][aria-selected="true"]')
+          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [desktop, tabs, activeId]);
+
   if (!desktop) return null;
 
   return (
@@ -271,6 +313,7 @@ export function DesktopTabBar({
       }}
     >
       <div
+        ref={tabListRef}
         role="tablist"
         aria-label="Open tabs"
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-hide py-1.5 pr-2"
@@ -322,7 +365,7 @@ export function DesktopTabBar({
               }}
               onDragEnd={() => setDragging(null)}
               className={cn(
-                'group/tab flex h-7 min-w-0 max-w-[220px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pl-2.5 pr-1 text-[11.5px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-white/20',
+                'group/tab flex h-7 min-w-0 max-w-[220px] shrink-0 cursor-grab items-center gap-1.5 rounded-md pl-2.5 pr-1 text-[11.5px] font-medium outline-none transition-colors active:cursor-grabbing focus-visible:ring-1 focus-visible:ring-white/20',
                 dragging === tab.id && 'opacity-50',
                 active
                   ? 'bg-white/[0.08] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'

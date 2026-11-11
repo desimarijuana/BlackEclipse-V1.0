@@ -82,6 +82,24 @@ export function setTabPage(tabs: DesktopTab[], id: string, page: AppTab): Deskto
   return next;
 }
 
+/** Move the tab with `id` one slot left (`delta < 0`) or right (`delta > 0`).
+ *  Returns the same array at the edges. */
+export function moveTabBy(tabs: DesktopTab[], id: string, delta: number): DesktopTab[] {
+  const from = tabs.findIndex((tab) => tab.id === id);
+  if (from === -1 || delta === 0) return tabs;
+  const to = Math.min(tabs.length - 1, Math.max(0, from + delta));
+  if (to === from) return tabs;
+  const next = [...tabs];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+/** Move the tab with `id` to the first or last slot. */
+export function moveTabToEdge(tabs: DesktopTab[], id: string, edge: 'first' | 'last'): DesktopTab[] {
+  return moveTabBy(tabs, id, edge === 'first' ? -tabs.length : tabs.length);
+}
+
 /** Recover stored tabs, dropping malformed entries and duplicate ids. */
 export function parseStoredTabs(raw: string | null): DesktopTab[] {
   if (!raw) return [];
