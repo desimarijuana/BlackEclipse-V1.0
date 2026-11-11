@@ -1,6 +1,14 @@
 # Change Log
 
 ## 2026-11-11
+- **ci(desktop): retry apt on flaky runner mirrors.** The `ubuntu-latest` job
+  failed in *Install Linux build dependencies* with
+  `Temporary failure resolving 'security.ubuntu.com'` and a `404` from
+  `azure.archive.ubuntu.com` — runner/mirror infrastructure, not our code. The
+  step now retries `apt-get update` and `install` up to three times with
+  `Acquire::Retries=5` and a 20-minute ceiling, so a transient outage does not
+  fail the matrix. macOS **succeeded** in this run (first non-Windows artifact);
+  Windows was still building installers. Docs: no doc change — CI-only.
 - **fix(desktop): install Python requirements in CI, unblock apt, tolerate missing packs.**
   Three failures from the matrix run, each with a distinct cause:
   (1) the Windows payload was 503 MB instead of ~900 MB and the offline edition
@@ -201,6 +209,21 @@
   cannot mutate the caller's surface. A contract test pins the two-parameter
   signature. Docs updated: `docs/harness/architecture.md`,
   `docs/harness/decisions.md` (ADR-H351),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): C3 tool economics — full-output handles, discovery, and a
+  lazy surface.** A truncated tool result now stores its full text in
+  `ToolOutput` (run-scoped, 2M-char ceiling) and returns `output_id`; the result
+  names the handle and `read_tool_output` pages it (12k default, 24k max).
+  `tool_search` returns matching tools with exact schemas; `tool_invoke` runs a
+  discovered READ-ONLY tool and refuses effectful ones so the graph remains the
+  only side-effect path. `HARNESS_LAZY_TOOLS=1` keeps effectful tools bound and
+  routes the read-only long tail through discovery (default OFF until eval
+  parity). New tests: `test_tool_output_offload.py`, `test_tool_surface.py`.
+  Code Mode and calibrated token budgeting remain open (Code Mode needs the C6
+  sandbox). Docs updated: `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H352),
   `docs/harness/roadmap/round-5-core-integrity.md`,
   `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
   `docs/CHANGELOG.md`.
