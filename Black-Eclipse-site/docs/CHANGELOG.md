@@ -1,6 +1,10 @@
 # Change Log
 
 ## 2026-11-10
+- **chore: revert build pollution in `tsconfig.json`.** A payload build appends
+  `.next-desktop/types` to `include`, and it was committed by mistake. Removed.
+  The restore guard in `desktop-payload.js` already prevents this at build time;
+  this only fixes the tracked file. Docs: no doc change — build hygiene only.
 - **build(desktop): publish packs as archives with hashes.** The five optional
   packs were assembled as folders, which a browser or a stub installer cannot
   fetch. `desktop-package.js` now writes `dist/packs/<name>.zip` (via the
