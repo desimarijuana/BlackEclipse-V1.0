@@ -1,6 +1,26 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(desktop): cross-platform shell (C0) and per-OS packaging (C1–C5).**
+  C0: the six Windows-only call sites in the shell are now guarded — `taskkill`
+  stays on Windows while Unix starts the bootstrap in its own session
+  (`setsid`) and signals the process group, so the Next server and the Python
+  harness still die together; the WebView2 probe and message box are
+  `#[cfg(windows)]`; the bundled runtime is `runtime/node[.exe]`; the data
+  directory resolves to `%LOCALAPPDATA%` / `~/Library/Application Support` /
+  `$XDG_DATA_HOME`; Node install paths are per-OS. C1/C2: `desktop-runtime.js`
+  fetches the **platform's** Node from nodejs.org and verifies
+  `SHASUMS256.txt`, `setup-portable-python.js` provisions relocatable CPython
+  for macOS/Linux (Windows keeps its working embed flow), and
+  `desktop-bundle.js` builds a `.deb` via `dpkg-deb` or a `.app`+`.dmg` via
+  `hdiutil` with an ad-hoc signature. C3: pack manifests carry `target`.
+  C4: the release workflow is a Windows/Ubuntu/macOS matrix with one publish
+  job. C5: `notarytool`+`stapler` steps are present but gated on Apple secrets,
+  so they skip cleanly. Verified on Windows: `cargo check` clean, packaging
+  succeeded with a checksum-verified Node download (901 MB app / 988 MB total).
+  Linux and macOS builds need their own runners — that is what the matrix is
+  for. Docs updated: `docs/desktop-cross-platform-plan.md` (status + call-site
+  table), `docs/CHANGELOG.md`.
 - **fix(desktop): stay on the loopback origin so Tauri IPC (glass/window chrome)
   keeps working.** When a browser-path server was already running, the shell
   attached to it and followed its `BE_CANONICAL_HOST` 307 to

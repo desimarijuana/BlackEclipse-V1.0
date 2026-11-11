@@ -9,6 +9,36 @@ last-verified: 2026-11-11
 **Goal:** ship the desktop app on **Windows, macOS and Linux** from one codebase,
 without forking the application or rewriting the UI.
 
+## Status (2026-11-11)
+
+| Phase | State |
+| --- | --- |
+| **C0** shell portability | **done** — six call sites guarded; compiles clean on Windows, `#[cfg]` paths written for Unix |
+| **C1** Linux packaging | **implemented, needs a Linux runner to verify** — `.deb` builder, portable Python, per-platform Node, apt deps in CI |
+| **C2** macOS packaging | **implemented, needs a macOS runner to verify** — `.app` + ad-hoc signature + `.dmg` |
+| **C3** per-platform packs | **done** — manifest carries `target`; archives are per-platform |
+| **C4** CI matrix | **done** — `windows-latest`, `ubuntu-latest`, `macos-latest`, one release job |
+| **C5** notarisation | **skeleton, gated on secrets** — `notarytool` + `stapler` steps skip cleanly without them |
+
+What changed in C0:
+
+| Was | Now |
+| --- | --- |
+| `taskkill /T /F` only | Windows keeps `taskkill`; Unix starts the child in its own session (`setsid`) and signals the group, so the Next server and the Python harness still die together |
+| `MessageBoxW` | `#[cfg(windows)]`; no cross-platform dialog needed because the only caller is the WebView2 check |
+| WebView2 registry probe | Windows-only; macOS/Linux use the OS webview and log that no probe is needed |
+| `runtime/node.exe` | `runtime/node[.exe]` — the payload fetches the **platform's** Node from nodejs.org and verifies `SHASUMS256.txt` |
+| `%LOCALAPPDATA%` | `%LOCALAPPDATA%` / `~/Library/Application Support` / `$XDG_DATA_HOME` |
+| `%ProgramFiles%\nodejs` fallback | Windows-only; Unix falls back to `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin` |
+
+New scripts:
+
+```
+scripts/desktop-runtime.js          platform Node, checksum-verified, cached
+scripts/setup-portable-python.js    relocatable CPython for macOS/Linux
+scripts/desktop-bundle.js           .deb (dpkg-deb) / .app+.dmg (hdiutil)
+```
+
 **Reality check up front:** the *application* is already portable — it is a Next
 server plus a Python harness, both cross-platform. What is Windows-bound is the
 **shell, the bundled runtimes, and the installer**. That is a few hundred lines of

@@ -22,6 +22,8 @@
     "desktop:payload": "node scripts/desktop-payload.js",
     "desktop:package": "node scripts/desktop-package.js",
     "desktop:installer": "node scripts/desktop-installer.js",
+    "desktop:bundle": "node scripts/desktop-bundle.js",
+    "desktop:runtime": "node scripts/desktop-runtime.js",
     "desktop:packs": "node scripts/desktop-packs.js",
     "desktop:bench": "node scripts/desktop-bench.js",
     "setup:hostname": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hostname.ps1",

@@ -24,15 +24,20 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { ensureNode } = require("./desktop-runtime");
 
 const ROOT = path.join(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next-desktop", "standalone");
 const OUT = path.join(ROOT, "dist", "BlackEclipse");
 const DIST_PACKS = path.join(ROOT, "dist", "packs");
 const APP = path.join(OUT, "app");
-const SHELL = path.join(ROOT, "desktop", "src-tauri", "target", "release", "black-eclipse-desktop.exe");
+const SHELL_BIN = process.platform === "win32" ? "black-eclipse-desktop.exe" : "black-eclipse-desktop";
+const SHELL = path.join(ROOT, "desktop", "src-tauri", "target", "release", SHELL_BIN);
+const OUT_SHELL = process.platform === "win32" ? "Black Eclipse.exe" : "Black Eclipse";
 const VENDOR_PY = path.join(ROOT, "scripts", "vendor", "python");
-const NODE_EXE = process.execPath;
+// Packs contain compiled wheels, so they are per target. The manifest records
+// which target an archive belongs to; a downloader requests the matching one.
+const TARGET = `${process.platform}-${process.arch}`;
 
 const LINK = process.argv.includes("--link");
 
@@ -329,12 +334,16 @@ function buildPacks() {
       packages,
       bytes,
       path: `packs/${name}`,
+      target: TARGET,
     });
     console.log(`  pack ${name}: ${(bytes / 1024 / 1024).toFixed(0)} MB (${packages.join(", ")})`);
   }
 
-  fs.writeFileSync(path.join(packsRoot, "manifest.json"), JSON.stringify({ packs: manifest }, null, 2));
-  console.log(`  pack manifest: ${manifest.length} packs`);
+  fs.writeFileSync(
+    path.join(packsRoot, "manifest.json"),
+    JSON.stringify({ target: TARGET, packs: manifest }, null, 2)
+  );
+  console.log(`  pack manifest: ${manifest.length} packs for ${TARGET}`);
 
   // Archives for distribution. GitHub hashes and `winget` both want a file, and a
   // stub installer cannot fetch a folder. `tar -a` produces a real zip on Windows.
@@ -360,7 +369,7 @@ function buildPacks() {
 
   fs.writeFileSync(
     path.join(packsRoot, "manifest.json"),
-    JSON.stringify({ packs: entries }, null, 2)
+    JSON.stringify({ target: TARGET, packs: entries }, null, 2)
   );
 }
 
@@ -373,15 +382,20 @@ console.log("  cleared app/.black-eclipse (runtime state)");
 
 // 6. Runtime + shell.
 fs.mkdirSync(path.join(OUT, "runtime"), { recursive: true });
-fs.copyFileSync(NODE_EXE, path.join(OUT, "runtime", "node.exe"));
-console.log("  copy runtime/node.exe");
-fs.copyFileSync(SHELL, path.join(OUT, "Black Eclipse.exe"));
-console.log("  copy Black Eclipse.exe");
+// Platform-correct Node: an archive from nodejs.org, not the build machine's
+// binary. `--from-system` is a local shortcut for same-platform builds.
+ensureNode(path.join(OUT, "runtime"), { fromSystem: process.argv.includes("--from-system") });
+console.log(`  runtime/node${process.platform === "win32" ? ".exe" : ""}`);
+fs.copyFileSync(SHELL, path.join(OUT, OUT_SHELL));
+try {
+  fs.chmodSync(path.join(OUT, OUT_SHELL), 0o755);
+} catch {}
+console.log(`  copy ${OUT_SHELL}`);
 
 console.log("\nResult:");
 console.log(`  app     ${dirMB(APP).toFixed(0)} MB`);
 console.log(`  total   ${dirMB(OUT).toFixed(0)} MB`);
-console.log(`\nRun: "${path.join(OUT, "Black Eclipse.exe")}"`);
+console.log(`\nRun: "${path.join(OUT, OUT_SHELL)}"`);
 
 if (LINK) {
   console.log("\nThis build uses junctions and cannot be shipped. Re-run without --link for a release folder.");

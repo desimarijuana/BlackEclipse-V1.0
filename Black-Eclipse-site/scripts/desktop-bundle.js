@@ -1,0 +1,188 @@
+#!/usr/bin/env node
+// Build the OS-native artifact for the current platform.
+//
+//   Windows  -> delegate to `desktop-installer.js` (NSIS). Run `npm run desktop:installer`.
+//   Linux    -> .deb via `dpkg-deb` (present on Debian/Ubuntu runners)
+//   macOS    -> .app bundle + ad-hoc signature + .dmg via `hdiutil`
+//
+// Why not one tool for all three: NSIS, dpkg and hdiutil are the *native*
+// packaging formats, they are preinstalled on the matching OS, and none of them
+// needs a cross-toolchain. A cross-platform packager would add a large
+// dependency to solve a problem the OS already solves.
+//
+// Layout is identical on every platform:
+//   <root>/app        Next standalone payload + python + scripts
+//   <root>/runtime    node[.exe]
+//   <root>/Black Eclipse[.exe]   Tauri binary
+//
+// Inputs: run `desktop:package` for the current platform first.
+
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
+
+const ROOT = path.join(__dirname, "..");
+const DIST = path.join(ROOT, "dist");
+const APP_ROOT = path.join(DIST, "BlackEclipse");
+const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+const TARGET = `${process.platform}-${process.arch}`;
+
+function sh(cmd, args, opts = {}) {
+  const r = spawnSync(cmd, args, { stdio: "inherit", ...opts });
+  if (r.status !== 0) {
+    console.error(`[bundle] ${cmd} ${args.join(" ")} failed (exit ${r.status})`);
+    process.exit(r.status || 1);
+  }
+}
+
+function copyTree(from, to) {
+  fs.cpSync(from, to, { recursive: true });
+}
+
+/* ------------------------------------------------------------------- linux */
+
+function buildDeb() {
+  const stage = path.join(DIST, `deb-${TARGET}`);
+  fs.rmSync(stage, { recursive: true, force: true });
+
+  const lib = path.join(stage, "usr", "lib", "blackeclipse");
+  fs.mkdirSync(lib, { recursive: true });
+  copyTree(path.join(APP_ROOT, "app"), path.join(lib, "app"));
+  copyTree(path.join(APP_ROOT, "runtime"), path.join(lib, "runtime"));
+  fs.copyFileSync(path.join(APP_ROOT, "Black Eclipse"), path.join(lib, "Black Eclipse"));
+  fs.chmodSync(path.join(lib, "Black Eclipse"), 0o755);
+
+  fs.mkdirSync(path.join(stage, "usr", "bin"), { recursive: true });
+  fs.symlinkSync("../lib/blackeclipse/Black Eclipse", path.join(stage, "usr", "bin", "blackeclipse"));
+
+  const applications = path.join(stage, "usr", "share", "applications");
+  fs.mkdirSync(applications, { recursive: true });
+  fs.writeFileSync(
+    path.join(applications, "blackeclipse.desktop"),
+    [
+      "[Desktop Entry]",
+      "Type=Application",
+      "Name=Black Eclipse",
+      "Comment=Local-first market research and trading workspace",
+      "Exec=/usr/lib/blackeclipse/Black Eclipse",
+      "Terminal=false",
+      "Categories=Office;Finance;",
+      "StartupWMClass=black-eclipse-desktop",
+      "",
+    ].join("\n")
+  );
+
+  const control = path.join(stage, "DEBIAN");
+  fs.mkdirSync(control, { recursive: true });
+  const installedKb = Math.ceil(
+    (() => {
+      let total = 0;
+      const walk = (d) => {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const p = path.join(d, e.name);
+          if (e.isSymbolicLink()) continue;
+          if (e.isDirectory()) walk(p);
+          else total += fs.statSync(p).size;
+        }
+      };
+      walk(stage);
+      return total / 1024;
+    })()
+  );
+  fs.writeFileSync(
+    path.join(control, "control"),
+    [
+      `Package: blackeclipse`,
+      `Version: ${VERSION}`,
+      `Section: misc`,
+      `Priority: optional`,
+      `Architecture: ${process.arch === "arm64" ? "arm64" : "amd64"}`,
+      `Installed-Size: ${installedKb}`,
+      `Maintainer: BlackEclipse <noreply@blackeclipse.dev>`,
+      `Homepage: https://github.com/blackeclipse/black-eclipse`,
+      `Description: Local-first market research and trading workspace`,
+      ` Runs entirely on the local machine with a bundled Node and Python runtime.`,
+      ` No account, no telemetry; data lives in ~/.local/share/BlackEclipse.`,
+      "",
+    ].join("\n")
+  );
+
+  const out = path.join(DIST, `blackeclipse_${VERSION}_${process.arch === "arm64" ? "arm64" : "amd64"}.deb`);
+  sh("dpkg-deb", ["--build", "--root-owner-group", stage, out]);
+  console.log(`\n[bundle] ${path.relative(ROOT, out)}`);
+}
+
+/* ------------------------------------------------------------------- macos */
+
+function buildMac() {
+  const appName = "Black Eclipse.app";
+  const bundle = path.join(DIST, appName);
+  fs.rmSync(bundle, { recursive: true, force: true });
+
+  const contents = path.join(bundle, "Contents");
+  const macos = path.join(contents, "MacOS");
+  fs.mkdirSync(macos, { recursive: true });
+
+  copyTree(path.join(APP_ROOT, "app"), path.join(macos, "app"));
+  copyTree(path.join(APP_ROOT, "runtime"), path.join(macos, "runtime"));
+  fs.copyFileSync(path.join(APP_ROOT, "Black Eclipse"), path.join(macos, "black-eclipse-desktop"));
+  fs.chmodSync(path.join(macos, "black-eclipse-desktop"), 0o755);
+
+  fs.writeFileSync(
+    path.join(contents, "Info.plist"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Black Eclipse</string>
+  <key>CFBundleDisplayName</key><string>Black Eclipse</string>
+  <key>CFBundleIdentifier</key><string>com.blackeclipse.desktop</string>
+  <key>CFBundleVersion</key><string>${VERSION}</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleExecutable</key><string>black-eclipse-desktop</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+`
+  );
+
+  // Ad-hoc signature: enough to run locally and to test. It does NOT satisfy
+  // Gatekeeper for downloads — that needs notarisation (plan phase C5).
+  sh("codesign", ["--force", "--deep", "--sign", "-", bundle]);
+
+  const dmg = path.join(DIST, `BlackEclipse-${VERSION}-${process.arch}.dmg`);
+  fs.rmSync(dmg, { force: true });
+  sh("hdiutil", [
+    "create",
+    "-volname",
+    "Black Eclipse",
+    "-srcfolder",
+    bundle,
+    "-ov",
+    "-format",
+    "UDZO",
+    dmg,
+  ]);
+  console.log(`\n[bundle] ${path.relative(ROOT, dmg)}`);
+  console.log("[bundle] ad-hoc signed. Gatekeeper will still block a download until notarised (C5).");
+}
+
+/* ------------------------------------------------------------------ main */
+
+if (!fs.existsSync(APP_ROOT)) {
+  console.error("[bundle] No packaged app. Run `npm run desktop:package` first.");
+  process.exit(1);
+}
+
+if (process.platform === "win32") {
+  console.log("[bundle] Windows uses the NSIS installer: npm run desktop:installer");
+  process.exit(0);
+}
+if (process.platform === "linux") buildDeb();
+else if (process.platform === "darwin") buildMac();
+else {
+  console.error(`[bundle] unsupported platform ${process.platform}`);
+  process.exit(1);
+}

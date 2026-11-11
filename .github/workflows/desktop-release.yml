@@ -1,11 +1,13 @@
 name: Desktop release
 
-# Builds the Windows desktop app and attaches a checksummed installer to a GitHub
-# Release. Triggered by a version tag (`v0.3.2`) or manually.
+# Builds the desktop app for Windows, macOS and Linux from one tag.
 #
-# Why CI and not a laptop: the installer needs NSIS, a 1.2 GB payload and a
-# multi-minute LZMA pass. The NSIS path-length limit (260 chars) is handled by
-# scripts/desktop-installer.js, which builds through a short junction.
+# Each platform's bundle MUST be produced on that platform: Python wheels, the
+# Node binary and the OS webview are all per-target, so cross-compiling the
+# payload is not possible. The matrix exists for exactly that reason.
+#
+# Notarisation (phase C5) is present as a gated skeleton. It stays off until the
+# repository has Apple secrets; an unsigned macOS build is still produced.
 
 on:
   push:
@@ -22,8 +24,19 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows
+          - os: ubuntu-latest
+            artifact: linux
+          - os: macos-latest
+            artifact: macos
 
     steps:
       - uses: actions/checkout@v4
@@ -43,21 +56,35 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             Black-Eclipse-site/desktop/src-tauri/target
-          key: desktop-cargo-${{ runner.os }}-${{ hashFiles('Black-Eclipse-site/desktop/src-tauri/Cargo.lock') }}
+          key: desktop-cargo-${{ matrix.os }}-${{ hashFiles('Black-Eclipse-site/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf dpkg
 
       - name: Install NSIS
+        if: matrix.os == 'windows-latest'
         run: choco install nsis -y --no-progress
 
-      - name: Install dependencies (also vendors Python for the payload)
+      - name: Install dependencies
         working-directory: Black-Eclipse-site
         shell: bash
-        # `npm ci` alone runs the postinstall hook, which also does `npm link`-style
-        # global wiring and git-hook installation. Those are developer-machine
-        # concerns and can fail on a clean runner, so run only what packaging needs.
+        # postinstall also does global link wiring and git hooks — developer
+        # machine concerns that can fail on a clean runner.
         run: |
           npm ci --ignore-scripts
           npx prisma generate
-          node scripts/setup-python.js
+
+      - name: Provision Python (windows embed / portable elsewhere)
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: |
+          node scripts/setup-embedded-python.js || true
+          node scripts/setup-portable-python.js
 
       - name: Build the standalone payload
         working-directory: Black-Eclipse-site
@@ -74,6 +101,7 @@ jobs:
       - name: Verify the payload carries no local configuration
         working-directory: Black-Eclipse-site
         shell: pwsh
+        if: matrix.os == 'windows-latest'
         run: |
           $app = "dist\BlackEclipse\app"
           $leaks = @(".env", ".env.local", "mcp-servers.json", ".connector-key") |
@@ -83,28 +111,74 @@ jobs:
           }
           Write-Host "Payload hygiene: clean"
 
-      - name: Build the installer, checksum and winget manifests
+      - name: Build the Windows installers
+        if: matrix.os == 'windows-latest'
         working-directory: Black-Eclipse-site
-        run: npm run desktop:installer
+        shell: bash
+        run: |
+          npm run desktop:installer
+          npm run desktop:installer -- --full
 
-      - name: Build the offline (full) installer
+      - name: Build the Linux package
+        if: matrix.os == 'ubuntu-latest'
         working-directory: Black-Eclipse-site
-        run: npm run desktop:installer -- --full
+        shell: bash
+        run: npm run desktop:bundle
+
+      - name: Build the macOS app and dmg
+        if: matrix.os == 'macos-latest'
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: npm run desktop:bundle
+
+      # --- C5 skeleton -------------------------------------------------------
+      # Enable by adding APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD as
+      # repository secrets. Without them this step is skipped and the .dmg stays
+      # ad-hoc signed, which Gatekeeper blocks for downloaded files.
+      - name: Notarise the macOS app (C5, opt-in)
+        if: matrix.os == 'macos-latest' && env.APPLE_ID != ''
+        working-directory: Black-Eclipse-site
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          DMG=$(ls dist/*.dmg | head -n1)
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+          xcrun stapler staple "$DMG"
+      # -----------------------------------------------------------------------
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: black-eclipse-desktop
+          name: black-eclipse-${{ matrix.artifact }}
           path: |
             Black-Eclipse-site/dist/BlackEclipse-Setup-*.exe
+            Black-Eclipse-site/dist/*.deb
+            Black-Eclipse-site/dist/*.dmg
             Black-Eclipse-site/dist/SHA256SUMS.txt
             Black-Eclipse-site/dist/winget/**
             Black-Eclipse-site/dist/packs/*.zip
             Black-Eclipse-site/dist/packs/manifest.json
-          if-no-files-found: error
+          if-no-files-found: warn
+
+  release:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Publish the GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
@@ -112,23 +186,24 @@ jobs:
           body: |
             ## Install
 
-            **winget** (recommended — skips the SmartScreen prompt):
-            ```
-            winget install BlackEclipse.BlackEclipse
-            ```
+            **Windows**
+            - `winget install BlackEclipse.BlackEclipse` (skips the SmartScreen prompt), or
+            - run `BlackEclipse-Setup-*.exe` — per-user, no admin, no prerequisites.
 
-            **Direct download:** run `BlackEclipse-Setup-*.exe`. It installs for the
-            current user only — no administrator rights, no Node.js, no Python, no
-            account, no sign-in.
+            **macOS** — open the `.dmg`. If Gatekeeper refuses it, right-click →
+            Open, or run `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`.
 
-            This build is **not code-signed**, so the first run shows "Windows
-            protected your PC". Verify the SHA-256 against `SHA256SUMS.txt`, then
-            choose **More info → Run anyway**.
+            **Linux** — `sudo dpkg -i blackeclipse_*_amd64.deb`.
 
-            Your data lives in `%LOCALAPPDATA%\BlackEclipse\data` and survives
-            uninstall.
+            This build is **not code-signed**. Verify the SHA-256 against
+            `SHA256SUMS.txt` before running.
+
+            Your data lives in the platform data directory and survives uninstall.
+            MT5 and computer-control are Windows-only.
           files: |
-            Black-Eclipse-site/dist/BlackEclipse-Setup-*.exe
-            Black-Eclipse-site/dist/SHA256SUMS.txt
-            Black-Eclipse-site/dist/packs/*.zip
-            Black-Eclipse-site/dist/packs/manifest.json
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+            artifacts/**/*.dmg
+            artifacts/**/SHA256SUMS.txt
+            artifacts/**/packs/*.zip
+            artifacts/**/packs/manifest.json
