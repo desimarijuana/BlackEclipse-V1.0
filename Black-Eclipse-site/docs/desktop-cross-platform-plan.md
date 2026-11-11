@@ -14,11 +14,27 @@ without forking the application or rewriting the UI.
 | Phase | State |
 | --- | --- |
 | **C0** shell portability | **done** — six call sites guarded; compiles clean on Windows, `#[cfg]` paths written for Unix |
-| **C1** Linux packaging | **implemented, needs a Linux runner to verify** — `.deb` builder, portable Python, per-platform Node, apt deps in CI |
-| **C2** macOS packaging | **implemented, needs a macOS runner to verify** — `.app` + ad-hoc signature + `.dmg` |
+| **C1** Linux packaging | **implemented + layout verified off-platform** — `.deb` tree, control file, desktop entry and launcher validated; `dpkg-deb` itself needs a Linux runner |
+| **C2** macOS packaging | **implemented + layout verified off-platform** — `.app` tree and `Info.plist` validated; `codesign`/`hdiutil` need a macOS runner |
 | **C3** per-platform packs | **done** — manifest carries `target`; archives are per-platform |
-| **C4** CI matrix | **done** — `windows-latest`, `ubuntu-latest`, `macos-latest`, one release job |
-| **C5** notarisation | **skeleton, gated on secrets** — `notarytool` + `stapler` steps skip cleanly without them |
+| **C4** CI matrix | **done** — 2 jobs, 3-OS matrix, YAML parsed and validated |
+| **C5** notarisation | **skeleton, gated on secrets** — `notarytool` + `stapler` skip cleanly without them |
+
+### What was actually verified on this machine (no Linux, no Docker, no WSL)
+
+| Check | Result |
+| --- | --- |
+| Python-build-standalone pins (linux-x64, darwin-arm64, darwin-x64) | **HTTP 200** |
+| Node archives (linux-x64, darwin-arm64, darwin-x64) | **HTTP 200** |
+| Windows payload fetch | downloaded from nodejs.org, **SHASUMS256 verified** |
+| `.deb` staging tree | packages, launcher, desktop entry, `DEBIAN/control`, correct version |
+| `.app` staging tree | `Contents/MacOS/{binary,app,runtime}`, valid `Info.plist` keys |
+| Workflow YAML | parses; jobs `build`+`release`; matrix windows/ubuntu/macos; 17 steps |
+| `cargo check` (Windows) | clean |
+
+**Still unverified, and only a real runner can settle it:** the shell actually
+compiling against Linux's webkit2gtk, the vendored interpreter booting on macOS,
+and `dpkg-deb`/`hdiutil` producing installable artifacts.
 
 What changed in C0:
 

@@ -1,6 +1,33 @@
 # Change Log
 
 ## 2026-11-11
+- **test(desktop): cross-platform layouts verified off-platform.** Added
+  `--dry-run` / `--target deb|mac` to `desktop-bundle.js` so the `.deb` and
+  `.app` staging trees can be built and inspected on a machine that cannot run
+  `dpkg-deb` or `hdiutil`. Verified here: the Debian tree (packages, launcher,
+  desktop entry, `DEBIAN/control` at 0.3.3), the macOS bundle
+  (`Contents/MacOS/{binary,app,runtime}`, valid `Info.plist`), every pinned
+  download URL (python-build-standalone ×3 targets, Node ×3 targets — all
+  HTTP 200), and the workflow YAML (2 jobs, 3-OS matrix, 17 steps). Also made the
+  shell binary lookup platform-aware so a dry run on Windows finds
+  `Black Eclipse.exe`. The shell compiling against Linux's webkit2gtk and the
+  vendored interpreter booting on macOS remain unverified — that requires a real
+  runner. Docs updated: `docs/desktop-cross-platform-plan.md`,
+  `docs/CHANGELOG.md`.
+- **feat(desktop): packaged installs show the Black Eclipse logo in Task Manager
+  for the runtime processes too.** Windows takes a process's icon and display name
+  from the executable it runs, so `runtime\node.exe` and
+  `app\scripts\vendor\python\python.exe` used to appear as "Node.js JavaScript
+  Runtime" and "Python" with the upstream logos. New `scripts/brand-runtime.js`
+  rewrites their icon + `VERSIONINFO` strings (`resedit`, devDependency) and is
+  called by `desktop:package`; `npm run desktop:brand` re-applies it to an existing
+  `dist/BlackEclipse`. It also repairs the Resource/BaseRelocation data directories
+  after `NtExecutable.generate()` moves a section (Python's `.reloc`), so the
+  output re-parses cleanly and is idempotent. Behaviour is unchanged; upstream
+  Authenticode signatures on those copies are invalidated (the install is unsigned
+  anyway). `desktop:dev` / repository checkouts are untouched. Docs updated:
+  `desktop/README.md` (Task Manager identity table, `desktop:brand`),
+  `docs/CHANGELOG.md`.
 - **feat(desktop): cross-platform shell (C0) and per-OS packaging (C1–C5).**
   C0: the six Windows-only call sites in the shell are now guarded — `taskkill`
   stays on Windows while Unix starts the bootstrap in its own session
@@ -107,6 +134,23 @@
   `harness:scorecard:gate`. Docs updated: `docs/harness/scorecard.json` (new),
   `docs/harness/scorecard.md` (generated),
   `docs/harness/roadmap/round-5-core-integrity.md`, `docs/CHANGELOG.md`.
+- **feat(harness): C2 execution substrate — one vocabulary, one migration
+  ledger, one checkpoint cursor.** `execution_plane.py` defines the canonical
+  `ExecutionPhase`/`JobKind` and total adapters from `RunStatus`, `JobState`,
+  `TaskStatus` and `graph_runtime.RunStatus` (unknown → `None`).
+  `migrations.py` adds a per-namespace `SchemaMigration` ledger that applies each
+  opted-in migration once, in order, transactionally (a failure rolls the batch
+  back); `RunLineage` is its first user. `RunMessage` now stores the full
+  conversation and `RunCheckpoint.payload.messageSeq` is a cursor into it, with
+  the bounded legacy tail as a fallback — a long run no longer loses its early
+  evidence on resume. `graph.py` is re-pinned 2573→2588 for the cursor seam.
+  New tests: `test_execution_plane.py`, `test_migration_ledger.py`,
+  `test_run_message_cursor.py`, plus the resume pin. The scheduler merge and the
+  unified event log remain open. Docs updated: `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H349),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/CHANGELOG.md`.
 - **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
   unsupported mark is named, not silently drawn as a line.** The live
   `response_block_schema` digest (and the injected prompt digest) now includes

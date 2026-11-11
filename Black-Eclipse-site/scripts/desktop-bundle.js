@@ -26,6 +26,10 @@ const DIST = path.join(ROOT, "dist");
 const APP_ROOT = path.join(DIST, "BlackEclipse");
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 const TARGET = `${process.platform}-${process.arch}`;
+// `--dry-run` builds the staging tree but skips the OS packaging tool
+// (`dpkg-deb`, `codesign`, `hdiutil`). It proves the layout code on a machine
+// that cannot run the native tool â€” the only way to test this off-platform.
+const DRY_RUN = process.argv.includes("--dry-run");
 
 function sh(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: "inherit", ...opts });
@@ -39,6 +43,16 @@ function copyTree(from, to) {
   fs.cpSync(from, to, { recursive: true });
 }
 
+// The payload's binary is named per platform. A dry run on Windows must find
+// `Black Eclipse.exe` while a real Linux/macOS build finds `Black Eclipse`.
+function shellBinaryName() {
+  for (const name of ["Black Eclipse", "Black Eclipse.exe"]) {
+    if (fs.existsSync(path.join(APP_ROOT, name))) return name;
+  }
+  console.error("[bundle] no shell binary in dist/BlackEclipse â€” run desktop:package first");
+  process.exit(1);
+}
+
 /* ------------------------------------------------------------------- linux */
 
 function buildDeb() {
@@ -49,11 +63,22 @@ function buildDeb() {
   fs.mkdirSync(lib, { recursive: true });
   copyTree(path.join(APP_ROOT, "app"), path.join(lib, "app"));
   copyTree(path.join(APP_ROOT, "runtime"), path.join(lib, "runtime"));
-  fs.copyFileSync(path.join(APP_ROOT, "Black Eclipse"), path.join(lib, "Black Eclipse"));
-  fs.chmodSync(path.join(lib, "Black Eclipse"), 0o755);
+  const shellName = shellBinaryName(); fs.copyFileSync(path.join(APP_ROOT, shellName), path.join(lib, shellName));
+  fs.chmodSync(path.join(lib, shellName), 0o755);
 
   fs.mkdirSync(path.join(stage, "usr", "bin"), { recursive: true });
-  fs.symlinkSync("../lib/blackeclipse/Black Eclipse", path.join(stage, "usr", "bin", "blackeclipse"));
+  // A symlink is the correct Debian layout. Creating one needs privileges on
+  // Windows (where this runs dry), so fall back to an equivalent sh wrapper.
+  try {
+    fs.symlinkSync("../lib/blackeclipse/Black Eclipse", path.join(stage, "usr", "bin", "blackeclipse"));
+  } catch {
+    const wrapper = path.join(stage, "usr", "bin", "blackeclipse");
+    fs.writeFileSync(
+      wrapper,
+      '#!/bin/sh\nexec "/usr/lib/blackeclipse/Black Eclipse" "$@"\n'
+    );
+    fs.chmodSync(wrapper, 0o755);
+  }
 
   const applications = path.join(stage, "usr", "share", "applications");
   fs.mkdirSync(applications, { recursive: true });
@@ -108,6 +133,11 @@ function buildDeb() {
   );
 
   const out = path.join(DIST, `blackeclipse_${VERSION}_${process.arch === "arm64" ? "arm64" : "amd64"}.deb`);
+  if (DRY_RUN) {
+    console.log(`[bundle] dry run: staged ${path.relative(ROOT, stage)} (dpkg-deb skipped)`);
+    console.log(`[bundle] would write ${path.relative(ROOT, out)}`);
+    return;
+  }
   sh("dpkg-deb", ["--build", "--root-owner-group", stage, out]);
   console.log(`\n[bundle] ${path.relative(ROOT, out)}`);
 }
@@ -125,7 +155,7 @@ function buildMac() {
 
   copyTree(path.join(APP_ROOT, "app"), path.join(macos, "app"));
   copyTree(path.join(APP_ROOT, "runtime"), path.join(macos, "runtime"));
-  fs.copyFileSync(path.join(APP_ROOT, "Black Eclipse"), path.join(macos, "black-eclipse-desktop"));
+  fs.copyFileSync(path.join(APP_ROOT, shellBinaryName()), path.join(macos, "black-eclipse-desktop"));
   fs.chmodSync(path.join(macos, "black-eclipse-desktop"), 0o755);
 
   fs.writeFileSync(
@@ -149,7 +179,11 @@ function buildMac() {
   );
 
   // Ad-hoc signature: enough to run locally and to test. It does NOT satisfy
-  // Gatekeeper for downloads — that needs notarisation (plan phase C5).
+  // Gatekeeper for downloads â€” that needs notarisation (plan phase C5).
+  if (DRY_RUN) {
+    console.log(`[bundle] dry run: staged ${path.relative(ROOT, bundle)} (codesign + hdiutil skipped)`);
+    return;
+  }
   sh("codesign", ["--force", "--deep", "--sign", "-", bundle]);
 
   const dmg = path.join(DIST, `BlackEclipse-${VERSION}-${process.arch}.dmg`);
@@ -176,13 +210,18 @@ if (!fs.existsSync(APP_ROOT)) {
   process.exit(1);
 }
 
-if (process.platform === "win32") {
+// `--target deb|mac` lets a non-matching host exercise the layout code.
+const forced = (arg) => process.argv.includes("--target") && process.argv[process.argv.indexOf("--target") + 1] === arg;
+const mode = forced("deb") ? "deb" : forced("mac") ? "mac" : process.platform;
+
+if (mode === "win32") {
   console.log("[bundle] Windows uses the NSIS installer: npm run desktop:installer");
   process.exit(0);
 }
-if (process.platform === "linux") buildDeb();
-else if (process.platform === "darwin") buildMac();
+if (mode === "linux" || mode === "deb") buildDeb();
+else if (mode === "darwin" || mode === "mac") buildMac();
 else {
   console.error(`[bundle] unsupported platform ${process.platform}`);
   process.exit(1);
 }
+
