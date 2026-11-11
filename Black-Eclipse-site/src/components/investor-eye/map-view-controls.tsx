@@ -2,18 +2,18 @@
 
 // ── Investor Eye — map view controls ─────────────────────────────────────────
 // The single place the map's PRESENTATION is chosen: projection (flat map vs 3D
-// globe) and surface skin (plain black terminal vs blue lit planet).
+// globe) plus the readability/decorative toggles.
 //
-// Extracted because the same pair of toggles is needed in two places — the
-// hero header and the full-page dock — and two hand-rolled copies is exactly how
-// one surface ends up missing a control the other has.
+// Extracted because the same controls are needed in several places — the hero
+// header, the full-page dock and the dashboard widget — and hand-rolled copies
+// are exactly how one surface ends up missing a control the other has.
 //
-// Both are pure view state from the store, so switching either re-renders the
+// All are pure view state from the store, so switching one re-renders the
 // option in place: no data refetch, no chart rebuild (except the projection
 // switch, which legitimately swaps the base component).
 
-import { Layers2, Sparkles, Sun, Type } from '@/lib/icons';
-import { MAP_SKINS, useInvestorEyeStore, type MapMode } from '@/lib/investor-eye/store';
+import { Layers2, Sparkles, Type } from '@/lib/icons';
+import { useInvestorEyeStore, type MapMode } from '@/lib/investor-eye/store';
 import { cn } from '@/lib/utils';
 
 const MODES: Array<{ id: MapMode; label: string; hint: string }> = [
@@ -30,8 +30,6 @@ interface MapViewControlsProps {
 export function MapViewControls({ className, compact = false }: MapViewControlsProps) {
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
   const setMapMode = useInvestorEyeStore((s) => s.setMapMode);
-  const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
-  const setMapSkin = useInvestorEyeStore((s) => s.setMapSkin);
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const setShowStars = useInvestorEyeStore((s) => s.setShowStars);
   const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
@@ -58,33 +56,12 @@ export function MapViewControls({ className, compact = false }: MapViewControlsP
         </button>
       ))}
 
-      {/* Divider: projection and skin are independent choices. */}
+      {/* Divider: decoration is independent of the projection. */}
       <span className="mx-0.5 h-4 w-px bg-white/10" aria-hidden="true" />
 
-      {MAP_SKINS.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          onClick={() => setMapSkin(s.id)}
-          title={s.hint}
-          aria-pressed={mapSkin === s.id}
-          className={cn(
-            'flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition-colors cursor-pointer',
-            mapSkin === s.id
-              ? s.id === 'black' ? 'bg-white/10 text-foreground' : 'bg-cyan-500/25 text-cyan-100'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Sun size={11} />
-          {!compact && s.label}
-        </button>
-      ))}
-
-      {/* Divider: decoration is independent of the surface and the projection. */}
-      <span className="mx-0.5 h-4 w-px bg-white/10" aria-hidden="true" />
-
-      {/* Stars are purely decorative, so they get a plain on/off rather than a
-          third skin. The button says what it will DO when clicked. */}
+      {/* Stars are purely decorative, so they get a plain on/off rather than
+          being folded into the projection choice. The button says what it will
+          DO when clicked. */}
       <button
         type="button"
         onClick={() => setShowStars(!showStars)}

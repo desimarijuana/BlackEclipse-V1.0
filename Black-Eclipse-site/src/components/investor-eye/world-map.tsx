@@ -17,12 +17,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { DotGrid } from '@/components/ui/ascii-loader';
 import {
-  ensureWorldMapRegistered, iso2ForFeatureName, worldGlobeTexture, worldGlobeGlowTexture,
+  ensureWorldMapRegistered, iso2ForFeatureName, worldGlobeTexture,
   countryIsoForPoint, countryOutlineRings, type GeoFeature,
 } from '@/lib/investor-eye/app-geo';
 import {
   bindLayerEvents, buildMapOption, buildCountryOutlineSeries, hasDrawableBox,
-  type MapMode, type MapScheme, type MapSkin,
+  type MapMode, type MapScheme,
 } from '@/lib/investor-eye/map-echarts';
 import type { MapLayer } from '@/lib/investor-eye/types';
 import { useDarkScheme } from '@/hooks/use-dark-scheme';
@@ -39,8 +39,6 @@ interface WorldMapProps {
   selectedEventKey?: string | null;
   onSelectCountry?: (iso2: string, name: string) => void;
   mode?: MapMode;
-  /** Surface skin: blue "lit planet" vs the plain black terminal look. */
-  skin?: MapSkin;
   /** Draw the animated starfield behind the map. Purely decorative. */
   showStars?: boolean;
   /** Draw country names on the map/globe. */
@@ -71,7 +69,7 @@ function ensureGlobeSupport(): Promise<boolean> {
 /** Hard ceiling on globe initialisation before falling back to the flat map. */
 const GLOBE_INIT_TIMEOUT_MS = 20_000;
 
-export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCountry, mode = '2d', skin = 'glow', showStars = true, showCountryLabels = true, onModeUnavailable, className }: WorldMapProps) {
+export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCountry, mode = '2d', showStars = true, showCountryLabels = true, onModeUnavailable, className }: WorldMapProps) {
   // The map is canvas/WebGL, so it cannot follow the app's CSS tokens. Observe
   // the `dark` class and drive the geo palette, backdrop, tooltip and globe
   // surface from the scheme, so a light-mode page gets a light map.
@@ -124,12 +122,11 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
   hoveredCountryIsoRef.current = hoveredCountryIso;
   const geoReadyRef = useRef(false);
   /**
-   * Equirectangular world texture for the 3D globe (drawn once per skin, then
-   * reused). Keyed by skin: the blue and black planets are different textures.
+   * Equirectangular world texture for the 3D globe (drawn once per scheme, then
+   * reused). The simple terminal surface is the only dark skin; light mode uses
+   * its own palette.
    */
   const globeTextureRef = useRef<{ key: string; url: string } | undefined>(undefined);
-  /** Coastlines-only emission map — the globe's additive aura layer. */
-  const globeGlowTextureRef = useRef<string | undefined>(undefined);
 
   const handleCountryClick = useMemo(
     () => (name: string) => {
@@ -150,16 +147,14 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
   // texture is drawn from the same GeoJSON as the 2D map, so it is awaited here
   // and passed into the option builder rather than imported there.
   //
-  // Guarded on `globeTextureRef.current?.skin === skin`: that covers BOTH the
-  // "never loaded" case and the "user switched skin" case. Reusing the previous
-  // skin's cached texture (the earlier behaviour) would silently keep a blue
-  // planet in the black skin.
+  // Guarded on the cached texture key, so switching between the flat map and
+  // the globe reuses the existing surface instead of redrawing it.
   useEffect(() => {
-    // In light mode the dark `black`/`glow` textures would render a black ball
-    // on a white page, so the light planet palette is used instead. The key
-    // includes the scheme so toggling the theme rebuilds the texture.
-    const globeSkin = scheme === 'light' ? 'light' : skin;
-    const textureKey = `${scheme}:${skin}`;
+    // In light mode the dark texture would render a black ball on a white page,
+    // so the light planet palette is used instead. The key includes the scheme
+    // so toggling the theme rebuilds the texture.
+    const globeSkin = scheme === 'light' ? 'light' : 'black';
+    const textureKey = scheme;
     if (mode !== 'globe' || globeTextureRef.current?.key === textureKey) return;
     let cancelled = false;
     // A hard ceiling on globe initialisation. `echarts-gl` is a large lazy
@@ -180,14 +175,9 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
         return;
       }
       try {
-        // The emission texture is glow-skin only; skip drawing it for `black`.
-        const [tex, glow] = await Promise.all([
-          worldGlobeTexture(globeSkin),
-          scheme === 'dark' && skin === 'glow' ? worldGlobeGlowTexture() : Promise.resolve(undefined),
-        ]);
+        const tex = await worldGlobeTexture(globeSkin);
         if (cancelled) return;
         globeTextureRef.current = { key: textureKey, url: tex };
-        globeGlowTextureRef.current = glow;
       } catch (err) {
         // A texture failure must not blank the globe — echarts-gl falls back to
         // its own default surface, which is at least visible.
@@ -202,7 +192,7 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [mode, skin, scheme, onModeUnavailable]);
+  }, [mode, scheme, onModeUnavailable]);
 
   // Create the chart. Re-runs when the presentation changes, because a globe
   // and a geo map are different component sets: reusing the same instance across
@@ -247,8 +237,8 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
         chart.setOption(buildMapOption({
           layers: layersRef.current, highlightPoints, selectedEventKey: selectedEventKeyRef.current,
           hoveredCountryIso: hoveredCountryIsoRef.current,
-          mode, skin, scheme, showCountryLabels,
-          globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
+          mode, scheme, showCountryLabels,
+          globeTexture: globeTextureRef.current?.url,
           width: ref.current.clientWidth, height: ref.current.clientHeight,
         }));
         setStatus('ready');
@@ -290,16 +280,15 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     if (mode === 'globe' && !glReady) return;
     bindLayerEvents(chart, layers, { onCountryClick: handleCountryClick, onCountryHover: handleCountryHover });
     // Only the series change here, so `replaceMerge: ['series']` is always valid
-    // regardless of which base component (geo or globe) is active. The skin's
-    // base component (geo/globe) is merged by id, so it updates in place too.
+    // regardless of which base component (geo or globe) is active.
     // `visualMap` is part of the replace set so that turning the heatmap OFF
     // actually REMOVES its legend/colour mapping. `replaceMerge: ['series']`
     // alone left the stale visualMap mounted, which is what made the event pins
     // keep the heatmap's colouring after the layer was switched off.
     chart.setOption(
       buildMapOption({
-        layers, highlightPoints, selectedEventKey, hoveredCountryIso, mode, skin, scheme, showCountryLabels,
-        globeTexture: globeTextureRef.current?.url, globeGlowTexture: globeGlowTextureRef.current,
+        layers, highlightPoints, selectedEventKey, hoveredCountryIso, mode, scheme, showCountryLabels,
+        globeTexture: globeTextureRef.current?.url,
         width: box.width, height: box.height,
       }),
       { replaceMerge: ['series', 'visualMap'] } as never,
@@ -308,7 +297,7 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     // the init effect builds the first option before `useDarkScheme` resolves,
     // so without this the light-scheme option could never be pushed to a chart
     // that has already been created.
-  }, [layers, highlightPoints, selectedEventKey, hoveredCountryIso, mode, skin, scheme, showCountryLabels, glReady, texVersion, box, chartNonce, handleCountryClick, handleCountryHover]);
+  }, [layers, highlightPoints, selectedEventKey, hoveredCountryIso, mode, scheme, showCountryLabels, glReady, texVersion, box, chartNonce, handleCountryClick, handleCountryHover]);
 
   /**
    * GLOBE country picking.
@@ -522,8 +511,7 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
     <div className={className}>
       {/* Backdrop. With stars ON the starfield canvas paints the whole sky, so
           this is only visible where the canvas is (and when stars are OFF, where
-          it is the entire background). Matched to the skin so switching stars off
-          still looks deliberate rather than like a missing layer. */}
+          it is the entire background). */}
       {(!showStars || !dark) && (
         <div
           aria-hidden="true"
@@ -531,20 +519,18 @@ export function WorldMap({ layers, highlightPoints, selectedEventKey, onSelectCo
           style={{
             background: scheme === 'light'
               ? 'radial-gradient(120% 90% at 50% 42%, #f4f6fa 0%, #e8edf4 55%, #dfe6ef 100%)'
-              : skin === 'glow'
-                ? 'radial-gradient(120% 90% at 50% 42%, #071a3d 0%, #04102b 55%, #020a1c 100%)'
-                : 'radial-gradient(120% 90% at 50% 42%, #101114 0%, #08090b 60%, #040405 100%)',
+              : 'radial-gradient(120% 90% at 50% 42%, #101114 0%, #08090b 60%, #040405 100%)',
           }}
         />
       )}
       {/* Starfield sits behind the chart in BOTH projections: flat mode reads it
           as a dark sky, globe mode as space behind the planet. It is a canvas,
-          not a CSS gradient, so the density scales with the container. The skin
-          follows the surface — the plain skin gets a still, flat-black sky.
+          not a CSS gradient, so the density scales with the container. The still
+          plain sky matches the terminal surface.
           Unmounting it (rather than hiding it) is what actually stops the rAF
           loop, which matters because this screen also runs a WebGL render loop. */}
       {showStars && dark && (
-        <Starfield className="absolute inset-0 h-full w-full" density={mode === 'globe' ? 1 : 0.7} skin={skin} />
+        <Starfield className="absolute inset-0 h-full w-full" density={mode === 'globe' ? 1 : 0.7} skin="black" />
       )}
       <div ref={ref} className="absolute inset-0 h-full w-full" />
       {overlay && <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>}

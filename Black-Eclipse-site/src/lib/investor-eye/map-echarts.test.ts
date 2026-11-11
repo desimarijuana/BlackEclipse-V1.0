@@ -308,14 +308,11 @@ describe('map skin', () => {
     return (opt as unknown as { geo: { itemStyle: { areaColor: string; borderColor: string; shadowBlur: number } } }).geo;
   }
 
-  it('defaults to the blue lit-planet surface', () => {
+  it('defaults to the simple terminal surface', () => {
     const geo = geoFor();
-    // The glow surface is TRANSLUCENT blue, so the starfield reads through the
-    // continents — that is what makes the flat map the same object as the globe.
-    expect(geo.itemStyle.areaColor).toMatch(/^rgba\(/);
-    expect(geo.itemStyle.areaColor).not.toBe('rgba(0,0,0,0)');
-    expect(geo.itemStyle.borderColor).toContain('125,232,255');
-    expect(geo.itemStyle.shadowBlur).toBeGreaterThan(0);
+    // The shipped surface is the plain terminal look: opaque, flat, glow-free.
+    expect(geo.itemStyle.areaColor).toBe('#141416');
+    expect(geo.itemStyle.shadowBlur).toBe(0);
   });
 
   it('renders the plain terminal surface for the black skin', () => {

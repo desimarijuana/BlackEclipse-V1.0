@@ -190,10 +190,10 @@ const GLOBE_HALO_OPACITY = 0.22;
  * Map presentation: 2D projection or a rotatable 3D globe.
  *
  * `black` is the original flat terminal look — a solid near-black landmass with
- * hairline borders and no glow. `glow` is the blue "lit planet" look: a
- * translucent blue continent over the starfield, a cyan coastline, and a real
- * bloom on the globe. The surface is a pure VIEW preference, so switching it
- * never rebuilds the data or re-fetches anything.
+ * hairline borders and no glow. `glow` is a retained internal variant: the blue
+ * "lit planet" look (translucent blue continent, cyan coastline, globe bloom).
+ * The product now ships the simple surface only; the variant is kept for tests
+ * and future skins, and switching it never rebuilds the data.
  */
 export type MapMode = '2d' | 'globe';
 export type MapSkin = 'black' | 'glow';
@@ -391,8 +391,9 @@ export interface MapOptionOptions {
   /** Presentation mode. Defaults to the flat map. */
   mode?: MapMode;
   /**
-   * Surface skin. `black` is the flat terminal look, `glow` the blue lit planet.
-   * Defaults to `glow`. Ignored for the 2D map when `scheme` is `light`.
+   * Surface skin. `black` is the flat terminal look and the default; `glow` is
+   * a retained internal variant (blue lit planet) that is no longer exposed in
+   * the UI. Ignored for the 2D map when `scheme` is `light`.
    */
   skin?: MapSkin;
   /**
@@ -446,7 +447,7 @@ export function buildCountryOutlineSeries(rings: Array<Array<[number, number]>>)
 export function buildMapOption(options: MapOptionOptions): EChartsOption {
   const { layers } = options;
   const mode: MapMode = options.mode ?? '2d';
-  const skin: MapSkin = options.skin ?? 'glow';
+  const skin: MapSkin = options.skin ?? 'black';
   const scheme: MapScheme = options.scheme ?? 'dark';
   const isLight = scheme === 'light';
   const isGlow = skin === 'glow';

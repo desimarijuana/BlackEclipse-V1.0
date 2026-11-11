@@ -1,7 +1,7 @@
 ---
 title: Investor Eye — Architecture & Audit
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-11-10
 ---
 
 # Investor Eye — Architecture & Audit
@@ -1181,36 +1181,39 @@ Three requests: the map/globe should be **blue**, the background should be
 there should be a **simple button to switch between the plain black surface we
 first had and the new glowy one**.
 
-### The skin switch (`MapSkin`)
+### Surface skins (the switch is retired)
 
-`MapSkin = 'black' | 'glow'`, persisted in the store alongside `mapMode` and
-captured in saved views. `MapControls` (`src/components/investor-eye/
-map-view-controls.tsx`) is the single place both choices are made, rendered in the
-hero header **and** the full-page dock — it exists because two hand-rolled copies
-is how one surface ends up missing a control the other has.
+Phase 16 briefly added a `MapSkin` switch (`black` | `glow`) persisted in the
+store and captured in saved views. It is **no longer a product choice**: the
+simple `black` terminal surface is the only surface and the default, and
+`map-view-controls.tsx` no longer renders a skin toggle. The projection switch
+(`mapMode`: MAP / GLOBE) remains, as do the stars and country-name toggles.
+
+`map-echarts.ts` still accepts an internal `skin` option (now defaulting to
+`black`) so the lit-planet rendering and its tests survive for a future skin,
+but no UI reaches it. Older persisted `mapSkin` values are simply ignored.
 
 The same control strip carries a **STARS ON/OFF** toggle (`showStars`). The
 starfield is deliberately **unmounted**, not hidden — a hidden canvas keeps its
 rAF loop running, and this screen already runs a WebGL render loop. With stars
-off, a skin-matched CSS radial gradient paints the sky so the surface still
-looks intentional rather than like a missing layer.
+off, a CSS radial gradient paints the sky so the surface still looks intentional
+rather than like a missing layer. The shipped sky is the still `black` variant.
 
-- `black` is the original terminal look: **mid-grey** land (`#4b5058`→`#5a606a`)
-  on a `#1a1c20` ocean, hairline borders, no shadow, no globe aura, no bloom, and
-  a **still** flat-black sky. The grey is deliberate — the first version was
-  near-black (`#141416`), which under `lambert` lighting with low ambient
-  collapsed into a featureless dark ball. It also carries a higher ambient
-  (0.85) and no shadowing so the grey actually reads. Measured mean luminance
-  55 vs 14 before; land sits at 84–119 against an ocean of 38.
-- `glow` (default) is the blue lit planet: translucent blue continents that let
-  the starfield read through, cyan coastlines, blue globe ocean/land, an additive
-  emission aura and post-process bloom.
+- `black` (shipped) is the original terminal look: **mid-grey** land
+  (`#4b5058`→`#5a606a`) on a `#1a1c20` ocean, hairline borders, no shadow, no
+  globe aura, no bloom, and a **still** flat-black sky. The grey is deliberate —
+  the first version was near-black (`#141416`), which under `lambert` lighting
+  with low ambient collapsed into a featureless dark ball. It also carries a
+  higher ambient (0.85) and no shadowing so the grey actually reads. Measured
+  mean luminance 55 vs 14 before; land sits at 84–119 against an ocean of 38.
+- `glow` (retained internally, not exposed) is the blue lit planet: translucent
+  blue continents, cyan coastlines, blue globe ocean/land, an additive emission
+  aura and post-process bloom.
 
-A skin is pure view state, so switching it re-renders the option in place. The
-globe texture is **keyed by skin** (`globeTextureRef = { skin, url }`) — the
-obvious `if (globeTextureRef.current) return` guard silently kept the blue planet
-in the black skin after a switch. `texVersion` state bumps when a texture
-finishes drawing so the update effect re-renders without rebuilding the chart.
+The globe texture is keyed by **scheme** (`globeTextureRef = { key, url }`) so
+toggling light/dark rebuilds the surface. `texVersion` state bumps when a
+texture finishes drawing so the update effect re-renders without rebuilding the
+chart.
 
 ### Light mode is a second axis, not a skin (scheme-aware surface)
 
@@ -1218,17 +1221,16 @@ The map is canvas/WebGL, so it cannot read the app's CSS tokens the way the rest
 of the UI does — without help it stayed a black terminal surface on a white page.
 `WorldMap` therefore observes the app's `dark` class (`useDarkScheme`) and passes
 a `scheme ('dark' | 'light')` into `buildMapOption`, alongside a scheme-matched
-backdrop. This is independent of `MapSkin`:
+backdrop:
 
-- In light mode both dark skins (`black`/`glow`) collapse to one legible light
-  geo palette (`GEO_LIGHT`): pale land, dark hairline borders.
+- In light mode the dark surface collapses to one legible light geo palette
+  (`GEO_LIGHT`): pale land, dark hairline borders.
 - The tooltip swaps to the light frosted recipe (`LIGHT_TOOLTIP`); the sky
   backdrop becomes a light radial gradient and the starfield is **not mounted**.
 - The globe uses a `light` texture palette (`GlobeSkin` gained `'light'`), so the
   sphere is a pale matte planet instead of a black ball.
-- The globe texture key now includes the scheme
-  (`globeTextureRef = { key: "<scheme>:<skin>", url }`) so toggling the theme
-  rebuilds the surface.
+- The globe texture key includes the scheme so toggling the theme rebuilds the
+  surface.
 
 The TradingView chart widget follows the scheme too (`theme: 'light' | 'dark'`),
 and a custom dark glass tint is forced light (`--glass-tint-light` via

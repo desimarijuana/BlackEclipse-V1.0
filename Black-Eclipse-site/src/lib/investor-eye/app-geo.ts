@@ -208,9 +208,9 @@ const TEXTURE_H = 2048;
 /** Stroke widths are authored against this reference width, then scaled. */
 const TEXTURE_SCALE = TEXTURE_W / 2048;
 
-/** Surface palettes. `MapSkin` lives in the store; kept structural here so this
- *  module stays free of UI-state imports. `light` is the light-scheme planet
- *  (used when the app is in light mode), independent of the dark `MapSkin`. */
+/** Surface palettes. Kept structural here so this module stays free of UI-state
+ *  imports. `light` is the light-scheme planet (used when the app is in light
+ *  mode), independent of the dark surface. */
 export type GlobeSkin = 'black' | 'glow' | 'light';
 
 interface GlobePalette {

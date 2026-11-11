@@ -60,7 +60,6 @@ export function InvestorEyeScreen() {
   const economicMetric = useInvestorEyeStore((s) => s.economicMetric);
   const portfolioOverlay = useInvestorEyeStore((s) => s.portfolioOverlay);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
-  const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
   const fullPage = useInvestorEyeStore((s) => s.fullPage);
@@ -464,7 +463,6 @@ export function InvestorEyeScreen() {
             selectedEventKey={selectedEvent ? (selectedEvent.id ?? selectedEvent.dedupKey) : null}
             onSelectCountry={handleSelectCountry}
             mode={mapMode}
-            skin={mapSkin}
             showStars={showStars}
             showCountryLabels={showCountryLabels}
             onModeUnavailable={() => setMapMode('2d')}
@@ -479,7 +477,7 @@ export function InvestorEyeScreen() {
           )}
           {/* Map is the hero; a subtle frame label keeps provenance in view. */}
           <div className="pointer-events-none absolute bottom-2 left-2 z-10 text-[9px] font-mono text-muted-foreground/50">
-            NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}{mapSkin === 'black' ? ' · BLACK' : ' · GLOW'}
+            NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}
           </div>
           {/* Immersive map-only affordance, on the map surface itself. */}
           <button

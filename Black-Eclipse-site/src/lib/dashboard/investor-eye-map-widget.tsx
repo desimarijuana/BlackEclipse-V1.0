@@ -112,7 +112,6 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
   // the full screen (and the two stay in sync). Layers follow the store too.
   const activeLayers = useInvestorEyeStore((s) => s.activeLayers);
   const mapMode = useInvestorEyeStore((s) => s.mapMode);
-  const mapSkin = useInvestorEyeStore((s) => s.mapSkin);
   const showStars = useInvestorEyeStore((s) => s.showStars);
   const showCountryLabels = useInvestorEyeStore((s) => s.showCountryLabels);
   const selectedEvent = useInvestorEyeStore((s) => s.selectedEvent);
@@ -185,7 +184,6 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
       onSelectCountry={(iso2) => handleSelectCountry(iso2)}
       selectedEventKey={selectedEvent ? (selectedEvent.id ?? selectedEvent.dedupKey) : null}
       mode={mapMode}
-      skin={mapSkin}
       showStars={showStars}
       showCountryLabels={showCountryLabels}
       onModeUnavailable={() => setMapMode('2d')}
@@ -277,7 +275,7 @@ export function InvestorEyeMapWidget({ placement }: { placement: WidgetPlacement
       )}
       {map}
       <div className="pointer-events-none absolute bottom-1.5 left-2 z-10 font-mono text-[8px] text-muted-foreground/50">
-        NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}{mapSkin === 'black' ? ' · BLACK' : ' · GLOW'}
+        NATURAL EARTH · BLACKECLIPSE{mapMode === 'globe' ? ' · 3D GLOBE' : ''}
       </div>
     </div>
   );

@@ -52,18 +52,6 @@ export interface SelectedMarket {
 /** Presentation of the world visualization. */
 export type MapMode = '2d' | 'globe';
 
-/**
- * Surface skin. `black` is the first-draft flat terminal look; `glow` is the
- * blue "lit planet" look (translucent blue continents, cyan coastlines, globe
- * bloom, starfield showing through). A pure view preference.
- */
-export type MapSkin = 'black' | 'glow';
-
-export const MAP_SKINS: Array<{ id: MapSkin; label: string; hint: string }> = [
-  { id: 'black', label: 'BLACK', hint: 'Flat terminal surface — no glow' },
-  { id: 'glow', label: 'GLOW', hint: 'Blue lit planet — coastlines, bloom, stars' },
-];
-
 interface InvestorEyeStore {
   selectedCountry: string | null;
   selectedEvent: NormalizedEvent | null;
@@ -74,8 +62,6 @@ interface InvestorEyeStore {
   timeRange: TimeRangeId;
   /** Flat map or 3D globe (globe is lazy-loaded; falls back to `2d`). */
   mapMode: MapMode;
-  /** Blue "lit planet" surface vs the plain black terminal surface. */
-  mapSkin: MapSkin;
   /** Draw the animated starfield behind the map. Purely decorative. */
   showStars: boolean;
   /** Draw country names on the map/globe. */
@@ -116,7 +102,6 @@ interface InvestorEyeStore {
   setLayers: (ids: LayerId[]) => void;
   setTimeRange: (id: TimeRangeId) => void;
   setMapMode: (mode: MapMode) => void;
-  setMapSkin: (skin: MapSkin) => void;
   setShowStars: (on: boolean) => void;
   setShowCountryLabels: (on: boolean) => void;
   setFullPage: (on: boolean) => void;
@@ -145,7 +130,6 @@ interface Persisted {
   economicMetric: string;
   portfolioOverlay: boolean;
   mapMode: MapMode;
-  mapSkin: MapSkin;
   showStars: boolean;
   showCountryLabels: boolean;
   /** Operator-saved intelligence postures (layer + window + metric presets). */
@@ -163,7 +147,6 @@ export interface SavedView {
   activeLayers: LayerId[];
   timeRange: TimeRangeId;
   mapMode: MapMode;
-  mapSkin: MapSkin;
   showStars: boolean;
   showCountryLabels: boolean;
   economicMetric: string;
@@ -192,7 +175,6 @@ function loadPersisted(): Partial<Persisted> {
       economicMetric: parsed.economicMetric ?? 'inflation',
       portfolioOverlay: parsed.portfolioOverlay ?? false,
       mapMode: parsed.mapMode === 'globe' ? 'globe' : '2d',
-      mapSkin: parsed.mapSkin === 'black' ? 'black' : 'glow',
       showStars: typeof parsed.showStars === 'boolean' ? parsed.showStars : true,
       showCountryLabels: typeof parsed.showCountryLabels === 'boolean' ? parsed.showCountryLabels : true,
       views: Array.isArray(parsed.views)
@@ -215,7 +197,6 @@ function persist(state: InvestorEyeStore) {
         economicMetric: state.economicMetric,
         portfolioOverlay: state.portfolioOverlay,
         mapMode: state.mapMode,
-        mapSkin: state.mapSkin,
         showStars: state.showStars,
         showCountryLabels: state.showCountryLabels,
         views: state.views,
@@ -238,7 +219,6 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
     activeLayers: persisted.activeLayers ?? defaultActive,
     timeRange: persisted.timeRange ?? '24h',
     mapMode: persisted.mapMode ?? '2d',
-    mapSkin: persisted.mapSkin ?? 'glow',
     showStars: persisted.showStars ?? true,
     showCountryLabels: persisted.showCountryLabels ?? true,
     fullPage: false,
@@ -278,10 +258,6 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
       set({ mapMode: mode });
       persist(get());
     },
-    setMapSkin: (skin) => {
-      set({ mapSkin: skin });
-      persist(get());
-    },
     setShowStars: (on) => {
       set({ showStars: on });
       persist(get());
@@ -314,7 +290,6 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
         activeLayers: [...s.activeLayers],
         timeRange: s.timeRange,
         mapMode: s.mapMode,
-        mapSkin: s.mapSkin,
         showStars: s.showStars,
         showCountryLabels: s.showCountryLabels,
         economicMetric: s.economicMetric,
@@ -338,7 +313,6 @@ export const useInvestorEyeStore = create<InvestorEyeStore>((set, get) => {
         activeLayers: view.activeLayers.filter((l) => known.has(l)),
         timeRange: view.timeRange,
         mapMode: view.mapMode,
-        mapSkin: view.mapSkin ?? 'glow',
         showStars: view.showStars ?? true,
         showCountryLabels: view.showCountryLabels ?? true,
         economicMetric: view.economicMetric,

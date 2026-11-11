@@ -265,6 +265,17 @@
   `docs/harness/capability-builder.md`, `docs/NAVIGATION.md`,
   `docs/CHANGELOG.md`.
 
+- **feat(investor-eye): retire the glowing surface; the simple black map is the
+  only skin.** Removed the BLACK/GLOW skin switch from the map view controls and
+  the `mapSkin` state from the store, saved views and localStorage persistence.
+  The simple terminal surface is now the default everywhere (full screen,
+  full-page map, dashboard widget); the MAP/GLOBE projection switch and the
+  stars/name toggles are unchanged. `map-echarts.ts` keeps the `glow` variant as
+  an internal, non-UI option and now defaults `skin` to `black`; the globe loads
+  only the black/light texture and no glow/bloom pass. `map-echarts.test.ts`
+  asserts the new default. Docs updated: `docs/investor-eye-architecture.md`
+  (§5n), `docs/CHANGELOG.md`.
+
 ## 2026-11-09
 - **ops: run the v0.3.2 production build as the soak instance on Windows.** Added
   `scripts/install-app-task.ps1`: a per-user scheduled task (2-minute ignore-new
