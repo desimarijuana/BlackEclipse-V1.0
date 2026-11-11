@@ -188,7 +188,7 @@ import { useHydrateTheme, useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import type { CommandUiAction } from '@/lib/harness/command-ui';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
-import { canHandleKeyboardEvent, hasBlockingKeyboardDialog, isKeyboardEventAvailable } from '@/lib/keyboard';
+import { canHandleKeyboardEvent } from '@/lib/keyboard';
 import { isFocusModeShortcut, isNewChatShortcut, isSettingsShortcut, isThemeShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -1131,12 +1131,14 @@ function StockChatContent() {
   // clear the transcript, then drop the caret in the composer via the global
   // `be:focus-chat` event the composer already answers. Ctrl+N is NOT usable for
   // this — browsers reserve it for "new window" and ignore `preventDefault`.
+  // Like the focus-mode chord, it accepts AltGr's physical KeyN, so it must skip
+  // editable fields: typing `ń` in the composer must never wipe the draft.
   const newChatRef = useRef(handleNewChat);
   newChatRef.current = handleNewChat;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isNewChatShortcut(event) || !isKeyboardEventAvailable(event)) return;
-      if (useKeyboardShortcutsStore.getState().helpOpen || hasBlockingKeyboardDialog()) return;
+      if (!isNewChatShortcut(event) || !canHandleKeyboardEvent(event)) return;
+      if (useKeyboardShortcutsStore.getState().helpOpen) return;
       event.preventDefault();
       setActiveTab('chat');
       newChatRef.current();
@@ -1150,8 +1152,7 @@ function StockChatContent() {
   // stay out of text fields and other blocking dialogs like every page chord.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isKeyboardEventAvailable(event) || useKeyboardShortcutsStore.getState().helpOpen) return;
-      if (!canHandleKeyboardEvent(event)) return;
+      if (!canHandleKeyboardEvent(event) || useKeyboardShortcutsStore.getState().helpOpen) return;
       if (isSettingsShortcut(event)) {
         event.preventDefault();
         setSettingsSection(undefined);

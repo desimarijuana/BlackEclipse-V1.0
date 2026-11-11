@@ -1,6 +1,14 @@
 # Change Log
 
 ## 2026-11-10
+- **fix(chat): typing in the composer can no longer fire shell shortcuts.** The
+  Ctrl/Cmd+Alt+N (new chat) and Ctrl+Alt+X (focus mode) handlers checked only
+  blocking dialogs, and both accept the physical key `code` because AltGr
+  reports Ctrl+Alt — so typing an AltGr character such as `ń` (AltGr+N) wiped the
+  draft and `ż` (AltGr+X) toggled focus mode mid-word. Both now use
+  `canHandleKeyboardEvent`, the same editable/composition guard as every other
+  chord, so all shortcuts skip the chat input (and every text field) while it has
+  focus. No doc change — bug fix, no contract or architecture change.
 - **test(prompt): re-pin the agent-prompt ratchet to the measured size.** Commit
   `93aebd01` (quant research intelligence) added the “never end with a bare
   refusal” rule and the Quant research guidance but did not update the ceiling,
