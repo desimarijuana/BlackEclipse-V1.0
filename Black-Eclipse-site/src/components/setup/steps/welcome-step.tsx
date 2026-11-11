@@ -66,8 +66,9 @@ export function WelcomeStep({
                   <span
                     className={cn(
                       "ml-auto flex h-4 w-4 items-center justify-center rounded-full border",
-                      active ? "border-primary bg-primary text-primary-foreground" : "border-white/25",
+                      active ? "border-primary bg-primary" : "border-white/25",
                     )}
+                    style={active ? { color: "var(--primary-foreground)" } : undefined}
                   >
                     {active && <Check size={10} weight="bold" />}
                   </span>

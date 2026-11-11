@@ -381,11 +381,22 @@ export function OnboardingShell({
                           className={cn(
                             "relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors",
                             isActive
-                              ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_5px_color-mix(in_srgb,var(--primary)_14%,transparent)]"
+                              ? "border-primary bg-primary shadow-[0_0_0_5px_color-mix(in_srgb,var(--primary)_14%,transparent)]"
                               : done
-                                ? "border-primary/40 bg-[color-mix(in_srgb,var(--primary)_16%,var(--card))] text-primary"
+                                ? "border-primary/40 bg-[color-mix(in_srgb,var(--primary)_16%,var(--card))]"
                                 : "border-white/12 bg-[color-mix(in_srgb,white_4%,var(--card))] text-muted-foreground/70",
                           )}
+                          /* Icon colour follows the disc, set inline because
+                             globals.css greys any span class containing
+                             `text-primary` with !important. Light accent disc →
+                             near-black glyph; dark tinted disc → accent glyph. */
+                          style={
+                            isActive
+                              ? { color: "var(--primary-foreground)" }
+                              : done
+                                ? { color: "var(--primary)" }
+                                : undefined
+                          }
                         >
                           {done ? <Check size={16} weight="bold" /> : <Icon size={16} />}
                         </span>

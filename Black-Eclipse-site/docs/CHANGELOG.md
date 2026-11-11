@@ -13,8 +13,11 @@
   briefcase) instead of the sparkle star the user rejected. The stepper
   connector is now one continuous line behind opaque, tinted discs, so it can
   neither show through an icon glyph nor run past the last step (the list is
-  `mb-auto`, not `flex-1`). The full risk notice paragraph spans its card
-  instead of being clamped by `max-w-prose`. Docs: no doc change beyond this
+  `mb-auto`, not `flex-1`). Step glyph colours follow their disc: near-black on
+  the light accent disc, accent lime on the dark completed disc (inline, because
+  `globals.css` greys any span class containing `text-primary` with
+  `!important`). The full risk notice paragraph spans its card instead of being
+  clamped by `max-w-prose`. Docs: no doc change beyond this
   entry — layout contract in `docs/onboarding-plan.md` is unchanged.
 - **fix(desktop): window chrome works, `+` starts a session, tab bar matches the
   app.** The frameless title bar's controls and drag depended entirely on the

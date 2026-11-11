@@ -33,8 +33,9 @@ export function CheckRow({
           "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
           "border-white/25 bg-white/[0.03]",
           "peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60",
-          checked && "border-primary bg-primary text-primary-foreground",
+          checked && "border-primary bg-primary",
         )}
+        style={checked ? { color: "var(--primary-foreground)" } : undefined}
       >
         {checked && <Check size={10} weight="bold" />}
       </span>
