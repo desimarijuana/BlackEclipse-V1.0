@@ -13,12 +13,37 @@ without forking the application or rewriting the UI.
 
 | Phase | State |
 | --- | --- |
-| **C0** shell portability | **done** — six call sites guarded; compiles clean on Windows, `#[cfg]` paths written for Unix |
-| **C1** Linux packaging | **implemented + layout verified off-platform** — `.deb` tree, control file, desktop entry and launcher validated; `dpkg-deb` itself needs a Linux runner |
-| **C2** macOS packaging | **implemented + layout verified off-platform** — `.app` tree and `Info.plist` validated; `codesign`/`hdiutil` need a macOS runner |
+| **C0** shell portability | **verified** — compiles for Linux in CI; six call sites guarded |
+| **C1** Linux packaging | **verified** — `black-eclipse-linux` artifact (133 MB) produced by `ubuntu-latest` |
+| **C2** macOS packaging | **verified** — `black-eclipse-macos` artifact (147 MB) produced by `macos-latest` |
 | **C3** per-platform packs | **done** — manifest carries `target`; archives are per-platform |
-| **C4** CI matrix | **done** — 2 jobs, 3-OS matrix, YAML parsed and validated |
+| **C4** CI matrix | **verified** — run `43066805555`: **windows ✅ macOS ✅ linux ✅** |
 | **C5** notarisation | **skeleton, gated on secrets** — `notarytool` + `stapler` skip cleanly without them |
+
+### CI evidence (run 43066805555, commit 57e670e)
+
+| Runner | Result | Artifact |
+| --- | --- | --- |
+| `windows-latest` | **success** | `black-eclipse-windows` — 364 MB |
+| `macos-latest` | **success** | `black-eclipse-macos` — 147 MB |
+| `ubuntu-latest` | **success** | `black-eclipse-linux` — 133 MB |
+
+Four real defects were found by running it rather than reasoning about it:
+
+1. **Node heap** — the Next build exceeded the default ~4 GB heap on all three
+   runners; fixed with `NODE_OPTIONS=--max-old-space-size=6144`.
+2. **`codesign --deep`** — descended into the payload and failed on
+   `node_modules/next/dist/compiled/lodash.curry` ("bundle format unrecognized").
+   Now signs the executable and the bundle separately.
+3. **Python requirements missing** — `npm ci --ignore-scripts` skips the hook that
+   installs `python/requirements.txt`, so the packaged interpreter had no
+   packages and four of five packs were empty. The workflow now runs
+   `setup-python.js` explicitly.
+4. **Offline NSIS edition hard-coded all five packs** — a platform without one
+   (winsdk has no Linux wheel) aborted the installer. The pack list is generated
+   at build time.
+5. **Flaky apt mirror** — `Temporary failure resolving security.ubuntu.com`;
+   the step now retries with `Acquire::Retries=5`.
 
 ### What was actually verified on this machine (no Linux, no Docker, no WSL)
 

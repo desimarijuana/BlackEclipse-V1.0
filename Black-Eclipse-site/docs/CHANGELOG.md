@@ -1,6 +1,20 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(desktop): cross-platform builds verified — Windows, macOS and Linux all
+  green.** CI run `43066805555` on `57e670e` produced three artifacts:
+  `black-eclipse-windows` (364 MB), `black-eclipse-macos` (147 MB) and
+  `black-eclipse-linux` (133 MB). That is the first proof the Tauri shell
+  compiles against Linux's webkit2gtk and that `dpkg-deb`/`hdiutil` produce
+  installable files. Five defects were found by running it: the Next build OOM'd
+  on every runner (now `--max-old-space-size=6144`); `codesign --deep` failed on
+  `node_modules/next/.../lodash.curry` (signing the binary and bundle separately
+  now); `npm ci --ignore-scripts` skipped `python/requirements.txt` so four packs
+  were empty (now runs `setup-python.js`); the offline NSIS edition hard-coded
+  all five packs (list generated at build time); and a flaky Ubuntu mirror
+  (retries added). C5 notarisation remains a gated skeleton. Docs updated:
+  `docs/desktop-cross-platform-plan.md` (verified status + CI evidence),
+  `docs/CHANGELOG.md`.
 - **ci(desktop): retry apt on flaky runner mirrors.** The `ubuntu-latest` job
   failed in *Install Linux build dependencies* with
   `Temporary failure resolving 'security.ubuntu.com'` and a `404` from
@@ -220,13 +234,14 @@
   discovered READ-ONLY tool and refuses effectful ones so the graph remains the
   only side-effect path. `HARNESS_LAZY_TOOLS=1` keeps effectful tools bound and
   routes the read-only long tail through discovery (default OFF until eval
-  parity). New tests: `test_tool_output_offload.py`, `test_tool_surface.py`.
-  Code Mode and calibrated token budgeting remain open (Code Mode needs the C6
-  sandbox). Docs updated: `docs/harness/architecture.md`,
+  parity). New tests: `test_tool_output_offload.py`, `test_tool_surface.py`;
+  the published tool registry is regenerated (1085 tools). Code Mode and
+  calibrated token budgeting remain open (Code Mode needs the C6 sandbox).
+  Docs updated: `docs/harness/architecture.md`,
   `docs/harness/decisions.md` (ADR-H352),
   `docs/harness/roadmap/round-5-core-integrity.md`,
   `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
-  `docs/CHANGELOG.md`.
+  `docs/harness/tool-registry.json`, `docs/CHANGELOG.md`.
 - **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
   unsupported mark is named, not silently drawn as a line.** The live
   `response_block_schema` digest (and the injected prompt digest) now includes
