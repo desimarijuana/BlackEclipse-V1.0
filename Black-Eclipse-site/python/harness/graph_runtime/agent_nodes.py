@@ -21,6 +21,31 @@ from .registry import ConfigField, NodeDef, NodeExecContext
 _ALL = tuple(ExecutionMode)
 MAX_DELEGATE_TASKS = 6
 
+def merge_bot_model_override(
+    base: dict[str, Any], override: Any,
+) -> dict[str, Any]:
+    """Apply a saved bot's provider/model pin to a graph run's model settings.
+
+    Mirrors the automation dispatcher's rule: the bot may choose its provider and
+    model, while credentials/base URL still resolve from the runtime's configured
+    settings unless the pin names a base URL. An absent/malformed pin leaves the
+    graph run's settings untouched, so graphs that never reuse a bot are
+    unaffected.
+    """
+    merged = dict(base)
+    if not isinstance(override, dict):
+        return merged
+    model = override.get("model")
+    if not isinstance(model, str) or not model.strip():
+        return merged
+    merged["provider"] = str(override.get("provider") or merged.get("provider") or "ollama")
+    merged["model"] = model.strip()
+    base_url = override.get("baseUrl") or override.get("base_url")
+    if isinstance(base_url, str) and base_url.strip():
+        merged["baseUrl"] = base_url.strip()
+    return merged
+
+
 AgentRunner = Callable[[NodeExecContext, dict[str, Any], str], dict[str, Any]]
 AgentTaskRunner = Callable[[NodeExecContext, dict[str, Any], str], dict[str, Any]]
 PlanRunner = Callable[[NodeExecContext, str], dict[str, Any]]
@@ -295,6 +320,10 @@ def exec_bot_agent(context: NodeExecContext) -> dict[str, Any]:
         "maxSteps": max_steps,
         "instructions": str(context.config.get("instructions") or ""),
         "tools": _tools_list(context.config.get("tools")),
+        # The bot's own provider/model pin travels with the call so an
+        # `agent.bot` node behaves like that bot's scheduled runs. The runner
+        # merges it onto the graph run's resolved credentials.
+        "modelSettings": bot.get("modelSettings"),
     }, objective)
     if not isinstance(result, dict):
         raise ValueError("the agent runner returned no structured result")

@@ -1,7 +1,7 @@
 ---
 title: Capability Builder (generated recipes)
 status: Current
-last-verified: 2026-10-19
+last-verified: 2026-11-10
 ---
 
 # Capability Builder
@@ -102,6 +102,9 @@ active -> retired
 - An effectful capability stops at `handoff_required` and is owned by its
   existing surface; it never enters this draft/test/activate state machine.
 - A failed or missing contract test stays `unverified` and cannot activate.
+- A verifier crash is recorded as a failed check on the version (not raised and
+  lost), so the draft always has a `CapabilityRecord` and the next build
+  increments the version instead of silently reusing it.
 - Every version keeps its source/test digests and directory, so rollback
   restores a previously verified version.
 - Three recorded failures in a row auto-disable the version and emit
@@ -143,7 +146,7 @@ recurrences can therefore turn repeated capability failures into an inert
 candidate. Repeated runtime failures still auto-disable the version and emit
 `capability.disabled`; activation stays operator-gated.
 
-## Effectful hand-offs (tool / skill / UI / harness / plugin)
+## Effectful hand-offs (tool / skill / bot / UI / harness / plugin)
 
 A reusable recipe is built here. An **effectful** capability is not: it already
 has an owner with its own approval gate and its own proof. `capabilities/handoff.py`
@@ -155,15 +158,37 @@ durable request (`status: handoff_required`). Nothing is executed or activated.
 | `tool` with a matching kit | `scaffold_kit` | `scaffold_kit` | the declared files + the kit's checks/acceptance test |
 | `tool` without a kit | code agent | `create_goal` (`taskType: code`) | durable task acceptance + tests + review |
 | `skill` | `skill_create` | `skill_create` | a validated draft, then evaluation + promotion |
+| `bot` (persistent scheduled agent) | `bot_create` | `bot_create` | the stored bot + a proven `bot_run`; the handler's single-use `bot_schedule` approval |
 | `ui_widget` / `ui_page` | `ui_start_engineering` | `ui_start_engineering` | engineering-task criteria + catalog registration/page revision |
 | `harness_change` | code agent / RSL | `create_goal` | tests + review; authority files stay protected |
 | `plugin` | external lane | `capability_external` | credential/approval proposal, disabled install, operator enable |
 
+A **bot** is a durable scheduled agent, not a file artefact: it is never routed
+to `scaffold_kit`. Its trigger is a cron expression plus an explicit IANA
+timezone (the engine computes the wall clock in that zone; UTC is not a safe
+default across DST). The hand-off names the schedule as the missing input when
+the request did not supply one.
+
 The hand-off carries the arguments the owner needs (with missing inputs named),
 the acceptance lines, the evidence list and a checkpoint-resume note. `capability_build`
-returns it; the agent then calls the named tool. `capability_build` no longer
-requires the analysis sandbox for an effectful kind — only a pure recipe does.
-The target surface is the sole writer and the sole source of verification.
+returns it; the agent then calls the named tool **in the same turn**. Both
+`capability_request` and the hand-off response say so explicitly, because a
+hand-off describes the route — it is not a refusal and not the build.
+`capability_build` no longer requires the analysis sandbox for an effectful kind
+— only a pure recipe does. The target surface is the sole writer and the sole
+source of verification.
+
+**Multiple deliverables.** A request may name more than one thing ("turn this
+into a skill and then a bot"). `detect_kinds` returns every deliverable in the
+order the request names them; the first is the primary `kind`, and the
+assessment's `deliverables` list carries each one's `nextTool`. Nothing is
+dropped, and the agent is expected to call each surface. `classify()` remains
+the single-kind compatibility wrapper.
+
+**When the run is blocked.** A failure that has a permitted route is recorded as
+a `CapabilityGap` and offered to the user once; see
+[`no-dead-ends.md`](no-dead-ends.md). A safety denial is explained and never
+offered as a bypass.
 
 ## External lane (broker / API / MCP)
 

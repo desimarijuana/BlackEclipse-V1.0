@@ -10,6 +10,7 @@ from harness.agents import DRY_RUN_TOOLS, dry_run_tools
 from harness.graph_runtime.agent_nodes import (
     agent_result_payload,
     agent_run_identity,
+    merge_bot_model_override,
     set_agent_runner,
     set_plan_runner,
 )
@@ -335,6 +336,41 @@ def test_bot_node_runs_with_the_bots_own_agent(fake_runner):
     assert fake_runner["objective"] == "what moved?"
     assert fake_runner["config"]["agent"] == "gold-analyst"
     assert fake_runner["config"]["maxSteps"] == 3
+
+
+def test_bot_node_forwards_the_bots_own_model_pin(fake_runner):
+    set_bot_resolver(lambda _bot_id: _bot(
+        modelSettings={"provider": "openai", "model": "gpt-pinned"},
+    ))
+    try:
+        _exec_type("agent.bot", {"botId": "bot_1"}, {"query": "what moved?"})
+    finally:
+        set_bot_resolver(None)
+    assert fake_runner["config"]["modelSettings"] == {
+        "provider": "openai",
+        "model": "gpt-pinned",
+    }
+
+
+def test_bot_model_pin_merges_onto_the_graph_runs_credentials():
+    base = {
+        "provider": "ollama",
+        "model": "llama3.1",
+        "baseUrl": "http://127.0.0.1:11434",
+        "apiKey": "runtime-key",
+    }
+    merged = merge_bot_model_override(
+        base, {"provider": "openai", "model": "gpt-pinned"},
+    )
+    # Provider/model come from the bot; credentials/base URL stay with the run.
+    assert merged["provider"] == "openai"
+    assert merged["model"] == "gpt-pinned"
+    assert merged["baseUrl"] == "http://127.0.0.1:11434"
+    assert merged["apiKey"] == "runtime-key"
+    # No pin (or a malformed one) leaves the graph's settings untouched.
+    assert merge_bot_model_override(base, None) == base
+    assert merge_bot_model_override(base, {}) == base
+    assert merge_bot_model_override(base, {"model": "  "}) == base
 
 
 def test_bot_node_falls_back_to_the_bots_saved_objective(fake_runner):

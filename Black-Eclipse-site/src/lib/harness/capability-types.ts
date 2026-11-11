@@ -32,6 +32,7 @@ export interface CapabilityVerification {
 
 export interface CapabilityBuildView {
   requestId?: string;
+  gapId?: string;
   need?: string;
   capabilityId?: string;
   version?: string;
@@ -44,6 +45,9 @@ export interface CapabilityBuildView {
   activation?: string;
   requiresApproval?: boolean;
   nextTool?: string;
+  actionLabel?: string;
+  actionPrompt?: string;
+  offer?: boolean;
   inputs?: { name: string; kind: string; required?: boolean; description?: string }[];
   outputs?: { name: string; kind: string }[];
   tests?: string[];
@@ -140,6 +144,7 @@ export function coerceCapabilityBuild(value: unknown): CapabilityBuildView | und
     : undefined;
   return {
     requestId: str(value.requestId),
+    gapId: str(value.gapId),
     need,
     capabilityId,
     version: str(value.version),
@@ -152,6 +157,9 @@ export function coerceCapabilityBuild(value: unknown): CapabilityBuildView | und
     activation: str(value.activation),
     requiresApproval: bool(value.requiresApproval),
     nextTool: str(value.nextTool),
+    actionLabel: str(value.actionLabel),
+    actionPrompt: str(value.actionPrompt),
+    offer: bool(value.offer),
     inputs,
     outputs,
     tests: strings(value.tests),

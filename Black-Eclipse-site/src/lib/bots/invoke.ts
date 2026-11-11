@@ -16,6 +16,7 @@ import type { ChatMessage } from '@/lib/agent/types';
 import type { HarnessUiEvent } from '@/lib/agent/events';
 import type { AutomationView } from '@/lib/harness/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
+import { botModelPin } from '@/lib/bots/state';
 import { getGraphRun, isTerminal, startWorkflowRun } from '@/lib/graph-studio/execution-client';
 
 /** Prior bot-chat turns. `error` marks a failed turn, excluded from context. */
@@ -186,10 +187,17 @@ export async function runBotTurn(args: RunBotTurnArgs): Promise<string> {
   if (bot.action.type === 'execute_workflow') {
     return runWorkflowTurn({ bot, text, signal, onDelta, extra: { context: bot.action.workflowInput ?? {} } });
   }
+  // The bot's OWN brain and model pin answer the turn, exactly like its
+  // scheduled runs. The caller's model (e.g. the main-chat composer) wins when
+  // present; in that case the bot's provider pin is dropped so a model is never
+  // paired with the wrong provider.
+  const pin = botModelPin(bot);
   return getAgentProvider().chat(buildBotMessages(bot, text, prior), undefined, {
+    agentId: bot.action.agentId || 'eclipse-agent',
     chatId: botChatId(bot.id),
     memoryScope: 'conversation',
-    model: model || undefined,
+    model: model || pin.model,
+    ...(model ? {} : { modelProvider: pin.provider }),
     signal,
     onDelta,
     onEvent,
@@ -217,10 +225,13 @@ export async function runGroupMemberTurn(args: RunGroupMemberTurnArgs): Promise<
   if (bot.action.type === 'execute_workflow') {
     return runWorkflowTurn({ bot, text, signal, onDelta, extra: { group: group.name } });
   }
+  const pin = botModelPin(bot);
   return getAgentProvider().chat(buildGroupMemberMessages(group, bot, text, prior), undefined, {
+    agentId: bot.action.agentId || 'eclipse-agent',
     chatId: groupMemberChatId(group.id, bot.id),
     memoryScope: 'conversation',
-    model: model || undefined,
+    model: model || pin.model,
+    ...(model ? {} : { modelProvider: pin.provider }),
     signal,
     onDelta,
     onEvent,

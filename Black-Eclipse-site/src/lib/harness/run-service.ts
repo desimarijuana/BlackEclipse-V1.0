@@ -44,6 +44,9 @@ export interface StartRunOptions {
   command?: string;
   /** A model id picked for this turn (composer), overriding the saved model. */
   model?: string;
+  /** Provider paired with `model` when a bot pins both. Credentials still come
+   *  from the runtime's configured provider. */
+  modelProvider?: string;
   /**
    * A reasoning-effort ("model intelligence") picked for this turn (composer),
    * overriding the saved default. Absent = the saved default, then the runtime's
@@ -86,6 +89,8 @@ export async function chatWithAgent(
   quantMode?: "on" | "off",
   choicesMode?: "on" | "off",
   planMode?: "on" | "off",
+  agentId?: string,
+  modelProvider?: string,
 ): Promise<{
   output: string;
   runId: string;
@@ -140,6 +145,10 @@ export async function chatWithAgent(
     // plan and wait for approval before starting the work; guidance only.
     ...(planMode ? { planMode } : {}),
   };
+  // A bot chat passes its own brain; ordinary chat keeps the default. Resolving
+  // here (before startRun) keeps the front door as the validator: an unknown or
+  // archived preset fails honestly instead of silently answering as Eclipse.
+  const agent = await getAgentPreset(agentId?.trim() || "eclipse-agent");
   const result = await startRun({
     input: {
       query: effectiveQuery,
@@ -147,9 +156,10 @@ export async function chatWithAgent(
       documents: documents.length ? documents : undefined,
       ...(Object.keys(context).length ? { context } : {}),
     },
-    agentId: "eclipse-agent",
+    agentId: agent.id,
     runId,
     model,
+    modelProvider,
     reasoningEffort,
     sessionId,
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
@@ -199,9 +209,18 @@ export async function resolveRunModelSettings(model?: string, role?: "code") {
   return resolveModelSettings(model, role);
 }
 
-async function resolveModelSettings(modelOverride?: string, role?: "code") {
+async function resolveModelSettings(
+  modelOverride?: string,
+  role?: "code",
+  providerOverride?: string,
+) {
   const cfg = await getLLMConfig();
-  const provider = resolveLLMProviderId(cfg);
+  // A bot may pin provider + model. Credentials/base URL still come from the
+  // operator's configured provider, exactly like the automation dispatcher, so
+  // a cross-provider pin without a key fails honestly instead of leaking a
+  // credential to the wrong endpoint.
+  const pinsProvider = Boolean(providerOverride?.trim());
+  const provider = pinsProvider ? providerOverride!.trim() : resolveLLMProviderId(cfg);
   // An explicit composer pick wins. Otherwise a build run uses the operator's
   // coding model when one is configured; everything else keeps the chat model.
   const chosen = modelOverride?.trim()
@@ -221,7 +240,7 @@ async function resolveModelSettings(modelOverride?: string, role?: "code") {
     // A declared context window belongs to (provider, model); if the model was
     // overridden the saved window may not apply, so drop it and let the runtime
     // resolve the new model's window from its catalog.
-    ...(cfg.contextWindow && !chosen ? { contextWindow: cfg.contextWindow } : {}),
+    ...(cfg.contextWindow && !chosen && !pinsProvider ? { contextWindow: cfg.contextWindow } : {}),
   };
 }
 
@@ -285,6 +304,8 @@ export async function startChatRun(
   quantMode?: "on" | "off",
   choicesMode?: "on" | "off",
   planMode?: "on" | "off",
+  agentId?: string,
+  modelProvider?: string,
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -320,7 +341,9 @@ export async function startChatRun(
     documents: documents.length ? documents : undefined,
     ...(Object.keys(chatContext).length ? { context: chatContext } : {}),
   });
-  const agent = await getAgentPreset("eclipse-agent");
+  // A bot chat passes its own brain (its preset's prompt + tools); ordinary
+  // chat omits it and keeps the default Eclipse Agent.
+  const agent = await getAgentPreset(agentId?.trim() || "eclipse-agent");
   const cfg = await getLLMConfig();
   // User routing preference (spec §44): merged into the run's context, where the
   // runtime's ModelRouter treats it as an override over automatic selection.
@@ -366,7 +389,9 @@ export async function startChatRun(
     input.context = { ...(input.context ?? {}), appControl: true };
   }
   // Phase 22 / S6: a build turn uses the operator's coding model when set.
-  const modelSettings = await resolveModelSettings(model, autonomy ? "code" : undefined);
+  const modelSettings = await resolveModelSettings(
+    model, autonomy ? "code" : undefined, modelProvider,
+  );
   if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
     throw new HarnessError(
       "PROVIDER_NOT_CONFIGURED",
@@ -412,7 +437,7 @@ export async function startRun(
   const agent = await getAgentPreset(options.agentId);
   const cfg = await getLLMConfig();
   const modelSettings = await resolveModelSettings(
-    options.model, options.autonomy ? "code" : undefined,
+    options.model, options.autonomy ? "code" : undefined, options.modelProvider,
   );
   const policyContext = routingPolicyContext(cfg);
   if (Object.keys(policyContext).length) {

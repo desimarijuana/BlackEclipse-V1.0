@@ -195,13 +195,16 @@ def _gap_block(events: list[Any]) -> Optional[dict[str, Any]]:
             continue
         etype = str(event.get("type") or "")
         data = _event_data(event)
-        if etype == "ui.capability_gap" or (
+        if etype in ("ui.capability_gap", "capability.offer") or (
             data.get("capabilityGap") and str(data.get("code") or "") == "UI_CAPABILITY_GAP"
         ):
             gap = {
                 "code": str(data.get("code") or "UI_CAPABILITY_GAP")[:120],
-                "capability": str(data.get("capability") or "")[:300],
-                "mode": str(data.get("mode") or "")[:40],
+                "capability": str(
+                    data.get("need") or data.get("capability") or ""
+                )[:300],
+                "mode": str(data.get("kind") or data.get("mode") or "")[:40],
+                "offer": bool(data.get("offer")) or etype == "capability.offer",
             }
         elif etype == "recovery.decided":
             incident = str(data.get("incidentId") or "").strip()

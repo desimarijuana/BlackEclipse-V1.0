@@ -47,6 +47,7 @@ def install_graph_layer(service: Any) -> bool:
         from .agent_nodes import (  # noqa: PLC0415
             agent_result_payload,
             agent_run_identity,
+            merge_bot_model_override,
             set_agent_runner,
             set_agent_task_runner,
             set_bot_resolver,
@@ -159,7 +160,9 @@ def install_graph_layer(service: Any) -> bool:
                 runId=agent_run_id,
                 input=RunInput(query=objective),
                 agent=agent,
-                modelSettings=ModelSettings(**context.model_settings),
+                modelSettings=ModelSettings(**merge_bot_model_override(
+                    context.model_settings, config.get("modelSettings"),
+                )),
                 userId=context.user_id,
                 callbackBaseUrl=callback,
                 callbackToken=context.callback_token or os.environ.get("CRON_SECRET"),
@@ -601,6 +604,12 @@ def install_graph_layer(service: Any) -> bool:
                 "kind": "workflow" if action.type == "execute_workflow" else "agent",
                 "agentId": action.agent_id or "eclipse-agent",
                 "objective": action.objective or definition.description or "",
+                # The bot's own model pin (same shape the dispatcher reads).
+                "modelSettings": (
+                    action.config.get("modelSettings")
+                    if isinstance(action.config.get("modelSettings"), dict)
+                    else None
+                ),
             }
 
         set_bot_resolver(_bot_resolver)

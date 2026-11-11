@@ -141,6 +141,15 @@ export async function POST(request: Request) {
   // Only the one known value is honoured; anything else is ignored.
   const memoryScope = body.memoryScope === "conversation" ? ("conversation" as const) : undefined;
   const model = typeof body.model === "string" ? body.model.trim() : "";
+  // A bot chat passes its own brain + pinned provider; ordinary chat omits both.
+  const rawAgentId = body.agentId;
+  const agentId = typeof rawAgentId === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(rawAgentId.trim())
+    ? rawAgentId.trim()
+    : undefined;
+  const rawModelProvider = body.modelProvider;
+  const modelProvider = typeof rawModelProvider === "string" && /^[A-Za-z0-9._:-]{1,80}$/.test(rawModelProvider.trim())
+    ? rawModelProvider.trim()
+    : undefined;
   const rawEffort = body.reasoningEffort;
   const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
   // The composer's Auto/Quant/Off preference. Only the explicit values are
@@ -199,7 +208,7 @@ export async function POST(request: Request) {
       history,
       chatId ? await readStoredCompaction(chatId) : null,
     );
-    id = await startChatRun(query, effectiveHistory, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
+    id = await startChatRun(query, effectiveHistory, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

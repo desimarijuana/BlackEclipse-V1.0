@@ -81,6 +81,26 @@ describe('CapabilityCard', () => {
     expect(html).toContain('Not now');
   });
 
+  it('renders the runtime offer as one primary action', () => {
+    const html = renderToStaticMarkup(
+      <CapabilityCard
+        view={{
+          gapId: 'gap_1',
+          need: 'turn this into a bot',
+          status: 'handoff_required',
+          surface: 'bot_create',
+          nextTool: 'bot_create',
+          actionLabel: 'Create the bot',
+          actionPrompt: 'Create the bot for: turn this into a bot',
+          offer: true,
+        }}
+        onFollowup={() => {}}
+      />,
+    );
+    expect(html).toContain('Create the bot');
+    expect(html).not.toContain('Continue');
+  });
+
   it('hides actions when there is no follow-up sink', () => {
     const html = renderToStaticMarkup(
       <CapabilityCard view={{ need: 'Compute the Ulcer Index', status: 'gap' }} />,

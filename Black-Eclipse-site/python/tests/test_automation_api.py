@@ -91,6 +91,11 @@ def test_create_validate_dry_run_and_history(client):
 
     # Pause does not delete; resume restores.
     assert client.post(f"/automations/{automation_id}/pause").json()["automation"]["state"] == "paused"
+    # A paused automation can still be run MANUALLY (pause stops the scheduler,
+    # not an explicit operator request).
+    paused_run = client.post(f"/automations/{automation_id}/run")
+    assert paused_run.status_code == 200, paused_run.text
+    assert paused_run.json()["executionId"]
     assert client.post(f"/automations/{automation_id}/resume").json()["automation"]["state"] == "active"
 
     assert client.get(f"/automations/{automation_id}/history").json()["success"] is True

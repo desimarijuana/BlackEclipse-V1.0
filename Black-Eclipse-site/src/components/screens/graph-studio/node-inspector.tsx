@@ -628,8 +628,8 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                     )}
                     <p className="text-[10px] text-muted-foreground">
                       Runs one bounded turn as this bot&apos;s agent. It never fires the bot&apos;s
-                      schedule, and the bot&apos;s model override is ignored here — this run&apos;s
-                      model settings win.
+                      schedule. The bot&apos;s provider/model pin is applied; credentials come from
+                      this run&apos;s in-memory settings.
                     </p>
                   </div>
                 )}

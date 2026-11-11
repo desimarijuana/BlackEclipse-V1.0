@@ -9,8 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Copy, Loader2, Pause, Play,
-  RefreshCw, Settings, SquarePen, ThumbsDown, ThumbsUp, Trash2, Users,
+  ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Copy, FileText, Loader2, Pause, Play,
+  Plus, RefreshCw, Settings, SquarePen, ThumbsDown, ThumbsUp, Trash2, Users, X,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Markdown } from '@/components/chat/markdown';
 import { ParallelAgentsPanel } from '@/components/chat/parallel-agents-panel';
+import { ApprovalCard } from '@/components/chat/approval-card';
+import { ClarificationCard } from '@/components/chat/clarification-card';
 import type { HarnessUiEvent } from '@/lib/agent/events';
 import type { DelegationView } from '@/lib/agent/response-model';
 import {
@@ -25,7 +27,11 @@ import {
   dropProvisionalDelegation,
   startProvisionalDelegation,
 } from '@/lib/agent/delegation-reducer';
-import { runGroupMemberTurn } from '@/lib/bots/invoke';
+import { groupMemberChatId, runGroupMemberTurn } from '@/lib/bots/invoke';
+import {
+  deleteSessionFile, fetchSession, uploadSessionFile,
+} from '@/lib/chat/session-client';
+import type { SessionFile } from '@/lib/chat/session-types';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
 import { mentionedTargets } from '@/lib/bots/mentions';
@@ -40,7 +46,7 @@ import {
   useBotGroupsStore, useHydrateBotGroups, type BotGroup, type GroupMessage,
 } from '@/lib/bots/groups-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
-import { botModelOverride, formatDateTime } from '@/lib/bots/state';
+import { formatDateTime } from '@/lib/bots/state';
 import {
   pauseAutomation, resumeAutomation, runAutomationNow,
   type AutomationView,
@@ -94,6 +100,15 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef<AbortController[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Anchor for the approval / clarification cards (they portal above it).
+  const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
+  // Documents attached to the room. Each member answers in its OWN
+  // `group-<id>-<bot>` session, so an upload is mirrored into every member's
+  // context folder; the shared room transcript stays the single visible thread.
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const [contextFiles, setContextFiles] = useState<SessionFile[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   // Execution ids already reflected in the room (`botId:executionId`).
   const seenRunsRef = useRef<Set<string> | null>(null);
   const botsRef = useRef(bots);
@@ -132,6 +147,78 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
   );
 
   const groupSpec = useMemo(() => ghostSpecFromId(group.id), [group.id]);
+  // The latest member turn blocked on a decision, if any.
+  const pendingMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].pendingApproval || messages[i].pendingClarification) return messages[i];
+    }
+    return null;
+  }, [messages]);
+  const pendingApproval = pendingMessage?.pendingApproval;
+  const pendingClarification = pendingMessage?.pendingClarification;
+
+  // Every member has its own context folder; they should hold the same set.
+  const memberChatIds = useMemo(
+    () => members.map((m) => groupMemberChatId(group.id, m.id)),
+    [members, group.id],
+  );
+  const firstMemberChatId = memberChatIds[0];
+
+  useEffect(() => {
+    if (!firstMemberChatId) {
+      setContextFiles([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchSession(firstMemberChatId)
+      .then((session) => {
+        if (!cancelled) setContextFiles(session.files.filter((f) => f.kind === 'context'));
+      })
+      .catch(() => { /* no session yet */ });
+    return () => { cancelled = true; };
+  }, [firstMemberChatId]);
+
+  const refreshAttachments = useCallback(async () => {
+    if (!firstMemberChatId) return;
+    try {
+      const session = await fetchSession(firstMemberChatId);
+      setContextFiles(session.files.filter((f) => f.kind === 'context'));
+    } catch {
+      /* keep the current list */
+    }
+  }, [firstMemberChatId]);
+
+  const attachFiles = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0 || memberChatIds.length === 0) return;
+    setAttachBusy(true);
+    setAttachError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        for (const chatId of memberChatIds) {
+          await uploadSessionFile(chatId, 'context', file.name, bytes);
+        }
+      }
+      await refreshAttachments();
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setAttachBusy(false);
+      if (attachInputRef.current) attachInputRef.current.value = '';
+    }
+  }, [memberChatIds, refreshAttachments]);
+
+  const removeAttachment = useCallback(async (name: string) => {
+    setAttachError(null);
+    try {
+      for (const chatId of memberChatIds) {
+        await deleteSessionFile(chatId, 'context', name);
+      }
+      await refreshAttachments();
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Could not remove the attachment');
+    }
+  }, [memberChatIds, refreshAttachments]);
 
   // The room's face reflects the busiest member: talking beats working beats
   // thinking beats a resting beat. Idle when nobody is doing anything.
@@ -332,10 +419,19 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
           bot,
           text,
           prior,
-          model: botModelOverride(bot),
           signal: controller.signal,
           onEvent: (event) => {
             applyDelegation(event);
+            // A blocked member turn is actionable in the room, just like main chat.
+            if (event.kind === 'approval_request') {
+              updateMessage(group.id, replyId, { pendingApproval: event.approval }, false);
+            } else if (event.kind === 'approval_resolved') {
+              updateMessage(group.id, replyId, { pendingApproval: undefined }, false);
+            } else if (event.kind === 'clarification_request') {
+              updateMessage(group.id, replyId, { pendingClarification: event.clarification }, false);
+            } else if (event.kind === 'clarification_answered') {
+              updateMessage(group.id, replyId, { pendingClarification: undefined }, false);
+            }
             const next = moodFromEvent(event);
             if (next) setMemberMood(bot.id, next);
           },
@@ -349,16 +445,25 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
         updateMessage(
           group.id,
           replyId,
-          final ? { content: final } : { content: `${bot.name} did not return a reply.`, error: true },
+          final
+            ? { content: final, pendingApproval: undefined, pendingClarification: undefined }
+            : { content: `${bot.name} did not return a reply.`, error: true, pendingApproval: undefined, pendingClarification: undefined },
         );
         setMemberMood(bot.id, final ? 'happy' : 'sad');
         restMember(bot.id);
       } catch (err) {
         if (controller.signal.aborted) {
-          updateMessage(group.id, replyId, streamed ? { content: streamed } : { content: '(stopped)', error: true });
+          updateMessage(group.id, replyId, {
+            ...(streamed ? { content: streamed } : { content: '(stopped)', error: true }),
+            pendingApproval: undefined,
+            pendingClarification: undefined,
+          });
         } else {
           updateMessage(group.id, replyId, {
-            content: err instanceof Error ? err.message : 'network error', error: true,
+            content: err instanceof Error ? err.message : 'network error',
+            error: true,
+            pendingApproval: undefined,
+            pendingClarification: undefined,
           });
         }
         setMemberMood(bot.id, 'sad');
@@ -370,7 +475,7 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || sending || members.length === 0) return;
+    if (!text || sending || attachBusy || members.length === 0) return;
     const prior = useBotGroupsStore.getState().byGroup[group.id] ?? [];
     append(group.id, { id: newId(), role: 'user', content: text, at: new Date().toISOString() });
     setInput('');
@@ -398,12 +503,54 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
       controllersRef.current = [];
       setSending(false);
     }
-  }, [input, sending, members, audience, append, group.id, runMember]);
+  }, [input, sending, attachBusy, members, audience, append, group.id, runMember]);
 
   /** Stop every in-flight member reply, keeping whatever streamed so far. */
   const stop = useCallback(() => {
     controllersRef.current.forEach((c) => c.abort());
   }, []);
+
+  /** Answer a blocking approval raised by a member's turn. */
+  const decideApproval = useCallback(async (approve: boolean, remember?: boolean) => {
+    const target = pendingMessage;
+    const approval = target?.pendingApproval;
+    if (!target || !approval) return;
+    updateMessage(group.id, target.id, { pendingApproval: undefined }, false);
+    try {
+      const res = await fetch(
+        `/api/harness/mcp/approvals/${encodeURIComponent(approval.id)}/decide`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approve, remember: approve && Boolean(remember) }),
+        },
+      );
+      if (!res.ok) throw new Error(`decision failed (${res.status})`);
+    } catch {
+      updateMessage(group.id, target.id, { pendingApproval: approval }, false);
+    }
+  }, [group.id, pendingMessage, updateMessage]);
+
+  /** Answer a paused `clarify` question from a member's turn. */
+  const answerClarification = useCallback(async (answer: string) => {
+    const target = pendingMessage;
+    const clarification = target?.pendingClarification;
+    if (!target || !clarification) return;
+    updateMessage(group.id, target.id, { pendingClarification: undefined }, false);
+    try {
+      const res = await fetch(
+        `/api/harness/mcp/approvals/${encodeURIComponent(clarification.id)}/answer`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answer }),
+        },
+      );
+      if (!res.ok) throw new Error(`answer failed (${res.status})`);
+    } catch {
+      updateMessage(group.id, target.id, { pendingClarification: clarification }, false);
+    }
+  }, [group.id, pendingMessage, updateMessage]);
 
   // @mention autocomplete: detect a trailing "@word" token as the user types.
   const onInputChange = useCallback((v: string) => {
@@ -627,7 +774,52 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
       </div>
 
       {/* Composer */}
-      <div className="border-t border-border/10 p-3">
+      <div ref={setComposerEl} className="border-t border-border/10 p-3">
+        {pendingApproval && (
+          <ApprovalCard
+            approval={pendingApproval}
+            anchor={composerEl}
+            onDecide={(approve, remember) => { void decideApproval(approve, remember); }}
+          />
+        )}
+        {pendingClarification && (
+          <ClarificationCard
+            clarification={pendingClarification}
+            anchor={composerEl}
+            onAnswer={(value) => { void answerClarification(value); }}
+          />
+        )}
+        <input
+          ref={attachInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => void attachFiles(e.target.files)}
+        />
+        {(contextFiles.length > 0 || attachError) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {contextFiles.map((file) => (
+              <span
+                key={file.name}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-foreground/80"
+                title={file.name}
+              >
+                <FileText size={11} className="shrink-0 text-primary/80" />
+                <span className="max-w-[12rem] truncate">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => void removeAttachment(file.name)}
+                  className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            {attachBusy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
+            {attachError && <span className="text-[10px] text-rose-300">{attachError}</span>}
+          </div>
+        )}
         <div className="mb-2 flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -692,12 +884,24 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
             aria-label={t('bots.groups.composer')}
             className="max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none dark:bg-input/30"
           />
+          {!sending && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => attachInputRef.current?.click()}
+              disabled={attachBusy}
+              title="Attach a document"
+              aria-label="Attach a document"
+            >
+              <Plus size={15} />
+            </Button>
+          )}
           {sending ? (
             <Button size="icon" variant="outline" onClick={stop} title={t('bots.groups.stop')} aria-label={t('bots.groups.stop')}>
               <Pause size={15} />
             </Button>
           ) : (
-            <Button size="icon" onClick={() => void send()} disabled={!input.trim()} aria-label={t('bots.groups.composer')}>
+            <Button size="icon" onClick={() => void send()} disabled={!input.trim() || attachBusy} aria-label={t('bots.groups.composer')}>
               <ArrowUp size={15} />
             </Button>
           )}

@@ -1,7 +1,7 @@
 {
-  "digest": "8366b5efb5abe558",
+  "digest": "3c400e12c6d477b4",
   "manifestVersion": "1",
-  "toolCount": 1065,
+  "toolCount": 1082,
   "tools": [
     {
       "deprecated": false,
@@ -5455,7 +5455,7 @@
     },
     {
       "deprecated": false,
-      "description": "Build a reusable analysis recipe from a capability request: write a versioned manifest, run its contract test in the sandbox, and auto-activate a pure workspace recipe only when the test passes. An effectful kind (tool, skill, UI, harness, plugin) instead returns a typed hand-off for its existing owner; it never builds or activates it.",
+      "description": "Build a reusable analysis recipe from a capability request: write a versioned manifest, run its contract test in the sandbox, and auto-activate a pure workspace recipe only when the test passes. An effectful kind (tool, skill, bot, UI, harness, plugin) instead returns a typed hand-off for its existing owner; it never builds or activates it. A hand-off names the exact next tool the agent must call.",
       "effect": null,
       "inputSchema": {
         "additionalProperties": false,
@@ -5590,7 +5590,7 @@
     },
     {
       "deprecated": false,
-      "description": "Check whether Eclipse already has a capability for a need. If not, decide whether it is a one-off computation, a reusable recipe/template, or an effectful capability with an existing owner, and return the cheapest safe route. Read-only.",
+      "description": "Check whether Eclipse already has a capability for a need. If not, decide whether it is a one-off computation, a reusable recipe/template, or an effectful capability with an existing owner (including a persistent bot/scheduled agent), and return the cheapest safe route. A request naming several deliverables returns them all. Read-only.",
       "effect": null,
       "inputSchema": {
         "additionalProperties": false,
@@ -5663,6 +5663,7 @@
               "report_template",
               "tool",
               "skill",
+              "bot",
               "ui_widget",
               "ui_page",
               "plugin",
@@ -20250,7 +20251,9 @@
               "ml_model",
               "ml_dataset",
               "feature",
-              "factor"
+              "factor",
+              "method",
+              "dossier"
             ],
             "type": "string"
           },
@@ -23516,6 +23519,112 @@
     },
     {
       "deprecated": false,
+      "description": "Attach a Python `run(rows, params)` implementation to a method. The code is tested in an isolated worker before it is saved. A failed test attaches nothing.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "methodId": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "series": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId",
+          "source"
+        ],
+        "type": "object"
+      },
+      "name": "quant_attach_implementation",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Build the durable Quant Research Dossier (literature, equations, comparison, reproduction, validation, limitations) and register it in the Artifact Center.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "constraints": {
+            "type": "object"
+          },
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "literatureIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "reproductionIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "researchId": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "quant_build_dossier",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Report which quant-engine capabilities are available/partial/unsupported.",
       "effect": null,
       "inputSchema": {
@@ -23523,6 +23632,207 @@
         "type": "object"
       },
       "name": "quant_capabilities",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Return one method specification with its relationships, papers, implementations and reproductions.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "methodId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId"
+        ],
+        "type": "object"
+      },
+      "name": "quant_get_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List saved Quant Research Dossiers.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "quant_list_dossiers",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the quantitative method knowledge base (seeded catalog + registered methods), filterable by family and lifecycle.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "family": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "quant_list_methods",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Register a validated method specification. A 'validated' lifecycle requires a reproduction whose validation passed.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "draft": {
+            "type": "object"
+          },
+          "lifecycleStatus": {
+            "type": "string"
+          },
+          "reproductionIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "quant_register_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run a registered method on a dataset (or symbol) and record the observed estimates. Reproduction is separate from a trading adaptation.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "datasetId": {
+            "type": "string"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "publishedBenchmark": {
+            "type": "object"
+          },
+          "series": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "methodId"
+        ],
+        "type": "object"
+      },
+      "name": "quant_reproduce_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Validate and persist a formal method specification. An invalid specification is rejected, never stored.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "draft": {
+            "type": "object"
+          },
+          "persist": {
+            "type": "boolean"
+          },
+          "spec": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "name": "quant_specify_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run the validation checks that are possible for a reproduction and record the result. A pass is not a profit claim.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "reproductionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reproductionId"
+        ],
+        "type": "object"
+      },
+      "name": "quant_validate_method",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -24283,6 +24593,51 @@
     },
     {
       "deprecated": false,
+      "description": "Compare candidate methods against the stated objective, data, instrument and frequency. Deterministic and explained; never a profit probability.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "availableData": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "complexityMax": {
+            "type": "integer"
+          },
+          "constraints": {
+            "type": "object"
+          },
+          "instrument": {
+            "type": "string"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "timeframe": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "research_compare_methods",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Resume a partial/cancelled research run from its persisted state.",
       "effect": null,
       "inputSchema": {
@@ -24297,6 +24652,126 @@
         "type": "object"
       },
       "name": "research_continue",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Extract a formal method specification from a paper document, with section and page provenance for every equation. Missing fields are named, never guessed.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "literatureId": {
+            "type": "string"
+          },
+          "methodHint": {
+            "type": "string"
+          },
+          "persist": {
+            "type": "boolean"
+          },
+          "proposal": {
+            "description": "Model proposal. Every field needs a verbatim quote in `quotes`; an equation needs `source.quote`. A field without a quote is rejected.",
+            "type": "object"
+          },
+          "structured": {
+            "type": "object"
+          },
+          "text": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "literatureId"
+        ],
+        "type": "object"
+      },
+      "name": "research_extract_method",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Return the citation neighbourhood recorded for a paper. Missing metadata is reported as absent, never invented.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "depth": {
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "references",
+              "citing",
+              "both"
+            ],
+            "type": "string"
+          },
+          "literatureId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "literatureId"
+        ],
+        "type": "object"
+      },
+      "name": "research_get_citations",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Return the evidence chain for a method or paper: links, relationships, reproductions and implementations.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "literatureId": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "research_get_evidence",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read one literature record and, optionally, fetch its accessible text.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "literatureId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "literatureId"
+        ],
+        "type": "object"
+      },
+      "name": "research_get_paper",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -24339,6 +24814,27 @@
         "type": "object"
       },
       "name": "research_journal",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Show the open, horizon-wide method matrix: which methods exist for intraday, swing, position and long-term work. The seeded catalog is a start; registered and literature-derived methods extend it.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "family": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "research_method_matrix",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -24544,6 +25040,51 @@
     },
     {
       "deprecated": false,
+      "description": "Search academic literature through the existing scholarly connectors. Plans a topic query set, deduplicates DOI/arXiv results and stores pointers. A result is a pointer, never evidence.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "instrument": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "maxQueries": {
+            "type": "integer"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "researchId": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timeframe": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "research_search_papers",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Start a research run in the BACKGROUND and return its id immediately; poll with research_status and resume with research_continue. Use for long runs that should not block the turn.",
       "effect": null,
       "inputSchema": {
@@ -24639,6 +25180,66 @@
         "type": "object"
       },
       "name": "research_update",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Build deterministic research figures from real inputs: method coverage, suitability, price and rolling volatility, return distribution, and reproduction fit. Returns chart blocks to embed verbatim.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "availableData": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "end": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "string"
+          },
+          "instrument": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "loadData": {
+            "type": "boolean"
+          },
+          "methodIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "reproductionId": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "research_visualize",
       "permission": "read",
       "replacement": null,
       "risk": "low",

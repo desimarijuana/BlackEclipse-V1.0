@@ -52,6 +52,7 @@ export const capabilityCard = {
   'capabilityCard.surface.existing_capability': 'Existing capability',
   'capabilityCard.surface.scaffold_kit': 'Tool kit',
   'capabilityCard.surface.skill_create': 'Skill',
+  'capabilityCard.surface.bot_create': 'Bot',
   'capabilityCard.surface.ui_start_engineering': 'UI engineering',
   'capabilityCard.surface.plugin_or_mcp': 'Plugin or MCP',
   'capabilityCard.surface.external_adapter': 'External adapter',

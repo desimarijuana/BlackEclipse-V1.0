@@ -47,7 +47,7 @@ export const en = {
   'bots.cancel': 'Cancel',
   'bots.runNow': 'Run now',
   'bots.runQueued': 'Run queued — follow its progress in Details → Run history.', 'bots.runFailed': 'The run could not be queued.',
-  'bots.runNowBlocked': 'Activate the bot to run it now.',
+  'bots.runNowBlocked': 'Enable the bot to run it now.',
   'bots.pause': 'Pause',
   'bots.resume': 'Resume',
   'bots.enable': 'Enable',

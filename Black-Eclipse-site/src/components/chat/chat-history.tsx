@@ -24,6 +24,7 @@ import { MemoryActionPanel } from './memory-action-panel';
 import { CanvasInlineNotice } from '@/components/screens/canvas/canvas-banner';
 
 import { AcquisitionPanel } from './acquisition-panel';
+import { CapabilityCard } from './capability-card';
 import { MessageRail } from './message-rail';
 import { MessageAttachments } from './message-attachments';
 import { TtsButton } from './tts-button';
@@ -602,6 +603,13 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   ) : null}
                   {msg.acquisition ? (
                     <AcquisitionPanel manifest={msg.acquisition} compact={compact} />
+                  ) : null}
+                  {msg.capabilityBuild ? (
+                    <CapabilityCard
+                      view={msg.capabilityBuild}
+                      compact={compact}
+                      onFollowup={onFollowup}
+                    />
                   ) : null}
                   {msg.images ? (
                     <ImageGalleryPanel images={msg.images} compact={compact} />

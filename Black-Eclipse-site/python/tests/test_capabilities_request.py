@@ -50,6 +50,58 @@ def test_effectful_kinds_name_their_existing_owner():
     assert harness.next_tool == "create_goal"
 
 
+def test_a_bot_request_routes_to_the_persistent_bot_surface():
+    """A scheduled agent is not a one-off and not a scaffold_kit build."""
+    assessment = assess(
+        "turn this into a bot that runs every morning at 9am",
+        tool_registry=ToolRegistry(),
+    )
+    assert assessment.status == "gap"
+    assert assessment.kind == "bot"
+    assert assessment.surface == "bot_create"
+    assert assessment.next_tool == "bot_create"
+    assert assessment.requires_approval is True
+    assert any("timezone" in item.lower() for item in assessment.missing)
+    assert classify("set up a bot every morning") == "bot"
+
+
+def test_a_satisfied_tool_match_names_the_tool_to_call():
+    """An existing tool is a route, not a shrug: nextTool must be callable."""
+    from harness.tools import ToolDefinition
+
+    reg = ToolRegistry()
+
+    async def _noop(_args, _ctx):
+        return "", None
+
+    reg.register(ToolDefinition(
+        name="bot_create",
+        description="Create a persistent scheduled bot",
+        input_schema={"type": "object", "properties": {}},
+        handler=_noop,
+        permission="read",
+    ))
+    assessment = assess("create a bot", tool_registry=reg)
+    assert assessment.status == "satisfied"
+    assert assessment.kind == "tool"
+    assert assessment.resolved_by == "bot_create"
+    assert assessment.next_tool == "bot_create"
+
+
+def test_a_multi_deliverable_request_keeps_every_deliverable():
+    """'a skill and then a bot' must not silently drop either one."""
+    assessment = assess(
+        "turn our recent task into a skill and then a bot",
+        tool_registry=ToolRegistry(),
+    )
+    assert assessment.status == "gap"
+    assert assessment.kind == "skill"
+    assert [item["kind"] for item in assessment.deliverables] == ["skill", "bot"]
+    assert [item["nextTool"] for item in assessment.deliverables] == [
+        "skill_create", "bot_create",
+    ]
+
+
 def test_a_widget_request_routes_to_ui_engineering():
     assessment = assess("make a widget for swap spreads", tool_registry=ToolRegistry())
     assert assessment.status == "gap"

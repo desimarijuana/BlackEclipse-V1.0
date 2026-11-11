@@ -150,6 +150,10 @@ class Dispatcher:
             conversationId=f"bot-{definition.id}",
             modelSettings=self._model_settings_for(definition),
             autonomy=action.autonomy,
+            # Same read-only sandbox an interactive chat turn gets, so a bot can
+            # COMPUTE a derived figure (`analysis_run`) instead of only narrating.
+            # Still gated by `analysis.execute`; this grants no new capability.
+            analysisEnabled=True,
             workspace=RunWorkspace(root=action.workspace_root) if action.workspace_root else None,
             parentRunId=action.config.get("parentRunId"),
             callbackBaseUrl=_callback_url(),

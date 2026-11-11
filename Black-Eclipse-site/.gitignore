@@ -113,6 +113,11 @@ python/csess_*/
 # Rust video worker (fframes): build output and render artifacts are runtime
 # data, never committed. The crate source and its Cargo.lock ARE tracked.
 /rust/**/target/
+# Native shell build artifacts (docs/desktop-app-plan.md).
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/dist/
+/.next-desktop/
 /rust/**/out/
 /rust/**/frames/
 /rust/**/strip.png

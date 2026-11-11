@@ -343,7 +343,10 @@ class AutomationEngine:
         self, definition: AutomationDefinition, *, trigger_type: str, trigger_ref: Optional[str],
         scheduled_for: str,
     ) -> Optional[str]:
-        if definition.state != "active":
+        # `active` is the only state a scheduled/event/fabric launch may use. A
+        # MANUAL launch may also run a paused automation (see `fire`).
+        manual_paused = definition.state == "paused" and trigger_type == "manual"
+        if definition.state != "active" and not manual_paused:
             return None
         # Scheduler → `schedule.triggered` → Event Bus, so a timed fire is an
         # observable event rather than a tightly-coupled Scheduler→Agent jump.
@@ -432,10 +435,19 @@ class AutomationEngine:
 
     async def fire(
         self, automation_id: str, *, trigger_type: str = "manual", trigger_ref: Optional[str] = None,
+        allow_paused: bool = False,
     ) -> Optional[str]:
-        """Fire now (manual/webhook/API). Never alters the schedule."""
+        """Fire now (manual/webhook/API). Never alters the schedule.
+
+        The operator's "Run now" may fire a PAUSED automation (`allow_paused`,
+        set only by the automation run route): pausing stops the scheduler, not
+        an explicit request to test the bot. Callers that do not opt in — the
+        jobs webhook, agent tools, the fabric — still require `active`, so a
+        paused bot cannot be woken by anything except the operator.
+        """
         definition = self._store.get_automation(automation_id)
-        if definition is None or definition.state != "active":
+        allowed = ("active", "paused") if (allow_paused and trigger_type == "manual") else ("active",)
+        if definition is None or definition.state not in allowed:
             return None
         return await self._launch(
             definition, trigger_type=trigger_type, trigger_ref=trigger_ref,

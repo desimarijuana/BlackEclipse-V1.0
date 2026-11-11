@@ -70,10 +70,20 @@ async def scaffold_kit(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
     if getattr(ctx, "workspace", None) is None:
         await emit_code_event(ctx, "kit.refused", {"kitId": model.kit_id, "code": "WORKSPACE_UNBOUND"})
-        return _refusal("WORKSPACE_UNBOUND", "there is no project folder to build in")
+        return _refusal(
+            "WORKSPACE_UNBOUND",
+            "there is no project folder bound to this run. scaffold_kit writes files, so "
+            "it needs a code task; for a reusable procedure use skill_create and for a "
+            "scheduled agent use bot_create.",
+        )
     if not _autonomy_grants_write(ctx):
         await emit_code_event(ctx, "kit.refused", {"kitId": model.kit_id, "code": "PROFILE_DENIED"})
-        return _refusal("PROFILE_DENIED", "this session isn't set up to build things")
+        return _refusal(
+            "PROFILE_DENIED",
+            "this run's profile does not grant code.write, so a kit cannot write files "
+            "here. This is not a missing capability: use skill_create for a procedure, "
+            "bot_create for a scheduled agent, or start a code-enabled task for a file build.",
+        )
 
     kit = get_kit(model.kit_id)
     if kit is None:

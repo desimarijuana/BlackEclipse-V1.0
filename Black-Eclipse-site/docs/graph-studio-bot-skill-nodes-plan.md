@@ -95,7 +95,7 @@ return the metadata a picker needs.
 | D2 | Skill node capability | Reuse `agent.run` (a skill call is a model call on the agent plane, already narrowed for test runs). Adding `skill.run` is honest but touches grants, `TEST_RUN_CAPABILITIES`, `run-authorization.ts` and the consent UI for no additional safety. |
 | D3 | Category for the skill node | New `skills` category in `NodeCategory` + one `CATEGORY_LABELS` entry. Cost: one union member. Benefit: "Skills" is its own library group, which is what was asked for. |
 | D4 | New port types | None. Reuse `string` / `object` / `array`. A `skill_result` port type would touch TS `PortType`, Python `PortType`, `ports_compatible`, the manifest and every saved IR. |
-| D5 | A bot's per-run model override inside a graph run | Ignore it. The run's resolved model settings win (credentials are front-door-resolved and in-memory only). Document it in the node docs string. |
+| D5 | A bot's per-run model override inside a graph run | ~~Ignore it.~~ **Superseded 2026-11-10:** apply the bot's provider/model pin, while credentials and the base URL still resolve from the graph run's in-memory settings (the same rule the automation dispatcher uses). A bot must not answer with a different model just because a graph reused it. |
 | D6 | One `agent.*` node per verb vs one configurable node | One per verb. Each verb has a different prompt contract, different ports, and a different failure shape; folding them into one node makes the inspector a mode switch. |
 
 ---

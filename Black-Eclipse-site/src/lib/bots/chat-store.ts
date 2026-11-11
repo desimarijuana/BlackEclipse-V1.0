@@ -1,15 +1,26 @@
 // ── Bot chat store ───────────────────────────────────────────────────────────
-// Per-bot conversation threads, persisted client-side (the repo's convention for
-// ephemeral chat UI state). Bots run real agent turns through the streaming
-// agent provider (`getAgentProvider`), so a long tool-heavy run is not bound by
-// the one-shot front door's 180s request cap; these messages are the visible
-// thread for each bot.
+// Per-bot conversation threads. localStorage gives an instant, offline-first
+// render; the document is also mirrored to the server (`BotState`, key `chat`)
+// so clearing browser storage or opening a second tab does not erase the
+// threads. The newest client timestamp wins. Bots run real agent turns through
+// the streaming agent provider (`getAgentProvider`), so a long tool-heavy run is
+// not bound by the one-shot front door's 180s request cap.
 
 'use client';
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import type { DelegationView } from '@/lib/agent/response-model';
+import type { DelegationView, PendingApproval, PendingClarification } from '@/lib/agent/response-model';
+import {
+  newBotStateEnvelope,
+  pullBotState,
+  queueBotStatePush,
+  readLocalEnvelope,
+  shouldAdoptRemote,
+  shouldPushLocal,
+  writeLocalEnvelope,
+  type BotStateEnvelope,
+} from '@/lib/bots/state-sync';
 
 export const BOT_CHAT_KEY = 'be_bot_chat_v1';
 
@@ -31,6 +42,11 @@ export interface BotMessage {
   runId?: string;
   /** Parallel fan-outs this bot ran, so the thread can show the live agent card. */
   delegations?: DelegationView[];
+  /** A blocking permission decision raised by this turn. Rendered by the bot
+   *  thread so an approval-gated tool can finish here, exactly as in main chat. */
+  pendingApproval?: PendingApproval;
+  /** A paused `clarify` question from this turn. */
+  pendingClarification?: PendingClarification;
 }
 
 interface BotChatStore {
@@ -48,13 +64,25 @@ interface BotChatStore {
   clear: (botId: string) => void;
 }
 
-function persist(byBot: Record<string, BotMessage[]>) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(BOT_CHAT_KEY, JSON.stringify(byBot));
-  } catch {
-    /* quota / private mode — in-memory only */
+/** Persist locally and queue the server mirror (best effort). */
+function persist(
+  byBot: Record<string, BotMessage[]>,
+  envelope?: BotStateEnvelope<Record<string, BotMessage[]>>,
+) {
+  const next = envelope ?? newBotStateEnvelope(byBot);
+  writeLocalEnvelope(BOT_CHAT_KEY, next);
+  queueBotStatePush('chat', next);
+}
+
+/** Validate a decoded document from either storage medium. */
+function sanitizeByBot(input: unknown): Record<string, BotMessage[]> {
+  const byBot: Record<string, BotMessage[]> = {};
+  if (input && typeof input === 'object') {
+    for (const [id, list] of Object.entries(input as Record<string, unknown>)) {
+      if (Array.isArray(list)) byBot[id] = list.filter(isMessage);
+    }
   }
+  return byBot;
 }
 
 function isMessage(v: unknown): v is BotMessage {
@@ -67,68 +95,79 @@ function isMessage(v: unknown): v is BotMessage {
   );
 }
 
-export const useBotChatStore = create<BotChatStore>((set, get) => ({
-  byBot: {},
-  hydrated: false,
-
-  hydrate: () => {
-    let byBot: Record<string, BotMessage[]> = {};
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = localStorage.getItem(BOT_CHAT_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Record<string, unknown>;
-          if (parsed && typeof parsed === 'object') {
-            for (const [id, list] of Object.entries(parsed)) {
-              if (Array.isArray(list)) byBot[id] = list.filter(isMessage);
-            }
-          }
-        }
-      } catch {
-        byBot = {};
-      }
+export const useBotChatStore = create<BotChatStore>((set, get) => {
+  /** Reconcile with the durable mirror without blocking the local render. */
+  const syncFromServer = async () => {
+    const remote = await pullBotState('chat');
+    const local = readLocalEnvelope<Record<string, BotMessage[]>>(BOT_CHAT_KEY);
+    if (!remote) {
+      if (local) queueBotStatePush('chat', local);
+      return;
     }
-    set({ byBot, hydrated: true });
-  },
+    if (shouldAdoptRemote(local?.updatedAt, remote.updatedAt)) {
+      try {
+        const data = sanitizeByBot(JSON.parse(remote.document) as unknown);
+        writeLocalEnvelope(BOT_CHAT_KEY, newBotStateEnvelope(data, new Date(remote.updatedAt)));
+        set({ byBot: data });
+      } catch {
+        /* malformed mirror — keep the local copy */
+      }
+      return;
+    }
+    if (local && shouldPushLocal(local.updatedAt, remote.updatedAt)) {
+      queueBotStatePush('chat', local);
+    }
+  };
 
-  setMessages: (botId, messages) => {
-    const byBot = { ...get().byBot, [botId]: messages };
-    persist(byBot);
-    set({ byBot });
-  },
+  return {
+    byBot: {},
+    hydrated: false,
 
-  append: (botId, message) => {
-    const byBot = { ...get().byBot, [botId]: [...(get().byBot[botId] ?? []), message] };
-    persist(byBot);
-    set({ byBot });
-  },
+    hydrate: () => {
+      const local = readLocalEnvelope<Record<string, BotMessage[]>>(BOT_CHAT_KEY);
+      set({ byBot: sanitizeByBot(local?.data), hydrated: true });
+      void syncFromServer();
+    },
 
-  appendScheduled: (botId, message) => {
-    const list = get().byBot[botId] ?? [];
-    // Idempotent by execution id: a re-poll (or a reload that re-syncs history)
-    // must never double-post the same autonomous answer.
-    if (message.runId && list.some((m) => m.runId === message.runId)) return false;
-    const byBot = { ...get().byBot, [botId]: [...list, message] };
-    persist(byBot);
-    set({ byBot });
-    return true;
-  },
+    setMessages: (botId, messages) => {
+      const byBot = { ...get().byBot, [botId]: messages };
+      persist(byBot);
+      set({ byBot });
+    },
 
-  update: (botId, id, patch, persistNow = true) => {
-    const list = get().byBot[botId];
-    if (!list) return;
-    const byBot = { ...get().byBot, [botId]: list.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
-    if (persistNow) persist(byBot);
-    set({ byBot });
-  },
+    append: (botId, message) => {
+      const byBot = { ...get().byBot, [botId]: [...(get().byBot[botId] ?? []), message] };
+      persist(byBot);
+      set({ byBot });
+    },
 
-  clear: (botId) => {
-    const next = { ...get().byBot };
-    delete next[botId];
-    persist(next);
-    set({ byBot: next });
-  },
-}));
+    appendScheduled: (botId, message) => {
+      const list = get().byBot[botId] ?? [];
+      // Idempotent by execution id: a re-poll (or a reload that re-syncs history)
+      // must never double-post the same autonomous answer.
+      if (message.runId && list.some((m) => m.runId === message.runId)) return false;
+      const byBot = { ...get().byBot, [botId]: [...list, message] };
+      persist(byBot);
+      set({ byBot });
+      return true;
+    },
+
+    update: (botId, id, patch, persistNow = true) => {
+      const list = get().byBot[botId];
+      if (!list) return;
+      const byBot = { ...get().byBot, [botId]: list.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
+      if (persistNow) persist(byBot);
+      set({ byBot });
+    },
+
+    clear: (botId) => {
+      const next = { ...get().byBot };
+      delete next[botId];
+      persist(next);
+      set({ byBot: next });
+    },
+  };
+});
 
 export function useHydrateBotChat() {
   const hydrate = useBotChatStore((s) => s.hydrate);
@@ -136,4 +175,13 @@ export function useHydrateBotChat() {
   useEffect(() => {
     if (!hydrated) hydrate();
   }, [hydrated, hydrate]);
+  // Adopt a newer document written by another tab.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === BOT_CHAT_KEY) hydrate();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [hydrate]);
 }

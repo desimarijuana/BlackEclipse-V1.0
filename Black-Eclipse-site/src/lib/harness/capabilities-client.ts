@@ -155,3 +155,68 @@ export function rollbackCapability(capabilityId: string, version?: string) {
 export function removeCapability(capabilityId: string) {
   return mutation(`/api/capabilities/${encodeURIComponent(capabilityId)}/remove`);
 }
+
+// ── Capability gaps / offers ────────────────────────────────────────────────
+// A gap is the durable "needs your decision" record a run leaves behind. The
+// offer is a route, never an authorization; accepting it only starts the named
+// surface, which asks for its own approval.
+
+export interface CapabilityGapOffer {
+  gapId: string;
+  need: string;
+  kind: string;
+  code: string;
+  title: string;
+  reason: string;
+  status: 'gap' | 'handoff_required';
+  surface: string;
+  nextTool: string;
+  steps: string[];
+  missing: string[];
+  actionLabel: string;
+  actionPrompt: string;
+  requiresApproval: boolean;
+}
+
+export interface CapabilityGapRow {
+  gapId: string;
+  runId: string;
+  need: string;
+  kind: string;
+  code: string;
+  tool: string;
+  reason: string;
+  state: 'open' | 'offered' | 'accepted' | 'declined' | 'suppressed' | 'resolved';
+  createdAt: string;
+  updatedAt: string;
+  offer: CapabilityGapOffer;
+}
+
+export interface CapabilityGapSummary {
+  total: number;
+  byState: Record<string, number>;
+  byClass: Record<string, number>;
+  durable: boolean;
+}
+
+export async function listGaps(state?: string): Promise<CapabilityGapRow[]> {
+  const query = state ? `?state=${encodeURIComponent(state)}` : '';
+  const body = await api<{ gaps?: CapabilityGapRow[] }>(`/api/capabilities/gaps${query}`);
+  return body.gaps ?? [];
+}
+
+export function gapSummary(): Promise<CapabilityGapSummary> {
+  return api<CapabilityGapSummary>('/api/capabilities/gaps/summary');
+}
+
+export function acceptGap(gapId: string) {
+  return mutation(`/api/capabilities/gaps/${encodeURIComponent(gapId)}/accept`);
+}
+
+export function declineGap(gapId: string) {
+  return mutation(`/api/capabilities/gaps/${encodeURIComponent(gapId)}/decline`);
+}
+
+export function suppressGap(gapId: string) {
+  return mutation(`/api/capabilities/gaps/${encodeURIComponent(gapId)}/suppress`);
+}

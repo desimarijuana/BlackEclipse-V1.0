@@ -1,14 +1,25 @@
 // ── Bot group chat store ──────────────────────────────────────────────────────
-// Group rooms that gather 2–6 of the user's bots into one conversation. This is
-// presentation-layer state (which bots share a room and what was said), so it
-// follows the repo's client-side persistence convention — the same approach as
-// `lib/bots/chat-store.ts`. Replies still come from the real harness; nothing
-// here fabricates a bot turn.
+// Group rooms that gather 2–6 of the user's bots into one conversation. The
+// store hydrates from localStorage for an instant UI, then mirrors the document
+// to the server (`BotState`, key `groups`) so cleared browser storage or a
+// second tab recovers the rooms. Local state always remains the source of truth
+// while offline; the newest client timestamp wins. Replies still come from the
+// real harness — nothing here fabricates a bot turn.
 
 'use client';
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import {
+  newBotStateEnvelope,
+  pullBotState,
+  queueBotStatePush,
+  readLocalEnvelope,
+  shouldAdoptRemote,
+  shouldPushLocal,
+  writeLocalEnvelope,
+  type BotStateEnvelope,
+} from '@/lib/bots/state-sync';
 
 export const BOT_GROUPS_KEY = 'be_bot_groups_v1';
 
@@ -36,6 +47,10 @@ export interface GroupMessage {
   feedback?: 'up' | 'down';
   /** Parallel fan-outs this member ran, for the live agent card. */
   delegations?: import('@/lib/agent/response-model').DelegationView[];
+  /** A blocking permission decision raised by this member's turn. */
+  pendingApproval?: import('@/lib/agent/response-model').PendingApproval;
+  /** A paused `clarify` question from this member's turn. */
+  pendingClarification?: import('@/lib/agent/response-model').PendingClarification;
   /** True when this turn came from an autonomous run (schedule / Run now). */
   scheduled?: boolean;
   /** Execution id of the autonomous run — the idempotency key. */
@@ -71,13 +86,28 @@ interface BotGroupsStore {
   clearMessages: (groupId: string) => void;
 }
 
-function persist(groups: BotGroup[], byGroup: Record<string, GroupMessage[]>) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(BOT_GROUPS_KEY, JSON.stringify({ groups, byGroup } satisfies Persisted));
-  } catch {
-    /* quota / private mode — in-memory only */
+/** Validate a decoded document from either storage medium. */
+function sanitizePersisted(input: unknown): Persisted {
+  const parsed = (input ?? {}) as Partial<Persisted>;
+  const groups = Array.isArray(parsed.groups) ? parsed.groups.filter(isGroup) : [];
+  const byGroup: Record<string, GroupMessage[]> = {};
+  if (parsed.byGroup && typeof parsed.byGroup === 'object') {
+    for (const [id, list] of Object.entries(parsed.byGroup)) {
+      if (Array.isArray(list)) byGroup[id] = list.filter(isMessage);
+    }
   }
+  return { groups, byGroup };
+}
+
+/** Persist locally and queue the server mirror (best effort). */
+function persist(
+  groups: BotGroup[],
+  byGroup: Record<string, GroupMessage[]>,
+  envelope?: BotStateEnvelope<Persisted>,
+) {
+  const next = envelope ?? newBotStateEnvelope({ groups, byGroup });
+  writeLocalEnvelope(BOT_GROUPS_KEY, next);
+  queueBotStatePush('groups', next);
 }
 
 function isGroup(v: unknown): v is BotGroup {
@@ -111,32 +141,43 @@ export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
     set({ groups, byGroup });
   };
 
+  /** Reconcile with the durable mirror without ever blocking the local render.
+   *  The remote copy is adopted only when its client timestamp is newer; a
+   *  newer local copy is pushed instead. */
+  const syncFromServer = async () => {
+    const remote = await pullBotState('groups');
+    const local = readLocalEnvelope<Persisted>(BOT_GROUPS_KEY);
+    if (!remote) {
+      // First run after the upgrade: seed the mirror with local rooms.
+      if (local) queueBotStatePush('groups', local);
+      return;
+    }
+    if (shouldAdoptRemote(local?.updatedAt, remote.updatedAt)) {
+      try {
+        const data = sanitizePersisted(JSON.parse(remote.document) as unknown);
+        const envelope = newBotStateEnvelope(data, new Date(remote.updatedAt));
+        writeLocalEnvelope(BOT_GROUPS_KEY, envelope);
+        set({ groups: data.groups, byGroup: data.byGroup });
+      } catch {
+        /* malformed mirror — keep the local copy */
+      }
+      return;
+    }
+    if (local && shouldPushLocal(local.updatedAt, remote.updatedAt)) {
+      queueBotStatePush('groups', local);
+    }
+  };
+
   return {
     groups: [],
     byGroup: {},
     hydrated: false,
 
     hydrate: () => {
-      let groups: BotGroup[] = [];
-      let byGroup: Record<string, GroupMessage[]> = {};
-      if (typeof window !== 'undefined') {
-        try {
-          const raw = localStorage.getItem(BOT_GROUPS_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw) as Partial<Persisted>;
-            if (Array.isArray(parsed.groups)) groups = parsed.groups.filter(isGroup);
-            if (parsed.byGroup && typeof parsed.byGroup === 'object') {
-              for (const [id, list] of Object.entries(parsed.byGroup)) {
-                if (Array.isArray(list)) byGroup[id] = list.filter(isMessage);
-              }
-            }
-          }
-        } catch {
-          groups = [];
-          byGroup = {};
-        }
-      }
+      const local = readLocalEnvelope<Persisted>(BOT_GROUPS_KEY);
+      const { groups, byGroup } = sanitizePersisted(local?.data);
       set({ groups, byGroup, hydrated: true });
+      void syncFromServer();
     },
 
     createGroup: ({ name, memberIds, image }) => {
@@ -230,4 +271,14 @@ export function useHydrateBotGroups() {
   useEffect(() => {
     if (!hydrated) hydrate();
   }, [hydrated, hydrate]);
+  // Another tab wrote a newer document — adopt it instead of waiting for a
+  // reload. The storage event only fires in OTHER tabs, so this cannot loop.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === BOT_GROUPS_KEY) hydrate();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [hydrate]);
 }

@@ -11,8 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, Copy, Loader2, Pause, Play,
-  RefreshCw, Settings, SquarePen, ThumbsDown, ThumbsUp,
+  ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, Copy, FileText, Loader2, Pause, Play,
+  Plus, RefreshCw, Settings, SquarePen, ThumbsDown, ThumbsUp, X,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,8 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
 import { TtsButton } from '@/components/chat/tts-button';
 import { ParallelAgentsPanel } from '@/components/chat/parallel-agents-panel';
+import { ApprovalCard } from '@/components/chat/approval-card';
+import { ClarificationCard } from '@/components/chat/clarification-card';
 import type { DelegationView } from '@/lib/agent/response-model';
 import type { HarnessUiEvent } from '@/lib/agent/events';
 import {
@@ -30,7 +32,11 @@ import {
   dropProvisionalDelegation,
   startProvisionalDelegation,
 } from '@/lib/agent/delegation-reducer';
-import { runBotTurn } from '@/lib/bots/invoke';
+import { botChatId, runBotTurn } from '@/lib/bots/invoke';
+import {
+  deleteSessionFile, fetchSession, uploadSessionFile,
+} from '@/lib/chat/session-client';
+import type { SessionFile } from '@/lib/chat/session-types';
 import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
@@ -45,7 +51,7 @@ import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import {
-  buildTrigger, botModelOverride, detectSchedule, emptyBotDraft, formatDateTime, formatRelative, scheduleSummary,
+  buildTrigger, detectSchedule, emptyBotDraft, formatDateTime, formatRelative, scheduleSummary,
 } from '@/lib/bots/state';
 
 export interface BotChatProps {
@@ -91,10 +97,10 @@ export function BotChat({
   // top-bar toggle and Ctrl/Cmd+Shift+E keybind keeps them in sync.
   const schedulerOpen = useWorkspaceStore((s) => s.open);
   const toggleScheduler = useWorkspaceStore((s) => s.toggle);
-  // Interactive turns use the bot's own pinned model (Details → Schedule), never
-  // the app-wide composer default. There is no inline global selector here: a
-  // bot's model must not change every other chat.
-  const botModel = botModelOverride(bot);
+  // Interactive turns use the bot's own brain and pinned provider/model
+  // (Details → Schedule), never the app-wide composer default. There is no
+  // inline global selector here: a bot's model must not change every other chat.
+  // The pin is applied in `runBotTurn` so chat and scheduled runs agree.
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -113,6 +119,16 @@ export function BotChat({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Anchor for the approval / clarification cards (they portal above it).
+  const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
+  // Documents attached to this bot's conversation. They live in the SAME
+  // `bot-<id>` session the chat run uses, so the front door injects them exactly
+  // as it does for main chat — no bot-specific attachment path.
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const botSessionId = botChatId(bot.id);
+  const [contextFiles, setContextFiles] = useState<SessionFile[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   // Execution ids already reflected in the thread, so a re-poll does not
   // re-post an autonomous answer. `null` means "not yet seeded from history".
   const seenRunsRef = useRef<Set<string> | null>(null);
@@ -125,11 +141,71 @@ export function BotChat({
   // Stop the in-flight run if the surface goes away so the stream is not orphaned.
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // Load the documents already attached to this bot's conversation.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSession(botSessionId)
+      .then((session) => {
+        if (!cancelled) setContextFiles(session.files.filter((f) => f.kind === 'context'));
+      })
+      .catch(() => { /* no session yet */ });
+    return () => { cancelled = true; };
+  }, [botSessionId]);
+
+  const refreshAttachments = useCallback(async () => {
+    try {
+      const session = await fetchSession(botSessionId);
+      setContextFiles(session.files.filter((f) => f.kind === 'context'));
+    } catch {
+      /* keep the current list */
+    }
+  }, [botSessionId]);
+
+  const attachFiles = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAttachBusy(true);
+    setAttachError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await uploadSessionFile(botSessionId, 'context', file.name, bytes);
+      }
+      await refreshAttachments();
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setAttachBusy(false);
+      if (attachInputRef.current) attachInputRef.current.value = '';
+    }
+  }, [botSessionId, refreshAttachments]);
+
+  const removeAttachment = useCallback(async (name: string) => {
+    setAttachError(null);
+    try {
+      await deleteSessionFile(botSessionId, 'context', name);
+      await refreshAttachments();
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Could not remove the attachment');
+    }
+  }, [botSessionId, refreshAttachments]);
+
   const instructions = bot.action.objective ?? bot.description ?? '';
   const dirty = name.trim() !== bot.name || description.trim() !== (bot.description ?? '');
   // Run now only works on an active (enabled) automation, so we can explain the
   // disabled state instead of leaving a dead button with no reason.
-  const canRun = bot.state === 'active';
+  // A paused bot is still runnable ON DEMAND: pausing stops scheduled fires,
+  // not an explicit "Run now". Draft/disabled/archived stay blocked.
+  const canRun = bot.state === 'active' || bot.state === 'paused';
+  // The latest blocked turn, if any. Sourced from the thread (not a transient
+  // flag) so the card survives re-renders and a completed card never lingers.
+  const pendingMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].pendingApproval || messages[i].pendingClarification) return messages[i];
+    }
+    return null;
+  }, [messages]);
+  const pendingApproval = pendingMessage?.pendingApproval;
+  const pendingClarification = pendingMessage?.pendingClarification;
 
   // A bot whose instructions NAME a cadence ("…every 3 mins") but whose trigger
   // is still MANUAL will never run on its own — exactly what happens to a bot
@@ -308,7 +384,7 @@ export function BotChat({
 
   const runTurn = useCallback(async (raw: string) => {
     const text = raw.trim();
-    if (!text || sending) return;
+    if (!text || sending || attachBusy) return;
     // Read the FRESH thread (not the render snapshot) so an edit/regenerate that
     // truncated the store is respected, then append the new user turn.
     const prior = useBotChatStore.getState().byBot[bot.id] ?? [];
@@ -357,10 +433,21 @@ export function BotChat({
         bot,
         text,
         prior,
-        model: botModel,
         signal: controller.signal,
         onEvent: (event) => {
           applyDelegation(event);
+          // A blocked turn must be actionable HERE, not only in main chat: a
+          // permission decision or a `clarify` question otherwise strands the
+          // run with no way to answer it.
+          if (event.kind === 'approval_request') {
+            updateMessage(bot.id, replyId, { pendingApproval: event.approval }, false);
+          } else if (event.kind === 'approval_resolved') {
+            updateMessage(bot.id, replyId, { pendingApproval: undefined }, false);
+          } else if (event.kind === 'clarification_request') {
+            updateMessage(bot.id, replyId, { pendingClarification: event.clarification }, false);
+          } else if (event.kind === 'clarification_answered') {
+            updateMessage(bot.id, replyId, { pendingClarification: undefined }, false);
+          }
           const next = moodFromEvent(event);
           if (next) setMood(next);
         },
@@ -377,16 +464,23 @@ export function BotChat({
         bot.id,
         replyId,
         final
-          ? { content: final }
-          : { content: 'The bot did not return a reply.', error: true },
+          ? { content: final, pendingApproval: undefined, pendingClarification: undefined }
+          : { content: 'The bot did not return a reply.', error: true, pendingApproval: undefined, pendingClarification: undefined },
       );
       setMood(final ? 'happy' : 'sad');
     } catch (err) {
       if (controller.signal.aborted) {
-        updateMessage(bot.id, replyId, streamed ? { content: streamed } : { content: '(cancelled)', error: true });
+        updateMessage(bot.id, replyId, {
+          ...(streamed ? { content: streamed } : { content: '(cancelled)', error: true }),
+          pendingApproval: undefined,
+          pendingClarification: undefined,
+        });
       } else {
         updateMessage(bot.id, replyId, {
-          content: err instanceof Error ? err.message : 'network error', error: true,
+          content: err instanceof Error ? err.message : 'network error',
+          error: true,
+          pendingApproval: undefined,
+          pendingClarification: undefined,
         });
       }
       setMood('sad');
@@ -394,7 +488,7 @@ export function BotChat({
       abortRef.current = null;
       setSending(false);
     }
-  }, [sending, append, updateMessage, bot, botModel]);
+  }, [sending, attachBusy, append, updateMessage, bot]);
 
   const send = useCallback(() => {
     void runTurn(input);
@@ -404,6 +498,49 @@ export function BotChat({
   const stop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  /** Answer a blocking approval raised by this bot's turn. */
+  const decideApproval = useCallback(async (approve: boolean, remember?: boolean) => {
+    const target = pendingMessage;
+    const approval = target?.pendingApproval;
+    if (!target || !approval) return;
+    // Clear optimistically, restore on failure so the operator can retry.
+    updateMessage(bot.id, target.id, { pendingApproval: undefined }, false);
+    try {
+      const res = await fetch(
+        `/api/harness/mcp/approvals/${encodeURIComponent(approval.id)}/decide`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approve, remember: approve && Boolean(remember) }),
+        },
+      );
+      if (!res.ok) throw new Error(`decision failed (${res.status})`);
+    } catch {
+      updateMessage(bot.id, target.id, { pendingApproval: approval }, false);
+    }
+  }, [bot.id, pendingMessage, updateMessage]);
+
+  /** Answer a paused `clarify` question from this bot's turn. */
+  const answerClarification = useCallback(async (answer: string) => {
+    const target = pendingMessage;
+    const clarification = target?.pendingClarification;
+    if (!target || !clarification) return;
+    updateMessage(bot.id, target.id, { pendingClarification: undefined }, false);
+    try {
+      const res = await fetch(
+        `/api/harness/mcp/approvals/${encodeURIComponent(clarification.id)}/answer`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answer }),
+        },
+      );
+      if (!res.ok) throw new Error(`answer failed (${res.status})`);
+    } catch {
+      updateMessage(bot.id, target.id, { pendingClarification: clarification }, false);
+    }
+  }, [bot.id, pendingMessage, updateMessage]);
 
   /** Edit a sent message: truncate the thread there and load it into the composer. */
   const editMessage = useCallback(
@@ -622,7 +759,52 @@ export function BotChat({
       </div>
 
       {/* Composer */}
-      <div className="border-t border-border/10 p-3">
+      <div ref={setComposerEl} className="border-t border-border/10 p-3">
+        {pendingApproval && (
+          <ApprovalCard
+            approval={pendingApproval}
+            anchor={composerEl}
+            onDecide={(approve, remember) => { void decideApproval(approve, remember); }}
+          />
+        )}
+        {pendingClarification && (
+          <ClarificationCard
+            clarification={pendingClarification}
+            anchor={composerEl}
+            onAnswer={(value) => { void answerClarification(value); }}
+          />
+        )}
+        <input
+          ref={attachInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => void attachFiles(e.target.files)}
+        />
+        {(contextFiles.length > 0 || attachError) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {contextFiles.map((file) => (
+              <span
+                key={file.name}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-foreground/80"
+                title={file.name}
+              >
+                <FileText size={11} className="shrink-0 text-primary/80" />
+                <span className="max-w-[12rem] truncate">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => void removeAttachment(file.name)}
+                  className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            {attachBusy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
+            {attachError && <span className="text-[10px] text-rose-300">{attachError}</span>}
+          </div>
+        )}
         {suggested && (
           <div className="mb-2 flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2 text-[11px] text-foreground/90">
             <CalendarDays size={13} className="shrink-0 text-primary" />
@@ -657,6 +839,16 @@ export function BotChat({
             className="chat-composer-scroll min-w-0 flex-1 resize-none self-center overflow-x-hidden overflow-y-auto border-0 bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:outline-none focus:ring-0"
           />
           <div className="mb-0.5 flex shrink-0 items-center gap-1 sm:gap-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => attachInputRef.current?.click()}
+              disabled={attachBusy || sending}
+              title="Attach a document"
+              aria-label="Attach a document"
+            >
+              <Plus size={14} />
+            </Button>
             {sending ? (
               <Button
                 size="icon"
@@ -671,7 +863,7 @@ export function BotChat({
               <Button
                 size="icon"
                 onClick={send}
-                disabled={!input.trim()}
+                disabled={!input.trim() || attachBusy}
                 aria-label={`Message ${bot.name}`}
                 className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary p-1.5 text-primary-foreground transition-opacity hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-40 disabled:hover:bg-primary"
               >

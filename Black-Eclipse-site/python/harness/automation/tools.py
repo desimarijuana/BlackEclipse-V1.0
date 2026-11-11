@@ -160,6 +160,17 @@ async def _create(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     if not name:
         name = objective[:60]
     trigger = _build_trigger(args)
+    if trigger.get("type") == "cron" and not str(trigger.get("cron") or "").strip():
+        return (
+            "A scheduled bot needs a cron expression (for example '0 9 * * *') and an "
+            "IANA timezone (for example 'America/New_York'). Nothing was created.",
+            {"created": False, "reason": "cron expression required"},
+        )
+    if trigger.get("type") == "interval" and int(trigger.get("intervalSeconds") or 0) <= 0:
+        return (
+            "An interval bot needs a positive interval in seconds. Nothing was created.",
+            {"created": False, "reason": "intervalSeconds required"},
+        )
     if trigger.get("type") in _AUTONOMOUS_TRIGGERS:
         summary = f"Create a scheduled task ({trigger.get('type')}): {objective[:120]}"
         if not await _approve_autonomous_schedule(ctx, summary):

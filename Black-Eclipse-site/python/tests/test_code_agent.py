@@ -7,6 +7,7 @@ REMOVED before the model sees the schema, so the registry returns TOOL_FORBIDDEN
 from __future__ import annotations
 
 from harness.agents import CODE_AGENT, CODE_AGENT_TOOLS, ECLIPSE_AGENT, CODE_NAVIGATOR
+from harness.automation.tools import TOOL_NAMES as AUTOMATION_TOOLS
 from harness.code import policy
 from harness.code.policy import EXTERNAL_ACTION_TOOLS, WRITE_TOOLS, allowed_tools
 from harness.graph import effective_allowlist
@@ -104,7 +105,7 @@ def test_code_agent_has_no_finance_tool():
         "python_env_install", "python_env_remove", "python_env_list", "python_env_status",
     } - app_runtime - set(BROWSER_TOOLS) - set(COMPUTER_TOOLS) - set(VISION_TOOLS)
         - set(WEB_RESEARCH_TOOLS) - set(DOCUMENT_TOOLS) - set(SEARCH_TOOLS)
-        - set(SOURCE_TOOLS) - set(TASK_TOOLS))
+        - set(SOURCE_TOOLS) - set(TASK_TOOLS) - set(AUTOMATION_TOOLS))
 
 
 def test_code_agent_does_not_allow_mcp():
@@ -141,6 +142,10 @@ def test_finance_agent_unchanged_no_code_tool():
     assert "delegate" in ECLIPSE_AGENT.tools
     assert "analysis_run" in ECLIPSE_AGENT.tools
     assert "scaffold_kit" in ECLIPSE_AGENT.tools
+    assert "bot_create" in ECLIPSE_AGENT.tools
+    # A scheduled-agent request must not dead-end in a coding turn either: the
+    # same bot surface (and its bot_schedule approval) stays reachable.
+    assert "bot_create" in CODE_AGENT_TOOLS
     assert ECLIPSE_AGENT.allowMcpTools is True
 
 

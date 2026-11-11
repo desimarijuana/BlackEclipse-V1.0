@@ -18,6 +18,7 @@ from ..capabilities import builder
 from ..capabilities.resume import resume_original_task
 from ..capabilities.store import CapabilityStore
 from ..deps import require_operator, service
+from ..gaps.service import GapService
 
 router = APIRouter(tags=["capabilities"])
 
@@ -94,6 +95,71 @@ def list_builtins() -> dict[str, Any]:
         for recipe in RECIPES
     ]
     return {"builtins": items, "count": len(items)}
+
+
+def _gaps() -> GapService:
+    return GapService(getattr(service, "store", None))
+
+
+@router.get("/capabilities/gaps")
+def list_gaps(
+    state: Optional[str] = Query(default=None),
+    runId: Optional[str] = Query(default=None),  # noqa: N803 - external contract
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    """The durable "needs your decision" list (chat card + Studio + bots)."""
+    rows = _gaps().list(state=state, run_id=runId, limit=limit)
+    return {"gaps": rows, "count": len(rows)}
+
+
+@router.get("/capabilities/gaps/summary")
+def gap_summary() -> dict[str, Any]:
+    """Refusal/offer/accept metrics in one bounded record."""
+    return _gaps().summary()
+
+
+@router.get("/capabilities/gaps/{gap_id}")
+def get_gap(gap_id: str) -> dict[str, Any]:
+    row = _gaps().get(gap_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="capability gap not found")
+    return {"gap": row, "offer": _gaps().offer(row).to_dict()}
+
+
+@router.post("/capabilities/gaps/{gap_id}/accept")
+def accept_gap(
+    gap_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Accept the offer. This starts nothing by itself; it returns the exact
+    prompt/surface the caller runs. Every effectful step keeps its own approval."""
+    result = _gaps().accept(gap_id, manager=getattr(service, "tasks", None))
+    if result is None:
+        raise HTTPException(status_code=404, detail="capability gap not found")
+    return {"success": True, "result": result}
+
+
+@router.post("/capabilities/gaps/{gap_id}/decline")
+def decline_gap(
+    gap_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    result = _gaps().decline(gap_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="capability gap not found")
+    return {"success": True, "result": result}
+
+
+@router.post("/capabilities/gaps/{gap_id}/suppress")
+def suppress_gap(
+    gap_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Never ask for this exact gap again (same stable signature)."""
+    result = _gaps().suppress(gap_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="capability gap not found")
+    return {"success": True, "result": result}
 
 
 @router.get("/capabilities/{capability_id}")

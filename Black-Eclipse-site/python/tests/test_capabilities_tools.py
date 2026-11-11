@@ -198,6 +198,49 @@ def test_an_effectful_handoff_does_not_need_the_analysis_sandbox(tmp_path: Path)
         memory.close()
 
 
+def test_a_bot_handoff_is_actionable_and_never_points_at_scaffold_kit(tmp_path: Path):
+    memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    try:
+        ctx = _ctx(tmp_path, memory, analysis_enabled=False)
+        text, requested = asyncio.run(capability_request({
+            "need": "turn this into a bot that runs every morning at 9am",
+            "kind": "bot",
+            "capabilityId": "morning_bot",
+        }, ctx))
+        assert requested["assessment"]["nextTool"] == "bot_create"
+        _text, built = asyncio.run(capability_build({
+            "requestId": requested["requestId"],
+        }, ctx))
+        assert built["status"] == "handoff_required"
+        assert built["nextTool"] == "bot_create"
+        assert built["handoff"]["surface"] == "bot_create"
+        # The hand-off text must tell the agent to call the tool, not stop.
+        assert "bot_create" in _text and "NOW" in _text
+        assert "scaffold_kit" in _text
+    finally:
+        memory.close()
+
+
+def test_a_multi_deliverable_handoff_names_every_next_tool(tmp_path: Path):
+    memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    try:
+        ctx = _ctx(tmp_path, memory, analysis_enabled=False)
+        text, requested = asyncio.run(capability_request({
+            "need": "turn our recent task into a skill and then a bot",
+        }, ctx))
+        assert [item["kind"] for item in requested["deliverables"]] == ["skill", "bot"]
+        _text, built = asyncio.run(capability_build({
+            "requestId": requested["requestId"],
+        }, ctx))
+        assert built["status"] == "handoff_required"
+        assert built["nextTool"] == "skill_create"
+        assert [item["kind"] for item in built["deliverables"]] == ["skill", "bot"]
+        # The second deliverable is never silently dropped from the response.
+        assert "bot_create" in _text
+    finally:
+        memory.close()
+
+
 def test_an_unknown_request_is_refused(tmp_path: Path):
     memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
     try:

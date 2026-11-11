@@ -564,6 +564,23 @@ describe('capability lifecycle events', () => {
     });
   });
 
+  it('maps a capability offer to the same typed card', () => {
+    const e = normalizeHarnessEvent('capability.offer', {
+      type: 'capability.offer',
+      data: {
+        gapId: 'gap_1', need: 'turn this into a bot', kind: 'context_denied',
+        code: 'PROFILE_DENIED', status: 'handoff_required', surface: 'bot_create',
+        nextTool: 'bot_create', actionLabel: 'Create the bot',
+        actionPrompt: 'Create the bot for: turn this into a bot', offer: true,
+      },
+    });
+    expect(e).toMatchObject({
+      kind: 'capability',
+      phase: 'requested',
+      view: { gapId: 'gap_1', nextTool: 'bot_create', offer: true },
+    });
+  });
+
   it('maps build, activation, failure, disable and retire phases', () => {
     const cases = [
       ['capability.built', 'built'],

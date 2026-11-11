@@ -118,6 +118,17 @@ export async function POST(request: Request) {
     const model = typeof (body as Record<string, unknown>).model === "string"
       ? ((body as Record<string, unknown>).model as string).trim()
       : "";
+    // A bot chat passes its own brain + pinned provider. Ordinary chat omits
+    // both, so the runtime default is unchanged. Bounded before it reaches the
+    // preset resolver; an unknown id then fails honestly there.
+    const rawAgentId = (body as Record<string, unknown>).agentId;
+    const agentId = typeof rawAgentId === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(rawAgentId.trim())
+      ? rawAgentId.trim()
+      : undefined;
+    const rawModelProvider = (body as Record<string, unknown>).modelProvider;
+    const modelProvider = typeof rawModelProvider === "string" && /^[A-Za-z0-9._:-]{1,80}$/.test(rawModelProvider.trim())
+      ? rawModelProvider.trim()
+      : undefined;
     // Per-question reasoning-effort override ("model intelligence"). Only a
     // value from the shared vocabulary is honoured; anything else is ignored so
     // the runtime falls back to the saved default / task profile.
@@ -188,7 +199,7 @@ export async function POST(request: Request) {
     const softDeadlineMs = Number(process.env.HARNESS_CHAT_SOFT_DEADLINE_MS || 150_000);
     const running = { status: "running" as const };
     const result = await Promise.race([
-      chatWithAgent(query, effectiveHistory, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode),
+      chatWithAgent(query, effectiveHistory, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider),
       new Promise<typeof running>((resolve) => {
         const timer = setTimeout(() => resolve(running), Math.max(1, softDeadlineMs));
         // Never keep the process alive for a deadline we stopped waiting on.

@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const HARD_CEILING_LINES = 1200;
 const SOFT_CEILING_LINES = 800;
-const SKIP_DIRS = new Set(["generated", "node_modules", ".next", ".next-dev", "vendor"]);
+const SKIP_DIRS = new Set(["generated", "node_modules", ".next", ".next-dev", "vendor", "dist"]);
 
 // The files above the hard ceiling today, pinned to their measured size. Each
 // entry is a near-term split candidate; the budget is the current height, so the

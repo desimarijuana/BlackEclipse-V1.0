@@ -18,6 +18,7 @@ import {
   type CapabilityRecord,
   type CapabilityStatus,
 } from '@/lib/harness/capabilities-client';
+import { GapsSection } from './gaps-section';
 
 const STATUS_KEY: Record<CapabilityStatus, TranslationKey> = {
   draft: 'capabilityCard.status.gap',
@@ -174,6 +175,7 @@ export function GeneratedCapabilitiesSection() {
   return (
     <div className="space-y-3">
       <p className="text-[11px] text-muted-foreground">{t('studio.generated.hint')}</p>
+      <GapsSection />
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <StatCard label={t('studio.generated.total')} value={counts.total} />
         <StatCard label={t('studio.generated.active')} value={counts.active} />

@@ -220,11 +220,22 @@ def verify(
         if port.name in (result.outputs or {})
         and not _output_type_ok(port.kind, (result.outputs or {}).get(port.name))
     ]
+    contract_detail = "declared outputs are present with the declared kinds"
+    if missing_outputs or wrong_outputs:
+        # Name the exact disagreement so one build fixes it: a bare list of names
+        # made "declared series but returned a str" indistinguishable from
+        # "missing", and the agent re-declared the same wrong kinds.
+        kinds = {port.name: port.kind for port in manifest.outputs}
+        problems = [f"{name} (missing)" for name in missing_outputs]
+        problems.extend(
+            f"{name} (expected {kinds.get(name)}, got "
+            f"{type((result.outputs or {}).get(name)).__name__})"
+            for name in wrong_outputs
+        )
+        contract_detail = "outputs do not match the declaration: " + ", ".join(problems)
     checks.append(VerificationCheck(
         "output-contract", not missing_outputs and not wrong_outputs,
-        "declared outputs are present with the declared kinds"
-        if not missing_outputs and not wrong_outputs
-        else "missing: " + ", ".join(missing_outputs + wrong_outputs),
+        contract_detail,
     ))
     if missing_outputs or wrong_outputs:
         return VerificationReport(

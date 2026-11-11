@@ -71,7 +71,11 @@ with a code — never silently accepted.
   failed / cancelled / timed_out / blocked / skipped`.
 
 `pause` stops future triggers but does **not** kill an active execution; use
-`cancel_execution` for that.
+`cancel_execution` for that. A paused automation can still be run **manually**
+(`run_now` / the Bots UI's Run now): pause stops the scheduler, not an explicit
+operator request. Every other trigger class (schedule, event, condition,
+webhook, fabric) still requires `active`, so a paused bot cannot be woken by
+anything except the operator.
 
 ## Trigger types
 
@@ -200,8 +204,11 @@ condition on an event trigger is evaluated against the event's data (bare keys a
 - **Per-run model** — an automation may pin its own provider/model
   (`action.config.modelSettings`, set from the Bots UI). The dispatcher uses it for
   that run while credentials still resolve from the runtime's configured default,
-  so a pinned model on an unconfigured provider fails honestly. `execution.timeoutS`,
-  when set, is a tighter per-attempt cap than the run's `maxRuntimeS`.
+  so a pinned model on an unconfigured provider fails honestly. The bot's
+  interactive chat and the Graph Studio `agent.bot` node apply the same pin
+  (provider/model from the bot, credentials and base URL from the run), so the
+  bot answers with one model everywhere. `execution.timeoutS`, when set, is a tighter per-attempt cap than the
+  run's `maxRuntimeS`.
 - **Queue drain** — the durable `queue_if_running` queue is drained against the
   IN-FLIGHT count (not every non-terminal row), so a queued run does not count
   itself as occupying a slot and the queue actually starts once capacity frees.

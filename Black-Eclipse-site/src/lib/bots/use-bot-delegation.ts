@@ -27,7 +27,7 @@ import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store'
 import { useBotChatStore } from '@/lib/bots/chat-store';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { buildMentionTargets, type MentionTarget } from '@/lib/bots/mentions';
-import { botModelOverride } from '@/lib/bots/state';
+
 import {
   runBotTurn, runGroupMemberTurn,
   type PriorBotTurn, type PriorGroupTurn,
@@ -199,8 +199,8 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
           h.replaceAssistantReply(chatId, placeholderId, { ...base, content: streamed, status: 'streaming' }, false);
         };
         const reply = task.group
-          ? await runGroupMemberTurn({ group: task.group, bot, text: userText, prior: priorGroup, model: h.model || botModelOverride(bot), signal: controller.signal, onDelta, onEvent })
-          : await runBotTurn({ bot, text: userText, prior: priorBot, model: h.model || botModelOverride(bot), signal: controller.signal, onDelta, onEvent });
+          ? await runGroupMemberTurn({ group: task.group, bot, text: userText, prior: priorGroup, model: h.model || undefined, signal: controller.signal, onDelta, onEvent })
+          : await runBotTurn({ bot, text: userText, prior: priorBot, model: h.model || undefined, signal: controller.signal, onDelta, onEvent });
         const final = reply || streamed;
         const durationMs = Math.max(0, Date.now() - startedAt);
         if (final) {

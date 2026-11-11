@@ -37,6 +37,16 @@ _REPORT = ("report", "pdf", "docx", "xlsx", "deck", "memo", "tear sheet")
 _UI = ("widget", "page", "dashboard", "screen", "layout", "component")
 _PLUGIN = ("broker", "connect", "integration", "plugin", "mcp", "api", "oauth")
 _SKILL = ("skill", "procedure", "routine", "playbook")
+# Persistent scheduled agents. Kept narrow on purpose: a bare "daily" would
+# misroute "daily return", so only scheduling words and explicit cadence
+# phrases count. "bot" must be here or "turn this into a bot" falls through to
+# a one-off and never reaches the bot surface.
+_AUTOMATION = (
+    "bot", "bots", "automation", "automate", "scheduled", "schedule",
+    "recurring", "cron", "every morning", "each morning", "every day",
+    "each day", "every weekday", "weekdays at", "daily at", "each week",
+    "every week", "at 9am", "at 9 am",
+)
 _HARNESS = ("harness", "agent loop", "model provider", "policy")
 _TOOL = ("tool", "adapter", "endpoint")
 
@@ -46,6 +56,7 @@ _KIND_SURFACE = {
     "report_template": "capability_builder",
     "tool": "scaffold_kit",
     "skill": "skill_create",
+    "bot": "bot_create",
     "ui_widget": "ui_start_engineering",
     "ui_page": "ui_start_engineering",
     "plugin": "external_adapter",
@@ -57,6 +68,7 @@ _KIND_SURFACE = {
 _NEXT_TOOL = {
     "tool": "scaffold_kit",
     "skill": "skill_create",
+    "bot": "bot_create",
     "ui_widget": "ui_start_engineering",
     "ui_page": "ui_start_engineering",
     "plugin": "capability_external",
@@ -64,7 +76,9 @@ _NEXT_TOOL = {
 }
 
 _PURE = frozenset({"recipe", "report_template"})
-_EFFECTFUL = frozenset({"tool", "skill", "ui_widget", "ui_page", "plugin", "harness_change"})
+_EFFECTFUL = frozenset({
+    "tool", "skill", "bot", "ui_widget", "ui_page", "plugin", "harness_change",
+})
 
 
 def _tokens(text: str) -> set[str]:
@@ -156,6 +170,7 @@ class CapabilityAssessment:
     missing: list[str] = field(default_factory=list)
     reason: str = ""
     next_tool: str = ""
+    deliverables: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -172,32 +187,74 @@ class CapabilityAssessment:
             "missing": list(self.missing),
             "reason": self.reason,
             "nextTool": self.next_tool,
+            "deliverables": list(self.deliverables),
         }
 
 
-def classify(need: str, kind: str = "auto") -> str:
+def _first_index(text: str, words: Iterable[str]) -> Optional[int]:
+    """Where the first of `words` appears in `text`, or None."""
+    hits = [text.find(word) for word in words if word and word in text]
+    return min(hits) if hits else None
+
+
+def detect_kinds(need: str, kind: str = "auto") -> list[str]:
+    """Every deliverable the request names, in the order it names them.
+
+    A request can ask for more than one thing ("turn this into a skill and then
+    a bot"). Returning the whole ordered list keeps the first kind as the
+    primary route without silently dropping the rest. An explicit kind always
+    wins and returns exactly one entry.
+    """
     explicit = (kind or "auto").strip().lower()
     if explicit and explicit != "auto":
-        return explicit
+        return [explicit]
     text = (need or "").lower()
-    reusable = _contains(text, _REUSABLE)
-    if _contains(text, _UI):
-        return "ui_widget" if "widget" in text else "ui_page"
-    if _contains(text, _PLUGIN):
-        return "plugin"
-    if _contains(text, _SKILL):
-        return "skill"
+    candidates: list[tuple[int, str]] = []
+    checks: list[tuple[Iterable[str], str]] = [
+        (_AUTOMATION, "bot"),
+        (_SKILL, "skill"),
+        (_UI, "ui_widget" if "widget" in text else "ui_page"),
+        (_PLUGIN, "plugin"),
+        (_REPORT, "report_template"),
+        (_TOOL, "tool"),
+    ]
     if _contains(text, _HARNESS) and _contains(text, ("change", "fix", "improve", "patch")):
-        return "harness_change"
-    if _contains(text, _REPORT):
-        return "report_template"
-    if _contains(text, _TOOL):
-        return "tool"
-    if reusable:
-        return "recipe"
+        checks.append((_HARNESS, "harness_change"))
+    for words, label in checks:
+        at = _first_index(text, words)
+        if at is not None:
+            candidates.append((at, label))
+    kinds: list[str] = []
+    for _at, label in sorted(candidates, key=lambda item: item[0]):
+        if label not in kinds:
+            kinds.append(label)
+    if kinds:
+        return kinds
+    if _contains(text, _REUSABLE):
+        return ["recipe"]
     if _contains(text, _ONE_OFF):
-        return "one_off"
-    return "one_off"
+        return ["one_off"]
+    return ["one_off"]
+
+
+def classify(need: str, kind: str = "auto") -> str:
+    """The primary route for a request (the first deliverable it names)."""
+    return detect_kinds(need, kind)[0]
+
+
+def deliverable_plan(need: str, kind: str = "auto") -> list[dict[str, Any]]:
+    """Every deliverable with the exact surface and next tool to call for it."""
+    plan: list[dict[str, Any]] = []
+    for label in detect_kinds(need, kind):
+        plan.append({
+            "kind": label,
+            "surface": _KIND_SURFACE.get(label, "capability_builder"),
+            "nextTool": (
+                "capability_build" if label in _PURE
+                else _NEXT_TOOL.get(label, "")
+            ),
+        })
+    return plan
 
 
 def _recipe_matches(need: str) -> list[dict[str, Any]]:
@@ -287,7 +344,10 @@ def assess(
     root: Optional[Path] = None,
     capability_id: str = "",
 ) -> CapabilityAssessment:
-    chosen = classify(need, kind)
+    deliverables = deliverable_plan(need, kind)
+    kinds = [item["kind"] for item in deliverables]
+    chosen = kinds[0]
+
     recipe_matches = _recipe_matches(need)
     tool_matches = _tool_matches(need, tool_registry)
     generated = _generated_matches(store, root)
@@ -309,19 +369,28 @@ def assess(
     if available:
         best = available[0]
         capability = best.get("capability") or {}
+        matched_kind = str(capability.get("kind") or chosen)
+        resolved = str(capability.get("id") or "")
+        # A match on a real tool must name that tool as the next call. A bare
+        # "I can already do that" with no nextTool is the same dead end the
+        # hand-off path just fixed.
+        next_tool = (
+            "analysis_run" if matched_kind in ("recipe", "report_template")
+            else (resolved if matched_kind == "tool" else "")
+        )
         return CapabilityAssessment(
             need=need,
             status="satisfied",
-            kind=str(capability.get("kind") or chosen),
+            kind=matched_kind,
             surface="existing_capability",
             scope=scope,
             one_off=False,
             requires_approval=False,
-            resolved_by=str(capability.get("id") or ""),
+            resolved_by=resolved,
             matches=matches,
-            steps=[f"use the existing {capability.get('kind', 'capability')} '{capability.get('id')}'"],
+            steps=[f"use the existing {matched_kind} '{resolved}'"],
             reason="an available capability already fits this need",
-            next_tool="analysis_run" if capability.get("kind") in ("recipe", "report_template") else "",
+            next_tool=next_tool,
         )
     if chosen == "one_off":
         return CapabilityAssessment(
@@ -345,6 +414,12 @@ def assess(
     missing: list[str] = []
     if chosen in _PURE:
         missing.extend(["implementation source", "sample inputs", "contract test"])
+    elif chosen == "bot":
+        missing.extend([
+            "the bot objective (what every run should do)",
+            "the schedule (a cron expression and an IANA timezone)",
+            "operator approval to create an autonomous schedule",
+        ])
     elif chosen == "plugin":
         missing.extend([
             "operator-supplied credentials (names only)",
@@ -369,6 +444,13 @@ def assess(
             "install disabled through the approved MCP/plugin gate",
             "the operator enables it explicitly, then resumes the original task",
         ]
+    elif chosen == "bot":
+        steps = [
+            "record the automation request and its gap",
+            "prepare the bot objective and its cron/timezone schedule",
+            "call bot_create (its handler requests a single-use bot_schedule approval)",
+            "run the bot once with bot_run to prove it, then leave it enabled",
+        ]
     else:
         steps = [
             "record the effectful capability request and its gap",
@@ -392,6 +474,7 @@ def assess(
         matches=matches,
         steps=steps,
         missing=missing,
+        deliverables=deliverables,
         reason=(
             "no available capability fits this need; the cheapest safe surface is "
             f"{surface}"
@@ -405,5 +488,7 @@ __all__ = [
     "CapabilityRequest",
     "assess",
     "classify",
+    "deliverable_plan",
+    "detect_kinds",
     "slug_for",
 ]

@@ -1248,6 +1248,22 @@ model Workflow {
   @@index([archived])
 }
 
+// Durable presentation state for Bots mode: the per-bot chat threads (`chat`)
+// and the group rooms incl. their transcripts (`groups`). The JSON document is
+// owned by the client stores; the row is only a durable mirror so clearing
+// localStorage (or opening another browser) does not erase conversations.
+// `stateUpdatedAt` is the CLIENT's ISO timestamp of the document contents and
+// is what lets a tab decide whether local or remote is newer.
+model BotState {
+  key            String   @id
+  document       String
+  stateUpdatedAt String
+  revision       Int      @default(1)
+  updatedAt      DateTime @updatedAt
+
+  @@map("BotState")
+}
+
 // A timezone-aware schedule that starts a workflow's run unattended.
 // `nextRunAt` is precomputed so a tick is a single indexed query, and the
 // record keeps the LAST outcome so a broken schedule is visible rather than

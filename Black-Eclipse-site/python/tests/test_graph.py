@@ -987,3 +987,43 @@ async def test_persona_does_not_apply_to_a_custom_agent(store, monkeypatch):
     assert result.status == "completed"
     assert "## User persona" not in captured["messages"][0].content
     assert store.get_run("run_test")["surface"].get("persona") is None
+
+
+@pytest.mark.asyncio
+async def test_a_refused_tool_leaves_an_offer_in_the_answer(store, monkeypatch):
+    """A handler-level refusal is a dead end, not a successful tool call."""
+    reg = ToolRegistry()
+
+    async def handler(_args, _ctx):
+        return (
+            "REFUSED (PROFILE_DENIED): this run cannot write files",
+            {"status": "refused", "code": "PROFILE_DENIED",
+             "reason": "this run cannot write files"},
+        )
+
+    reg.register(ToolDefinition(
+        name="file_builder", description="Build a file",
+        input_schema={"type": "object", "properties": {}}, handler=handler,
+        permission="read",
+    ))
+    agent = AgentConfig(
+        id="offer-agent", name="Offer", systemPrompt="sys",
+        tools=["file_builder"], maxSteps=3,
+    )
+    model = ScriptedModel([
+        AIMessage(content="", tool_calls=[
+            {"id": "c1", "name": "file_builder", "args": {}},
+        ]),
+        AIMessage(content="I could not build the file."),
+    ])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(agent=agent), reg, FakeBridge({"status": "UNAVAILABLE"}), store,
+    )
+
+    assert result.status == "completed"
+    assert "Want me to?" in result.output
+    assert "write access" in result.output.lower()
+    from harness.gaps.service import GapService
+    assert GapService(store).summary()["total"] >= 1

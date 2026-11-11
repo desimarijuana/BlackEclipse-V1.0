@@ -328,6 +328,22 @@ async def test_manual_fire_does_not_move_the_schedule(env):
     assert env.auto_store.get_automation("auto_test").next_run_at == before
 
 
+async def test_manual_fire_is_allowed_while_paused(env):
+    # Pausing stops the SCHEDULER, not an explicit "Run now". A manual fire must
+    # still launch, while event/fabric/webhook trigger classes remain refused so
+    # a paused bot cannot be woken by something other than the operator.
+    _save(env, state="paused")
+    # Only a caller that explicitly opts in (the operator run route) may fire a
+    # paused automation; the default remains "active only".
+    assert await env.engine.fire("auto_test", trigger_type="manual") is None
+    execution_id = await env.engine.fire("auto_test", trigger_type="manual", allow_paused=True)
+    await env.engine.wait_idle()
+    assert execution_id is not None
+    assert env.dispatcher.calls == 1
+    assert await env.engine.fire("auto_test", trigger_type="fabric", allow_paused=True) is None
+    assert await env.engine.fire("auto_test", trigger_type="webhook", allow_paused=True) is None
+
+
 async def test_misfire_grace_runs_a_just_due_fire(env):
     # A fire that came due seconds before startup is ON TIME (run it), not a
     # missed window to record as skipped.
@@ -529,6 +545,22 @@ def test_per_bot_model_override_is_honored(env):
         action={"type": "run_agent", "objective": "x"},
     )
     assert dispatcher._model_settings_for(plain).model
+
+
+def test_agent_runs_enable_the_analysis_sandbox(env):
+    # A scheduled/manual bot run must have the SAME read-only computation surface
+    # as a chat turn; otherwise a bot cannot reproduce a derived figure.
+    from harness.automation.dispatcher import Dispatcher
+
+    dispatcher = Dispatcher(FakeService(env.store))
+    now = env.clock().isoformat()
+    definition = AutomationDefinition(
+        id="a1", name="A", state="active", created_at=now, updated_at=now,
+        trigger={"type": "manual", "timezone": "UTC"},
+        action={"type": "run_agent", "objective": "compute drawdown"},
+    )
+    request = dispatcher._run_request(definition, "run_1", "compute drawdown")
+    assert request.analysisEnabled is True
 
 
 def test_snapshot_never_contains_credentials(env):

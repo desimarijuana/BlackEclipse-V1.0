@@ -59,6 +59,10 @@ const nextConfig: NextConfig = {
   // dev writes to `.next-dev` while production keeps `.next`. NEXT_DIST_DIR is
   // an explicit override.
   distDir: process.env.NEXT_DIST_DIR || (process.env.NODE_ENV === "development" ? ".next-dev" : ".next"),
+  // `BE_STANDALONE=1` switches the build to a self-contained output for the
+  // desktop payload (docs/desktop-app-plan.md §6). Unset by default, so the
+  // browser path's build output is byte-for-byte what it was before.
+  output: process.env.BE_STANDALONE === "1" ? "standalone" : undefined,
   eslint: {
     ignoreDuringBuilds: true,
   },

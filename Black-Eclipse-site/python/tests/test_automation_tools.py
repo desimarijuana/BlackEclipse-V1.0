@@ -151,6 +151,17 @@ def test_bot_list_excludes_jobs_and_event_rules(ctx):
     svc.delete(job.id)
 
 
+def test_a_cron_bot_without_an_expression_is_refused_clearly(ctx):
+    from harness.automation import tools
+
+    _, data = run(tools._create(
+        {"name": "No schedule", "objective": "run daily", "triggerType": "cron", "state": "active"},
+        ctx,
+    ))
+    assert data["created"] is False
+    assert data["reason"] == "cron expression required"
+
+
 def test_bot_delete_purges_private_memory(ctx, monkeypatch):
     from harness.automation import tools
 

@@ -485,7 +485,12 @@ def test_prompt_char_ceiling():
     # failure. Matches the same test in `test_phase_s_stabilization.py`.
     # Re-pinned 44183->45694 (2026-11-09) for the finance_calc guidance and the
     # in-flight prompt guidance merged into the release tree. May only shrink.
-    assert len(prompt) <= 45694, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 45694->47121 (2026-11-10) to the measured tree: commit 93aebd01
+    # (quant research intelligence) added the "never end with a bare refusal"
+    # rule and the Quant research guidance without updating this ratchet. The
+    # pin was stale at HEAD, so the test failed on an unchanged prompt. Re-pinned
+    # to the real, measured size; it may only shrink from here.
+    assert len(prompt) <= 47121, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

@@ -190,11 +190,20 @@ async def run_automation_now(automation_id: str, _: bool = Depends(require_opera
     definition = svc.get(automation_id)
     if definition is None:
         raise HTTPException(status_code=404, detail="Automation not found")
-    if definition.state != "active":
-        raise HTTPException(status_code=409, detail="Enable this automation before running it")
-    execution_id = await svc.run_now(automation_id)
+    # A paused automation may still be run MANUALLY: pause stops scheduled
+    # fires, not an explicit operator request. Draft/disabled/archived do not
+    # run until they are enabled.
+    if definition.state not in ("active", "paused"):
+        raise HTTPException(
+            status_code=409,
+            detail="Enable this automation before running it",
+        )
+    execution_id = await svc.run_now(automation_id, allow_paused=True)
     if execution_id is None:
-        raise HTTPException(status_code=409, detail="Enable this automation before running it")
+        raise HTTPException(
+            status_code=409,
+            detail="Enable this automation before running it",
+        )
     return {"success": True, "executionId": execution_id}
 
 

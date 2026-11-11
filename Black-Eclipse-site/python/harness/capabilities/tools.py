@@ -11,7 +11,7 @@ from ..tools import ToolContext
 from . import builder
 from .adapter import author_adapter
 from .external import propose_external
-from .request import CapabilityRequest, assess, classify, slug_for
+from .request import CapabilityRequest, assess, classify, deliverable_plan, slug_for
 from .registry import refresh_generated_recipes
 from .resume import resume_original_task
 from .store import CapabilityStore
@@ -211,6 +211,7 @@ async def capability_request(args: dict[str, Any], ctx: ToolContext) -> tuple[st
         "requestId": request.request_id,
         "capabilityId": capability_id,
         "assessment": assessment.to_dict(),
+        "deliverables": assessment.deliverables,
         "request": request.to_dict(),
     }
     if assessment.kind == "plugin":
@@ -230,8 +231,12 @@ async def capability_request(args: dict[str, Any], ctx: ToolContext) -> tuple[st
         "matches": list(assessment.matches),
     })
     if assessment.status == "satisfied":
+        next_step = (
+            f" Call `{assessment.next_tool}` in this turn."
+            if assessment.next_tool else ""
+        )
         return (
-            f"I can already do that with {assessment.resolved_by}.",
+            f"I can already do that with {assessment.resolved_by}.{next_step}",
             data,
         )
     if assessment.status == "one_off":
@@ -249,12 +254,23 @@ async def capability_request(args: dict[str, Any], ctx: ToolContext) -> tuple[st
             "Nothing is enabled automatically.",
             data,
         )
-    if assessment.kind in ("tool", "skill", "ui_widget", "ui_page", "harness_change"):
+    if assessment.kind in ("bot", "tool", "skill", "ui_widget", "ui_page", "harness_change"):
+        deliveries = assessment.deliverables or [{
+            "kind": assessment.kind,
+            "surface": assessment.surface,
+            "nextTool": assessment.next_tool,
+        }]
+        plan = "\n".join(
+            f"- {str(item.get('kind', '')).replace('_', ' ')}: call "
+            f"`{item.get('nextTool') or 'capability_build'}`"
+            for item in deliveries
+        )
         return (
-            f"That needs a {assessment.kind.replace('_', ' ')} build on "
-            f"{assessment.surface}. I can prepare a typed hand-off for "
-            f"`{assessment.next_tool}`; the existing surface owns the build, its "
-            "approval and its acceptance evidence. Nothing is enabled by this step.",
+            "That is a real build, not a refusal — the existing surface owns it.\n"
+            f"{plan}\n"
+            "Call the named tool in this turn (via capability_build first for a "
+            "typed hand-off). Any operator approval appears as a single-use card; "
+            "it is the only step that can be denied.",
             data,
         )
     missing = ", ".join(assessment.missing) if assessment.missing else "the build plan"
@@ -304,7 +320,8 @@ async def capability_build(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         )
     result = builder.build(request, store=store, root=_root(ctx), run_id=getattr(ctx, "run_id", None))
     status = str(result.get("status") or "")
-    data = {**result, "requestId": request.request_id}
+    plan = deliverable_plan(request.need, request.kind)
+    data = {**result, "requestId": request.request_id, "deliverables": plan}
     event = _build_event(request, result)
     if status in ("active", "tested", "approval_required", "unverified", "handoff_required"):
         await _emit(ctx, "capability.built", event)
@@ -314,14 +331,24 @@ async def capability_build(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         missing = list(handoff.get("missing") or [])
         text = (
             f"This is a {handoff.get('kind', 'capability')} build; the existing "
-            f"{handoff.get('surface', 'surface')} owns it. I prepared the hand-off for "
-            f"`{next_tool}`."
+            f"{handoff.get('surface', 'surface')} owns it. The hand-off is prepared, "
+            f"not executed: call `{next_tool}` NOW with the arguments in the hand-off."
         )
         if missing:
-            text += " Still needed: " + "; ".join(missing[:6]) + "."
+            text += " Fill in first: " + "; ".join(missing[:6]) + "."
+        remaining = [
+            item for item in plan
+            if item.get("nextTool") and item.get("nextTool") != next_tool
+        ]
+        if remaining:
+            text += " This request also names: " + "; ".join(
+                f"{item['kind']} -> `{item['nextTool']}`" for item in remaining
+            ) + " — do those in this turn too."
         return (
-            text + " Nothing was activated; the target surface owns the build, approval "
-            "and acceptance evidence.",
+            text + " `" + str(next_tool) + "` is the surface that asks for the "
+            "single-use operator approval and records the acceptance evidence. "
+            "Do not stop at this hand-off and do not substitute scaffold_kit for a "
+            "skill or a bot.",
             data,
         )
     if status == "active":
@@ -640,7 +667,7 @@ def capability_schemas() -> dict[str, dict[str, Any]]:
             "evidence": {"type": "string", "description": "Why this is missing or what was tried."},
             "kind": {"type": "string", "enum": [
                 "auto", "one_off", "recipe", "report_template", "tool", "skill",
-                "ui_widget", "ui_page", "plugin", "harness_change",
+                "bot", "ui_widget", "ui_page", "plugin", "harness_change",
             ]},
             "scope": {"type": "string", "enum": ["workspace", "global"]},
             "capabilityId": {"type": "string"},
@@ -750,14 +777,15 @@ _DESCRIPTIONS = {
     "capability_request": (
         "Check whether Eclipse already has a capability for a need. If not, decide whether "
         "it is a one-off computation, a reusable recipe/template, or an effectful capability "
-        "with an existing owner, and return the cheapest safe route. Read-only."
+        "with an existing owner (including a persistent bot/scheduled agent), and return the "
+        "cheapest safe route. A request naming several deliverables returns them all. Read-only."
     ),
     "capability_build": (
         "Build a reusable analysis recipe from a capability request: write a versioned "
         "manifest, run its contract test in the sandbox, and auto-activate a pure workspace "
-        "recipe only when the test passes. An effectful kind (tool, skill, UI, harness, "
+        "recipe only when the test passes. An effectful kind (tool, skill, bot, UI, harness, "
         "plugin) instead returns a typed hand-off for its existing owner; it never builds "
-        "or activates it."
+        "or activates it. A hand-off names the exact next tool the agent must call."
     ),
     "capability_status": (
         "Show a capability request or build's status, versions and any effectful hand-off. Read-only."

@@ -23,6 +23,17 @@ def test_skill_handoff_names_the_existing_owner():
     assert any("instructions" in item for item in handoff.missing)
 
 
+def test_a_bot_handoff_uses_the_persistent_bot_surface():
+    handoff = plan_handoff(_request("turn this into a bot that runs at 9am", "bot"))
+    assert handoff.surface == "bot_create"
+    assert handoff.next_tool == "bot_create"
+    assert handoff.arguments["triggerType"] == "cron"
+    assert handoff.requires_approval is True
+    assert handoff.activation == "operator"
+    assert any("timezone" in item.lower() for item in handoff.missing)
+    assert "scaffold_kit" in " ".join(handoff.notes)
+
+
 def test_ui_handoff_uses_the_engineering_task_runtime():
     handoff = plan_handoff(_request("make a new swap-spread widget", "ui_widget"))
     assert handoff.surface == "ui_start_engineering"

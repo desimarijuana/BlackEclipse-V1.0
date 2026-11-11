@@ -560,6 +560,7 @@ export function normalizeHarnessEvent(
 
   const capabilityPhase: CapabilityEventPhase | undefined =
     event === 'capability.requested' ? 'requested'
+    : event === 'capability.offer' ? 'requested'
     : event === 'capability.built' ? 'built'
     : event === 'capability.activated' ? 'activated'
     : event === 'capability.verification_failed' ? 'verification_failed'

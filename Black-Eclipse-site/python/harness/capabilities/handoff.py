@@ -22,7 +22,7 @@ from typing import Any, Optional
 from .request import CapabilityRequest, classify, slug_for
 
 EFFECTFUL_KINDS: tuple[str, ...] = (
-    "tool", "skill", "ui_widget", "ui_page", "harness_change", "plugin",
+    "tool", "skill", "bot", "ui_widget", "ui_page", "harness_change", "plugin",
 )
 
 _TOKEN = re.compile(r"[a-z0-9_]+")
@@ -182,6 +182,47 @@ def _tool(request: CapabilityRequest, acceptance: list[str]) -> EffectfulHandoff
     )
 
 
+def _bot(request: CapabilityRequest, acceptance: list[str]) -> EffectfulHandoff:
+    """A persistent scheduled agent: the existing Automation/bots surface owns it.
+
+    This is deliberately NOT a `tool` and NOT `scaffold_kit`: a bot is a durable
+    scheduled agent, not a code artefact. `bot_create` stores it and its handler
+    requests the single-use `bot_schedule` approval before an autonomous
+    schedule exists.
+    """
+    return EffectfulHandoff(
+        kind="bot",
+        surface="bot_create",
+        next_tool="bot_create",
+        title=request.need.strip()[:120],
+        objective=request.need,
+        arguments={
+            "name": slug_for(request.need)[:60],
+            "objective": request.need,
+            "triggerType": "cron",
+        },
+        acceptance=acceptance,
+        evidence=[
+            "bot_create stores the bot, its objective and its schedule",
+            "bot_run proves one run; bot_history shows its results",
+            "the schedule is computed in the stored IANA timezone, not server time",
+        ],
+        verification=(
+            "the handler requests a single-use bot_schedule approval before an "
+            "autonomous schedule is created; nothing runs until the operator approves"
+        ),
+        missing=[
+            "the cron expression and the IANA timezone for the schedule",
+        ],
+        notes=[
+            "bot_create is the existing persistent-bot surface; do NOT use scaffold_kit",
+            "the bot stays in the Bots workspace and runs after the browser closes",
+            "pin the timezone explicitly (e.g. America/New_York), never rely on UTC",
+        ],
+        resume=_resume(),
+    )
+
+
 def _skill(request: CapabilityRequest, acceptance: list[str]) -> EffectfulHandoff:
     instructions = "\n".join(acceptance) if request.acceptance else request.evidence.strip()
     missing = [] if instructions else ["the skill's step-by-step instructions"]
@@ -308,6 +349,8 @@ def plan_handoff(
     """The typed hand-off for an effectful kind. Pure; never executes anything."""
     chosen = classify(request.need, kind or request.kind)
     acceptance = _acceptance(request, chosen)
+    if chosen == "bot":
+        return _bot(request, acceptance)
     if chosen == "skill":
         return _skill(request, acceptance)
     if chosen in ("ui_widget", "ui_page"):

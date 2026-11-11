@@ -473,6 +473,12 @@ def build_graph(
     rather than re-executed.
     """
     agent = resolve_agent(request)
+    # Capability gaps from this run's tool results (fail-open; never changes a
+    # tool decision). The answer seam uses its own instance below.
+    from .gaps.runtime import GapRuntime  # noqa: PLC0415
+
+    gaps = GapRuntime(store)
+    gap_need = str(getattr(getattr(request, "input", None), "query", "") or "")
     # On a resume, reuse the allowlist + accumulated counters recorded at the last
     # durable boundary so the run continues exactly where it stopped.
     _resume_payload = (resume_from or {}).get("payload") or {}
@@ -987,6 +993,11 @@ def build_graph(
                 if result.ok:
                     from .code.activity import tool_result_summary  # noqa: PLC0415
 
+                    gaps.record_result(
+                        request.runId, tool=name, result=result,
+                        result_text=result_text, need=gap_need,
+                        task_id=str(getattr(request, "taskId", "") or ""),
+                    )
                     summary = tool_result_summary(name, result.data)
                     await emitter.emit(
                         "tool.completed",
@@ -1017,6 +1028,11 @@ def build_graph(
                     tool_errors += 1
                     failure_details.append(
                         {"name": name, "code": result.error.code if result.error else "TOOL_ERROR"}
+                    )
+                    gaps.record_result(
+                        request.runId, tool=name, result=result,
+                        result_text=result_text, need=gap_need,
+                        task_id=str(getattr(request, "taskId", "") or ""),
                     )
                     await emitter.emit(
                         "tool.failed",
@@ -1223,6 +1239,12 @@ async def execute_run(
             pass
     emitter = RunEmitter(request.runId, store, bus)
     lineage = RunLineage(store)
+    # Capability gaps: one durable record per offerable dead end. Recording is
+    # fail-open; this never changes a tool decision.
+    from .gaps.runtime import GapRuntime  # noqa: PLC0415
+
+    gaps = GapRuntime(store)
+    gap_need = str(getattr(getattr(request, "input", None), "query", "") or "")
     if code_store is None:
         from .code.store import CodeWorkspaceStore  # noqa: PLC0415
 
@@ -1884,6 +1906,15 @@ async def execute_run(
         except Exception:  # noqa: BLE001 - the event must never mask the failure
             pass
         return _result(request.runId, "failed", store, guardrail_violation, output)
+    # Capability offers: a run that hit an offerable dead end asks the user,
+    # once, whether Eclipse should add the missing piece. The event drives the
+    # chat card; the sentence keeps the ask visible to every client. Neither
+    # authorizes anything: the named surface still asks for its own approval.
+    output = await gaps.attach_offers(
+        request.runId, output, emitter=emitter,
+        tool_calls=int(final_state.get("tool_calls") or 0),
+        need=gap_need, task_id=str(getattr(request, "taskId", "") or ""),
+    )
     store.update_run(
         request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,

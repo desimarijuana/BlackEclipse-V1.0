@@ -40,6 +40,12 @@ export interface UiFocus {
 
 export interface ChatOptions {
   /**
+   * Agent preset id that answers this turn. Ordinary chat omits it (the front
+   * door resolves `eclipse-agent`); a bot chat passes the bot's own brain so the
+   * preset's prompt/tools apply exactly as they do on a scheduled run.
+   */
+  agentId?: string;
+  /**
    * Conversation id. When present the front door loads that conversation's
    * workspace folder as run context and saves the answer back into it.
    */
@@ -56,6 +62,13 @@ export interface ChatOptions {
    * (the provider/key are unchanged). Absent = the saved model.
    */
   model?: string;
+  /**
+   * Provider for a bot's pinned model. A bot may pin provider + model; the
+   * scheduled run uses both, so the chat turn forwards both too. Credentials
+   * still come from the runtime's configured provider (the same rule the
+   * automation dispatcher applies).
+   */
+  modelProvider?: string;
   /**
    * The reasoning-effort ("model intelligence") the operator picked for THIS
    * turn. Overrides the saved default for the run. Absent = Auto, so the saved

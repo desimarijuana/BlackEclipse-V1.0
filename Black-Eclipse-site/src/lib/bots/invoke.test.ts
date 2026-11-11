@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutomationView } from '@/lib/harness/automation-client';
 import { getGraphRun, startWorkflowRun } from '@/lib/graph-studio/execution-client';
-import { runWorkflowTurn } from './invoke';
+import { runBotTurn, runWorkflowTurn } from './invoke';
+
+const { mockChat } = vi.hoisted(() => ({ mockChat: vi.fn() }));
 
 vi.mock('@/lib/graph-studio/execution-client', () => ({
   startWorkflowRun: vi.fn(),
   getGraphRun: vi.fn(),
   isTerminal: (status: string) => ['succeeded', 'failed', 'cancelled'].includes(status),
+}));
+
+vi.mock('@/lib/agent/registry', () => ({
+  getAgentProvider: () => ({ chat: mockChat }),
 }));
 
 const mockStart = vi.mocked(startWorkflowRun);
@@ -36,6 +42,64 @@ function workflowBot(workflowId: string | null = 'wf_1'): AutomationView {
     },
   } as AutomationView;
 }
+
+function agentBot(config: Record<string, unknown> = {}, agentId = 'agt_brain'): AutomationView {
+  const bot = workflowBot();
+  return {
+    ...bot,
+    action: {
+      ...bot.action,
+      type: 'run_agent',
+      agentId,
+      workflowId: null,
+      config,
+    },
+  } as AutomationView;
+}
+
+describe('agent bot turn — brain and model parity', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockChat.mockResolvedValue('ok');
+  });
+
+  it('forwards the bot brain and pinned provider/model to the chat run', async () => {
+    await runBotTurn({
+      bot: agentBot({ modelSettings: { provider: 'openai', model: 'gpt-pinned' } }),
+      text: 'hi',
+      prior: [],
+    });
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.any(Array),
+      undefined,
+      expect.objectContaining({
+        agentId: 'agt_brain',
+        chatId: 'bot-bot_1',
+        model: 'gpt-pinned',
+        modelProvider: 'openai',
+      }),
+    );
+  });
+
+  it('lets a caller model win without carrying the bot provider pin', async () => {
+    await runBotTurn({
+      bot: agentBot({ modelSettings: { provider: 'openai', model: 'gpt-pinned' } }),
+      text: 'hi',
+      prior: [],
+      model: 'caller-model',
+    });
+    const options = mockChat.mock.calls[0][2] as { model?: string; modelProvider?: string };
+    expect(options.model).toBe('caller-model');
+    expect(options.modelProvider).toBeUndefined();
+  });
+
+  it('defaults an unpinned bot to the standard Eclipse brain', async () => {
+    await runBotTurn({ bot: agentBot({}, 'eclipse-agent'), text: 'hi', prior: [] });
+    const options = mockChat.mock.calls[0][2] as { agentId?: string; model?: string };
+    expect(options.agentId).toBe('eclipse-agent');
+    expect(options.model).toBeUndefined();
+  });
+});
 
 describe('workflow bot turn', () => {
   beforeEach(() => {

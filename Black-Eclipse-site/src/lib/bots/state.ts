@@ -124,12 +124,20 @@ export function isBotAutomation(
   );
 }
 
+/** A bot's pinned provider/model, or `{}` for the app default. */
+export function botModelPin(bot: AutomationView): { model?: string; provider?: string } {
+  const settings = bot.action.config?.modelSettings;
+  if (!settings || typeof settings !== 'object') return {};
+  const { model, provider } = settings as { model?: unknown; provider?: unknown };
+  return {
+    ...(typeof model === 'string' && model ? { model } : {}),
+    ...(typeof provider === 'string' && provider ? { provider } : {}),
+  };
+}
+
 /** A bot's pinned run model, or undefined for the app default. */
 export function botModelOverride(bot: AutomationView): string | undefined {
-  const settings = bot.action.config?.modelSettings;
-  if (!settings || typeof settings !== 'object') return undefined;
-  const model = (settings as { model?: unknown }).model;
-  return typeof model === 'string' && model ? model : undefined;
+  return botModelPin(bot).model;
 }
 
 // ── Filters ──────────────────────────────────────────────────────────────────

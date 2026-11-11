@@ -127,7 +127,7 @@ export const AGENT_DEFINITIONS: NodeDefinition[] = [
     capabilities: ['agent.run'],
     sideEffects: 'model',
     allowedModes: ['research', 'backtest', 'paper', 'live'],
-    docs: 'Resolves the bot by id and runs ONE bounded turn with the bot\'s own agent preset, so a saved bot can be a step in a graph. It never registers a trigger and never runs the bot\'s schedule. A workflow bot is refused: use flow.subworkflow instead of nesting a scheduler run. The bot\'s per-run model override is ignored — the graph run\'s resolved model settings win.',
+    docs: 'Resolves the bot by id and runs ONE bounded turn with the bot\'s own agent preset, so a saved bot can be a step in a graph. It never registers a trigger and never runs the bot\'s schedule. A workflow bot is refused: use flow.subworkflow instead of nesting a scheduler run. The bot\'s provider/model pin is applied to the turn; credentials and the base URL still resolve from the graph run\'s in-memory settings.',
   },
   {
     type: 'agent.classify',

@@ -125,12 +125,32 @@ def test_no_tool_description_carries_a_memory_address() -> None:
 # ── 3. the manifest is generated, and it does not drift ───────────────────
 
 
-def test_the_published_manifest_matches_a_fresh_generation() -> None:
-    from harness.public import tool_manifest
+def _fresh_manifest() -> dict:
+    """Generate the manifest in a CLEAN interpreter.
 
+    The in-process tool set depends on which modules another test file has
+    already imported, so comparing inside one pytest process made this gate
+    order-dependent. A published artefact is generated from a fresh process.
+    """
+    import subprocess
+
+    code = (
+        "import json, sys; "
+        "sys.path.insert(0, sys.argv[1]); "
+        "from harness.public import tool_manifest; "
+        "print(json.dumps(tool_manifest()))"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code, os.path.join(REPO, "python")],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    )
+    return json.loads(done.stdout)
+
+
+def test_the_published_manifest_matches_a_fresh_generation() -> None:
     with open(REGISTRY_FILE, encoding="utf-8") as handle:
         committed = json.load(handle)
-    fresh = tool_manifest()
+    fresh = _fresh_manifest()
     assert committed["digest"] == fresh["digest"], (
         "docs/harness/tool-registry.json is stale or was hand-edited. "
         "Regenerate it: npm run eval:registry"

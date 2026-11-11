@@ -1,6 +1,319 @@
 # Change Log
 
 ## 2026-11-10
+- **test(prompt): re-pin the agent-prompt ratchet to the measured size.** Commit
+  `93aebd01` (quant research intelligence) added the “never end with a bare
+  refusal” rule and the Quant research guidance but did not update the ceiling,
+  so `test_memory_tools.py::test_prompt_char_ceiling` and
+  `test_phase_s_stabilization.py::test_prompt_ceiling_was_lowered_not_raised`
+  failed on an unchanged prompt (47,121 chars vs the 45,694 pin). Re-pinned
+  45,694 → 47,121 in both files with the reason recorded; both pass.
+  No doc change — test ratchet only.
+- **feat(desktop): browser-style page tabs replace the native title bar.** The
+  window is now frameless. A `#0D0D0D` tab strip above the app shows the open
+  top-level pages (icon, label, close, `+` page picker), restores the open set
+  from `localStorage`, and owns the drag region plus
+  minimize/maximize/close. Window actions cross the existing `be-window` event
+  bridge, so the remote app origin needs no new command ACL; the bundled splash
+  gained a minimal drag/close strip. The browser front door is unchanged —
+  `DesktopTabBar` renders nothing without the Tauri bridge. The size guard now
+  skips `dist/` build artifacts (they were failing the source budget after a
+  packaging run). Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
+- **feat(desktop): offline (full) edition, and a real regression caught by it.**
+  `npm run desktop:installer -- --full` now builds
+  `BlackEclipse-Setup-<v>-full.exe` (258 MB) containing core **plus all five
+  packs**, for machines with no network; the slim edition (141 MB) stays the
+  default download. `SHA256SUMS.txt` now covers every installer present, and the
+  release workflow builds both. **Regression found and fixed:** pruning
+  `*.dist-info` (7 MB) broke `plotly`, which calls
+  `importlib.metadata.version(__name__)` at import time and died with
+  `PackageNotFoundError` — proven by importing every pack from the installed full
+  edition. The metadata is kept; the 7 MB is not worth it. Verified: full install
+  is 1,253 MB and `sklearn`, `xgboost`, `playwright`, `fitz` all import from the
+  installed copy. Docs updated: `docs/desktop-size-plan.md` (two editions, S2–S4
+  blocked-on-hosting note), `docs/CHANGELOG.md`.
+- **chore(data): removed four leftover “ZZ …” test pages.** The saved-pages
+  navigation showed `ZZ Verify Live Swap Spreads`, `ZZ Temp Field A`,
+  `ZZ Temp Bare Check` and `ZZ Temp Swap Spread Check` — all personal pages
+  owned by `operator`, created 2026-11-09 while testing swap-spread widgets.
+  They were runtime data (UI blueprints), not source routes, so they were
+  deleted through `DELETE /api/sdk/pages/{id}` with `x-eclipse-user: operator`
+  (the SDK proxy maps that to `X-Harness-User`). Afterwards
+  `GET /api/sdk/pages` returns `total: 0`. No code or contract changed.
+  No doc change — runtime data cleanup.
+- **fix(desktop): a 307 from the browser path is attachable, not a conflict.**
+  With `npm start` already running on 3100, `/` answers 307 to the canonical
+  `https://blackeclipse` hostname and carries no HTML, so the shape check failed
+  and the shell reported a port conflict — the desktop refused to open while the
+  same app was healthy behind the local TLS proxy. Classification now treats any
+  3xx as "no document to shape-check" and lets `/api/updates` decide identity
+  (API routes are never canonical-redirected); the asset probe runs only when
+  there is HTML to inspect. Verified: `@@BE:ATTACH@@v0.3.2` against the live
+  `npm start` server, and `/`, `/alerts`, `/terminal`, `/theses`, `/events`,
+  `/app-view`, `/fabric`, `/figure` plus CSS/JS all return 200 through
+  `https://blackeclipse`. Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
+- **feat(desktop): S0 + S1 — junk pruning and optional packs cut the core to
+  819 MB.** Removed 114 MB of pure junk (harness tests 52 MB, site-package tests
+  47 MB, `.dist-info` 6 MB, `node_modules/typescript` 9 MB) and moved the five
+  lazily-imported heavypackages out of the core into separate packs: `ml`
+  (xgboost/sklearn/scipy, 168 MB), `charts` (plotly/matplotlib, 53 MB),
+  `documents` (pymupdf, 48 MB), `computer` (winsdk, 41 MB), `browser`
+  (playwright, ~104 MB). `comtypes` stays in core because it is imported during
+  the boot sweep. Core folder **1,258 → 731 MB**; with bundled Node and the shell,
+  **1,345 → 819 MB**. Verified the core-only build serves `HTTP 200` with zero
+  `ModuleNotFoundError`/`ImportError`. Added `scripts/desktop-packs.js`
+  (`npm run desktop:packs`) to list/install/remove packs into a target app, and
+  `scripts/desktop-bench.js` (`npm run desktop:bench`) which measured startup:
+  window **1.4 s**, server answering **6.0 s** cold — the app's own boot, not the
+  shell, holds the first response. The installer build now strips runtime state
+  (`app/.black-eclipse`) before compressing, after a leftover lock file broke the
+  NSIS build. Docs updated: `docs/desktop-size-plan.md` (§ S0/S1 results + speed
+  baseline), `docs/CHANGELOG.md`.
+- **docs(desktop): size-reduction plan — small download, optional packs.** Added
+  `docs/desktop-size-plan.md`. Measured the installed copy (1,411 MB; installer
+  268 MB; 5:1 compression) and found every heavy optional package is a **lazy
+  import** (`# noqa: PLC0415`), so the harness already survives their absence —
+  removing them is a packaging change, not a code change. Plan: prune ~115 MB of
+  pure junk (harness tests 52, site-package tests 47, dist-info 7, `typescript` 9,
+  caches); split the payload into a required **core** plus five optional packs
+  (browser 105, ML 189, documents 48, computer-control 58, charts 54); ship a
+  ~12 MB stub installer that fetches core (~130–150 MB) with resume + SHA-256 and
+  lets onboarding choose packs, installable later from Settings › Components via
+  `PYTHONPATH` — no reinstall. Tier 3 (hand-built minimal Python) explicitly
+  rejected as too risky. Projected: 268 MB → ~12 MB download → ~140 MB core fetch
+  → ~540 MB installed. Docs updated: `docs/desktop-size-plan.md`,
+  `docs/CHANGELOG.md`.
+- **fix(desktop): do not attach to a server whose build files are gone.**
+  A leftover `next start` (its release directory had been deleted) still answered
+  `/` with a full HTML document and still passed the identity probe at
+  `v0.3.2`, so the shell attached to it. Every `/_next/static/*` request then
+  failed with 400, leaving the window unstyled and non-interactive — the reported
+  "the rest of the pages do not work" state. The bootstrap now fetches one of the
+  JS chunks the served HTML references before trusting the server; failure is
+  reported as a conflict with actionable text (stop the leftover Node process,
+  then Retry), and the server is still never killed because the ownership rule is
+  unchanged. Verified against the live broken listener (reported conflict) and
+  the healthy payload (`@@BE:ATTACH@@`), then a fresh owned boot served `/`,
+  `/alerts`, `/terminal` and its JS chunk with 200. Docs updated:
+  `docs/desktop-app-plan.md` §3.2, `desktop/README.md`, `docs/CHANGELOG.md`.
+- **fix(desktop): no sign-in screen, and a first run has a working database.**
+  Two defects that only existed in the packaged build, both caused by the pruned
+  `.env`. (1) `src/lib/auth/config.ts` treats a production build as public and
+  **requires auth by default**, so the installed app opened on
+  *"Create your operator account"*. The bootstrap now sets `HARNESS_AUTH=off`,
+  matching what the repository's `.env` already declares — the desktop app is
+  single-user and loopback-only, so there is nothing to sign in to. Verified:
+  `/` serves the application (90,904 bytes) instead of the login page (38,375).
+  (2) A first run created an **empty 4 KB database with no schema**, so every
+  Prisma query failed with "table does not exist". The package now ships a
+  schema-only seed (`app/seed/jdds.db`, generated from `prisma/schema.prisma` at
+  package time — no binary committed) and the bootstrap copies it on first run.
+  `CRON_SECRET` is likewise generated per install. Signing guidance removed from
+  the docs: the project is free and unsigned by choice, with checksums plus
+  `winget` as the distribution answer. Docs updated:
+  `docs/desktop-app-plan.md` (§6, distribution), `desktop/README.md`,
+  `docs/CHANGELOG.md`.
+- **fix(desktop): identity check no longer depends on the update config, and the
+  package ships no runtime state.** `/api/updates` reports
+  `repository: "unknown"` when `config/updates.json` cannot be read (observed on
+  the live server), which made a legitimate install attach as "unverified". The
+  probe now also accepts the response's app-specific shape (`currentVersion` +
+  `channel` + `ok`), so an unrelated config problem cannot masquerade as a
+  foreign process. `desktop-package.js` also clears `app/.black-eclipse` before
+  finishing — a local test run had written its log into the installer payload.
+  Docs updated: `docs/CHANGELOG.md`.
+- **test(desktop): the installer was installed, run, and uninstalled for real.**
+  `BlackEclipse-Setup-0.3.2.exe` (259 MB from a 1,302 MB payload) installs
+  silently in 43 s to `%LOCALAPPDATA%\Programs\BlackEclipse`, creates the Start
+  Menu shortcut and Add/Remove entry, and the **installed** binary serves
+  `HTTP 200`. Silent uninstall removes the program, shortcut and registry key
+  while **preserving `%LOCALAPPDATA%\BlackEclipse\data`**. Checksum verified
+  against `SHA256SUMS.txt` and matches the hash baked into the winget manifest.
+  Running the installed copy exposed one more packaging gap: `@napi-rs/canvas`
+  (a runtime `optionalDependency`) is not traced by Next, so PDF rendering
+  silently degraded with `Cannot load "@napi-rs/canvas"` / `Cannot polyfill
+  DOMMatrix`. `desktop-package.js` now copies `@napi-rs` and `@img` explicitly.
+  Docs updated: `docs/desktop-app-plan.md` §13, `docs/CHANGELOG.md`.
+- **feat(desktop): Windows installer, checksums, winget manifests and a release
+  pipeline.** `desktop/installer/BlackEclipse.nsi` builds a **per-user** NSIS
+  installer (no admin, no prerequisites) that keeps user data in
+  `%LOCALAPPDATA%\BlackEclipse\data` and deliberately does not delete it on
+  uninstall. Per-user is a correctness requirement, not a preference: the app
+  resolves `python/harness` and its `.black-eclipse` locks from `process.cwd()`,
+  so the install directory must be writable — Program Files is not.
+  `scripts/desktop-installer.js` compiles it, writes `dist/SHA256SUMS.txt` and
+  generates the three `winget` manifests with the real hash. Two Windows-specific
+  fixes were required: NSIS cannot resolve paths over 260 characters, so the build
+  goes through a short junction, and the payload now drops `__pycache__`
+  directories (regenerable, the deepest paths, and 256 MB of the payload).
+  `.github/workflows/desktop-release.yml` builds payload → shell → package →
+  installer on a `v*` tag, asserts the payload carries no local configuration, and
+  uploads a draft release. Also caught and fixed: `desktop-package.js` had a
+  comment merged onto a `fs.mkdirSync` line, silently disabling the runtime
+  directory. Docs updated: `desktop/README.md` (install layout, release chain,
+  distribution, updating), `docs/desktop-app-plan.md` §10, `docs/CHANGELOG.md`.
+- **fix(desktop): packaged app now generates its own harness secret instead of
+  inheriting `.env`.** Pruning local config from the payload (correct) removed
+  `HARNESS_AUTH_SECRET`, and the Python front door fails closed with
+  `503 AUTH_MISCONFIGURED` in production — the packaged app booted and served
+  nothing. `scripts/desktop-server.js` now creates a 64-char secret on first run
+  at `<data dir>/harness-auth.secret` (mode 0600) and exports it to the child;
+  repository checkouts keep `.env` authority. Also in this round, from real
+  packaged-run evidence: the payload no longer carries `.env` / `mcp-servers.json`
+  / source trees (with a build-time assertion that refuses to emit one),
+  `.next` is renamed to the distDir baked into `server.js`, `BUILD_ID` is copied
+  (Next omits it from standalone output), the traced server tree is overlaid with
+  the authoritative one (`_not-found/page.js` was missing), readiness accepts the
+  app's honest `503` warm-up gate while still failing on a real 5xx, and a
+  non-canonical `BE_DESKTOP_PORT` now logs that notifications will not work
+  (Tauri cannot wildcard the port in its IPC allowlist). Docs updated:
+  `docs/desktop-app-plan.md` §6, `docs/CHANGELOG.md`.
+- **fix(desktop): the payload build no longer rewrites `tsconfig.json`.** Next
+  adds the new `distDir` (`.next-desktop/types`) to `include`, which would dirty a
+  tracked file shared with every contributor. `scripts/desktop-payload.js` now
+  snapshots `tsconfig.json` before the build and restores it byte-for-byte after.
+  Also verified for open-source readiness: `node scripts/scan-secrets.js` clean
+  over 5826 tracked files; `.env`, `.connector-key`, `mcp-servers.json` and
+  `jdds.db` are untracked and `.env` has never been in history (only
+  `.env.example`); the 1 GB vendored Python is gitignored; no GPL/AGPL in the
+  Python core dependencies. Docs updated: `docs/CHANGELOG.md` (licence and
+  distribution notes already live in `docs/desktop-app-plan.md` §6).
+- **feat(desktop): zero-config defaults, and a free signing path for GitHub.** The
+  shell now turns OS notifications **on** for a first run (the injected script
+  writes `be_alerts_browser_v1=1` only when the key is absent, so an explicit OFF
+  is respected; the app's own source and its browser opt-in are unchanged) —
+  verified as `pref:1` in the probe. Added `npm run desktop:payload`
+  (`scripts/desktop-payload.js`): builds a self-contained Next payload into
+  `.next-desktop` with `output: "standalone"`, then copies `static` and `public`
+  next to `server.js` and reports real sizes. The live server is never touched
+  because the build uses its own `distDir`. `next.config.ts` gained one
+  conditional line — `output` is only `standalone` when `BE_STANDALONE=1`, so the
+  browser build is unchanged. Distribution/signing recorded in the plan: **no
+  paid certificate** (the project is free on GitHub Releases), so the documented
+  path is SignPath Foundation (free for OSS, apply early because approval takes
+  time) plus the industry-standard mitigations while unsigned — per-asset SHA-256
+  checksums, a `winget` manifest (strips the Mark-of-the-Web, so the installer
+  usually runs without the SmartScreen wall), and an explicit README note. A
+  self-signed certificate is recorded as **never ship**: an untrusted root adds
+  its own warning. Docs updated: `docs/desktop-app-plan.md` (§6 distribution +
+  signing, §19), `desktop/README.md`, `docs/CHANGELOG.md`.
+- **fix(desktop): OS notifications now actually work — Tauri 2 denies app
+  commands to remote origins.** The injected `Notification` shim called
+  `invoke('desktop_notify')`, which fails with *"not allowed. Plugin not found"*
+  because the window loads `http://127.0.0.1:3100`, a remote origin for the ACL.
+  The shim had been silently no-oping inside a `try/catch`, so the app saw a
+  `Notification` global that could never deliver. Two fixes: `remote.urls` added
+  to `capabilities/default.json` (without it `window.__TAURI__` is absent
+  entirely), and the transport moved from commands to **core events**
+  (`be-notify`, `be-shortcut`), which a capability-listed remote origin *is*
+  allowed to emit. `src/lib/alerts/browser-notifier.ts` is untouched. Added
+  `npm run desktop:selftest` (`scripts/desktop-selftest.js`): a gated probe that
+  reports through the webview URL rather than IPC, so a broken IPC cannot be
+  mistaken for a working one. Result: `hn:1~perm:granted~sec:1~
+  ctor:NativeNotification~shimcall:dispatched~direct:ok`, with two
+  `[notify] sent` entries. The app-origin capability stays `core:default` only —
+  no filesystem, no shell, no process control. Docs updated:
+  `desktop/README.md`, `docs/desktop-app-plan.md` (§5, §12.15, §13),
+  `docs/CHANGELOG.md`.
+- **test(desktop): P1 acceptance evidence.** With a shell-owned server on port
+  3111: `next start` reported `Local` **and** `Network` as `127.0.0.1` and
+  `Get-NetTCPConnection` agreed; `Ready in 1068ms`; identity confirmed `v0.3.2`;
+  killing the server produced `owned server exited after readiness` (failure
+  panel path); the start lock was created and released; a second launch exited
+  while one instance stayed; ports 3111/8766 were free after teardown, so the
+  Python harness died with the tree. WebView2 probe reported `157.0.4341.42`.
+  `npx tsc --noEmit` clean, `vitest` 507 files / 4676 tests passed. No doc change
+  beyond the plan's measurement and acceptance tables.
+- **feat(desktop): P1 hardening — the shell now meets the security and
+  ownership requirements.** `scripts/desktop-server.js` rewritten: identity is
+  verified before attaching (`/api/updates` reports `repository:
+  black-eclipse/black-eclipse` + `currentVersion`, so no app route was added),
+  the child is spawned as `next start -H 127.0.0.1` instead of the shared
+  `startServer()` helper that binds every interface (**verified**
+  `LocalAddress 127.0.0.1`; the previous build printed
+  `Network: http://192.168.1.14:3111`), `BE_DATA_DIR` is resolved to an absolute
+  path before any service starts and passed explicitly (the same variable
+  `db.ts`, `persistence.py` and `eclipse_memory/config.py` read, so the single
+  database is now constructed rather than incidental), `killPort` is gone — a
+  live listener is never killed — a `desktop-server.lock` with pid + TTL
+  serializes starts, and a non-BlackEclipse occupant produces a `CONFLICT`
+  marker that explains itself instead of taking another port. A failed
+  `db-guard` now writes `db-guard.failed` and the next launch refuses to serve
+  with recovery instructions. Rust side: WebView2 registry probe before the
+  window (message box with the download link *and* the browser fallback), an
+  in-place failure panel when an owned server dies after readiness, `BE_DESKTOP_PORT`
+  honoured by both halves, and the retry button resets the supervisor flag.
+  **Bug fixed:** the log reader used `BufReader::lines().map_while(Result::ok)`,
+  which silently ends the stream at the first invalid UTF-8 byte — the Python
+  harness and Next can emit that on a Windows console, so a live server could be
+  treated as gone. Now byte-wise with lossy conversion. Verified: attach as
+  `v0.3.2`, conflict exit 5, loopback-only bind, `tsc` clean. Docs updated:
+  `docs/desktop-app-plan.md` (§0, §5, §12, §15 resolved states, §18 decisions
+  taken), `desktop/README.md`, `docs/CHANGELOG.md`.
+- **docs(desktop): plan hardened; P0 snapshot rebuilt after a real defect.**
+  Rewrote `docs/desktop-app-plan.md` around the locked architecture (Rust carries
+  no domain logic, one child process, the existing Python supervisor is not
+  wrapped) and integrated the normative requirements for process ownership,
+  single `BE_DATA_DIR`, loopback security, runtime packaging, WebView2, crash
+  behaviour, keep-warm, updates and scope, plus an 18-item acceptance checklist
+  and a severity-ranked gap analysis. Grounded findings from source: `next start`
+  binds **all** interfaces (the prototype's own test printed
+  `Network: http://192.168.1.14:3111`), and `src/lib/db.ts` defaults the data
+  directory to `process.cwd()` while `python/harness/persistence.py` defaults to
+  its package-relative root — so the single database is incidental, not
+  constructed. P0 snapshot rebuilt in `.black-eclipse/p0-snapshot/`: the original
+  was `git diff` only (missing **14 untracked files of in-progress work**, incl.
+  all of `python/harness/gaps/`) and was UTF-16 with a BOM, which `git apply`
+  cannot read. Now: raw UTF-8 `--binary` patches (staged + unstaged + combined),
+  `untracked.tar.gz` with 26/26 paths, `RESTORE.md`, `RESTORE-TEST.txt`; a
+  round-trip restore into a clean clone reproduced every hash, and reverse-apply
+  validates the patch against the live tree. Protected files
+  (`start-eclipse.vbs`, `bin/black.js`, `scripts/local-host.js`,
+  `scripts/start-desktop.js`) verified untouched. No commit, index unmodified.
+  The prototype built earlier today is documented as **frozen pending
+  authorization**; the earlier entry below referring to "§8 as built" is
+  superseded by the renumbered document. Docs updated:
+  `docs/desktop-app-plan.md`, `docs/CHANGELOG.md`.
+- **feat(desktop): native Tauri shell around the existing app.** Added
+  `desktop/` (Tauri 2 window, tray, keep-warm, window-bounds prefs, one-child
+  lifecycle) and `scripts/desktop-server.js` (emits `@@BE:ATTACH/READY/ERROR@@`
+  for the shell; attaches instead of starting a rival server, never builds at
+  launch, and runs `db-guard` in the background behind a 12-hour
+  `.black-eclipse/db-guard.stamp` because the synchronous guard costs >20 s on a
+  338 MB `jdds.db`). The window loads `http://127.0.0.1:3100` — loopback is
+  already a secure context, so the desktop boot skips the TLS reverse proxy and
+  the `setup:tls` prerequisite entirely. WebView2 has no `Notification` API, so
+  an init script maps the standard constructor onto a native toast. `db-guard`
+  stays synchronous on the browser path (`npm start` → `prestart`). Additive:
+  `start-eclipse.vbs`, `scripts/local-host.js`, `scripts/start-desktop.js` and
+  `bin/black.js` are unchanged; rollback is deleting `desktop/` plus the five
+  `desktop:*` script lines. Docs updated: `docs/desktop-app-plan.md` (§8 as
+  built + measurements), `docs/NAVIGATION.md`, `desktop/README.md`,
+  `docs/CHANGELOG.md`.
+- **docs(desktop): native app plan.** Added `docs/desktop-app-plan.md`: the
+  Tauri 2 shell architecture over the existing server, the loopback-origin
+  decision (127.0.0.1 is already a secure context, so the TLS proxy is not part
+  of the desktop boot), the speed lever table with measurable targets, the
+  one-day work breakdown (P0 safety → P1 shell → P2 speed → P3 polish), the
+  data-safety rules (one `BE_DATA_DIR`, additive-only, attach-if-running) and
+  the risk register. Planning only — no code changed, browser path untouched.
+  Docs updated: `docs/desktop-app-plan.md`, `docs/CHANGELOG.md`.
+- **feat(bots): full chat parity with the Eclipse Agent.** Bot and group-member
+  turns now forward the bot's own `agentId` (brain) and provider/model pin to the
+  chat run instead of silently answering as `eclipse-agent`; an unpinned bot
+  still defaults to the full agent, while a specialist preset now applies in
+  chat exactly as it does on a schedule. The bot and group threads render
+  `ApprovalCard` / `ClarificationCard` and decide through the existing approvals
+  routes, so approval-gated tools and `clarify` questions can finish in Bots
+  mode. Both composers attach documents to the same session folders the chat run
+  reads (a group upload is mirrored into every member's session). Scheduled and
+  manual agent runs now also set `analysisEnabled`, so the read-only computation
+  sandbox is available off-schedule too. Caller-chosen models still win and drop
+  the bot provider pin. Tests: `invoke.test.ts` (brain + pin forwarding),
+  `state.test.ts` (`botModelPin`), `test_automation_engine.py` (analysis parity),
+  full vitest (4676).
+  `tsc` clean. Docs updated: `docs/bot-mode.md`, `docs/NAVIGATION.md`,
+  `docs/harness/automation-engine.md`, `docs/CHANGELOG.md`.
 - **feat(quant): closed the operational code gaps in the 10/10 foundation.**
   Live signals now refuse critical data findings; `risk_state.py` persists
   day-start/peak equity and auto-kills a trial on a daily-loss or drawdown

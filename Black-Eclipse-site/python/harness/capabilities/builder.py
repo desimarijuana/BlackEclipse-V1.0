@@ -18,7 +18,7 @@ from .registry import (
 )
 from .request import CapabilityRequest, classify, slug_for
 from .store import CapabilityRecord, CapabilityStore
-from .verifier import VerificationReport, digest_text, verify
+from .verifier import VerificationCheck, VerificationReport, digest_text, verify
 
 
 def _default_root() -> Optional[Path]:
@@ -274,13 +274,25 @@ def build(
             code="DRAFT_WRITE_FAILED",
         )
 
-    report = verify(
-        manifest,
-        source,
-        request.test or "",
-        dict(request.sample_inputs),
-        timeout_s=max(1, min(request.timeout_ms // 1000, 600)),
-    )
+    try:
+        report = verify(
+            manifest,
+            source,
+            request.test or "",
+            dict(request.sample_inputs),
+            timeout_s=max(1, min(request.timeout_ms // 1000, 600)),
+        )
+    except Exception as exc:  # noqa: BLE001 - a crashed verifier is a failed build
+        # A verifier crash used to propagate, leaving orphan draft files and NO
+        # record: the next build forgot it had ever run and reused the version.
+        # Record the failure so the version is visible, counted and incremented.
+        report = VerificationReport(
+            "failed",
+            [VerificationCheck("sandbox-run", False, f"verification crashed: {exc}")],
+            digest_text(source),
+            digest_text(request.test or ""),
+            stderr=f"verification crashed: {type(exc).__name__}: {exc}",
+        )
 
     if report.status == "unverified":
         status = "unverified"

@@ -213,8 +213,14 @@ class AutomationService:
         return self.set_state(automation_id, "archived", actor=actor)
 
     # ── Execution ────────────────────────────────────────────────────────────
-    async def run_now(self, automation_id: str, *, trigger_ref: Optional[str] = None) -> Optional[str]:
-        return await self._engine.fire(automation_id, trigger_type="manual", trigger_ref=trigger_ref)
+    async def run_now(
+        self, automation_id: str, *, trigger_ref: Optional[str] = None,
+        allow_paused: bool = False,
+    ) -> Optional[str]:
+        return await self._engine.fire(
+            automation_id, trigger_type="manual", trigger_ref=trigger_ref,
+            allow_paused=allow_paused,
+        )
 
     async def resume_execution(self, execution_id: str) -> bool:
         """Resume a waiting execution once its approval has been granted."""

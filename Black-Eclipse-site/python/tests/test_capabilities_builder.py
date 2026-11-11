@@ -16,9 +16,27 @@ from harness.capabilities.request import CapabilityRequest
 from harness.capabilities.store import CapabilityRecord, CapabilityStore
 from harness.code import sandbox as sandbox_mod
 from harness.code.execution import interpreter_path
-from harness.code.recipes import get_recipe
+from harness.code.recipes import (
+    dynamic_recipe_names,
+    get_recipe,
+    unregister_dynamic_recipe,
+)
 from harness.persistence import AgentMemoryStore
 from harness.tools import ToolContext, ToolRegistry
+
+
+@pytest.fixture(autouse=True)
+def _isolate_dynamic_recipes():
+    """Unregister recipes this module activates.
+
+    The dynamic recipe registry is process-wide. A test that auto-activates a
+    recipe used to leak it into later files, which changed the generated
+    tool-manifest digest and made `test_public_api` fail on ordering alone.
+    """
+    before = set(dynamic_recipe_names())
+    yield
+    for name in set(dynamic_recipe_names()) - before:
+        unregister_dynamic_recipe(name)
 
 
 def _has_runner() -> bool:
@@ -277,6 +295,24 @@ def test_a_verified_workspace_recipe_promotes_to_global(tmp_path: Path, monkeypa
         assert get_recipe("sum_promote") is not None
         again = builder.promote("sum_promote", "1.0.0", store=store, root=tmp_path, operator=True)
         assert again.get("idempotent") is True
+    finally:
+        memory.close()
+
+
+def test_a_crashed_verifier_is_recorded_not_orphaned(tmp_path: Path, monkeypatch):
+    memory, store = _store(tmp_path)
+    try:
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("sandbox blew up")
+
+        monkeypatch.setattr(builder, "verify", _boom)
+        outcome = builder.build(_request(), store=store, root=tmp_path, run_id="run_crash")
+        assert outcome["status"] == "unverified"
+        assert outcome["verification"]["checks"][0]["name"] == "sandbox-run"
+        assert "crashed" in outcome["verification"]["checks"][0]["detail"]
+        record = store.get("sum_values")
+        assert record is not None
+        assert record["status"] == "unverified"
     finally:
         memory.close()
 

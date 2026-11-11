@@ -38,10 +38,12 @@ const SURFACE_KEY: Record<string, TranslationKey> = {
   existing_capability: 'capabilityCard.surface.existing_capability',
   scaffold_kit: 'capabilityCard.surface.scaffold_kit',
   skill_create: 'capabilityCard.surface.skill_create',
+  bot_create: 'capabilityCard.surface.bot_create',
   ui_start_engineering: 'capabilityCard.surface.ui_start_engineering',
   plugin_or_mcp: 'capabilityCard.surface.plugin_or_mcp',
   external_adapter: 'capabilityCard.surface.external_adapter',
   code_agent_or_rsl: 'capabilityCard.surface.code_agent_or_rsl',
+  code_agent: 'capabilityCard.surface.code_agent_or_rsl',
 };
 
 const TEST_KEY: Record<string, TranslationKey> = {
@@ -87,7 +89,9 @@ export function CapabilityCard({
   const canHandoff = data.status === 'handoff_required' && Boolean(data.nextTool);
   const canRebuild = (data.status === 'unverified' || data.status === 'disabled')
     && Boolean(data.capabilityId);
-  const showActions = Boolean(onFollowup) && !dismissed && (canBuild || canHandoff || canRebuild);
+  const canOffer = Boolean(data.actionPrompt) && Boolean(onFollowup);
+  const showActions = Boolean(onFollowup) && !dismissed
+    && (canOffer || canBuild || canHandoff || canRebuild);
 
   return (
     <div className={cn('mt-2 rounded-xl border border-border/30 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
@@ -139,7 +143,16 @@ export function CapabilityCard({
 
       {showActions ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {canBuild ? (
+          {canOffer ? (
+            <button
+              type="button"
+              onClick={() => onFollowup?.(data.actionPrompt ?? '')}
+              className="glass-button rounded-lg px-2.5 py-1 text-[10px] text-foreground"
+            >
+              {data.actionLabel || t('capabilityCard.build')}
+            </button>
+          ) : null}
+          {!canOffer && canBuild ? (
             <button
               type="button"
               onClick={() => onFollowup?.(t('capabilityCard.buildPrompt', { need }))}
@@ -148,7 +161,7 @@ export function CapabilityCard({
               {t('capabilityCard.build')}
             </button>
           ) : null}
-          {canHandoff ? (
+          {!canOffer && canHandoff ? (
             <button
               type="button"
               onClick={() => onFollowup?.(t('capabilityCard.handoffPrompt', {
@@ -159,7 +172,7 @@ export function CapabilityCard({
               {t('capabilityCard.continue')}
             </button>
           ) : null}
-          {canRebuild ? (
+          {!canOffer && canRebuild ? (
             <button
               type="button"
               onClick={() => onFollowup?.(t('capabilityCard.rebuildPrompt', {

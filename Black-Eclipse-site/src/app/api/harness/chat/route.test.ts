@@ -114,6 +114,17 @@ describe("POST /api/harness/chat — honest failure", () => {
     expect(chatWithAgent.mock.calls[1][14]).toBeUndefined();
   });
 
+  it("forwards a bot brain and model pin, and rejects malformed ids", async () => {
+    chatWithAgent.mockResolvedValue({ status: "completed", output: "ok", runId: "run_b" });
+    await POST(post({ query: "hi", agentId: "agt_specialist", modelProvider: "openai" }));
+    expect(chatWithAgent.mock.calls[0][15]).toBe("agt_specialist");
+    expect(chatWithAgent.mock.calls[0][16]).toBe("openai");
+
+    await POST(post({ query: "hi", agentId: "bad id!", modelProvider: "not a provider" }));
+    expect(chatWithAgent.mock.calls[1][15]).toBeUndefined();
+    expect(chatWithAgent.mock.calls[1][16]).toBeUndefined();
+  });
+
   it("returns 502 when the run itself failed (never a fabricated success)", async () => {
     chatWithAgent.mockResolvedValueOnce({
       status: "failed", error: "upstream provider error", runId: "run_x",

@@ -4,6 +4,7 @@ import {
   BOT_FILTERS,
   botMatchesFilter,
   botMatchesSearch,
+  botModelPin,
   buildModelConfig,
   buildPolicies,
   buildTrigger,
@@ -313,6 +314,12 @@ describe('per-bot model override', () => {
     expect(draft.model).toBe('gpt-4o');
     expect(draft.modelProvider).toBe('openai');
     expect(buildModelConfig(draft)).toEqual({ modelSettings: { model: 'gpt-4o', provider: 'openai' } });
+  });
+
+  it('exposes both halves of the pin so a chat turn can match a scheduled run', () => {
+    const b = bot({ action: { ...bot().action, config: { modelSettings: { provider: 'openai', model: 'gpt-4o' } } } });
+    expect(botModelPin(b)).toEqual({ provider: 'openai', model: 'gpt-4o' });
+    expect(botModelPin(bot())).toEqual({});
   });
 });
 

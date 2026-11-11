@@ -898,6 +898,11 @@ CODE_AGENT_TOOLS = [
     "analysis_run",
     # Scaffold kits (Phase 9) â€” build a finance tool from a ready-made shape.
     "scaffold_kit",
+    # Persistent bots: a code-session request for "a bot that runs every morning"
+    # must reach bot_create here too. It is the SAME Automation surface and the
+    # same single-use bot_schedule approval as the chat agent; without it, a
+    # scheduled-agent request in a code task dead-ends.
+    *AUTOMATION_TOOLS,
     # Generated capabilities: detect, build, test and (only when safe) activate.
     "capability_request", "capability_build", "capability_status", "capability_external",
     "capability_adapter",

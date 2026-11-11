@@ -10,6 +10,7 @@ import { useTerminalStore } from '@/lib/terminal/store';
 import { TerminalDock, BotSchedulerDock, ChatDock, DeferredAurora } from './lazy-chrome';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
+import { DesktopTabBar } from '@/components/layout/desktop-tab-bar';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { MobileDockHost } from '@/components/layout/mobile-dock-host';
 import { useIsMobile } from '@/hooks/use-media-query';
@@ -1112,10 +1113,13 @@ function StockChatContent() {
     if (focusMode && settingsOpen) setFocusMode(false);
   }, [focusMode, settingsOpen]);
   // Ctrl+Alt+X toggles focus mode anywhere in the app shell (chat tab only).
+  // Guarded like every page chord: `isFocusModeShortcut` accepts the physical
+  // KeyX because AltGr reports Ctrl+Alt, so without `canHandleKeyboardEvent` a
+  // plain `ż` typed into the composer would toggle focus mode mid-word.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isFocusModeShortcut(event) || !isKeyboardEventAvailable(event)) return;
-      if (useKeyboardShortcutsStore.getState().helpOpen || hasBlockingKeyboardDialog()) return;
+      if (!isFocusModeShortcut(event) || !canHandleKeyboardEvent(event)) return;
+      if (useKeyboardShortcutsStore.getState().helpOpen) return;
       if (activeTabRef.current !== 'chat') return;
       event.preventDefault();
       setFocusMode((v) => !v);
@@ -1206,6 +1210,7 @@ function StockChatContent() {
       {/* Market Regime panel — headless; opened from the global search / shell.
           Not a header control. */}
       <MarketRegimeControl />
+      <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
 
       {/* The primary row: sidebar | main column | optional right-docked terminal.
           The terminal is a REAL column here, so the main panel shrinks to make

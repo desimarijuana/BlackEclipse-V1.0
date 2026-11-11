@@ -1185,8 +1185,10 @@ resolves the id against the automation store at run time (bound at boot), checks
 the same bot rule the workspace uses (`bot`/`monitor` tag or an `mon_` id), and
 runs ONE bounded turn with the bot's own agent preset and objective, so a saved
 bot can be a step in a graph. It never registers a trigger and never runs the
-bot's schedule — the graph is the caller — and the bot's per-run model override
-is ignored in favour of the run's resolved model settings. A **workflow** bot is
+bot's schedule — the graph is the caller. The bot's provider/model pin is applied
+to the turn (credentials and base URL still come from the graph run's in-memory
+settings), so the same bot answers with the model it uses when scheduled. A
+**workflow** bot is
 refused by name (`use flow.subworkflow`): nesting a scheduler run inside a graph
 run is a second execution plane. An optional `context` object is appended to the
 objective as bounded, labelled `Context (JSON)` data, never as instructions. A

@@ -89,6 +89,8 @@ def test_default_off_without_the_write_profile(monkeypatch, tmp_path):
     ))
     assert data["status"] == "refused"
     assert data["code"] == "PROFILE_DENIED"
+    # A refusal must name the surface that can do it, never dead-end the user.
+    assert "skill_create" in data["reason"] and "bot_create" in data["reason"]
 
 
 def test_scaffold_writes_only_the_declared_set_and_leaves_the_checkout_untouched(monkeypatch, tmp_path):

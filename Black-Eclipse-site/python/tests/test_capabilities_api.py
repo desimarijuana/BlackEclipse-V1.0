@@ -111,6 +111,36 @@ def test_read_list_detail_and_operator_actions(client, tmp_path: Path, monkeypat
     assert store.get(capability_id, "1.0.1")["status"] == "retired"
 
 
+def test_gap_offer_routes(client):
+    from harness.deps import service
+    from harness.gaps.service import GapService
+
+    gaps = GapService(service.store)
+    gap = gaps.record_tool_failure(
+        "run_api_gap", tool="scaffold_kit", code="PROFILE_DENIED",
+        need="turn this into a bot that runs every morning", reason="profile",
+    )
+    assert isinstance(gap, dict) and gap["state"] == "open"
+
+    listing = client.get("/capabilities/gaps", params={"runId": "run_api_gap"})
+    assert listing.status_code == 200
+    body = listing.json()
+    assert body["count"] == 1
+    assert body["gaps"][0]["offer"]["nextTool"] == "bot_create"
+
+    summary = client.get("/capabilities/gaps/summary")
+    assert summary.status_code == 200
+    assert summary.json()["total"] >= 1
+
+    accepted = client.post(f"/capabilities/gaps/{gap['gapId']}/accept")
+    assert accepted.status_code == 200
+    assert accepted.json()["result"]["state"] == "accepted"
+    assert accepted.json()["result"]["actionPrompt"]
+    # No durable task was attached to this gap, so the resume is reported
+    # honestly rather than claimed.
+    assert accepted.json()["result"]["resume"]["resumed"] is False
+
+
 def test_unknown_capability_is_404(client):
     assert client.get("/capabilities/nope").status_code == 404
     assert client.post("/capabilities/nope/activate", json={}).status_code == 404
