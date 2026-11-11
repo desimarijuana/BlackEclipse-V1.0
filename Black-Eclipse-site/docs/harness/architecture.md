@@ -662,6 +662,30 @@ an unsandboxed fallback. Containment is process/resource/network/env plus a fres
 temp cwd, not a filesystem jail; the operator flag is for a single-user install,
 and multi-tenant use waits for C6's filesystem profiles.
 
+**A run can be a goal step with its own evidence (Round 5 / C4, ADR-H353).**
+A request may carry `input.context.c4Plan` — an objective + acceptance + ordered
+steps, or a `planId` to continue an existing plan. `harness/goals/` stores the
+goal-scoped plan view (`GoalRecord`/`GoalPlan`/`GoalStep`), the evidence ledger
+(`EvidenceClaim`/`EvidenceHandleRow`) and the plan iterations, on the ONE
+`agent-memory.db`. The task runtime still owns execution; this is the goal view.
+
+- Every tool result with a handle (run record, file+sha, tool-output id,
+  artifact, citation, record, computation) is recorded for the current step.
+- The draft answer's checkable sentences (numbers, finance shapes, URLs,
+  test/build claims, produced files) inherit the run's handles.
+- `VerifierRegistry` picks the most specific deterministic verifier:
+  `finance_number` (a number with no computation/report/citation/record is
+  rejected), `citation`, `code_check`, `artifact`, then the generic evidence
+  fallback. A rejection is `unsupported`; a missing handle is `unverified`.
+- A specific rejection with replan budget left diverts the graph through the
+  bounded `replan` node (max 2 iterations); the failed draft's answer claims are
+  superseded, its tool evidence is retained. Without budget, the step is failed
+  and the answer seam can disclose the unverified claims (`HARNESS_EVIDENCE_ENFORCE=1`;
+  the ledger and outcome record them either way).
+- The checkpoint names `planId`/`planIteration`/`stepId`, so a later run with the
+  same `planId` continues the first non-verified step. `GET /runs/{id}/outcome`
+  exposes `goal` and `evidence` blocks.
+
 **The graph takes two composition objects (Round 5 / C2.1, ADR-H351).**
 `build_graph(spec, scope)` replaces a ~45-keyword signature. `RunScope`
 (`harness/run_scope.py`) is the process-wide services a run reuses (registry,

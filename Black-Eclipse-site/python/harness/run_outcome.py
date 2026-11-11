@@ -240,6 +240,30 @@ def _quant_block(
     )
 
 
+def _goal_block(store: Any, run_id: str) -> Optional[dict[str, Any]]:
+    if store is None:
+        return None
+    try:
+        from .goals import GoalStore  # noqa: PLC0415
+
+        return GoalStore(store).goal_for_run(run_id)
+    except Exception:  # noqa: BLE001 - an outcome is best-effort, never fatal
+        return None
+
+
+def _evidence_block(store: Any, run_id: str) -> Optional[dict[str, Any]]:
+    if store is None:
+        return None
+    try:
+        from .goals import EvidenceLedger  # noqa: PLC0415
+
+        ledger = EvidenceLedger(store)
+        summary = ledger.summary(run_id)
+        return {**summary, "verdict": ledger.verdict(run_id).to_dict()}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def build_outcome_envelope(
     *,
     run_id: str,
@@ -247,6 +271,7 @@ def build_outcome_envelope(
     events: Optional[list[Any]] = None,
     tool_executions: Optional[list[Any]] = None,
     intent: Optional[dict[str, Any]] = None,
+    store: Any = None,
 ) -> dict[str, Any]:
     """Assemble the ONE record that names how a run was routed.
 
@@ -262,6 +287,9 @@ def build_outcome_envelope(
         "refusalCode": _refusal_code(run, rows),
         "capabilityGap": _gap_block(rows),
         "quant": _quant_block(rows, run, tool_executions),
+        # C4: the goal step this run executed and the evidence it recorded.
+        "goal": _goal_block(store, run_id),
+        "evidence": _evidence_block(store, run_id),
         "toolCalls": len(list(tool_executions or [])),
         "note": (
             "Derived from the run's canonical records. A fact that was never "

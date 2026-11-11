@@ -261,6 +261,8 @@ async def test_completes_with_plain_answer(store, monkeypatch):
     assert events == [
         "run.created", "run.started", "response.plan", "prompt.plan",
         "model.requested", "model.completed",
+        # C4: the answer seam records/verifies checkable claims.
+        "evidence.verified",
         "run.completed", "session.indexed",
     ]
 

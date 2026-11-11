@@ -71,6 +71,8 @@ class RunSpec:
     image_sink: Any = None
     video_sink: Any = None
     advisory_sink: Any = None
+    # C4: the goal/plan runtime for this run (None = an ordinary run).
+    plan: Any = None
 
     def __post_init__(self) -> None:
         # A caller may hand a mutable set; copy it so a run cannot mutate the

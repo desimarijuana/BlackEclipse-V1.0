@@ -207,7 +207,11 @@ RATCHET_PY: dict[str, int] = {
     # here; split candidate: the post-run answer seam.
     # Re-pinned 2573 -> 2588 (2026-11-11, Round 5 / C2): the checkpoint writes a
     # message cursor and resume prefers it. May only shrink.
-    "graph.py": 2588,
+    # Re-pinned 2588 -> 2654 (2026-11-11, Round 5 / C4): the goal/step route,
+    # evidence replan diversion and plan cursor are loop seams. The plan,
+    # verifier and evidence logic lives in `harness/goals/`; this file keeps the
+    # wiring only. Re-pinned 2654 -> 2659 for the code-ledger checks seam.
+    "graph.py": 2659,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

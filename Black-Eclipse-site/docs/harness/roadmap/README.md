@@ -76,7 +76,7 @@ provable.
 
 | Round 5 plan | File | Depends on | Unlocks |
 |---|---|---|---|
-| Core integrity (10 workstreams C0–C9, 6 waves) | [round-5-core-integrity.md](./round-5-core-integrity.md) 🟡 In progress 2026-11-11 (C0–C3 shipped; C4–C9 open) | rounds 1–4 | a harness that cannot silently lose, duplicate or fake a run |
+| Core integrity (10 workstreams C0–C9, 6 waves) | [round-5-core-integrity.md](./round-5-core-integrity.md) 🟡 In progress 2026-11-11 (C0–C4 shipped; C5–C9 open) | rounds 1–4 | a harness that cannot silently lose, duplicate or fake a run |
 
 **Round 2 (phases 13–20) — what it is for.** Round 1 (0–12) built the *machinery* of
 a harness: a code capability, isolation, a trust spine, jobs, delegation, kits,

@@ -391,8 +391,9 @@
   computation/report/citation/record, a URL with no citation, a pass claim with
   no check, or a file claim with no artifact. A rejection with budget left diverts
   through the bounded replan (max 2), supersedes the failed draft's answer claims
-  but keeps its tool evidence; otherwise the step fails and the answer discloses
-  the unverified claims. The checkpoint carries `planId`/`planIteration`/`stepId`,
+  but keeps its tool evidence; otherwise the step fails. The ledger/outcome
+  always record the claims; the answer-text disclosure is opt-in
+  (`HARNESS_EVIDENCE_ENFORCE=1`) until eval parity. The checkpoint carries `planId`/`planIteration`/`stepId`,
   so a later run continues the first non-verified step after a kill, and
   `GET /runs/{id}/outcome` exposes `goal` + `evidence` blocks. New tests:
   `test_c4_{goals,verifiers,plan_runtime,answer,replan,resume,outcome}.py`.

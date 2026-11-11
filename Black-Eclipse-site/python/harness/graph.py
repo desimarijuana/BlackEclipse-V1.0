@@ -47,6 +47,8 @@ from .model_stream import (
     FINALIZE_INSTRUCTION as _FINALIZE_INSTRUCTION,
     message_text as _text,
 )
+from .goals.runtime import PlanRuntime
+from .goals.verifiers import checks_from_ledger
 from .retry_policy import RunDeadline
 from .run_scope import RunScope, RunSpec
 from .step import effective_call_timeout, invoke_model_step
@@ -109,6 +111,11 @@ class GraphState(TypedDict, total=False):
     stalled: bool
     last_turn_keys: list[str]
     step_failure_details: list[dict[str, Any]]
+    # C4: a typed evidence failure that should divert through `replan` before
+    # the answer is accepted. Cleared by the replan node.
+    replan_needed: Optional[dict[str, Any]]
+    # The plan step this turn is executing (C4 checkpoint cursor).
+    plan_step_id: Optional[str]
     # Round 3 / W1 (ADR-H281): the run's verify-and-repair state - the budget
     # counters, the failure the model was shown, and the answer seam's word for
     # how the repair ended. Plain data, so it survives a checkpoint.
@@ -406,6 +413,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     """
     request = spec.request
     emitter = spec.emitter
+    plan = spec.plan
     agent = spec.agent or resolve_agent(request)
     effect_authorizer = spec.effect_authorizer
     allowed = spec.allowed
@@ -489,7 +497,11 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         should_replan,
     )
 
-    replan_budget: Optional[ReplanBudget] = ReplanBudget() if replan_enabled() else None
+    # C4: an explicit goal plan always gets the bounded replan path, even when
+    # the generic tool/stall replan flag is off. The cap is unchanged.
+    replan_budget: Optional[ReplanBudget] = (
+        ReplanBudget() if (replan_enabled() or plan is not None) else None
+    )
     # `allowed` is the policy-resolved surface from `execute_run` (a disabled
     # store's tool already removed). Fall back to the raw allowlist for direct
     # callers/tests that build a graph without resolving the surface.
@@ -654,7 +666,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             {"id": c.get("id"), "name": c.get("name"), "args": c.get("args")}
             for c in (getattr(last, "tool_calls", None) or [])
         ]
-        return {
+        payload = {
             "step": state.get("step", 0),
             "toolCalls": state.get("tool_calls", 0),
             "toolErrors": state.get("tool_errors", 0),
@@ -665,6 +677,11 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             "allowlist": sorted(allowed) if allowed else None,
             "messages": _serialize_messages(state.get("messages", [])),
         }
+        if plan is not None:
+            # C4: the checkpoint names the durable plan/step cursor. The plan
+            # itself is durable; resume rehydrates the same step, not a new one.
+            payload.update(plan.checkpoint_fields(state.get("plan_step_id")))
+        return payload
 
     async def _write_checkpoint(kind: str, state: GraphState) -> None:
         if lineage is None:
@@ -688,6 +705,8 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
 
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
+        step_now = plan.current_step if plan is not None else None
+        plan_step_id = step_now.id if step_now is not None else state.get("plan_step_id")
         # Round 5 / C1: the RUN deadline is checked before every model call. A
         # run that spent its budget in earlier steps fails honestly here instead
         # of starting one more call that can only be abandoned.
@@ -855,18 +874,33 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                     pass
                 await emitter.emit("run.failed", {"error": {"code": code, "message": message}})
                 return {**state, **usage_state, "step": step, "error": {"code": code, "message": message}}
+            # C4: record the answer's checkable claims, verify them against this
+            # step's evidence, and divert through one bounded replan when a
+            # specific verifier rejects a claim. No plan => exact old behavior.
+            replan_needed: Optional[dict[str, Any]] = None
+            if plan is not None:
+                try:
+                    replan_needed = plan.finish_answer(
+                        request.runId, final_text,
+                        checks=checks_from_ledger(code_ledger),
+                    )
+                except Exception:  # noqa: BLE001 - plan settlement must not break a run
+                    pass
             completed: GraphState = {
                 **state,
                 **usage_state,
                 "step": step,
                 "messages": [*state["messages"], response],
                 "final": final_text,
+                "replan_needed": replan_needed,
+                "plan_step_id": plan_step_id,
             }
             await _write_checkpoint("agent_final", completed)
             return completed
 
         tool_state: GraphState = {
             **state, **usage_state, "step": step, "messages": [*state["messages"], response],
+            "plan_step_id": plan_step_id,
         }
         # Durable boundary: one checkpoint per completed agent step, BEFORE the
         # tools node runs, so a crash during tool execution resumes here.
@@ -996,6 +1030,13 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                         registry, name, call_id, args, ctx, allowed, tool_timeout_ms, request,
                     )
                 result_text = result.text
+                # C4: every handle this result carries belongs to the current
+                # plan step. No plan => no-op.
+                if plan is not None:
+                    try:
+                        plan.record_tool_result(result, request.runId)
+                    except Exception:  # noqa: BLE001 - evidence must not break the run
+                        pass
                 await _run_plugin_hook(
                     "after_tool_call",
                     {"tool": name, "ok": result.ok, "runId": request.runId},
@@ -1082,6 +1123,10 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     def route_after_agent(state: GraphState) -> str:
         if state.get("error"):
             return END
+        # C4: an evidence failure outranks the final answer; the replan node
+        # clears the draft and sends the model back with the missing evidence.
+        if state.get("replan_needed"):
+            return "replan"
         if state.get("final") is not None:
             return END
         last = state["messages"][-1]
@@ -1147,18 +1192,32 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         nothing and cannot widen the allowlist. The model may act on it or
         ignore it. `run.replanned` makes the diversion honest and observable.
         """
-        reason = should_replan(
-            replans=int(state.get("replans", 0) or 0),
-            budget=replan_budget,
-            step_failures=int(state.get("step_failures", 0) or 0),
-            stalled=bool(state.get("stalled")),
-        ) or "tool_failures"
-        replans = int(state.get("replans", 0) or 0) + 1
-        instruction = build_replan_instruction(
-            reason,
-            failures=state.get("step_failure_details") or [],
-            stalled_calls=state.get("last_turn_keys") or [],
-        )
+        evidence_failure = state.get("replan_needed") if isinstance(
+            state.get("replan_needed"), dict,
+        ) else None
+        if evidence_failure is not None:
+            reason = "evidence"
+            replans = int(state.get("replans", 0) or 0) + 1
+            instruction = (
+                plan.evidence_replan_instruction() if plan is not None
+                else "Your answer failed the evidence check. Gather concrete "
+                     "evidence or label the claim unverified."
+            )
+            if plan is not None:
+                plan.replan(run_id=request.runId, reason="evidence")
+        else:
+            reason = should_replan(
+                replans=int(state.get("replans", 0) or 0),
+                budget=replan_budget,
+                step_failures=int(state.get("step_failures", 0) or 0),
+                stalled=bool(state.get("stalled")),
+            ) or "tool_failures"
+            replans = int(state.get("replans", 0) or 0) + 1
+            instruction = build_replan_instruction(
+                reason,
+                failures=state.get("step_failure_details") or [],
+                stalled_calls=state.get("last_turn_keys") or [],
+            )
         await emitter.emit("run.replanned", {
             "replan": replans,
             "reason": reason,
@@ -1171,6 +1230,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             # Clear the trigger so only a new failure/stall causes another replan.
             "step_failures": 0,
             "stalled": False,
+            "replan_needed": None,
+            # The rejected draft answer is not the run's answer.
+            "final": None,
         }
         await _write_checkpoint("replan", revised)
         return revised
@@ -1188,7 +1250,6 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     graph.add_node("verify_repair", verify_repair_node)
     graph.add_node("exhausted", exhausted_node)
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
     # Round 3 / W1 (ADR-H281): the verify-and-repair node sits between the tool
     # turn and the next agent turn, so a pinned check runs after a change and a
     # failure is handed back to the model.
@@ -1198,12 +1259,19 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     if replan_budget is not None:
         graph.add_node("replan", replan_node)
         graph.add_conditional_edges(
+            "agent", route_after_agent,
+            {"tools": "tools", "replan": "replan", END: END},
+        )
+        graph.add_conditional_edges(
             "tools", route_after_tools,
             {"replan": "replan", "verify_repair": "verify_repair",
              "agent": "agent", "exhausted": "exhausted"},
         )
         graph.add_edge("replan", "agent")
     else:
+        graph.add_conditional_edges(
+            "agent", route_after_agent, {"tools": "tools", END: END},
+        )
         graph.add_conditional_edges(
             "tools", route_after_tools,
             {"verify_repair": "verify_repair", "agent": "agent", "exhausted": "exhausted"},
@@ -1253,6 +1321,12 @@ async def execute_run(
         except Exception:  # noqa: BLE001 - a bad activation must never break a run
             pass
     emitter = RunEmitter(request.runId, store, bus)
+    # C4: an explicit `input.context.c4Plan` binds this run to a durable goal
+    # step. No context => None and the run is unchanged.
+    try:
+        plan_runtime = PlanRuntime.from_request(store, request)
+    except Exception:  # noqa: BLE001 - plan wiring must never break a run
+        plan_runtime = None
     lineage = RunLineage(store)
     # Capability gaps: one durable record per offerable dead end. Recording is
     # fail-open; this never changes a tool decision.
@@ -1559,6 +1633,10 @@ async def execute_run(
     # wait for approval before starting the work. Guidance only; it grants nothing.
     from .plan_mode import apply_plan_context  # noqa: PLC0415 - plan mode
     runtime_context = apply_plan_context(request, allowed, runtime_context)
+    if plan_runtime is not None:
+        plan_block = plan_runtime.prompt_block()
+        if plan_block:
+            runtime_context = f"{runtime_context}\n\n{plan_block}"
     # The project this run is scoped to (its members and instruments). Per-run
     # and cache-key-excluded, exactly like the date and the UI focus.
     project_brief = _project_brief_block(getattr(request, "projectId", None),
@@ -1738,6 +1816,7 @@ async def execute_run(
             image_sink=image_collector.add,
             video_sink=video_collector.add,
             advisory_sink=advisory_collector.add,
+            plan=plan_runtime,
         )
         app = build_graph(spec, scope)
         return await app.ainvoke(initial_state)
@@ -1766,6 +1845,11 @@ async def execute_run(
         return RunResult(runId=request.runId, status="failed", error=error, toolCalls=0, toolErrors=0, modelSteps=0)
 
     if final_state.get("error"):
+        if plan_runtime is not None:
+            try:
+                plan_runtime.settle(request.runId, ok=False)
+            except Exception:  # noqa: BLE001
+                pass
         err = dict(final_state["error"])
         # An unrecovered CONTEXT_OVERFLOW is a specific, user-facing failure.
         # Rewrite the message to state whether the tighter retry was actually
@@ -1875,6 +1959,15 @@ async def execute_run(
     # portfolio computation the run performed, or grounded in a source/symbol it
     # consulted; otherwise it is disclosed as unverified advice. Never places a trade.
     output, advisory_verdict = await advisory_seam.verify(output, advisory_collector, emitter)
+    # C4: one cross-domain evidence ledger. Checkable sentences inherit the
+    # run's handles, the verifier registry refines them, and a specifically
+    # rejected claim is disclosed (never silently shipped as fact).
+    from .goals.answer import enforce_evidence_answer  # noqa: PLC0415
+
+    output, evidence_blob = await enforce_evidence_answer(
+        output, store, request.runId, emitter=emitter,
+        checks=checks_from_ledger(code_ledger),
+    )
     # Persist each verdict as a durable decision in the Advisory Ledger (the
     # "what did I recommend, on what basis" record). Best-effort and idempotent.
     if advisory is not None and advisory_verdict and advisory_verdict.get("claims"):
@@ -1950,7 +2043,12 @@ async def execute_run(
     # Durable terminal boundary: a resume of a completed run is a RESUME_CONFLICT.
     if lineage is not None:
         try:
-            lineage.save_checkpoint(request.runId, "terminal_completed", _checkpoint_payload_of(final_state))
+            terminal_payload = _checkpoint_payload_of(final_state)
+            if plan_runtime is not None:
+                terminal_payload.update(
+                    plan_runtime.checkpoint_fields(final_state.get("plan_step_id"))
+                )
+            lineage.save_checkpoint(request.runId, "terminal_completed", terminal_payload)
         except Exception:  # noqa: BLE001 - a checkpoint must never break a run
             pass
     # Phase 4: response-contract telemetry. Measure the FINAL structured answer

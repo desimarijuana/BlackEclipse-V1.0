@@ -11381,3 +11381,44 @@ Containment is process/resource/network/env plus a fresh cwd, **not** a
 filesystem jail: an absolute-path read is still possible. The flag is therefore
 opt-in and intended for a single-user install; a multi-tenant deployment must
 wait for C6's filesystem sandbox profiles.
+
+## ADR-H353 - A goal step is verified against durable evidence, and a rejection replans
+
+**Decision.** A run may carry `input.context.c4Plan` (objective + acceptance +
+ordered steps, or `planId` to continue). `harness/goals/` owns the goal-scoped
+plan view (`GoalRecord`/`GoalPlan`/`GoalStep`), the evidence ledger
+(`EvidenceClaim`/`EvidenceHandleRow`) and plan iterations on `agent-memory.db`.
+Every tool result contributes its handles to the current step. The answer seam
+records the draft's CHECKABLE sentences (numbers, finance shapes, URLs,
+test/build claims, produced files) with the run's handles, then a deterministic
+`VerifierRegistry` picks the most specific verifier: `finance_number` rejects a
+number with no computation/report/citation/record; `citation` rejects a URL with
+no citation; `code_check` rejects a pass claim with no check record; `artifact`
+rejects a produced-file claim with no file/artifact; the fallback marks a claim
+with no handle `unverified`. A specific rejection with replan budget left diverts
+the graph through the existing bounded `replan` node (max 2); the rejected
+draft's answer claims are superseded and its tool evidence is kept. Without
+budget, the step is failed. The ledger and outcome always record the claims;
+rewriting the answer with a disclosure is an operator opt-in
+(`HARNESS_EVIDENCE_ENFORCE=1`) until eval parity, following the plan's
+advisory-first rule.
+
+**Why.** The harness had four verification systems (code ledger, task checks,
+research citations, Fiduciary Gate) that could not answer one question: "what
+proves this claim?" A general answer could assert an unsupported number, and a
+step could be marked complete without any handle. Reusing the task runtime and
+the existing gate modules keeps the change additive instead of building a second
+agent loop.
+
+**Consequences.** A plan step is `verified` only when the verifier registry
+accepts its evidence; a plan without evidence cannot be marked complete. The
+answer seam never rewrites a fact silently: it records, verifies, and either
+repairs once per rejection or discloses "unverified". `finance_number` is
+fail-closed: a bare `run` handle is not enough, so a number needs a computation,
+report, citation, artifact, tool-output or record. Claim extraction is
+deterministic; generic prose is not labelled, because that would be noise rather
+than evidence. The plan/step cursor is in the checkpoint, so a new run with the
+same `planId` continues the first non-verified step; a killed step stays
+`running` and is never falsely verified. `GET /runs/{id}/outcome` exposes the
+goal and evidence blocks. This does not replace the existing code/finance/
+research gates; it runs after them and adds the cross-domain ledger.

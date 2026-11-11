@@ -74,6 +74,7 @@ def run_outcome_endpoint(run_id: str) -> dict[str, Any]:
             events=service.list_events(run_id),
             tool_executions=service.list_tool_executions(run_id),
             intent=read_intent(service.memory_store, run_id),
+            store=service.memory_store,
         ),
     }
 

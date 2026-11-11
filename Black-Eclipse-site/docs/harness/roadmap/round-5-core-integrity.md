@@ -1,6 +1,6 @@
 ---
 title: Round 5 - Core Integrity (a world-class general harness)
-status: In progress (C0–C3 shipped 2026-11-11; C4–C9 open)
+status: In progress (C0–C4 shipped 2026-11-11; C5–C9 open)
 last-verified: 2026-11-11
 depends_on: rounds 1-4, docs/harness/architecture.md, docs/harness/execution-fabric.md
 ---
@@ -51,7 +51,8 @@ one tool contract, one policy seam, plus the tests that prove it.
 | C1 StepExecutor | **Done (core)** | `retry_policy.py`, `step.py`, graph deadline + `model.retry`, `RUN_TIMEOUT` |
 | C2 one execution plane | **Done** | foreground registration + cancel/SSE parity + `HARNESS_MAX_CONCURRENT_RUNS`; `execution_plane.py` vocabulary; `migrations.py` ledger; `RunMessage` checkpoint cursor; Fabric `task` worker + scheduler submission; `execution_log.py` canonical log across run/fabric/graph/task/orchestration; `RunScope`/`RunSpec` replace the 45-kwarg `build_graph`. |
 | C3 context/tool economics | **Done** | measured model-window budgeting + provider usage (pre-existing); always-on deterministic compaction (pre-existing); artifact handles + `read_tool_output` pager; `tool_search`/`tool_invoke`; opt-in `HARNESS_LAZY_TOOLS`; sandboxed read-only `tool_code` (`HARNESS_CODE_MODE=1`). |
-| C4–C9 | **Not started** | — |
+| C4 plan/verify/evidence | **Done** | goal/plan/step view; `EvidenceClaim`/`Handle` ledger; verifier registry (finance/citation/code/artifact); answer seam; bounded evidence replan; plan cursor in checkpoint; outcome blocks. |
+| C5–C9 | **Not started** | — |
 
 The remainder is the plan below; nothing in it is claimed as done.
 
@@ -298,6 +299,14 @@ cache hit rate not worse; no run exceeds the measured window.
 
 **Acceptance.** a 2-hour task survives a restart and continues from its plan; a
 fabricated claim fails the ledger gate; replan never widens authority.
+
+**Shipped.** `harness/goals/`: Goal/Plan/Step view, `EvidenceClaim` + handle
+ledger, deterministic verifier registry (finance/citation/code/artifact),
+answer-seam recording/disclosure, bounded evidence replan (max 2, supersedes the
+failed draft and keeps its tool evidence), plan cursor in the checkpoint, and
+`goal`/`evidence` blocks in the run outcome. The plan steps ARE the todo/progress
+list; no separate todo surface was added. Kill/resume and two-run continuation
+are covered by tests.
 
 ### C5 - One agent fabric (P1, 8-10 days)
 

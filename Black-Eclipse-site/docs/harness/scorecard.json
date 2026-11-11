@@ -115,10 +115,17 @@
         "python/tests/test_task_scheduler_fabric.py",
         "python/tests/test_fabric_task_worker.py",
         "python/tests/test_run_scope.py",
+        "python/tests/test_c4_goals.py",
+        "python/tests/test_c4_verifiers.py",
+        "python/tests/test_c4_plan_runtime.py",
+        "python/tests/test_c4_answer.py",
+        "python/tests/test_c4_replan.py",
+        "python/tests/test_c4_resume.py",
+        "python/tests/test_c4_outcome.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
-      "note": "C1 shipped (retry, run deadline, model.retry). C2 shipped (foreground registry, admission, ContextVar context, one ExecutionPhase vocabulary, migration ledger, checkpoint cursor, Fabric task execution, one ExecutionEvent log, RunScope/RunSpec). Legacy producer loops/projections remain. Lazy surface, sandbox profiles and external evals remain (C3-C9)."
+      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode) and C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor) shipped. Sandbox profiles, external evals, SLOs and release (C5-C9) remain."
     }
   ]
 }
