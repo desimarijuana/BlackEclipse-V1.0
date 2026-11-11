@@ -1,6 +1,38 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(desktop): payload carries the full set of Next build manifests.** Both the
+  Linux and macOS smoke tests launched the installed app and it died with
+  `ENOENT ... .next-desktop/routes-manifest.json`. Next's standalone output only
+  includes a subset of the top-level manifests, so the payload was missing
+  `routes-manifest.json`, `prerender-manifest.json`, `export-marker.json`,
+  `images-manifest.json`, `trace` and the `.nft.json` files. The assembler now
+  copies **every top-level file** from the build into the payload (never the
+  directories, which are handled separately or are the multi-GB cache). The same
+  run confirmed the runtime-state fix works: the shell log appeared under
+  `<data>/.runtime` on Linux. Docs: no doc change — packaging fix.
+- **fix(desktop): reordering tabs now uses pointer events, so it works in an
+  already-installed shell.** The previous fix (`.disable_drag_drop_handler()`)
+  only helps a *rebuilt* native window; any shell installed before it still
+  swallows HTML5 drag-and-drop, so the tabs stayed stuck. The strip now tracks
+  `pointerdown/move/up` directly (5px dead zone, live hit-test via
+  `elementFromPoint`, click suppressed after a drag, mouse/pen only so touch
+  still scrolls) and moves the tab through the same pure `moveTab` rule. The
+  native opt-out remains for workspace widgets and chart symbol drops.
+  Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
+- **fix(appearance): every page now paints the saved THEME, not a grey
+  substitute.** Two causes. (1) The theme was hydrated only inside the app shell
+  (`StockChatContent`), so standalone routes — `/events`, `/fabric`, `/recovery`,
+  `/theses`, `/alerts`, `/terminal`, `/login`, `/app-view`, `/figure` — fell back
+  to the shipped `:root` light tokens (a grey page) instead of the user's theme.
+  New `src/components/layout/theme-hydrator.tsx` runs `useHydrateTheme` +
+  `useHydrateBackground` once at the root in `app/layout.tsx`. (2) The desktop
+  glass window forced `body`/`.app-page-bg` transparent and laid a fixed acrylic
+  scrim over every page, ignoring the palette entirely; pages now paint
+  `--background`, the page pattern and the landing wallpaper like the browser
+  front door, while only the native window behind the app stays glassy.
+  Docs updated: `desktop/README.md`, `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **fix(desktop): runtime state moves out of the install directory.** The Linux
   smoke test launched the app from the installed `.deb` and it never served:
   `/usr/lib/blackeclipse` is root-owned, so the bootstrap could not create its
@@ -274,9 +306,14 @@
   discovered READ-ONLY tool and refuses effectful ones so the graph remains the
   only side-effect path. `HARNESS_LAZY_TOOLS=1` keeps effectful tools bound and
   routes the read-only long tail through discovery (default OFF until eval
-  parity). New tests: `test_tool_output_offload.py`, `test_tool_surface.py`;
-  the published tool registry is regenerated (1085 tools). Code Mode and
-  calibrated token budgeting remain open (Code Mode needs the C6 sandbox).
+  parity). **Code Mode is shipped** behind `HARNESS_CODE_MODE=1`: `tool_code`
+  runs a short Python program in a `code/sandbox.py` child (process-tree kill,
+  scrubbed env, no network, CPU/memory caps, fresh temp cwd) and bridges
+  READ-ONLY tool calls over JSON lines; effectful tools are refused at the
+  bridge, the call budget is 20, and a missing isolation primitive is a named
+  refusal. New tests: `test_tool_output_offload.py`, `test_tool_surface.py`,
+  `test_code_mode.py`; the published tool registry is regenerated (1086 tools).
+  Calibrated token budgeting remains open.
   Docs updated: `docs/harness/architecture.md`,
   `docs/harness/decisions.md` (ADR-H352),
   `docs/harness/roadmap/round-5-core-integrity.md`,

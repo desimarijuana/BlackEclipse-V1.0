@@ -201,6 +201,20 @@ if (fs.existsSync(buildIdSrc) && !fs.existsSync(buildIdDst)) {
 // Overlay the authoritative build over the traced subset.
 copyDir(path.join(ROOT, DIST, "server"), path.join(STANDALONE, DIST, "server"));
 
+// The standalone output carries only a subset of the top-level build manifests.
+// On the macOS runner that produced "ENOENT ... routes-manifest.json" at startup:
+// Next expects the full set beside its build. Copy every top-level FILE (never
+// the directories, which are already handled or are the multi-GB cache).
+const buildRoot = path.join(ROOT, DIST);
+const payloadRoot = path.join(STANDALONE, DIST);
+let manifestCount = 0;
+for (const entry of fs.readdirSync(buildRoot, { withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  fs.copyFileSync(path.join(buildRoot, entry.name), path.join(payloadRoot, entry.name));
+  manifestCount += 1;
+}
+console.log(`  copied ${manifestCount} top-level build file(s)`);
+
 console.log("\nSizes:");
 console.log(`  standalone payload : ${dirSizeMB(STANDALONE).toFixed(0)} MB`);
 console.log(`\nRun it with: node ${path.relative(ROOT, path.join(STANDALONE, "server.js"))}`);
