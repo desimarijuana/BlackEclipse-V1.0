@@ -1112,10 +1112,8 @@ function StockChatContent() {
   useEffect(() => {
     if (focusMode && settingsOpen) setFocusMode(false);
   }, [focusMode, settingsOpen]);
-  // Ctrl+Alt+X toggles focus mode anywhere in the app shell (chat tab only).
-  // Guarded like every page chord: `isFocusModeShortcut` accepts the physical
-  // KeyX because AltGr reports Ctrl+Alt, so without `canHandleKeyboardEvent` a
-  // plain `ż` typed into the composer would toggle focus mode mid-word.
+  // Ctrl+Alt+X toggles focus mode in the app shell (chat tab only); skip text
+  // fields so AltGr's physical KeyX (`ż`) cannot fire mid-word.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isFocusModeShortcut(event) || !canHandleKeyboardEvent(event)) return;
@@ -1128,11 +1126,9 @@ function StockChatContent() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
   // Ctrl/Cmd+Alt+N starts a new chat from ANY tab: switch to the ChatBot page,
-  // clear the transcript, then drop the caret in the composer via the global
-  // `be:focus-chat` event the composer already answers. Ctrl+N is NOT usable for
-  // this — browsers reserve it for "new window" and ignore `preventDefault`.
-  // Like the focus-mode chord, it accepts AltGr's physical KeyN, so it must skip
-  // editable fields: typing `ń` in the composer must never wipe the draft.
+  // clear the transcript, then drop the caret in the composer via `be:focus-chat`.
+  // Ctrl+N is NOT usable — browsers reserve it and ignore `preventDefault`.
+  // It also matches AltGr's physical KeyN, so skip text fields while typing.
   const newChatRef = useRef(handleNewChat);
   newChatRef.current = handleNewChat;
   useEffect(() => {
