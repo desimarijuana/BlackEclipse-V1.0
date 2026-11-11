@@ -11231,3 +11231,34 @@ raising the number needs a fresh run and a new ADR-H. `benchmarks.md` carries th
 version-scoped annotation, the release note states what is not met, and the
 readiness roadmap's C8 closes as Option B. This covers a single-operator
 self-hosted deployment, not a hosted multi-tenant service.
+
+## ADR-H348 - The agent loop owns its retry, its run deadline, and its execution registration
+
+**Decision.** The main agent path goes through `step.invoke_model_step`, which
+applies `retry_policy.RetryPolicy` to the model call. `run_timeout_s` is the
+RUN's wall clock (`retry_policy.RunDeadline`), while a model call gets its own
+smaller ceiling; the deadline is checked before every model call and every tool
+turn. A spent deadline is `RUN_TIMEOUT`. Retries are refused once text has
+streamed, and emit one durable `model.retry` event per attempt. Separately,
+`service.run` registers every foreground run in `service._active` (the same
+registry `run_background` uses), so SSE and cancel see both paths;
+`HARNESS_MAX_CONCURRENT_RUNS` optionally bounds admission.
+
+**Why.** The retry subsystem existed (`ModelRuntime.invoke`) but the only path
+that mattered — `graph.agent_node` — called `model_stream.ainvoke_streaming`
+directly, so one 429/500/disconnect ended a run. The run timeout was also passed
+as the per-call timeout, so a 24-step run could occupy 24 × the budget, and only
+the silence watchdog noticed. Foreground runs were never in `_active`, so
+`GET /runs/{id}/stream` replayed and closed while the run was executing and
+`cancel()` returned false. These are trust bugs, not polish.
+
+**Consequences.** A retry is visible in the trace (`model.retry`) and cannot
+duplicate streamed text. The graph's existing context-overflow and provider
+error classification stays authoritative, because `invoke_model_step` re-raises
+the original exception rather than wrapping it. Foreground and background runs
+now share one registration/cancel/stream contract; the done callback owns the
+registry entry, so an HTTP disconnect cannot leave it stale. The LangChain tool
+fallback context is a `ContextVar` (not a registry class attribute), so two
+concurrent runs cannot overwrite each other's `ToolContext`. The deeper Round 5
+work (one scheduler, event log, lazy tool surface) is still tracked in
+`docs/harness/roadmap/round-5-core-integrity.md`.

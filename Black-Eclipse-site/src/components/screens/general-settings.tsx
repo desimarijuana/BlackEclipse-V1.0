@@ -31,6 +31,7 @@ import {
   DEFAULT_UPDATE_PREFS, loadUpdatePrefs, saveUpdatePrefs, type UpdatePrefs,
 } from "@/lib/updates/prefs";
 import type { UpdateStatus } from "@/lib/updates/types";
+import { useWindowGlass } from "@/lib/desktop/window-glass";
 import { Field, Panel, SubSection, Toggle } from "./settings-ui";
 
 export interface GeneralAppPreferences {
@@ -60,6 +61,7 @@ export function GeneralSettingsPanel({
 }) {
   const [general, setGeneral] = useState<GeneralPrefs>(DEFAULT_GENERAL_PREFS);
   useEffect(() => { setGeneral(loadGeneralPrefs()); }, []);
+  const windowGlass = useWindowGlass();
   const updateGeneral = (patch: Partial<GeneralPrefs>) => {
     setGeneral((g) => {
       const next = { ...g, ...patch };
@@ -209,6 +211,24 @@ export function GeneralSettingsPanel({
           </Field>
         </Panel>
       </SubSection>
+
+      {/* Desktop-only: the native shell applies acrylic behind a transparent
+          window; this switch controls the app-side translucency. */}
+      {windowGlass.available && (
+        <SubSection icon={Monitor} title="Window">
+          <Panel className="p-5 md:p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Glass window</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Translucent, blurred window over your desktop. The left sidebar stays solid.
+                </p>
+              </div>
+              <Toggle checked={windowGlass.enabled} onChange={windowGlass.setEnabled} />
+            </div>
+          </Panel>
+        </SubSection>
+      )}
 
       {/* Live Data — polling cadence for dashboards. */}
       <SubSection icon={RefreshCcw} title="Live Data">

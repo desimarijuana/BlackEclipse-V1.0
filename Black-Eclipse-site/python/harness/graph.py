@@ -45,9 +45,10 @@ from .code.workspace import resolve_workspace
 from .events import EventBus, RunEmitter
 from .model_stream import (
     FINALIZE_INSTRUCTION as _FINALIZE_INSTRUCTION,
-    ainvoke_streaming as _ainvoke_streaming,
     message_text as _text,
 )
+from .retry_policy import RunDeadline
+from .step import effective_call_timeout, invoke_model_step
 from .models import build_chat_model
 from .model_runtime import (
     ErrorClass,
@@ -496,6 +497,11 @@ def build_graph(
     from .quant_intent import is_deep_quant_turn  # noqa: PLC0415
     if is_deep_quant_turn(request.input.query, getattr(request.input, "history", None)):
         max_steps = max(max_steps, 32); run_timeout_s = max(run_timeout_s, 600.0)
+    # Round 5 / C1: `run_timeout_s` is the RUN's wall clock. A single model call
+    # gets its own, smaller ceiling, so one dead provider cannot consume the
+    # whole budget and the retry policy has room to act.
+    model_call_timeout_s = effective_call_timeout(run_timeout_s)
+    deadline = RunDeadline(run_timeout_s)
     # A hard total tool-call budget. A skill manifest declares
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
@@ -702,6 +708,13 @@ def build_graph(
 
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
+        # Round 5 / C1: the RUN deadline is checked before every model call. A
+        # run that spent its budget in earlier steps fails honestly here instead
+        # of starting one more call that can only be abandoned.
+        if deadline.expired():
+            message = f"Run exceeded its {int(run_timeout_s)}s deadline."
+            await emitter.emit("run.failed", {"error": {"code": "RUN_TIMEOUT", "message": message}})
+            return {**state, "step": step, "error": {"code": "RUN_TIMEOUT", "message": message}}
         await emitter.emit("model.requested", {"step": step, "messages": len(state["messages"])})
         # On the last allowed step, forbid tools so the model MUST answer from the
         # evidence it already gathered. Without this a tool-calling model can loop
@@ -722,19 +735,33 @@ def build_graph(
         )
         _step_started = time.monotonic()
         try:
-            response = await _ainvoke_streaming(
-                active_model, model_messages, run_timeout_s, emitter, finalizing
+            response = await invoke_model_step(
+                active_model,
+                model_messages,
+                timeout_s=model_call_timeout_s,
+                emitter=emitter,
+                finalizing=finalizing,
+                deadline=deadline,
+                step=step,
+                provider_id=request.modelSettings.provider,
+                model_id=request.modelSettings.model,
             )
         except asyncio.TimeoutError:
+            timed_out_message = (
+                f"Run exceeded its {int(run_timeout_s)}s deadline."
+                if deadline.expired()
+                else "model call timed out"
+            )
             runtime.record_step(
                 resolution,
                 latency_ms=(time.monotonic() - _step_started) * 1000.0,
                 ok=False,
-                error=ModelError(error_class=ErrorClass.TIMEOUT, message="model call timed out"),
+                error=ModelError(error_class=ErrorClass.TIMEOUT, message=timed_out_message),
                 run_id=request.runId,
             )
-            await emitter.emit("run.failed", {"error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}})
-            return {**state, "step": step, "error": {"code": "PROVIDER_TIMEOUT", "message": "model call timed out"}}
+            code = "RUN_TIMEOUT" if deadline.expired() else "PROVIDER_TIMEOUT"
+            await emitter.emit("run.failed", {"error": {"code": code, "message": timed_out_message}})
+            return {**state, "step": step, "error": {"code": code, "message": timed_out_message}}
         except Exception as exc:  # noqa: BLE001
             # Classify a provider context-length rejection SPECIFICALLY, before the
             # generic provider error. The terminal run.failed for overflow is
@@ -867,6 +894,12 @@ def build_graph(
         return tool_state
 
     async def tools_node(state: GraphState) -> GraphState:
+        # Round 5 / C1: a tool turn may not start after the run deadline. The
+        # per-tool timeout still bounds each call; this bounds the whole run.
+        if deadline.expired():
+            message = f"Run exceeded its {int(run_timeout_s)}s deadline."
+            await emitter.emit("run.failed", {"error": {"code": "RUN_TIMEOUT", "message": message}})
+            return {**state, "error": {"code": "RUN_TIMEOUT", "message": message}}
         last = state["messages"][-1]
         calls = getattr(last, "tool_calls", None) or []
         tool_calls = state.get("tool_calls", 0)
@@ -1077,6 +1110,8 @@ def build_graph(
         return END
 
     def route_after_tools(state: GraphState) -> str:
+        if state.get("error"):
+            return END
         if state.get("step", 0) >= max_steps:
             return "exhausted"
         # Phase 11: only when the flag wired a replan node AND a bounded replan

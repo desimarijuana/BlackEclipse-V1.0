@@ -11,19 +11,19 @@ import asyncio
 import logging
 import os
 import threading
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 from .bridge import HttpDataBridge as _HttpDataBridge
 from .code.tools import register_code_tools
 from .code.session import apply_chat_build_budget, record_chat_build
 from .eclipse_memory import EclipseMemoryService
-from .events import EventBus
+from .events import EventBus, RunEmitter
 from .finance_tools import register_finance_tools
 from .terminal.tools import register_terminal_tools
 from .graph import execute_run
 from .memory_tools import register_memory_tools
 from .model_runtime import get_runtime
-from .persistence import AgentMemoryStore
+from .persistence import AgentMemoryStore, now_iso
 from .retrieval.cache import RetrievalCache
 from .retrieval_tools import register_retrieval_tools
 from .schemas import HarnessError, RunRequest, RunResult
@@ -51,6 +51,26 @@ except Exception as _mcp_exc:  # noqa: BLE001 - a missing SDK is a supported sta
 def _workflow_enabled() -> bool:
     """Whether the composable-workflow path is enabled (operator flag, DEFAULT OFF)."""
     return os.environ.get("HARNESS_WORKFLOWS_ENABLED") in ("1", "true", "True")
+
+
+_T = TypeVar("_T")
+
+
+async def _with_run_slot(
+    slots: Optional[asyncio.Semaphore],
+    factory: Callable[[], Awaitable[_T]],
+) -> _T:
+    """Await a run inside the optional global concurrency limit.
+
+    Module-level so the parity tests can call `AgenticService.run` on a light
+    stub without booting the service (and without inheriting a method). The
+    coroutine is created only AFTER a slot is acquired, so a run cancelled while
+    queued never leaves an un-awaited coroutine behind.
+    """
+    if slots is None:
+        return await factory()
+    async with slots:
+        return await factory()
 
 
 def _default_callback_base_url() -> str:
@@ -251,7 +271,19 @@ class AgenticService:
         )
         self.skill_registry.attach_tool_registry(self.registry)
         self.bus = EventBus()
+        # Round 5 / C2: EVERY run (foreground or background) is registered here,
+        # so SSE and cancel can see it. Before this, only background runs were
+        # tracked and a foreground stream closed while the run was still going.
         self._active: dict[str, asyncio.Task[Any]] = {}
+        # Optional admission control. 0 (the default) keeps today's behaviour;
+        # a positive value bounds concurrent runs without changing any contract.
+        try:
+            _limit = int((os.environ.get("HARNESS_MAX_CONCURRENT_RUNS") or "0").strip() or "0")
+        except ValueError:
+            _limit = 0
+        self._run_slots: Optional[asyncio.Semaphore] = (
+            asyncio.Semaphore(_limit) if _limit > 0 else None
+        )
         # ONE process-wide retrieval cache. It is safe to share: in-flight
         # deduplication is keyed per retrieval, so two runs asking for the same
         # dataset at the same moment share a single provider call (Milestone 2H),
@@ -1352,8 +1384,9 @@ class AgenticService:
             market_gateway._bridge = bridge  # noqa: SLF001 - deliberate per-run rebind
         # Bind server-initiated sampling to THIS run's model (still off by
         # default per server; a request is refused unless the operator enabled it).
-        if self.mcp is not None:
-            self.mcp.set_sampling_model_factory(self._sampling_model_factory(request))
+        mcp_manager = getattr(self, "mcp", None)
+        if mcp_manager is not None:
+            mcp_manager.set_sampling_model_factory(self._sampling_model_factory(request))
         # Foreground activity: defer expensive background reviews to a short idle.
         try:
             self.learning_review.mark_user_active()
@@ -1362,9 +1395,39 @@ class AgenticService:
         # The retrieval layer is built lazily by the retrieval tools from the
         # run context (so its events reach the emitter); only the shared cache is
         # passed here.
-        result = await execute_run(
-            request, self.registry, bridge, self.store, self.bus, **self._run_kwargs(),
+        async def _execute() -> RunResult:
+            try:
+                return await execute_run(
+                    request, self.registry, bridge, self.store, self.bus,
+                    **self._run_kwargs(),
+                )
+            finally:
+                # Close live SSE consumers whatever the terminal status, exactly
+                # like the background path does.
+                self.bus.end_stream(request.runId)
+
+        # Run in a child task so `cancel()` has something to cancel and
+        # `is_active()` is true for the whole run. The done callback owns the
+        # registry entry, so an HTTP disconnect cannot leave a stale entry.
+        task = asyncio.create_task(
+            _with_run_slot(getattr(self, "_run_slots", None), _execute)
         )
+        self._active[request.runId] = task
+        task.add_done_callback(lambda _t: self._active.pop(request.runId, None))
+        try:
+            result = await task
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                # The *caller* went away (HTTP disconnect). The run keeps its
+                # own task and stays cancellable; do not fake a terminal state.
+                raise
+            # `cancel()` arrived before execute_run could record its own
+            # terminal status (e.g. while waiting for an admission slot).
+            self.store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
+            await RunEmitter(request.runId, self.store, self.bus).emit(
+                "run.cancelled", {"reason": "cancelled"},
+            )
+            return RunResult(runId=request.runId, status="cancelled")
         await self._schedule_review(request.runId, result.status)
         return result
 
@@ -1779,8 +1842,12 @@ class AgenticService:
 
         async def _task() -> None:
             try:
-                result = await execute_run(
-                    request, self.registry, bridge, self.store, self.bus, **self._run_kwargs(),
+                result = await _with_run_slot(
+                    getattr(self, "_run_slots", None),
+                    lambda: execute_run(
+                        request, self.registry, bridge, self.store, self.bus,
+                        **self._run_kwargs(),
+                    ),
                 )
                 await self._schedule_review(request.runId, result.status)
             finally:

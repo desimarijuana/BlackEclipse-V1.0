@@ -202,7 +202,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2507 -> 2547 to the measured shared tree (2026-11-10): the
     # research-intelligence work touches NO part of graph.py; unrelated in-flight
     # wiring had already grown it. May only shrink from here.
-    "graph.py": 2547,
+    # Re-pinned 2547 -> 2573 (2026-11-11, Round 5 / C1): the run deadline is
+    # checked before every model call and every tool turn. May only shrink from
+    # here; split candidate: the post-run answer seam.
+    "graph.py": 2573,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -387,7 +390,10 @@ RATCHET_PY: dict[str, int] = {
     # one boot block + the `decision` entry in `_run_kwargs`. May only shrink.
     # Re-pinned 1841->1848 (2026-11-10) to the measured shared tree; the growth
     # predates this change. May only shrink.
-    "service.py": 1848,
+    # Re-pinned 1848->1915 (2026-11-11, Round 5 / C2): foreground runs register
+    # in `_active` and the optional admission slot wraps both run paths. May
+    # only shrink; split candidate: run submission vs subsystem wiring.
+    "service.py": 1915,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

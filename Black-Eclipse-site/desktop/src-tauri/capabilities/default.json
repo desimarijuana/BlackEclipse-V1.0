@@ -4,7 +4,12 @@
   "description": "Shell capability. Local bundled pages (the boot screen) get core window/event access. The app itself is served from a loopback origin, and Tauri denies IPC to remote origins unless they are listed under `remote.urls` — without that, window.__TAURI__ is absent in the app and the notification shim silently never installs. Tauri's URL patterns cannot wildcard the PORT, so the canonical port is listed explicitly; the shell warns at startup when BE_DESKTOP_PORT overrides it, because notifications would silently stop working there.",
   "windows": ["main"],
   "remote": {
-    "urls": ["http://127.0.0.1:3100/*", "http://localhost:3100/*"]
+    "urls": [
+      "http://127.0.0.1:3100/*",
+      "http://localhost:3100/*",
+      "https://blackeclipse/*",
+      "http://blackeclipse/*"
+    ]
   },
   "permissions": [
     "core:default",

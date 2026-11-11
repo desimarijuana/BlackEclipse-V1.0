@@ -1,0 +1,114 @@
+{
+  "generated": "2026-11-11",
+  "note": "This file is the evidence ledger behind the harness scorecard. `status: measured` requires a metric and at least one runnable evidence path; `partial` and `unmeasured` are deliberate, honest states. The Round 4 target is 9.5 per dimension; do not put a number here that a gate cannot reproduce.",
+  "dimensions": [
+    {
+      "id": "loop",
+      "label": "Loop correctness & resilience",
+      "weight": 20,
+      "target": 9.5,
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_step_retry.py",
+        "python/tests/test_execution_registry.py",
+        "python/tests/test_graph.py",
+        "python/tests/test_service_background_parity.py",
+        "python/tests/test_run_resume.py"
+      ],
+      "note": "Retry, run deadline, foreground registration and resume are covered. A terminal-correctness fault matrix (kill -9 at every state, duplicate side effects) is still missing."
+    },
+    {
+      "id": "context",
+      "label": "Context & tool economics",
+      "weight": 18,
+      "target": 9.5,
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_context_budget.py",
+        "python/tests/test_context_overflow.py",
+        "python/tests/test_context_window.py",
+        "python/tests/test_surface_resolution.py",
+        "python/tests/test_surface_context_policy.py"
+      ],
+      "note": "Budgeting and surface resolution are tested; the measured-token, artifact-offload and lazy-tool work (C3) is not implemented."
+    },
+    {
+      "id": "aci",
+      "label": "Tool contract (ACI)",
+      "weight": 15,
+      "target": 9.5,
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_tools.py",
+        "python/tests/test_tool_contracts.py",
+        "python/tests/test_surface_honesty.py"
+      ],
+      "note": "The one execute seam, schema admission and context isolation are tested. A <=50-tool lazy surface is not implemented."
+    },
+    {
+      "id": "safety",
+      "label": "Safety & isolation",
+      "weight": 17,
+      "target": 9.5,
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_security_core.py",
+        "python/tests/test_security_adversarial.py",
+        "python/tests/test_tool_contracts.py",
+        "python/tests/test_finance_guardrails.py"
+      ],
+      "note": "Authorization, approvals and money guardrails are tested. OS-enforced sandbox profiles (C6) are not implemented."
+    },
+    {
+      "id": "ext",
+      "label": "Extensibility",
+      "weight": 12,
+      "target": 9.5,
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_mcp.py",
+        "python/tests/test_mcp_adversarial.py",
+        "python/tests/test_skills_registry.py",
+        "python/tests/test_skills_runtime.py"
+      ],
+      "note": "MCP and skills are covered. A versioned public plugin SDK (C9) is not implemented."
+    },
+    {
+      "id": "eval",
+      "label": "Evaluation",
+      "weight": 10,
+      "target": 9.5,
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_evaluation_runner.py",
+        "python/tests/test_evaluation_scoring.py",
+        "python/tests/test_evaluation_regression.py",
+        "python/tests/test_published_benchmarks.py"
+      ],
+      "note": "The corpus and scoring exist. No external suite (SWE-bench/GAIA/tau-bench) adapter is implemented (C8)."
+    },
+    {
+      "id": "ops",
+      "label": "Operations & delivery",
+      "weight": 8,
+      "target": 9.5,
+      "status": "unmeasured",
+      "evidence": [],
+      "note": "Round 4 records this at 4.0: not landed, no tag, no PyPI release, placeholder CODEOWNERS. Nothing here is a runnable gate yet."
+    },
+    {
+      "id": "core_integrity",
+      "label": "Round 5 core integrity",
+      "weight": 0,
+      "target": "C1/C2-core",
+      "status": "partial",
+      "evidence": [
+        "python/tests/test_step_retry.py",
+        "python/tests/test_execution_registry.py",
+        "python/tests/test_graph.py",
+        "python/tests/test_tools.py"
+      ],
+      "note": "C1 shipped (retry, run deadline, model.retry), C2 core shipped (foreground registry, admission, ContextVar context). One scheduler, event log, lazy surface, sandbox profiles and external evals remain."
+    }
+  ]
+}

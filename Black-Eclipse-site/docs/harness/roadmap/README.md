@@ -65,6 +65,19 @@ separate phase files would hide that. §1.2's code-capability rows are
 replace the phase files — phases 15, 18 and 20 are still in progress and
 Round 3's W8 finishes phase 20's remaining fixtures.
 
+**Round 5 (2026-11-11) — core integrity.** Rounds 1–4 made the harness broad.
+A code-level audit against OpenCode v2.2.7 found that the *core loop* still has
+trust bugs the Round 4 scorecard does not reflect: the main agent path bypasses
+the model retry/fallback runtime, the run timeout is really a per-call timeout,
+foreground runs are invisible to SSE/cancel, and four schedulers overlap. Round
+5 is one loop, one scheduler, one event log, one tool contract and one policy
+seam — plus the fault-injection tests and evidence gate that make the scorecard
+provable.
+
+| Round 5 plan | File | Depends on | Unlocks |
+|---|---|---|---|
+| Core integrity (10 workstreams C0–C9, 6 waves) | [round-5-core-integrity.md](./round-5-core-integrity.md) 🟡 In progress 2026-11-11 (C1 shipped; C0/C2 core shipped) | rounds 1–4 | a harness that cannot silently lose, duplicate or fake a run |
+
 **Round 2 (phases 13–20) — what it is for.** Round 1 (0–12) built the *machinery* of
 a harness: a code capability, isolation, a trust spine, jobs, delegation, kits,
 self-improvement and a gate. Round 2 is the round that makes that machinery

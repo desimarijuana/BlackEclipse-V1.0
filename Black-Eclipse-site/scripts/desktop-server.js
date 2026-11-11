@@ -206,13 +206,28 @@ async function classify(port) {
 
 /* --------------------------------------------------------------- data §4 */
 
+// Per-OS user data root. The equivalent of Local Storage on a desktop app:
+//   Windows  %LOCALAPPDATA%\BlackEclipse\data
+//   macOS    ~/Library/Application Support/BlackEclipse/data
+//   Linux    $XDG_DATA_HOME/BlackEclipse/data  (default ~/.local/share)
+function defaultDataDir() {
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+    return path.join(base, "BlackEclipse", "data");
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "BlackEclipse", "data");
+  }
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+  return path.join(base, "BlackEclipse", "data");
+}
+
 function resolveDataDir() {
-  // A packaged install writes user data to %LOCALAPPDATA%\BlackEclipse\data so a
+  // A packaged install writes user data under the platform's data root so a
   // reinstall never touches the database and an uninstall can leave it behind.
   // Repository checkouts keep the historical behaviour (the project root).
   if (!process.env.BE_DATA_DIR && STANDALONE) {
-    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
-    process.env.BE_DATA_DIR = path.join(base, "BlackEclipse", "data");
+    process.env.BE_DATA_DIR = defaultDataDir();
   }
   const raw = process.env.BE_DATA_DIR;
   const dir = raw ? path.resolve(raw) : path.resolve(ROOT);
@@ -415,13 +430,24 @@ function previousGuardFailed() {
 
 /* -------------------------------------------------------------- the server */
 
+/// Environment for the server this shell spawns. The desktop window talks to
+/// `http://127.0.0.1:3100`, which is the origin listed in the Tauri capability;
+/// a canonical-host redirect (`BE_CANONICAL_HOST`, set by the browser launcher)
+/// would navigate the WebView to `https://blackeclipse`, where `__TAURI__` is
+/// absent and glass/window IPC silently stop working. Strip it for our child.
+function desktopChildEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  delete env.BE_CANONICAL_HOST;
+  return env;
+}
+
 function startServerLoopback() {
   if (STANDALONE) {
     // Prebuilt payload: no CLI, no build step, no node_modules resolution.
     const child = spawn(process.execPath, [path.join(ROOT, "server.js")], {
       cwd: ROOT,
       stdio: "inherit",
-      env: { ...process.env, PORT: String(PORT), HOSTNAME: HOST },
+      env: desktopChildEnv({ PORT: String(PORT), HOSTNAME: HOST }),
       windowsHide: true,
     });
     child.on("exit", (code) => {
@@ -437,7 +463,7 @@ function startServerLoopback() {
   const child = spawn(process.execPath, [nextBin(), "start", "-p", String(PORT), "-H", HOST], {
     cwd: ROOT,
     stdio: "inherit",
-    env: process.env,
+    env: desktopChildEnv(),
     windowsHide: true,
   });
   child.on("exit", (code) => {

@@ -1027,3 +1027,44 @@ async def test_a_refused_tool_leaves_an_offer_in_the_answer(store, monkeypatch):
     assert "write access" in result.output.lower()
     from harness.gaps.service import GapService
     assert GapService(store).summary()["total"] >= 1
+
+
+class _TransientFailureModel(ScriptedModel):
+    """Fails the first physical attempt with a retryable provider error."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.calls = 0
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls <= 2:  # astream fails, then its ainvoke fallback fails
+            raise RuntimeError("429 rate limit exceeded")
+        return AIMessage(content="recovered after a retry")
+
+    async def astream(self, messages):
+        message = await self.ainvoke(messages)
+        yield message
+
+
+@pytest.mark.asyncio
+async def test_transient_provider_error_is_retried_inside_the_graph(monkeypatch, store):
+    # Round 5 / C1: the retry lives in the ONE model-call path, so a 429 must not
+    # end the run. The delay is zeroed so the test is a scheduling hop.
+    monkeypatch.setenv("HARNESS_MODEL_ATTEMPTS", "3")
+    monkeypatch.setenv("HARNESS_MODEL_RETRY_BASE_S", "0")
+    monkeypatch.setenv("HARNESS_MODEL_RETRY_MAX_S", "0")
+    monkeypatch.setenv("HARNESS_MODEL_RETRY_BUDGET_S", "5")
+    model = _TransientFailureModel()
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    result = await graph_module.execute_run(
+        request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store,
+    )
+
+    assert result.status == "completed"
+    assert result.output == "recovered after a retry"
+    assert model.calls == 3  # two failed calls, then the successful one
+    retries = [e for e in store.list_events("run_test") if e["type"] == "model.retry"]
+    assert len(retries) == 1
+    assert retries[0]["data"]["errorClass"] == "rate_limit"

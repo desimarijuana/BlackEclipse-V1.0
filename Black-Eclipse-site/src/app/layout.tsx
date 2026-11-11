@@ -43,6 +43,15 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
     <html lang="en" suppressHydrationWarning className={cn("dark", "font-sans")}>
       <body suppressHydrationWarning>
+        {/* Pre-paint background: without it, a reload paints the WebView's
+         * default white until globals.css arrives (very visible in the glass
+         * window). The theme script below flips `dark` first, and the glass
+         * class makes this transparent once the shell applies acrylic. */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `html{background:#0a0b0b}html:not(.dark){background:#f5f5f7}html.glass-window{background:transparent}`,
+          }}
+        />
         {/* Pre-paint scheme sync. The default document is `dark` (matches the
          * shipped Eclipse theme, no flash). If the user saved a light-scheme
          * theme, flip the `dark` class before first paint so they don't get a

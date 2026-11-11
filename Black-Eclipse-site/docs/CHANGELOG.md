@@ -1,6 +1,38 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(desktop): stay on the loopback origin so Tauri IPC (glass/window chrome)
+  keeps working.** When a browser-path server was already running, the shell
+  attached to it and followed its `BE_CANONICAL_HOST` 307 to
+  `https://blackeclipse`; that origin was not in the capability allowlist, so
+  `window.__TAURI__` vanished and glass/window actions silently stopped. The
+  spawned desktop server now strips `BE_CANONICAL_HOST`, and the capability also
+  allows `https://blackeclipse/*` + `http://blackeclipse/*` for attach mode.
+- **fix(desktop): let the acrylic blur show through.** The OS acrylic was working,
+  but the page scrim at 55% opacity hid it, so the window read as flat grey. The
+  scrim is now 20% (dark) / 46% (light), so the blurred desktop is visible while
+  text stays readable; the left sidebar remains fully opaque. Windows
+  `EnableTransparency` was OFF on this machine, which makes acrylic fall back to
+  solid grey — it is now enabled.
+- **docs(desktop): cross-platform plan.** Added
+  `docs/desktop-cross-platform-plan.md`. Audit found the application is already
+  portable — the whole Python harness has only five Windows imports (`msvcrt` ×2,
+  `win32` ×2, `MetaTrader5` ×1) — and the Windows coupling is limited to six call
+  sites in the Tauri shell (`taskkill`, `MessageBoxW`, the WebView2 registry
+  probe, the Node path fallback, `CREATE_NO_WINDOW`, `%LOCALAPPDATA%`). Phases
+  C0–C5: guard the shell for all targets, ship **Linux first** (free, no
+  gatekeeper), then macOS (ad-hoc signed; notarisation costs $99/yr and is its
+  own decision), per-platform packs, and a CI matrix. MT5 and the
+  computer-control pack are recorded as permanently Windows-only rather than
+  pretended otherwise. Docs updated: `docs/desktop-cross-platform-plan.md`,
+  `docs/CHANGELOG.md`.
+- **fix(desktop): no white flash on the glass window.** A reload painted the
+  WebView's default white before `globals.css` arrived, which was very visible
+  through the translucent window. `layout.tsx` now sets a critical pre-paint
+  background (`#0a0b0b` dark / `#f5f5f7` light, transparent once
+  `html.glass-window` is set), and the acrylic tint/scrim were deepened (tint
+  alpha 175, scrim 0.55) so a bright desktop cannot wash the app out. Docs
+  updated: `docs/CHANGELOG.md`.
 - **fix(chat): the selected-text Quote chip sits above the passage, follows the
   cursor, and the selection highlight is continuous.** The chip was anchored to
   the middle of a multi-line range and used a 0.5-alpha glass fill, so it covered
@@ -15,6 +47,46 @@
   handles touch/pen (`pointerup`), resets the anchor on a new gesture, and adds
   `selection:bg-primary/30` on the transcript so the filler always matches.
   No doc change — UX fix, contracts unchanged.
+- **docs(harness): add the Round 5 core-integrity plan.** A code-level audit
+  against OpenCode v2.2.7 found that the main agent loop bypasses the model
+  retry/fallback runtime (`graph.py` calls `model_stream` directly), the run
+  timeout is really a per-call timeout, foreground runs never register for
+  SSE/cancel, and four execution planes duplicate scheduler semantics. The plan
+  sets one loop, one scheduler, one event log, one tool contract and one policy
+  seam, with fault-injection gates, measurable SLOs, a delete list and twelve
+  ordered PRs. Docs updated: `docs/harness/roadmap/round-5-core-integrity.md`
+  (new), `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **fix(harness): the agent loop owns retries, the run deadline, and foreground
+  run registration (Round 5 / C0–C2 core).** `graph.agent_node` now calls the
+  new `step.invoke_model_step` instead of `model_stream` directly, so the shared
+  `RetryPolicy` (3 attempts, jittered 1–10 s, 90 s budget, `Retry-After`
+  honored) applies to the only path that matters; retries emit a durable
+  `model.retry` event and are refused after text has streamed. `run_timeout_s`
+  is now the run's wall clock (`RunDeadline`) with a separate per-call ceiling,
+  checked before every model call and tool turn (`RUN_TIMEOUT`). `service.run`
+  registers foreground runs in `_active` like `run_background`, ends its stream
+  on completion, and an optional `HARNESS_MAX_CONCURRENT_RUNS` semaphore bounds
+  admission. The LangChain tool fallback context moved from a registry class
+  attribute to a `ContextVar`, so two concurrent runs can no longer overwrite
+  each other. New tests: `python/tests/test_step_retry.py`,
+  `python/tests/test_execution_registry.py`, plus the updated parity pin. The
+  Python size ratchet is re-pinned on purpose (`graph.py` 2547→2573,
+  `service.py` 1848→1915) for the deadline and registration seams.
+  Docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H348), `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): an evidence-backed scorecard and strict gate (Round 5 / C0).**
+  `scripts/harness-scorecard.js` reads `docs/harness/scorecard.json`, verifies
+  every evidence path exists, refuses a `measured` dimension with no metric, and
+  generates `docs/harness/scorecard.md`. `--check` fails on a stale report;
+  `--strict` fails while any dimension is not measured. The current baseline is
+  honest: **0 measured, 7 partial, 1 unmeasured (ops)**, so the strict gate is
+  deliberately red until the remaining workstreams land. Scripts:
+  `npm run harness:scorecard`, `harness:scorecard:check`,
+  `harness:scorecard:gate`. Docs updated: `docs/harness/scorecard.json` (new),
+  `docs/harness/scorecard.md` (generated),
+  `docs/harness/roadmap/round-5-core-integrity.md`, `docs/CHANGELOG.md`.
 - **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
   unsupported mark is named, not silently drawn as a line.** The live
   `response_block_schema` digest (and the injected prompt digest) now includes
@@ -29,6 +101,16 @@
   `docs/CHANGELOG.md`.
 
 ## 2026-11-10
+- **feat(desktop): glass window with an opaque sidebar.** The frameless shell now
+  builds a transparent window and applies OS **acrylic** blur behind the WebView
+  (`window-vibrancy`, with a legacy blur fallback), so the desktop shows through a
+  real blur instead of a flat fill. The app paints only a contrast scrim; the
+  landing wallpaper/chat surface are dropped and the left sidebar is forced
+  opaque. New **Settings › General › Window › Glass window** switch (desktop
+  only) persists in `be_window_glass_v1` and in `desktop-prefs.json`, applying
+  live through the `be-window` event (`set-glass`). The browser front door is
+  unchanged.
+  Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
 - **feat(desktop): keyboard tab reordering.** The tab strip could be reordered by
   dragging; it now also moves the ACTIVE tab with `Ctrl/Cmd+Shift+Home` (first),
   `Ctrl/Cmd+Shift+End` (last), and `Ctrl/Cmd+Shift+PageUp/PageDown` (or ←/→, one

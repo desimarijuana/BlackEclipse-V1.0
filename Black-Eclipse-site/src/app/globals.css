@@ -1502,10 +1502,53 @@ html:not(.dark).theme-glass-off .sidebar-root {
  * separate darker band. A wallpaper mode resolves these to `transparent`, which
  * lets the page's own pattern show through. */
 .desktop-tab-bar {
-  background-color: var(--app-bg-color, var(--background));
+  background-color: transparent;
 }
 html.dark .desktop-tab-bar {
-  background-color: var(--app-bg-color-dark, var(--app-bg-color, var(--background)));
+  background-color: transparent;
+}
+/* Desktop glass window. The native shell applies OS acrylic/blur behind a
+ * transparent WebView; these rules paint only a scrim, so the blurred desktop
+ * shows through the main page while the LEFT SIDEBAR stays opaque. The class is
+ * set by `useWindowGlass` and exists only inside the desktop shell. */
+html.glass-window body {
+  background-color: transparent;
+  background-image: none;
+}
+html.glass-window .app-page-bg {
+  background-color: transparent;
+  background-image: none;
+}
+html.glass-window .app-page-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(6, 7, 9, 0.20);
+}
+html:not(.dark).glass-window .app-page-bg::before {
+  background: rgba(245, 245, 247, 0.46);
+}
+/* Opaque anchor: the sidebar is intentionally NOT translucent. */
+html.glass-window .sidebar-root {
+  background-color: color-mix(in srgb, var(--background) 94%, #000);
+  backdrop-filter: none;
+}
+html:not(.dark).glass-window .sidebar-root {
+  background-color: #f1f1f3;
+}
+/* The landing wallpaper / chat surface would hide the acrylic — drop them. */
+html.glass-window .app-bg-layer,
+html.glass-window .app-bg-layer::before {
+  background-color: transparent;
+  background-image: none;
+}
+html.glass-window .chat-surface-layer {
+  opacity: 0;
+}
+html.glass-window .desktop-tab-bar {
+  background-color: transparent;
 }
 /* Page background treatment (Settings â€º General â€º Background). The theme's
  * pattern (`--page-bg-image`) paints on the shell (body + .app-page-bg) so it

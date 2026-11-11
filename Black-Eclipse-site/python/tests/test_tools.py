@@ -227,6 +227,22 @@ async def test_finance_tool_returns_grounded_snapshot():
 
 
 @pytest.mark.asyncio
+async def test_active_context_is_isolated_between_concurrent_runs():
+    """Two runs sharing the registry must not overwrite each other's context."""
+    from harness import tools as tools_mod
+
+    reg = ToolRegistry()
+
+    async def worker(run_id: str) -> str:
+        reg.set_active_context(ToolContext(run_id=run_id, log=lambda *_: None))
+        await asyncio.sleep(0)
+        current = tools_mod._ACTIVE_CTX.get()
+        return current.run_id if current is not None else "missing"
+
+    assert await asyncio.gather(worker("run_a"), worker("run_b")) == ["run_a", "run_b"]
+
+
+@pytest.mark.asyncio
 async def test_langchain_tool_view_is_bound():
     reg = ToolRegistry()
     reg.register(make_tool())

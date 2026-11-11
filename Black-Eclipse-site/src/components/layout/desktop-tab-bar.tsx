@@ -42,6 +42,7 @@ import { navLabelKey } from '@/lib/i18n/nav';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { canHandleKeyboardEvent } from '@/lib/keyboard';
+import { useWindowGlass } from '@/lib/desktop/window-glass';
 import {
   appendTab,
   createTab,
@@ -177,6 +178,9 @@ export function DesktopTabBar({
   onNewChat?: () => void;
 }) {
   const t = useT();
+  // Applies the persisted glass-window preference at shell boot (and tells Rust
+  // to apply the acrylic). Mounted for the life of the app, unlike Settings.
+  useWindowGlass();
   const bootTab = useRef(activeTab);
   const bootId = useRef('boot');
   const [desktop, setDesktop] = useState(false);

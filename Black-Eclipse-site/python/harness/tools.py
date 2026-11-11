@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, Optional
 
@@ -29,6 +30,10 @@ from .schemas import HarnessError
 
 ToolPermission = str  # "read" | "write" | "external_action"
 ToolRisk = str  # "none" | "low" | "medium" | "high"
+
+# Run-scoped fallback context for the LangChain tool path. A ContextVar is
+# copied into each child task, so concurrent runs cannot overwrite each other.
+_ACTIVE_CTX: ContextVar[Optional[Any]] = ContextVar("harness_tool_context", default=None)
 
 TIMEOUT_FLOOR_MS = 100
 TIMEOUT_CEILING_MS = 120_000
@@ -539,8 +544,8 @@ class ToolRegistry:
         async def _run(**kwargs: Any) -> str:
             args = {k: v for k, v in kwargs.items() if v is not None and k != "_unused"}
             # The graph attaches ctx per call via `run_tool`; the LangChain path
-            # uses a default context stored on the registry for this run.
-            ctx = self._active_ctx or ToolContext(run_id="", log=lambda *_: None)
+            # uses the run-scoped context for THIS task (Round 5 / ADR-H348).
+            ctx = _ACTIVE_CTX.get() or ToolContext(run_id="", log=lambda *_: None)
             result = await self.execute(tool.name, [], args, ctx)
             return result.text
 
@@ -551,10 +556,14 @@ class ToolRegistry:
             args_schema=args_model,
         )
 
-    _active_ctx: Optional[ToolContext] = None
-
     def set_active_context(self, ctx: ToolContext) -> None:
-        self._active_ctx = ctx
+        """Bind the fallback context for the CURRENT task/context only.
+
+        A class attribute used to hold this, so two concurrent runs on the same
+        registry overwrote each other's context. A `ContextVar` is copied into
+        each child task, which is the isolation a run needs.
+        """
+        _ACTIVE_CTX.set(ctx)
 
     async def execute(
         self,

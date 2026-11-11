@@ -64,6 +64,14 @@ The desktop shell also always opens with the **full sidebar**. The icon rail is
 a runtime choice (Ctrl/Cmd+B); `readStoredCollapsed` ignores a persisted
 collapsed state when the Tauri bridge is present.
 
+**Glass window.** The shell builds a transparent window and applies Windows
+acrylic blur behind the WebView (`window-vibrancy`; legacy `apply_blur` fallback).
+The app sets `html.glass-window`, paints only a contrast scrim, drops the landing
+wallpaper/chat surface, and forces the left sidebar opaque. Toggle it in
+**Settings › General › Window › Glass window**; the choice persists in
+`be_window_glass_v1` + `desktop-prefs.json` and reaches Rust through the
+`be-window` event (`set-glass`). The browser front door never sets the class.
+
 Window actions prefer the **core window API**
 (`window.__TAURI__.window.getCurrentWindow()`), which needs the explicit
 `core:window:allow-minimize / allow-toggle-maximize / allow-close /

@@ -75,26 +75,14 @@ const INIT_SCRIPT: &str = r#"
   }
   if (!emit) return;
 
-  // Frameless chrome tint. The app's tab strip uses the resolved page background
-  // (`--app-bg-color` / dark variant); older front-end builds hard-coded a flat
-  // token. Inject the rule so the title bar matches the theme immediately, and
-  // remove it once every shipped payload carries `.desktop-tab-bar`.
-  function paintChrome() {
-    try {
-      if (document.getElementById('be-chrome-bg')) return;
-      var s = document.createElement('style');
-      s.id = 'be-chrome-bg';
-      s.textContent =
-        '[data-be-drag],.desktop-tab-bar{background-color:var(--app-bg-color,var(--background))!important}' +
-        'html.dark [data-be-drag],html.dark .desktop-tab-bar{background-color:var(--app-bg-color-dark,var(--app-bg-color,var(--background)))!important}';
-      (document.head || document.documentElement).appendChild(s);
-    } catch (e) {}
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', paintChrome);
-  } else {
-    paintChrome();
-  }
+  // The tab strip is part of the page, not a separate title bar: keep it
+  // transparent. Injected because this shell may load a payload whose CSS still
+  // painted it with the page-background token.
+  try {
+    var stripStyle = document.createElement('style');
+    stripStyle.textContent = '.desktop-tab-bar{background-color:transparent!important}';
+    (document.head || document.documentElement).appendChild(stripStyle);
+  } catch (e) {}
 
   // Desktop default: turn OS notifications ON for a first run, without ever
   // overriding a user who has explicitly turned them off. The storage key is the
@@ -164,8 +152,8 @@ const INIT_SCRIPT: &str = r#"
     try { emit('be-window', { action: action }); } catch (e) {}
   }
   window.addEventListener('be-window-action', function (e) {
-    var action = e && e.detail && e.detail.action;
-    if (action) windowAction(action);
+    var detail = (e && e.detail) || {};
+    if (detail.action) emit('be-window', detail);
   });
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
@@ -192,6 +180,14 @@ struct Prefs {
     x: Option<i32>,
     y: Option<i32>,
     maximized: bool,
+    /// Translucent, acrylic-blurred window (desktop only). The app's sidebar
+    /// stays opaque; see `apply_window_glass`.
+    #[serde(default = "default_window_glass")]
+    window_glass: bool,
+}
+
+fn default_window_glass() -> bool {
+    true
 }
 
 impl Default for Prefs {
@@ -203,6 +199,7 @@ impl Default for Prefs {
             x: None,
             y: None,
             maximized: false,
+            window_glass: true,
         }
     }
 }
@@ -273,9 +270,11 @@ fn resolve_root() -> Option<PathBuf> {
 /// Node is required. A packaged install ships `<exe dir>\runtime\node.exe`, so it
 /// never depends on the user having Node; a repository checkout uses PATH first.
 fn find_node() -> Option<String> {
+    // A packaged install ships its own Node, named per platform.
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
     let bundled = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("runtime").join("node.exe")));
+        .and_then(|exe| exe.parent().map(|d| d.join("runtime").join(node_name)));
     if let Some(path) = bundled {
         if path.exists() {
             return Some(path.to_string_lossy().to_string());
@@ -292,21 +291,36 @@ fn find_node() -> Option<String> {
     {
         return Some("node".to_string());
     }
+
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(pf) = std::env::var("ProgramFiles") {
-        candidates.push(PathBuf::from(pf).join("nodejs").join("node.exe"));
+
+    #[cfg(windows)]
+    {
+        if let Ok(pf) = std::env::var("ProgramFiles") {
+            candidates.push(PathBuf::from(pf).join("nodejs").join("node.exe"));
+        }
+        if let Ok(pf) = std::env::var("ProgramFiles(x86)") {
+            candidates.push(PathBuf::from(pf).join("nodejs").join("node.exe"));
+        }
+        if let Ok(la) = std::env::var("LOCALAPPDATA") {
+            candidates.push(
+                PathBuf::from(la)
+                    .join("Programs")
+                    .join("nodejs")
+                    .join("node.exe"),
+            );
+        }
     }
-    if let Ok(pf) = std::env::var("ProgramFiles(x86)") {
-        candidates.push(PathBuf::from(pf).join("nodejs").join("node.exe"));
+
+    #[cfg(not(windows))]
+    {
+        // Common install locations for a developer checkout. A packaged install
+        // always finds its bundled runtime above and never reaches here.
+        for p in ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"] {
+            candidates.push(PathBuf::from(p));
+        }
     }
-    if let Ok(la) = std::env::var("LOCALAPPDATA") {
-        candidates.push(
-            PathBuf::from(la)
-                .join("Programs")
-                .join("nodejs")
-                .join("node.exe"),
-        );
-    }
+
     candidates
         .into_iter()
         .find(|p| p.exists())
@@ -352,6 +366,15 @@ fn kill_tree(state: &AppState) {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
+        }
+        // On Unix the child was started in its own session (see `spawn_bootstrap`),
+        // so signalling the process group takes the Next server and the Python
+        // harness with it — `Child::kill` alone would orphan both.
+        #[cfg(unix)]
+        {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
         }
         let _ = child.kill();
         let _ = child.wait();
@@ -410,6 +433,7 @@ fn show_failure_overlay(app: &AppHandle, message: &str) {
 /// WebView2 is part of Windows 11 but not guaranteed on Windows 10. Detect it
 /// before building the window so a missing runtime produces instructions rather
 /// than a shell that opens nothing.
+#[cfg(windows)]
 fn webview2_version() -> Option<String> {
     const KEYS: [&str; 3] = [
         r"HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
@@ -500,6 +524,20 @@ fn supervise(app: AppHandle) {
             use std::os::windows::process::CommandExt;
             // CREATE_NO_WINDOW: no console flash for the child.
             cmd.creation_flags(0x0800_0000);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Own session, so `kill_tree` can signal the whole group and take the
+            // Next server and the Python harness down with the bootstrap.
+            unsafe {
+                cmd.pre_exec(|| {
+                    if libc::setsid() == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
         }
 
         let mut child = match cmd.spawn() {
@@ -809,6 +847,45 @@ fn toggle_maximize(app: &AppHandle) {
     }
 }
 
+/// Apply or clear the OS-level glass behind the WebView. Acrylic is the real
+/// blur (the CSS cannot blur the desktop); `apply_blur` is the older fallback.
+#[cfg(windows)]
+fn apply_window_glass(win: &WebviewWindow, enabled: bool) {
+    use window_vibrancy::{apply_acrylic, apply_blur, clear_acrylic, clear_blur};
+    if enabled {
+        match apply_acrylic(win, Some((8, 9, 12, 175))) {
+            Ok(()) => log_line("[window] acrylic enabled"),
+            Err(err) => {
+                log_line(&format!("[window] acrylic failed: {err}; trying blur"));
+                match apply_blur(win, Some((10, 10, 12, 200))) {
+                    Ok(()) => log_line("[window] blur fallback enabled"),
+                    Err(err) => log_line(&format!("[window] blur failed: {err}")),
+                }
+            }
+        }
+    } else {
+        let _ = clear_acrylic(win);
+        let _ = clear_blur(win);
+        log_line("[window] glass disabled");
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_window_glass(_win: &WebviewWindow, _enabled: bool) {}
+
+fn set_window_glass(app: &AppHandle, enabled: bool) {
+    if let Some(win) = app.get_webview_window("main") {
+        apply_window_glass(&win, enabled);
+    }
+    let state = app.state::<AppState>();
+    if let Ok(mut prefs) = state.prefs.lock() {
+        if prefs.window_glass != enabled {
+            prefs.window_glass = enabled;
+            save_prefs(&state.prefs_file, &prefs);
+        }
+    };
+}
+
 fn perform_window_action(app: &AppHandle, action: &str) {
     let win = match app.get_webview_window("main") {
         Some(win) => win,
@@ -956,8 +1033,21 @@ fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> 
         // minimize/maximize/close). The native title text/logo is gone; the
         // title stays for the taskbar and accessibility.
         .decorations(false)
-        .background_color(tauri::window::Color(10, 10, 12, 255))
         .initialization_script(INIT_SCRIPT);
+
+    // A transparent window is what lets the acrylic/blur layer show through the
+    // WebView. The app paints an opaque background when the glass setting is
+    // off, so transparency itself is always safe.
+    #[cfg(windows)]
+    {
+        builder = builder
+            .transparent(true)
+            .background_color(tauri::window::Color(0, 0, 0, 0));
+    }
+    #[cfg(not(windows))]
+    {
+        builder = builder.background_color(tauri::window::Color(10, 10, 12, 255));
+    }
 
     if let Some((x, y)) = position {
         builder = builder.position(x, y);
@@ -966,6 +1056,8 @@ fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> 
     }
 
     let win = builder.build()?;
+
+    apply_window_glass(&win, prefs.window_glass);
 
     log_line(&format!(
         "[window] restore inner={}x{} logical at {:?}; actual={:?}",
@@ -1086,11 +1178,11 @@ fn main() {
 
     // §7: never open a window that cannot render. WebView2 ships with Windows 11
     // but not every Windows 10 machine.
+    #[cfg(windows)]
     match webview2_version() {
         Some(version) => log_line(&format!("[shell] WebView2 runtime {version}")),
         None => {
             log_line("[shell] WebView2 runtime not found");
-            #[cfg(windows)]
             message_box(
                 "Black Eclipse needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n\
                  Install it from:\nhttps://developer.microsoft.com/microsoft-edge/webview2/\n\n\
@@ -1100,6 +1192,11 @@ fn main() {
             return;
         }
     }
+
+    // macOS (WKWebView) and Linux (WebKitGTK) use an OS-provided webview, so
+    // there is nothing to detect there.
+    #[cfg(not(windows))]
+    log_line("[shell] using the system webview (no runtime probe needed)");
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -1238,7 +1335,15 @@ fn main() {
             handle.listen("be-window", move |event| {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) {
                     if let Some(action) = value.get("action").and_then(|v| v.as_str()) {
-                        perform_window_action(&window_app, action);
+                        if action == "set-glass" {
+                            let enabled = value
+                                .get("enabled")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true);
+                            set_window_glass(&window_app, enabled);
+                        } else {
+                            perform_window_action(&window_app, action);
+                        }
                     }
                 }
             });

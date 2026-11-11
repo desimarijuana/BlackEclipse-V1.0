@@ -584,6 +584,18 @@ read-only enforcement, cooperative cancellation, and exactly one terminal status
 Events (`run.*`, `model.*`, `tool.*`) are emitted and persisted by the Python
 runtime.
 
+**Model-call integrity (Round 5 / ADR-H348).** `agent_node` does not call
+`model_stream` directly. `step.invoke_model_step` is the ONE path: a
+`retry_policy.RetryPolicy` (3 attempts by default, jittered 1→10 s, a 90 s retry
+budget, provider `Retry-After` honored), a per-call ceiling
+(`MODEL_CALL_TIMEOUT_CEILING_S = 300`), and a `RunDeadline` created when the
+graph is built. The deadline is checked before every model call and every tool
+turn; a spent deadline is `RUN_TIMEOUT`, not a per-call `PROVIDER_TIMEOUT`.
+Retries emit a durable `model.retry` event and are refused once any text has
+streamed (retrying would duplicate the user-visible answer). The policy is
+tunable with `HARNESS_MODEL_ATTEMPTS`, `HARNESS_MODEL_RETRY_BASE_S`,
+`HARNESS_MODEL_RETRY_MAX_S` and `HARNESS_MODEL_RETRY_BUDGET_S`.
+
 **Duplicate suppression is scoped to one agent step** (ADR-H90). Two identical
 `(tool, args)` calls in the SAME turn: the first executes, the second is refused
 with `tool.failed`/`TOOL_FORBIDDEN`. A call repeated in a LATER turn executes
@@ -891,6 +903,15 @@ observed, and the front door sends the terminal `client.final` with the
 authoritative answer when the stream ends. If SSE is unavailable the client
 falls back to the one-shot `/api/harness/chat` — a run always yields an answer
 or an honest error.
+
+**Both run paths are now visible (Round 5 / ADR-H348).** `service.run` (the
+foreground path) registers its task in `service._active` exactly like
+`run_background`, and both paths call `bus.end_stream` on completion. So
+`is_active`, `GET /runs/{id}/stream` and `POST /runs/{id}/cancel` work for a
+foreground run too; before this, the stream replayed and closed while the run was
+still executing and cancel was a no-op. `HARNESS_MAX_CONCURRENT_RUNS` (default
+0 = unbounded) adds an optional admission semaphore without changing any
+contract.
 
 **Change events carry the change itself.** Run events are content-free except
 for the one thing a code surface must show: a file change. `code.patch.applied`

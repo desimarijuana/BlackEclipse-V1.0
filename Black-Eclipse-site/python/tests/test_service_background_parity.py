@@ -152,6 +152,8 @@ def test_background_forwards_portfolio_quant_and_ui(monkeypatch: Any) -> None:
     assert background["ui_service"] == "ui-sentinel"
 
 
-def test_background_signals_the_live_stream_it_is_over(monkeypatch: Any) -> None:
+def test_both_paths_signal_the_live_stream_is_over(monkeypatch: Any) -> None:
+    # Round 5 / C2: a foreground run is now registered and streamed like a
+    # background one, so BOTH paths must close the live stream on completion.
     stub, _ = _run_both_paths(monkeypatch)
-    assert stub.bus.ended == [_BG]
+    assert stub.bus.ended == [_FG, _BG]
