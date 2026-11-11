@@ -106,6 +106,9 @@ class ToolResult:
     truncated: bool = False
     shown_chars: int = 0
     total_chars: int = 0
+    # A handle to the FULL text when it was truncated (Round 5 / C3). Read it
+    # with `read_tool_output`; it is scoped to the run that produced it.
+    output_id: Optional[str] = None
 
 
 # ── The per-run READ LEDGER (Round 3 / W3, ADR-H282) ───────────────────────
@@ -690,7 +693,35 @@ class ToolRegistry:
             if isinstance(read_path, str) and isinstance(read_digest, str) and read_digest:
                 record_read(ctx, read_path, read_digest)
         # Bound the model-facing text at this single seam; `data` is untouched.
-        bounded_text, truncated, shown_chars, total_chars = bound_tool_text(str(text))
+        full_text = str(text)
+        bounded_text, truncated, shown_chars, total_chars = bound_tool_text(full_text)
+        output_id: Optional[str] = None
+        if truncated:
+            # Round 5 / C3: keep the FULL text behind a run-scoped handle instead
+            # of losing it. The read tool pages it back on demand.
+            try:
+                from .tool_outputs import ToolOutputStore  # noqa: PLC0415
+
+                memory_store = getattr(ctx, "memory_store", None)
+                db = getattr(memory_store, "_db", None) if memory_store is not None else None
+                if db is not None:
+                    store = getattr(memory_store, "_tool_output_store", None)
+                    if store is None:
+                        store = ToolOutputStore(db)
+                        try:
+                            setattr(memory_store, "_tool_output_store", store)
+                        except Exception:  # noqa: BLE001 - a read-only stub
+                            pass
+                    saved = store.save(ctx.run_id, name, full_text)
+                    if saved is not None:
+                        output_id = saved["id"]
+                        bounded_text = (
+                            f"{bounded_text}\n[FULL OUTPUT: {saved['chars']} chars. "
+                            f'Call read_tool_output with id "{saved["id"]}" and offset '
+                            f"{shown_chars} to continue.]"
+                        )
+            except Exception:  # noqa: BLE001 - offload must never break a tool call
+                output_id = None
         return ToolResult(
             tool_call_id=call_id,
             name=name,
@@ -701,6 +732,7 @@ class ToolRegistry:
             truncated=truncated,
             shown_chars=shown_chars,
             total_chars=total_chars,
+            output_id=output_id,
         )
 
     def _failure(self, call_id: str, name: str, code: str, message: str, started: float,

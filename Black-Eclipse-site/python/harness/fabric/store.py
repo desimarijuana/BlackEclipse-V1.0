@@ -79,6 +79,9 @@ class FabricStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._ensure_schema()
+        from ..execution_log import ExecutionEventLog  # noqa: PLC0415
+
+        self._events = ExecutionEventLog(self._db)
 
     @property
     def _db(self):
@@ -332,6 +335,9 @@ class FabricStore:
             (new_event_id(), job_id, seq, event_type, now(), _json(data or {})),
         )
         self._db.commit()
+        # Round 5 / C2: the canonical log gets the same fact; the Fabric table
+        # stays as this plane's projection.
+        self._events.append("fabric", job_id, event_type, data or {})
         return seq
 
     def list_events(self, job_id: str, limit: int = 500) -> list[dict[str, Any]]:

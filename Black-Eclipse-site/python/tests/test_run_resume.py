@@ -155,8 +155,12 @@ async def test_resume_after_crash_does_not_reexecute_completed_tool(store, monke
     assert len([e for e in execs if e["name"] == "counting_tool"]) == 1
 
     # 2) Resume: the SAME run continues and must NOT re-run counting_tool.
-    checkpoint = RunLineage(store).latest_checkpoint("run_crash")
+    lineage = RunLineage(store)
+    checkpoint = lineage.latest_checkpoint("run_crash")
     assert checkpoint is not None
+    # Round 5 / C2: the checkpoint names a cursor into the durable message log.
+    assert checkpoint["payload"].get("messageSeq") is not None
+    assert lineage.load_messages("run_crash")
     monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: ResumedModel())
     resumed = await graph_module.execute_run(
         _req("run_crash", resumeFrom=checkpoint["id"]), registry, CountingBridge(counter), store,

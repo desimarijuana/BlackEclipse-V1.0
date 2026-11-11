@@ -1,4 +1,4 @@
-"""Phase 5 — the code-agent allowlist IS the autonomy boundary.
+﻿"""Phase 5 â€” the code-agent allowlist IS the autonomy boundary.
 
 Structural, not prompt-based: a write/external tool the profile does not permit is
 REMOVED before the model sees the schema, so the registry returns TOOL_FORBIDDEN.
@@ -24,7 +24,7 @@ def _registry() -> ToolRegistry:
     return reg
 
 
-# ── the policy authority is the only narrowing seam ─────────────────────────
+# â”€â”€ the policy authority is the only narrowing seam â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_plan_only_removes_write_and_external():
@@ -57,7 +57,7 @@ def test_unknown_autonomy_is_read_only_subset():
     assert "workspace_read" in result
 
 
-# ── the code-agent preset ───────────────────────────────────────────────────
+# â”€â”€ the code-agent preset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_code_agent_has_no_finance_tool():
@@ -74,7 +74,7 @@ def test_code_agent_has_no_finance_tool():
     # `delegate` (Phase 7) and `analysis_run` (Phase 8) are shared ORCHESTRATION /
     # COMPUTE capabilities, not finance tools: neither holds a data permission of
     # its own, and both are gated (delegation by narrowing, analysis by being off
-    # per run). The Application Runtime tools (`runtime_*`/`package_*`/… and the
+    # per run). The Application Runtime tools (`runtime_*`/`package_*`/â€¦ and the
     # orchestration/infra/cloud tools) are also shared DevOps capabilities with no
     # finance data permission.
     from harness.execution.application.tools import ALL_TOOL_NAMES as APP_TOOLS
@@ -99,6 +99,9 @@ def test_code_agent_has_no_finance_tool():
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
+        # Round 5 / C3: shared discovery + full-output pager + confined code,
+        # not finance tools.
+        "tool_search", "tool_invoke", "read_tool_output", "tool_code",
         "capability_request", "capability_build", "capability_status",
         "capability_external", "capability_adapter",
         "capability_activate", "capability_rollback", "capability_remove",
@@ -155,7 +158,7 @@ def test_code_agent_registered_as_a_preset():
     assert AGENT_PRESETS["code-agent"] is CODE_AGENT
 
 
-# ── the allowlist is structural ─────────────────────────────────────────────
+# â”€â”€ the allowlist is structural â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_plan_only_allowlist_has_no_write_tool():

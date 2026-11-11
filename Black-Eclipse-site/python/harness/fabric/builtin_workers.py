@@ -299,6 +299,47 @@ async def _bridge_cancel(ctx: WorkerContext, event: "Any") -> None:
         raise
 
 
+async def _task_worker(service: Any, ctx: WorkerContext) -> WorkerOutcome:
+    """Execute one claimed task through the task layer's own executor.
+
+    The TaskScheduler still owns claim/lease/verification; this worker is the
+    ONE execution attempt. It reconstructs the live task from the manager (a
+    durable row, not a serialized object on the job) and reports the task
+    outcome as the worker output.
+    """
+    payload = _payload(ctx)
+    task_id = str(payload.get("taskId") or ctx.job.task_id or "")
+    run_id = str(payload.get("runId") or ctx.job.id)
+    manager = getattr(service, "tasks", None)
+    executor = getattr(service, "task_executor", None)
+    if manager is None or executor is None or not task_id:
+        return WorkerOutcome(
+            status="failed", error_class="RUNTIME_UNAVAILABLE",
+            error="the task runtime (manager or executor) is unavailable",
+        )
+    try:
+        task = manager.get_task(task_id)
+        from ..tasks.context import build_task_context  # noqa: PLC0415
+
+        context = build_task_context(
+            manager, task,
+            constraints={"leaseSeconds": int(payload.get("leaseSeconds") or 600)},
+        )
+        outcome = await executor(task, context, run_id)
+    except Exception as exc:  # noqa: BLE001 - a task failure is data
+        return WorkerOutcome(status="failed", error=str(exc)[:2000],
+                             error_class="TASK_RUNTIME_ERROR")
+    data = outcome.to_dict() if hasattr(outcome, "to_dict") else dict(outcome or {})
+    ok = str(data.get("status") or "") == "completed"
+    return WorkerOutcome(
+        status="succeeded" if ok else "failed",
+        output=data,
+        error=str(data.get("error") or ""),
+        error_class=str(data.get("errorClass") or ""),
+        metrics={"taskId": task_id},
+    )
+
+
 async def _plugin_worker(service: Any, ctx: WorkerContext) -> WorkerOutcome:
     payload = _payload(ctx)
     manager = getattr(service, "plugins", None)
@@ -461,6 +502,9 @@ def build_default_workers(service: Any, config: Optional[FabricConfig] = None) -
     async def event_handler(ctx: WorkerContext) -> WorkerOutcome:
         return await _event_worker(service, ctx)
 
+    async def task_handler(ctx: WorkerContext) -> WorkerOutcome:
+        return await _task_worker(service, ctx)
+
     workers = [
         _mk(WorkerKind.AGENT.value, ["agent", "user"], agent_handler, service, cfg),
         _mk(WorkerKind.TOOL.value, ["user"], tool_handler, service, cfg),
@@ -475,6 +519,7 @@ def build_default_workers(service: Any, config: Optional[FabricConfig] = None) -
         _mk(WorkerKind.NOTIFICATION.value, ["notification"], notification_handler, service, cfg),
         _mk(WorkerKind.AUTOMATION.value, ["automation"], automation_handler, service, cfg),
         _mk(WorkerKind.EVENT.value, ["event"], event_handler, service, cfg),
+        _mk(WorkerKind.TASK.value, ["task"], task_handler, service, cfg),
     ]
     # The ML Research Lab's dedicated worker (isolated, timeout-bounded,
     # cancellable, resource-limited). Wiring lives in `ml/fabric.py`; absence is

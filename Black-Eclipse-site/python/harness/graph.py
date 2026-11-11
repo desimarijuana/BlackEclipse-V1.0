@@ -48,6 +48,7 @@ from .model_stream import (
     message_text as _text,
 )
 from .retry_policy import RunDeadline
+from .run_scope import RunScope, RunSpec
 from .step import effective_call_timeout, invoke_model_step
 from .models import build_chat_model
 from .model_runtime import (
@@ -395,85 +396,57 @@ def _effect_authorizer(
 # (`code.policy.allowed_tools`), so an autonomy profile still removes every
 # write/execute/external tool it bans - from the base half AND the surface half.
 
-def build_graph(
-    request: RunRequest,
-    registry: ToolRegistry,
-    data_bridge: DataBridge,
-    store: AgentMemoryStore,
-    emitter: RunEmitter,
-    bus: Optional[EventBus] = None,
-    cancel_event: Optional[asyncio.Event] = None,
-    retrieval_cache: Optional[Any] = None,
-    memory_service: Optional[Any] = None,
-    skill_registry: Optional[Any] = None,
-    effect_authorizer: Optional[Any] = None,
-    memory_router: Optional[Any] = None,
-    allowed: Optional[set[str]] = None,
-    source_sink: Optional[Any] = None,
-    mcp_manager: Optional[Any] = None,
-    approvals: Optional[Any] = None,
-    lineage: Optional[Any] = None,
-    resume_from: Optional[dict[str, Any]] = None,
-    code_store: Optional[Any] = None,
-    code_ledger: Optional[Any] = None,
-    code_intel_runtime: Optional[Any] = None,
-    evidence_store: Optional[Any] = None,
-    learning_store: Optional[Any] = None,
-    vision_sink: Optional[Any] = None,
-    # The run's document-intelligence result collector, so a `document_*` tool's
-    # structured result reaches the run blob the right sidebar renders.
-    document_sink: Optional[Any] = None,
-    # The run's internet-image result collector, so an `image_search`/`render_
-    # image_gallery` tool's validated results reach the chat's inline gallery.
-    image_sink: Optional[Any] = None,
-    # The run's native-video job collector, so a `video_*` tool's QUEUED job
-    # handle reaches the chat as a live job card (progress, playback, download).
-    video_sink: Optional[Any] = None,
-    # The run's advisory collector (the Fiduciary Gate), so every `portfolio_*`
-    # tool call is recorded and an actionable recommendation in the final answer
-    # can be verified against a computation the run actually performed.
-    advisory_sink: Optional[Any] = None,
-    # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
-    advisory_service: Optional[Any] = None,
-    # The typed-decision service, so `decision_*` tools reach the ONE provider
-    # registry + audit store (and never guess when a provider is unavailable).
-    decision_service: Optional[Any] = None,
-    market: Optional[Any] = None,
-    # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
-    # the ONE ledger/valuation service (reusing the per-run market gateway).
-    portfolio: Optional[Any] = None,
-    # The General Ledger service, so `ledger_*` tools reach the ONE double-entry
-    # book (chart of accounts, postings, periods, statements).
-    ledger: Optional[Any] = None,
-    # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger and
-    # the answer seam can persist each Fiduciary Gate verdict as a decision.
-    advisory: Optional[Any] = None,
-    # The Quant Engine bundle (store), so the `quant_*` tools can persist
-    # strategies and experiments on the ONE agent-memory connection.
-    quant: Optional[Any] = None,
-    # The Project store (projects + members) on the ONE agent-memory connection,
-    # so the `project_*` tools can resolve and extend a project.
-    project_store: Optional[Any] = None,
-    # The unified Retrieval / Search Intelligence service, so the `*_search`
-    # tools reach the ONE search layer (vector + FTS + rerank).
-    search: Optional[Any] = None,
-    # The Artifact Center service, so `artifact_*` tools register and discover
-    # produced files through the ONE catalog (shared with producers).
-    artifact_service: Optional[Any] = None,
-    # The UI Engineering service, so `ui_*` tools inspect the live UI and mutate
-    # the user's saved UI blueprints through the ONE catalog + blueprint store.
-    ui_service: Optional[Any] = None,
-    task_manager: Optional[Any] = None,
-) -> Any:
+def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     """Compile a LangGraph StateGraph for one run. Returns an awaitable app.
 
-    `lineage` is the run's `RunLineage` store (Phase 1), used to write durable
-    checkpoints at every boundary and to reuse an already-executed tool result on
-    resume. `resume_from` is the latest checkpoint payload when this build is a
-    RESUME (None for a fresh run), so already-completed tool calls are skipped
-    rather than re-executed.
+    `spec` carries the facts of this invocation (request, emitter, resume point,
+    allowlist, authorizer, result sinks); `scope` carries the process-wide
+    services the run reuses. Both are unpacked here, so the node bodies see the
+    same locals as before the split.
     """
-    agent = resolve_agent(request)
+    request = spec.request
+    emitter = spec.emitter
+    agent = spec.agent or resolve_agent(request)
+    effect_authorizer = spec.effect_authorizer
+    allowed = spec.allowed
+    source_sink = spec.source_sink
+    lineage = spec.lineage
+    resume_from = spec.resume_from
+    code_ledger = spec.code_ledger
+    vision_sink = spec.vision_sink
+    document_sink = spec.document_sink
+    image_sink = spec.image_sink
+    video_sink = spec.video_sink
+    advisory_sink = spec.advisory_sink
+
+    registry = scope.registry
+    data_bridge = scope.data_bridge
+    store = scope.store
+    bus = scope.bus
+    cancel_event = scope.cancel_event
+    retrieval_cache = scope.retrieval_cache
+    memory_service = scope.memory_service
+    skill_registry = scope.skill_registry
+    memory_router = scope.memory_router
+    mcp_manager = scope.mcp_manager
+    approvals = scope.approvals
+    code_store = scope.code_store
+    code_intel_runtime = scope.code_intel_runtime
+    evidence_store = scope.evidence_store
+    learning_store = scope.learning_store
+    market = scope.market
+    portfolio = scope.portfolio
+    ledger = scope.ledger
+    advisory = scope.advisory
+    advisory_service = scope.advisory
+    decision_service = scope.decision
+    quant = scope.quant
+    project_store = scope.project_store
+    search = scope.search
+    artifact_service = scope.artifact_service
+    ui_service = scope.ui_service
+    task_manager = scope.task_manager
+
     # Capability gaps from this run's tool results (fail-open; never changes a
     # tool decision). The answer seam uses its own instance below.
     from .gaps.runtime import GapRuntime  # noqa: PLC0415
@@ -697,7 +670,14 @@ def build_graph(
         if lineage is None:
             return
         try:
-            lineage.save_checkpoint(request.runId, kind, _checkpoint_payload(state))
+            payload = _checkpoint_payload(state)
+            # Round 5 / C2: the full conversation goes to the durable message log;
+            # the checkpoint stores only the cursor. The bounded `messages` tail
+            # stays for older readers (rollback-safe, additive).
+            cursor = lineage.save_messages(request.runId, state.get("messages", []))
+            if cursor is not None:
+                payload["messageSeq"] = cursor
+            lineage.save_checkpoint(request.runId, kind, payload)
         except Exception:  # noqa: BLE001 - a checkpoint must never break a run
             pass
 
@@ -1425,6 +1405,11 @@ async def execute_run(
         allowed, surface_resolution = apply_intent_surfaces(
             request, allowed, surface_resolution
         )
+        # Round 5 / C3: opt-in lazy surface. Effectful tools stay bound; the
+        # read-only long tail becomes discoverable through tool_search.
+        from .tool_surface import lazy_tool_surface  # noqa: PLC0415
+
+        allowed = lazy_tool_surface(allowed, registry)
     # Settings → Persona: a bounded user overlay appended to the authoritative
     # prompt for the ordinary chat agent. It is style/emphasis only — the tool
     # allowlist above was already resolved, so the block cannot widen it. Read
@@ -1687,8 +1672,16 @@ async def execute_run(
     resume_state: Optional[dict[str, Any]] = None
     if resume_from is not None:
         payload = resume_from.get("payload") or {}
+        # Prefer the durable cursor (full conversation) and fall back to the
+        # bounded legacy tail for checkpoints written before this change.
+        restored = None
+        if payload.get("messageSeq") is not None:
+            try:
+                restored = lineage.load_messages(request.runId) or None
+            except Exception:  # noqa: BLE001 - a bad cursor falls back to the tail
+                restored = None
         resume_state = {
-            "messages": _restore_messages(payload.get("messages") or []),
+            "messages": restored if restored is not None else _restore_messages(payload.get("messages") or []),
             "step": int(payload.get("step", 0)),
             "tool_calls": int(payload.get("toolCalls", 0)),
             "tool_errors": int(payload.get("toolErrors", 0)),
@@ -1719,39 +1712,34 @@ async def execute_run(
                 "completion_tokens": 0,
                 "final": None,
             }
-        app = build_graph(
-            request, registry, data_bridge, store, emitter, bus, cancel_event,
-            retrieval_cache, memory_service, skill_registry,
-            _effect_authorizer(approvals, request.runId, emitter, request.workspaceId),
-            memory_router,
-            allowed=allowed,
-            source_sink=source_collector,
-            mcp_manager=mcp_manager,
-            approvals=approvals,
-            lineage=lineage,
-            resume_from=resume_from,
-            code_store=code_store,
-            code_ledger=code_ledger,
-            code_intel_runtime=code_intel_runtime,
-            evidence_store=evidence_store,
-            learning_store=learning_store,
+        scope = RunScope(
+            registry=registry, data_bridge=data_bridge, store=store,
+            bus=bus, cancel_event=cancel_event,
+            retrieval_cache=retrieval_cache, memory_service=memory_service,
+            skill_registry=skill_registry, memory_router=memory_router,
+            mcp_manager=mcp_manager, approvals=approvals,
+            code_store=code_store, code_intel_runtime=code_intel_runtime,
+            evidence_store=evidence_store, learning_store=learning_store,
+            market=market, portfolio=portfolio, ledger=ledger,
+            advisory=advisory, decision=decision, quant=quant,
+            project_store=project_store, search=search,
+            artifact_service=artifact_service, ui_service=ui_service,
+            task_manager=task_manager,
+        )
+        spec = RunSpec(
+            request=request, emitter=emitter, agent=agent,
+            effect_authorizer=_effect_authorizer(
+                approvals, request.runId, emitter, request.workspaceId,
+            ),
+            allowed=allowed, source_sink=source_collector,
+            lineage=lineage, resume_from=resume_from, code_ledger=code_ledger,
             vision_sink=vision_collector.add,
             document_sink=document_collector.add,
             image_sink=image_collector.add,
             video_sink=video_collector.add,
             advisory_sink=advisory_collector.add,
-            market=market,
-            portfolio=portfolio,
-            ledger=ledger,
-            advisory_service=advisory,
-            decision_service=decision,
-            quant=quant,
-            project_store=project_store,
-            search=search,
-            artifact_service=artifact_service,
-            ui_service=ui_service,
-            task_manager=task_manager,
         )
+        app = build_graph(spec, scope)
         return await app.ainvoke(initial_state)
 
     retry_budget: Optional[Any] = None

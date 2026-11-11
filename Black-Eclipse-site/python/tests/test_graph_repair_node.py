@@ -448,7 +448,13 @@ async def test_the_graph_has_a_verify_and_repair_node(monkeypatch) -> None:
     store = AgentMemoryStore(os.path.join(directory, "agent-memory.db"))
     try:
         compiled = graph_module.build_graph(
-            request, registry, _FakeBridge(), store, graph_module.RunEmitter(store, "run_node_probe"),
+            graph_module.RunSpec(
+                request=request,
+                emitter=graph_module.RunEmitter("run_node_probe", store),
+            ),
+            graph_module.RunScope(
+                registry=registry, data_bridge=_FakeBridge(), store=store,
+            ),
         )
         nodes = set(getattr(compiled, "nodes", {}) or {})
         assert "verify_repair" in nodes, f"nodes were {sorted(nodes)}"

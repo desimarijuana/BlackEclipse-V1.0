@@ -326,7 +326,8 @@
   bridge, the call budget is 20, and a missing isolation primitive is a named
   refusal. New tests: `test_tool_output_offload.py`, `test_tool_surface.py`,
   `test_code_mode.py`; the published tool registry is regenerated (1086 tools).
-  Calibrated token budgeting remains open.
+  Token accounting/measured-window budgeting and always-on deterministic
+  compaction were already present and are now covered under C3.
   Docs updated: `docs/harness/architecture.md`,
   `docs/harness/decisions.md` (ADR-H352),
   `docs/harness/roadmap/round-5-core-integrity.md`,

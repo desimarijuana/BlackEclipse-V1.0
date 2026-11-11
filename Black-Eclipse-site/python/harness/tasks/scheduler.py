@@ -100,9 +100,14 @@ class TaskScheduler:
         auto_verify_criteria: bool = True,
         max_per_agent: int = DEFAULT_MAX_PER_AGENT,
         agent_limits: Optional[dict[str, int]] = None,
+        fabric: Any = None,
     ) -> None:
         self._manager = manager
         self._executor = executor
+        # Round 5 / C2: when the Execution Fabric is bound, the task's RUN
+        # executes as a Fabric job. The scheduler keeps its claim/lease/verify
+        # loop (it is the producer); the Fabric is the one executor.
+        self._fabric = fabric
         self._clock = clock or _default_clock
         self._max_in_flight = max(1, int(max_in_flight))
         self._tick_seconds = tick_seconds
@@ -121,6 +126,10 @@ class TaskScheduler:
         self._active_by_plan: dict[str, int] = {}
         self._claimed: dict[str, str] = {}  # task_id -> claim_token
         self._last_prune = 0.0
+
+    def set_fabric(self, fabric: Any) -> None:
+        """Bind (or clear) the Execution Fabric after boot wiring."""
+        self._fabric = fabric
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
     async def start(self) -> None:
@@ -374,6 +383,13 @@ class TaskScheduler:
             self._on_failure(task, execution_id, outcome)
 
     async def _run(self, task: Task, run_id: str) -> TaskRunOutcome:
+        # Round 5 / C2: the Fabric owns the execution attempt when it is bound.
+        # A submit failure falls back to the inline executor (the pre-C2 path);
+        # a submitted job's failure is REPORTED, never silently re-run.
+        if self._fabric is not None:
+            via_fabric = await self._run_via_fabric(task, run_id)
+            if via_fabric is not None:
+                return via_fabric
         context = build_task_context(
             self._manager, task, constraints={"leaseSeconds": self._lease_seconds}
         )
@@ -386,6 +402,51 @@ class TaskScheduler:
             self._executor(task, context, run_id), timeout=self._run_timeout_s
         )
         return _coerce_outcome(raw, run_id)
+
+    async def _run_via_fabric(self, task: Task, run_id: str) -> Optional[TaskRunOutcome]:
+        """Submit the task's run as one Fabric job and map its outcome.
+
+        Returns None only when the submit itself failed (so the caller can use
+        the inline path). Once a job exists, its result is authoritative.
+        """
+        try:
+            result = await self._fabric.submit(
+                "task",
+                {"taskId": task.id, "runId": run_id, "leaseSeconds": self._lease_seconds},
+                worker_kind="task",
+                task_id=task.id,
+                correlation_id=run_id,
+                idempotency_key=f"task:{task.id}:{run_id}",
+                await_result=True,
+            )
+        except Exception:  # noqa: BLE001 - fall back to the in-process executor
+            log.warning("fabric task submit failed; using the inline executor", exc_info=True)
+            return None
+        if not isinstance(result, dict):
+            return None
+        status = str(result.get("status") or "").upper()
+        payload = result.get("outcome") or {}
+        output = payload.get("output") if isinstance(payload, dict) else None
+        if output is None and isinstance(result.get("output"), dict):
+            # A deduplicated submit returns the stored job row, not an outcome.
+            output = result["output"]
+        if status in ("SUCCEEDED", "COMPLETED"):
+            if isinstance(output, dict):
+                return _coerce_outcome(output, run_id)
+            return TaskRunOutcome(status="completed", run_id=run_id, output=str(output or ""))
+        if status in ("CANCELLED", "CANCELED"):
+            return TaskRunOutcome(status="cancelled", run_id=run_id,
+                                  error_class="CANCELLED",
+                                  error=str(result.get("error") or "task cancelled"))
+        if status in ("TIMED_OUT", "TIMEOUT"):
+            return TaskRunOutcome(status="timed_out", run_id=run_id,
+                                  error_class="TIMEOUT",
+                                  error=str(result.get("error") or "task timed out"))
+        return TaskRunOutcome(
+            status="failed", run_id=run_id,
+            error=str(result.get("error") or "the task job did not complete"),
+            error_class=str(result.get("errorClass") or "TASK_JOB_FAILED"),
+        )
 
     async def _heartbeat(self, task_id: str, claim_token: str) -> None:
         interval = max(5.0, self._lease_seconds / 3.0)

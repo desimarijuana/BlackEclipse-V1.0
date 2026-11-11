@@ -507,16 +507,23 @@ def install_task_layer(service: Any) -> bool:
     try:
         store = TaskStore(service.store)
         manager = TaskManager(store, publisher=_bus_publisher(service))
+        executor = build_task_executor(service, manager)
         scheduler = TaskScheduler(
-            manager, executor=build_task_executor(service, manager),
+            manager, executor=executor,
             max_in_flight=int(os.environ.get("HARNESS_TASK_MAX_IN_FLIGHT", "2")),
             tick_seconds=float(os.environ.get("HARNESS_TASK_TICK_SECONDS", "15")),
             lease_seconds=int(os.environ.get("HARNESS_TASK_LEASE_SECONDS", "600")),
             max_per_agent=int(os.environ.get("HARNESS_TASK_MAX_PER_AGENT", "0")),
+            # The Fabric is installed later in boot; `install_fabric_layer`
+            # binds it with `scheduler.set_fabric(...)`.
+            fabric=getattr(service, "fabric", None),
         )
         service.tasks_store = store
         service.tasks = manager
         service.task_scheduler = scheduler
+        # The Fabric `task` worker executes through THIS executor, so the two
+        # paths share one implementation.
+        service.task_executor = executor
         # Round 4 (W8.2): the chat path becomes durable-by-default — a durable
         # request creates a goal task and this run is its first attempt; the
         # run itself is unchanged (the wrapper decides before and settles after).

@@ -27,9 +27,34 @@ import json
 import logging
 from typing import Any, Optional
 
+from .checkpoint_io import restore_messages, serialize_run_messages
+from .migrations import Migration, MigrationRunner
 from .persistence import now_iso
 
 log = logging.getLogger("harness.run_lineage")
+
+# The durable message cursor. A checkpoint stores the conversation's sequence
+# number; the messages themselves live here once, untruncated, so a long run
+# resumes with its early evidence intact.
+LINEAGE_MIGRATIONS: tuple[Migration, ...] = (
+    Migration(
+        id="2026-11-11-001-run-message-cursor",
+        description="RunMessage: the full durable conversation behind a checkpoint cursor",
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS RunMessage (
+              id        TEXT PRIMARY KEY,
+              runId     TEXT NOT NULL,
+              seq       INTEGER NOT NULL,
+              payload   TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              FOREIGN KEY (runId) REFERENCES HarnessRun(id) ON DELETE CASCADE
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_run_message_run ON RunMessage(runId, seq)",
+        ),
+    ),
+)
 
 # A checkpoint payload is a bounded reference, not a trace. These caps keep a
 # pathological run from turning the checkpoint table into a second event log.
@@ -129,6 +154,7 @@ class RunLineage:
             "CREATE INDEX IF NOT EXISTS idx_tool_idem_run ON ToolExecutionIdempotency(runId)"
         )
         self._db.commit()
+        MigrationRunner(self._db, "agent-memory").apply(LINEAGE_MIGRATIONS)
 
     # ── Lineage ─────────────────────────────────────────────────────────────
     def set_run_parent(
@@ -216,6 +242,60 @@ class RunLineage:
             "SELECT * FROM RunCheckpoint WHERE runId=? ORDER BY seq ASC", (run_id,)
         ).fetchall()
         return [_checkpoint_row(r) for r in rows]
+
+    # ── Durable message cursor ───────────────────────────────────────────────
+    def save_messages(self, run_id: str, messages: list[Any]) -> Optional[int]:
+        """Persist the run's full conversation; return the last sequence index.
+
+        Idempotent: a checkpoint can be written at the same boundary twice. Rows
+        beyond the current tail are deleted, so a shorter rewrite cannot leave a
+        stale message behind. Returns None when there is nothing to persist.
+        """
+        try:
+            serialized = serialize_run_messages(list(messages or []))
+        except Exception:  # noqa: BLE001 - a cursor must never break a run
+            log.warning("failed to serialize run messages", exc_info=True)
+            return None
+        if not serialized:
+            return None
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            for seq, payload in enumerate(serialized):
+                self._db.execute(
+                    "INSERT OR REPLACE INTO RunMessage (id, runId, seq, payload, createdAt) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (f"msg_{run_id}_{seq}", run_id, seq, json.dumps(payload), now_iso()),
+                )
+            self._db.execute(
+                "DELETE FROM RunMessage WHERE runId=? AND seq >= ?",
+                (run_id, len(serialized)),
+            )
+            self._db.execute("COMMIT")
+        except Exception:
+            self._db.execute("ROLLBACK")
+            raise
+        return len(serialized) - 1
+
+    def load_messages(self, run_id: str) -> list[Any]:
+        """Load the durable conversation in order; [] when the cursor is absent."""
+        rows = self._db.execute(
+            "SELECT payload FROM RunMessage WHERE runId=? ORDER BY seq ASC", (run_id,)
+        ).fetchall()
+        serialized: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(payload, dict):
+                serialized.append(payload)
+        return restore_messages(serialized)
+
+    def message_cursor(self, run_id: str) -> Optional[int]:
+        row = self._db.execute(
+            "SELECT MAX(seq) AS m FROM RunMessage WHERE runId=?", (run_id,)
+        ).fetchone()
+        return None if row is None or row["m"] is None else int(row["m"])
 
     # ── Idempotency ─────────────────────────────────────────────────────────
     def mark_tool_executed(

@@ -150,6 +150,9 @@ class TaskStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._ensure_schema()
+        from ..execution_log import ExecutionEventLog  # noqa: PLC0415
+
+        self._events = ExecutionEventLog(self._db)
 
     @property
     def _db(self):
@@ -685,6 +688,11 @@ class TaskStore:
              _json(event.data), event.created_at),
         )
         self._db.commit()
+        # Round 5 / C2: one canonical log, this table as the task projection.
+        self._events.append(
+            "task", task_id or plan_id or event.id, event_type, event.data,
+            parent_id=plan_id if task_id else None,
+        )
         return event
 
     def list_task_events(self, task_id: str, limit: int = 500) -> list[TaskEvent]:

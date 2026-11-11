@@ -149,7 +149,9 @@ class ExecutionManager:
                 ):
                     self.metrics.incr("deduplicated")
                     return {"jobId": existing.id, "status": existing.status,
-                            "mode": exec_mode.value, "deduplicated": True}
+                            "mode": exec_mode.value, "deduplicated": True,
+                            "output": existing.output, "error": existing.error,
+                            "errorClass": existing.error_class}
 
         parent = self._store.get_job(parent_job_id) if parent_job_id else None
         root_job_id = (parent.root_job_id or parent.id) if parent is not None else None

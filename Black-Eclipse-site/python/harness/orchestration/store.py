@@ -57,6 +57,9 @@ class OrchestrationStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._ensure_schema()
+        from ..execution_log import ExecutionEventLog  # noqa: PLC0415
+
+        self._events = ExecutionEventLog(self._db)
 
     @property
     def _db(self):
@@ -427,6 +430,11 @@ class OrchestrationStore:
             (event["id"], execution_id, node_id, event_type, seq, event["at"], _json(event["data"])),
         )
         self._db.commit()
+        # Round 5 / C2: one canonical log, this table as the DAG projection.
+        self._events.append(
+            "orchestration", execution_id, event_type,
+            {"nodeId": node_id, "data": event["data"]},
+        )
         return event
 
     def list_events(self, execution_id: str, *, node_id: Optional[str] = None,

@@ -345,6 +345,12 @@ ECLIPSE_AGENT = AgentConfig(
     name="Eclipse Agent",
     systemPrompt=ECLIPSE_AGENT_SYSTEM_PROMPT,
     tools=[
+        # Round 5 / C3: discovery + safe read-only dispatch, and the pager for a
+        # truncated tool result's full text.
+        "tool_search",
+        "tool_invoke",
+        "read_tool_output",
+        "tool_code",
         # Phase-2 unified retrieval tools
         "market_get_quote",
         "market_get_ohlcv",
@@ -925,6 +931,12 @@ CODE_AGENT_TOOLS = [
     # diff; read-only, and it records the review so a claim about it can be
     # checked against the ledger.
     "review_change",
+    # Round 5 / C3: discovery, safe read-only dispatch, full-output pager,
+    # confined read-only code over the catalog.
+    "tool_search",
+    "tool_invoke",
+    "read_tool_output",
+    "tool_code",
 ]
 
 CODE_AGENT = AgentConfig(

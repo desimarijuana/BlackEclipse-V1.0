@@ -309,6 +309,19 @@ class AgenticService:
         from .response_tools import register_response_contract_tools  # noqa: PLC0415
 
         register_response_contract_tools(self.registry)
+        # Round 5 / C3: the full-text handle pager and the read-only discovery /
+        # dispatch pair. Registered on the ONE registry so validation,
+        # permission and the effect authorizer apply unchanged.
+        try:
+            from .tool_outputs import register_tool_output_tools  # noqa: PLC0415
+            from .tool_surface import register_tool_surface_tools  # noqa: PLC0415
+            from .code_mode import register_code_mode_tool  # noqa: PLC0415
+
+            register_tool_output_tools(self.registry)
+            register_tool_surface_tools(self.registry)
+            register_code_mode_tool(self.registry)
+        except Exception:  # noqa: BLE001 - a collision must not block boot
+            log.warning("tool output/surface tools unavailable", exc_info=True)
         # The Code Execution & Verification Layer: the orchestrator, runtime
         # registry, scheduler, service manager and execution history, all reusing
         # the terminal manager for long-running services and `code/sandbox.py` for

@@ -57,6 +57,14 @@ def install_fabric_layer(service: Any) -> Optional[ExecutionManager]:
         service.fabric_store = store
         service.fabric_config = config
         set_fabric_manager(manager)
+        # Round 5 / C2: the task scheduler's execution attempts now go through
+        # this Fabric. The scheduler keeps its claim/lease/verification loop.
+        try:
+            scheduler = getattr(service, "task_scheduler", None)
+            if scheduler is not None and hasattr(scheduler, "set_fabric"):
+                scheduler.set_fabric(manager)
+        except Exception:  # noqa: BLE001 - task wiring must not block boot
+            log.warning("task scheduler fabric bind failed", exc_info=True)
         try:
             register_fabric_tools(service.registry)
         except Exception:  # noqa: BLE001 - a tool collision must not block boot

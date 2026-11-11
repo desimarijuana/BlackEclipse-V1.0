@@ -159,6 +159,9 @@ class GraphRunStore:
     def __init__(self, store: Any) -> None:
         self._store = store
         self._ensure_schema()
+        from ..execution_log import ExecutionEventLog  # noqa: PLC0415
+
+        self._events = ExecutionEventLog(self._db)
 
     @property
     def _db(self):
@@ -649,6 +652,11 @@ class GraphRunStore:
             (run_id, event.at, event.kind, event.node_id, event.message),
         )
         self._db.commit()
+        # Round 5 / C2: one canonical log, this table as the graph projection.
+        self._events.append(
+            "graph", run_id, event.kind,
+            {"nodeId": event.node_id, "message": event.message, "at": event.at},
+        )
 
     def list_events(self, run_id: str, limit: int = 1_000) -> list[dict[str, Any]]:
         return self.events_since(run_id, 0, limit=limit)

@@ -110,6 +110,13 @@ DEFAULT_POLICIES: dict[str, ExecutionPolicy] = {
                              worker_kind=WorkerKind.VIDEO.value, priority=JobPriority.RESEARCH.weight,
                              timeout_ms=1_800_000, max_attempts=2, backoff_ms=2000,
                              resources={"code": 1}),
+    # A task's run goes through the Fabric when a scheduler is bound. The task
+    # scheduler keeps its claim/lease/verification loop; the Fabric owns the
+    # execution attempt (one scheduler for the work itself).
+    "task": ExecutionPolicy(mode=ExecutionMode.CONCURRENT, queue=QueueName.TASK.value,
+                            worker_kind=WorkerKind.TASK.value,
+                            priority=JobPriority.AGENT_INTERACTIVE.weight,
+                            timeout_ms=900_000, max_attempts=1, resources={"agent": 1}),
     # Graph workflows: durable, restart-surviving, resumable from node
     # checkpoints. The run record (not the job) is the user-facing status.
     "graph": ExecutionPolicy(mode=ExecutionMode.DURABLE, queue=QueueName.GRAPH.value,

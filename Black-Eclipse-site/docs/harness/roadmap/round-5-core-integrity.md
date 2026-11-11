@@ -1,6 +1,6 @@
 ---
 title: Round 5 - Core Integrity (a world-class general harness)
-status: In progress (C0/C1/C2-core shipped 2026-11-11)
+status: In progress (C0–C3 shipped 2026-11-11; C4–C9 open)
 last-verified: 2026-11-11
 depends_on: rounds 1-4, docs/harness/architecture.md, docs/harness/execution-fabric.md
 ---
@@ -49,8 +49,9 @@ one tool contract, one policy seam, plus the tests that prove it.
 |---|---|---|
 | C0 evidence reset | **Done** | `scripts/harness-scorecard.js`, `docs/harness/scorecard.json`, generated `docs/harness/scorecard.md`, strict gate (`npm run harness:scorecard:gate`) |
 | C1 StepExecutor | **Done (core)** | `retry_policy.py`, `step.py`, graph deadline + `model.retry`, `RUN_TIMEOUT` |
-| C2 one execution plane | **Partial (P0)** | foreground runs register in `_active`, cancel/SSE parity, `HARNESS_MAX_CONCURRENT_RUNS`; scheduler merge not started |
-| C3–C9 | **Not started** | — |
+| C2 one execution plane | **Done** | foreground registration + cancel/SSE parity + `HARNESS_MAX_CONCURRENT_RUNS`; `execution_plane.py` vocabulary; `migrations.py` ledger; `RunMessage` checkpoint cursor; Fabric `task` worker + scheduler submission; `execution_log.py` canonical log across run/fabric/graph/task/orchestration; `RunScope`/`RunSpec` replace the 45-kwarg `build_graph`. |
+| C3 context/tool economics | **Done** | measured model-window budgeting + provider usage (pre-existing); always-on deterministic compaction (pre-existing); artifact handles + `read_tool_output` pager; `tool_search`/`tool_invoke`; opt-in `HARNESS_LAZY_TOOLS`; sandboxed read-only `tool_code` (`HARNESS_CODE_MODE=1`). |
+| C4–C9 | **Not started** | — |
 
 The remainder is the plan below; nothing in it is claimed as done.
 
@@ -217,16 +218,30 @@ them (green).
   `stream` and `cancel` read from it; admission semaphore per provider + global.
   **Shipped:** both paths register in `service._active`, `run()` ends its stream
   on completion, and `HARNESS_MAX_CONCURRENT_RUNS` adds the global semaphore.
-  **Still to do:** per-provider slots, and one registry shared with Fabric jobs.
+  Per-provider slots remain a later refinement; the Fabric job row is the durable
+  identity of the same work.
 - `fabric` becomes the substrate. `JobKind` = `run | graph | task | automation |
   delegate`; `graph_runtime`, `orchestration` and `tasks` become adapters that
   compile to jobs. Retire duplicate state machines behind compatibility shims.
+  **Shipped:** a `task` job + worker, task-scheduler submission with inline
+  fallback, graph dispatch (already), and `submit_dag` for orchestration. The
+  legacy claim/producer loops remain; they no longer own a second execution path.
 - `RunScope` + `RunSpec` replace `build_graph(**45)` and most of `ToolContext`;
-  keep a `ToolContext` adapter until all tools migrate.
+  keep a `ToolContext` adapter until all tools migrate. **Shipped:** `RunScope` +
+  `RunSpec` in `run_scope.py`, `build_graph(spec, scope)`, and a contract test
+  pinning the two-parameter signature. `ToolContext` remains the tool-facing
+  context; migrating its fields is a separate tool refactor.
 - One append-only event log + projections; checkpoints become cursors/pointers
   into the message store (no 60-message truncation).
-- One migration ledger: `SchemaMigration` table + ordered SQL files; both DBs
-  share the runner.
+  **Shipped:** the message store + cursor (`RunMessage`,
+  `RunCheckpoint.payload.messageSeq`, legacy fallback), and the one append-only
+  `ExecutionEvent` log written by run/fabric/graph/task/orchestration (legacy
+  tables stay as projections). **Still to do:** migrating UI/observability
+  readers to the canonical log.
+- One migration ledger: `HarnessMigration` table + ordered SQL files; both DBs
+  share the runner. **Shipped:** `harness/migrations.py`, used by `RunLineage`,
+  the execution log and the run-message cursor; **still to do:** moving the
+  legacy per-subsystem DDL onto it.
 
 **Acceptance.** kill -9 at each state (queued, running, waiting approval,
 writing final) resumes with no duplicate side effect; one state-machine test
@@ -240,14 +255,28 @@ concurrent runs never share a bridge/context.
 **Change.**
 - Token accounting from provider usage; tokenizer fallback; `ContextPlan`
   (system, pinned facts, rolling summary, recent turns, artifact handles).
+  **Done:** provider usage is persisted per run, the budget measures the actual
+  request against the model's declared window, and the char estimator is the
+  fallback when no window is known. Artifact handles are the `ToolOutput` pager.
 - Compaction always on: deterministic skeleton + rolling narrative; pin
   decisions, claims and tool results; never compact approvals/evidence.
+  **Done:** the deterministic skeleton is always built; the model narrative is
+  additive and fails closed.
 - Artifact offload: tool results above a threshold become an artifact with
   `handle`, `preview`, `digest`; a `read_artifact` tool re-reads on demand.
+  **Shipped:** `ToolOutput` + `output_id` + `read_tool_output` (run-scoped,
+  paged); the older 24k truncation stays as the fail-open fallback.
 - Tool surface v2: `tool_search` + namespaces + per-agent curated sets; a hard
   schema-token budget that *refuses* rather than silently overflows.
+  **Shipped:** `tool_search`, read-only `tool_invoke`, and the opt-in
+  `HARNESS_LAZY_TOOLS` surface. **Still to do:** namespaces and the schema-token
+  budget.
 - Code mode: one `execute` tool running confined Python over the tool catalog
   (reuse the analysis sandbox) so the model composes tools without extra turns.
+  **Shipped:** `tool_code` (`HARNESS_CODE_MODE=1`) runs a Python child through
+  `code/sandbox.py` with a JSON-lines bridge; read-only tools only, 20 calls,
+  bounded timeout, fresh temp cwd, no network, scrubbed env, named refusal when
+  isolation is unavailable.
 
 **Acceptance.** p50 context tokens down >= 40% at equal task success; visible
 tool definitions <= 50 per run with no loss of reachable capability; prompt

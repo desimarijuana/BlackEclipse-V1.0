@@ -596,6 +596,82 @@ streamed (retrying would duplicate the user-visible answer). The policy is
 tunable with `HARNESS_MODEL_ATTEMPTS`, `HARNESS_MODEL_RETRY_BASE_S`,
 `HARNESS_MODEL_RETRY_MAX_S` and `HARNESS_MODEL_RETRY_BUDGET_S`.
 
+**One execution vocabulary (Round 5 / C2, ADR-H349).** The four planes named the
+same lifecycle differently (`RunStatus`, `JobState`, `TaskStatus`,
+`graph_runtime.RunStatus`). `harness/execution_plane.py` is the ONE mapping:
+`ExecutionPhase` (`pending | queued | running | waiting | succeeded | failed |
+cancelled | timed_out`), `JobKind`, and total adapters for each plane. An unknown
+value maps to `None`, never to an invented phase, so a stale or foreign row is
+handled by the caller instead of being mislabelled as live or terminal. It owns
+no scheduler; it is the shared language the planes converge on.
+
+**One execution substrate (Round 5 / C2, ADR-H350).** The Execution Fabric is the
+only place an execution attempt runs:
+
+- an **agent** run is a Fabric `agent` job (already);
+- a **Graph Studio** run is a Fabric `graph` job (already);
+- a **task** run is a Fabric `task` job: `TaskScheduler` keeps its claim, lease,
+  heartbeat and verification loop (it is the producer) and submits the attempt
+  with `await_result=True`; the Fabric `task` worker reconstructs the live task
+  and calls the SAME `service.task_executor`. A submit failure falls back to the
+  inline executor; a submitted job's failure is reported, never silently re-run;
+- an **orchestration DAG** is submitted through `ExecutionManager.submit_dag`,
+  which invokes the existing orchestration engine.
+
+The legacy producers remain by design (the task claim loop must own the lease),
+but they no longer own a second execution path.
+
+**One append-only execution log (Round 5 / C2, ADR-H350).**
+`harness/execution_log.py` owns `ExecutionEvent(source, entityId, seq, type, at,
+data, parentId)`. The run emitter and the Fabric, graph-runtime, task and
+orchestration stores append to it after writing their own row. Those tables stay
+as per-plane **projections** for their existing readers, so the change is
+additive and rollback-safe; a cross-plane view (for example "everything that
+happened to this run, its child jobs and its tasks") reads the one log. The log
+is bounded (200k chars per row), fail-open, and sequence is per entity, not
+global.
+
+**A truncated tool result keeps its text (Round 5 / C3, ADR-H352).** The
+`ToolRegistry.execute` seam still bounds the model-facing text at 24k, but a
+truncated result now stores the FULL text in `ToolOutput` (run-scoped,
+2M-char ceiling) and returns `ToolResult.output_id`. The result text names the
+handle and the next offset; `read_tool_output` pages it back (12k default, 24k
+max) only for the run that produced it. Offload is fail-open: if the store is
+unavailable, the old truncation still applies.
+
+**Tools are discoverable, not all bound (Round 5 / C3, ADR-H352).**
+`tool_search` returns up to 12 matching tools with their exact parameters (the
+response is bounded, and drops schemas rather than flooding). `tool_invoke`
+executes a discovered READ-ONLY tool by name; an effectful tool is refused there
+on purpose, because the graph's tools node owns budget, duplicate suppression,
+idempotency, approval and recovery for those. `HARNESS_LAZY_TOOLS=1` opts into a
+narrower bound surface: every effectful tool stays bound, and the read-only long
+tail is reachable through the discovery pair. The flag is OFF by default until
+eval parity, as the plan requires.
+
+**Code Mode is confined, read-only composition (Round 5 / C3, ADR-H352).**
+When `HARNESS_CODE_MODE=1`, the `tool_code` tool runs a short Python program in a
+`code/sandbox.py` child (process-tree kill, scrubbed env, no network, CPU/memory
+caps, fresh temp cwd). The program calls `tools.call(name, **args)`; each call
+crosses a JSON-lines bridge and is executed by the run's own registry/context, so
+validation and permission still apply. Only READ-ONLY tools cross the bridge:
+effectful tools are refused there and must be called directly, preserving the
+graph's budget, approval, idempotency and recovery. The call budget is 20, the
+timeout is bounded, and a missing isolation primitive is a named refusal — never
+an unsandboxed fallback. Containment is process/resource/network/env plus a fresh
+temp cwd, not a filesystem jail; the operator flag is for a single-user install,
+and multi-tenant use waits for C6's filesystem profiles.
+
+**The graph takes two composition objects (Round 5 / C2.1, ADR-H351).**
+`build_graph(spec, scope)` replaces a ~45-keyword signature. `RunScope`
+(`harness/run_scope.py`) is the process-wide services a run reuses (registry,
+bridge, stores, memory, MCP, market, portfolio, search, ...); `RunSpec` is the
+facts of THIS invocation (request, emitter, resolved agent, allowlist, effect
+authorizer, resume point, result sinks). Both are unpacked at the top of the
+graph, so node bodies and tools see exactly the same locals. `RunSpec` copies
+the allowlist, so a run cannot mutate the caller's surface. A contract test pins
+the two-parameter signature.
+
 **Duplicate suppression is scoped to one agent step** (ADR-H90). Two identical
 `(tool, args)` calls in the SAME turn: the first executes, the second is refused
 with `tool.failed`/`TOOL_FORBIDDEN`. A call repeated in a LATER turn executes
@@ -1097,6 +1173,22 @@ DDL is idempotent, and `_migrate()` adds post-release columns
 (e.g. the token columns) to an existing database on open — no manual migration
 step. `HarnessRun` carries `promptTokens`/`completionTokens`/`totalTokens`;
 `usage_summary()` aggregates them for analytics (`GET /usage`).
+
+**One migration ledger (Round 5 / C2).** `harness/migrations.py` adds
+`HarnessMigration(namespace, id, description, appliedAt)` and a
+`MigrationRunner` that applies each id once, in order, inside one
+`BEGIN IMMEDIATE` transaction (a failure rolls the whole batch back). It records
+only migrations that opt in; the legacy per-subsystem idempotent DDL is
+unchanged, so this is additive and rollback-safe. `RunLineage` is the first
+subsystem on the ledger.
+
+**The checkpoint is a cursor, not a truncated tail (Round 5 / C2).**
+`RunCheckpoint.payload.messageSeq` points into `RunMessage`, where the full
+conversation is stored untruncated (only a pathological single message is capped
+at 200k chars, flagged in the row). `RunLineage.save_messages` is idempotent and
+deletes a stale tail; `load_messages` restores it. Resume prefers the cursor and
+falls back to the bounded 60-message legacy tail, so checkpoints written before
+this change still resume. A 200-step run therefore keeps its early evidence.
 
 **Connections are per-thread, not shared.** The store is used by FastAPI's worker
 threads and async tasks, so `AgentMemoryStore` hands each thread its own

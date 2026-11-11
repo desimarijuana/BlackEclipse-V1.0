@@ -1,7 +1,7 @@
 {
-  "digest": "3c400e12c6d477b4",
+  "digest": "d1f9a7cc2801c975",
   "manifestVersion": "1",
-  "toolCount": 1082,
+  "toolCount": 1086,
   "tools": [
     {
       "deprecated": false,
@@ -24064,6 +24064,36 @@
     },
     {
       "deprecated": false,
+      "description": "Read the full text behind a truncated tool result. Tool results over the display bound include a handle id and a next offset; call this with that id (and the offset) to continue reading. Scoped to this run.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "id": {
+            "description": "The handle id from the tool result.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max characters (default 12000).",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Character offset to read from.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "read_tool_output",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Rank method families for a user's asset class, horizon, risk tolerance, objective, available data and regime. Deterministic and explainable.",
       "effect": null,
       "inputSchema": {
@@ -32227,6 +32257,83 @@
       "permission": "write",
       "replacement": null,
       "risk": "high",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run a short Python program that calls READ-ONLY tools through `tools.call(name, **args)` / `tools.text(name, **args)` and sets `result`. Process-isolated, no network, 20 tool calls max. Use it to loop, filter or join data across several tool results. Effectful tools must be called directly.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "code": {
+            "description": "Python source to execute.",
+            "type": "string"
+          },
+          "timeout_s": {
+            "description": "Seconds (default 60).",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "name": "tool_code",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run a READ-ONLY tool discovered with tool_search, by name and exact arguments. Effectful tools are refused here; call those directly.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "arguments": {
+            "description": "The tool's exact arguments.",
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "tool_invoke",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Find a tool by name, task word or domain and get its exact parameters. Use this before guessing a tool name. Returns up to 12 matches.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Max results (default 8).",
+            "type": "integer"
+          },
+          "query": {
+            "description": "Tool name, task word or domain.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "tool_search",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {

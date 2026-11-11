@@ -28,9 +28,12 @@
         "python/tests/test_context_overflow.py",
         "python/tests/test_context_window.py",
         "python/tests/test_surface_resolution.py",
-        "python/tests/test_surface_context_policy.py"
+        "python/tests/test_surface_context_policy.py",
+        "python/tests/test_tool_output_offload.py",
+        "python/tests/test_tool_surface.py",
+        "python/tests/test_code_mode.py"
       ],
-      "note": "Budgeting and surface resolution are tested; the measured-token, artifact-offload and lazy-tool work (C3) is not implemented."
+      "note": "C3 done: measured request/window budgeting + provider usage and always-on deterministic compaction (pre-existing), full-output handle/pager, discovery (tool_search / read-only tool_invoke / opt-in lazy surface), and sandboxed read-only code mode (HARNESS_CODE_MODE=1)."
     },
     {
       "id": "aci",
@@ -105,10 +108,17 @@
       "evidence": [
         "python/tests/test_step_retry.py",
         "python/tests/test_execution_registry.py",
+        "python/tests/test_execution_plane.py",
+        "python/tests/test_migration_ledger.py",
+        "python/tests/test_run_message_cursor.py",
+        "python/tests/test_execution_log.py",
+        "python/tests/test_task_scheduler_fabric.py",
+        "python/tests/test_fabric_task_worker.py",
+        "python/tests/test_run_scope.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
-      "note": "C1 shipped (retry, run deadline, model.retry), C2 core shipped (foreground registry, admission, ContextVar context). One scheduler, event log, lazy surface, sandbox profiles and external evals remain."
+      "note": "C1 shipped (retry, run deadline, model.retry). C2 shipped (foreground registry, admission, ContextVar context, one ExecutionPhase vocabulary, migration ledger, checkpoint cursor, Fabric task execution, one ExecutionEvent log, RunScope/RunSpec). Legacy producer loops/projections remain. Lazy surface, sandbox profiles and external evals remain (C3-C9)."
     }
   ]
 }

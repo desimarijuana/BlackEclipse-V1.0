@@ -21,6 +21,13 @@ from langchain_core.messages import (
 MAX_CHECKPOINT_MESSAGES = 60
 MAX_CHECKPOINT_MESSAGE_CHARS = 12_000
 
+# The durable message log (RunMessage) is a cursor, not a bounded tail. It keeps
+# the WHOLE conversation so a long run resumes with its early evidence intact;
+# only a pathological single message is capped (200k chars), with the cap named
+# in the stored payload rather than silently changing it.
+MAX_RUN_MESSAGES = 2_000
+MAX_RUN_MESSAGE_CHARS = 200_000
+
 
 def serialize_messages(messages: list[BaseMessage]) -> list[dict[str, Any]]:
     """Serialize the conversation tail for a checkpoint (bounded).
@@ -52,6 +59,23 @@ def restore_messages(serialized: list[dict[str, Any]]) -> list[BaseMessage]:
         return []
 
 
+def serialize_run_messages(messages: list[BaseMessage]) -> list[dict[str, Any]]:
+    """Serialize the full conversation for the durable `RunMessage` cursor."""
+    out: list[dict[str, Any]] = []
+    for msg in messages[-MAX_RUN_MESSAGES:]:
+        try:
+            dumped = messages_to_dict([msg])[0]
+        except Exception:  # noqa: BLE001 - an unserializable message is skipped
+            continue
+        data = dumped.get("data", {})
+        content = data.get("content")
+        if isinstance(content, str) and len(content) > MAX_RUN_MESSAGE_CHARS:
+            data["content"] = content[:MAX_RUN_MESSAGE_CHARS]
+            data["contentTruncated"] = True
+        out.append(dumped)
+    return out
+
+
 def checkpoint_payload_of(state: dict[str, Any]) -> dict[str, Any]:
     """A minimal terminal checkpoint payload from a final graph state."""
     return {
@@ -65,7 +89,10 @@ def checkpoint_payload_of(state: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "MAX_CHECKPOINT_MESSAGES",
     "MAX_CHECKPOINT_MESSAGE_CHARS",
+    "MAX_RUN_MESSAGES",
+    "MAX_RUN_MESSAGE_CHARS",
     "serialize_messages",
+    "serialize_run_messages",
     "restore_messages",
     "checkpoint_payload_of",
 ]

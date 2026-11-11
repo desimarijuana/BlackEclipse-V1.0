@@ -205,7 +205,9 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2547 -> 2573 (2026-11-11, Round 5 / C1): the run deadline is
     # checked before every model call and every tool turn. May only shrink from
     # here; split candidate: the post-run answer seam.
-    "graph.py": 2573,
+    # Re-pinned 2573 -> 2588 (2026-11-11, Round 5 / C2): the checkpoint writes a
+    # message cursor and resume prefers it. May only shrink.
+    "graph.py": 2588,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -393,7 +395,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1848->1915 (2026-11-11, Round 5 / C2): foreground runs register
     # in `_active` and the optional admission slot wraps both run paths. May
     # only shrink; split candidate: run submission vs subsystem wiring.
-    "service.py": 1915,
+    # Re-pinned 1915->1928 (2026-11-11, Round 5 / C3): the output-pager,
+    # discovery and confined-code tools are registered on the ONE registry.
+    # May only shrink.
+    "service.py": 1928,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

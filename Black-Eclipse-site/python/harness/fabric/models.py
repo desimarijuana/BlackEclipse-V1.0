@@ -182,6 +182,7 @@ class QueueName(str, Enum):
     ML = "ml"
     VIDEO = "video"
     GRAPH = "graph"
+    TASK = "task"
 
     @classmethod
     def from_value(cls, value: Any) -> "QueueName":
@@ -215,6 +216,8 @@ QUEUE_DEFAULTS: dict[QueueName, tuple[str, int]] = {
     # Graph workflows are long-running orchestration; keep the slot count low
     # so a backtest graph cannot starve interactive LLM work.
     QueueName.GRAPH: ("agent", 2),
+    # Task runs are agent runs; the task scheduler already bounds in-flight work.
+    QueueName.TASK: ("agent", 2),
 }
 
 
@@ -240,6 +243,7 @@ class WorkerKind(str, Enum):
     ML = "ml"
     VIDEO = "video"
     GRAPH = "graph"
+    TASK = "task"
 
 
 class WorkerStatus(str, Enum):

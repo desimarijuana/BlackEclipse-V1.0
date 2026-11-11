@@ -13,13 +13,13 @@ A dimension is **measured** only when every evidence path exists and a metric is
 | Dimension | Weight | Target | Status | Metric | Evidence |
 |---|---:|---:|---|---|---|
 | Loop correctness & resilience | 20 | 9.5 | **partial** | — | `python/tests/test_step_retry.py`<br>`python/tests/test_execution_registry.py`<br>`python/tests/test_graph.py`<br>`python/tests/test_service_background_parity.py`<br>`python/tests/test_run_resume.py` |
-| Context & tool economics | 18 | 9.5 | **partial** | — | `python/tests/test_context_budget.py`<br>`python/tests/test_context_overflow.py`<br>`python/tests/test_context_window.py`<br>`python/tests/test_surface_resolution.py`<br>`python/tests/test_surface_context_policy.py` |
+| Context & tool economics | 18 | 9.5 | **partial** | — | `python/tests/test_context_budget.py`<br>`python/tests/test_context_overflow.py`<br>`python/tests/test_context_window.py`<br>`python/tests/test_surface_resolution.py`<br>`python/tests/test_surface_context_policy.py`<br>`python/tests/test_tool_output_offload.py`<br>`python/tests/test_tool_surface.py`<br>`python/tests/test_code_mode.py` |
 | Tool contract (ACI) | 15 | 9.5 | **partial** | — | `python/tests/test_tools.py`<br>`python/tests/test_tool_contracts.py`<br>`python/tests/test_surface_honesty.py` |
 | Safety & isolation | 17 | 9.5 | **partial** | — | `python/tests/test_security_core.py`<br>`python/tests/test_security_adversarial.py`<br>`python/tests/test_tool_contracts.py`<br>`python/tests/test_finance_guardrails.py` |
 | Extensibility | 12 | 9.5 | **partial** | — | `python/tests/test_mcp.py`<br>`python/tests/test_mcp_adversarial.py`<br>`python/tests/test_skills_registry.py`<br>`python/tests/test_skills_runtime.py` |
 | Evaluation | 10 | 9.5 | **partial** | — | `python/tests/test_evaluation_runner.py`<br>`python/tests/test_evaluation_scoring.py`<br>`python/tests/test_evaluation_regression.py`<br>`python/tests/test_published_benchmarks.py` |
 | Operations & delivery | 8 | 9.5 | **unmeasured** | — | — |
-| Round 5 core integrity | 0 | C1/C2-core | **partial** | — | `python/tests/test_step_retry.py`<br>`python/tests/test_execution_registry.py`<br>`python/tests/test_graph.py`<br>`python/tests/test_tools.py` |
+| Round 5 core integrity | 0 | C1/C2-core | **partial** | — | `python/tests/test_step_retry.py`<br>`python/tests/test_execution_registry.py`<br>`python/tests/test_execution_plane.py`<br>`python/tests/test_migration_ledger.py`<br>`python/tests/test_run_message_cursor.py`<br>`python/tests/test_execution_log.py`<br>`python/tests/test_task_scheduler_fabric.py`<br>`python/tests/test_fabric_task_worker.py`<br>`python/tests/test_run_scope.py`<br>`python/tests/test_graph.py`<br>`python/tests/test_tools.py` |
 
 This file is the evidence ledger behind the harness scorecard. `status: measured` requires a metric and at least one runnable evidence path; `partial` and `unmeasured` are deliberate, honest states. The Round 4 target is 9.5 per dimension; do not put a number here that a gate cannot reproduce.
 

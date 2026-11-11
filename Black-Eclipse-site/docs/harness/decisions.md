@@ -11262,3 +11262,122 @@ fallback context is a `ContextVar` (not a registry class attribute), so two
 concurrent runs cannot overwrite each other's `ToolContext`. The deeper Round 5
 work (one scheduler, event log, lazy tool surface) is still tracked in
 `docs/harness/roadmap/round-5-core-integrity.md`.
+
+## ADR-H349 - One execution vocabulary, one migration ledger, and a checkpoint cursor
+
+**Decision.** `harness/execution_plane.py` is the canonical lifecycle language:
+`ExecutionPhase` plus total adapters from `RunStatus`, `JobState`, `TaskStatus`
+and `graph_runtime.RunStatus` (unknown -> `None`, never an invented phase), and
+`JobKind`. `harness/migrations.py` adds a per-namespace `HarnessMigration` ledger
+that applies each opted-in migration once, in id order, in one transaction, with
+a full rollback on failure; the legacy idempotent DDL is untouched.
+`RunCheckpoint.payload.messageSeq` is a cursor into a new `RunMessage` table that
+stores the full conversation; resume prefers the cursor and falls back to the
+bounded legacy tail. `RunLineage` is the first subsystem on the ledger.
+
+**Why.** Four planes named the same lifecycle four ways, so no caller could ask
+one question of any of them. No subsystem could say which schema version a
+database was on. And a checkpoint kept only the last 60 messages with each one
+capped at 12k chars, so a long run silently lost the evidence it started with —
+the exact opposite of what a resume is for.
+
+**Consequences.** New lifecycle code maps through `execution_plane.py` rather
+than inventing another string; a new state must be added to the canonical enum
+and every adapter, with a test. New schema changes register a `Migration` instead
+of only running `CREATE TABLE IF NOT EXISTS`; the ledger is per database
+(`agent-memory`, `eclipse-memory`) and its current version is readable. A
+checkpoint row is now small and constant-size; the conversation lives in
+`RunMessage` and is rewritten idempotently at each durable boundary. Older
+checkpoints remain valid (legacy tail fallback), so no data migration is needed.
+This does not yet merge the four schedulers or the four event tables; that
+remains the open half of C2.
+
+## ADR-H350 - The Fabric is the one execution substrate; ExecutionEvent is the one log
+
+**Decision.** Every execution attempt runs as an Execution-Fabric job. The task
+scheduler keeps its claim/lease/heartbeat/verification loop as a producer but
+submits the run through a `task` Fabric job (`await_result=True`); the Fabric
+`task` worker reconstructs the live task and calls the same
+`service.task_executor`. A submit failure falls back to the inline executor; a
+submitted job's failure is reported, never silently re-run. Graph Studio already
+runs as a `graph` job; an orchestration DAG goes through
+`ExecutionManager.submit_dag`. `ExecutionEvent(source, entityId, seq, type, at,
+data, parentId)` is the one append-only log: the run emitter and the Fabric,
+graph-runtime, task and orchestration stores append to it after writing their own
+row. Legacy rows remain as projections.
+
+**Why.** The task scheduler was a second execution path: it called the executor
+directly while the Fabric ran agent and graph jobs, so two schedulers could
+claim the same machine resources and only one of them had Fabric's retry,
+lease, cancellation and recovery semantics. In parallel, five event tables meant
+no single reader could answer "what happened to this unit of work?" without
+joining five different schemas.
+
+**Consequences.** A task run now has one durable job row, one retry/cancel
+semantics and one execution trace; the scheduler's claim loop is a producer, not
+an executor. The one log is append-only and per-entity sequenced; its row is
+bounded and fail-open, so losing a log row never fails the work. Per-plane tables
+are **projections**, not sources of truth for new readers; a reader that needs
+cross-plane history uses `ExecutionEventLog`. The log is not yet the source the
+UI reads — that is a later reader migration, not a new schema. The task
+scheduler's producer loop and the orchestration engine's internal layer scheduler
+remain; they no longer own a second execution path.
+
+## ADR-H351 - A run is composed from a RunScope and a RunSpec, not 45 keywords
+
+**Decision.** `graph.build_graph(spec, scope)` is the only constructor. `RunScope`
+holds the process-wide services a run reuses (registry, data bridge, stores,
+memory, MCP, market, portfolio, ledger, advisory, decision, quant, project,
+search, artifacts, UI, tasks); `RunSpec` holds the facts of one invocation
+(request, emitter, resolved agent, effect authorizer, allowlist, resume point,
+lineage, code ledger and result sinks). `RunSpec` copies the allowlist. A
+contract test asserts the signature has exactly those two parameters.
+
+**Why.** The 45-keyword constructor was the single hardest surface to call
+correctly: a dropped bundle was a silent `None` at tool-call time, and the
+`_run_kwargs` docstring exists because that bug had already happened. It also
+made the graph's dependencies unreadable at a glance. The two lifetimes were
+already distinct in the code; they were just flattened into one argument list.
+
+**Consequences.** A new subsystem is added to `RunScope` once and reaches every
+node; a new per-run fact is added to `RunSpec` once. `execute_run` keeps its
+legacy keyword signature for the many existing callers/tests, and constructs the
+two objects at the single graph call site; migrating `ToolContext` itself is a
+separate tool-facing refactor, not a prerequisite. The size ratchet usually
+shrinks as a result: comments and defaults move to the dataclasses.
+
+## ADR-H352 - A truncated tool result keeps its full text; tools are discoverable
+
+**Decision.** `ToolRegistry.execute` stores the full text of a truncated result
+in `ToolOutput` (run-scoped, 2M-char ceiling) and returns `output_id`; the
+model-facing text names the handle and next offset, and `read_tool_output` pages
+it back (12k default, 24k max). `tool_search` returns up to 12 matching tools with
+their exact schemas; `tool_invoke` executes a discovered READ-ONLY tool only.
+`HARNESS_LAZY_TOOLS=1` keeps every effectful tool bound and routes the read-only
+long tail through search/invoke; the flag is OFF until eval parity.
+
+**Why.** The 24k bound was honest but lossy: the model could see that data
+existed and could not read it. Re-fetching was expensive and sometimes
+impossible. Separately, binding hundreds of tools into every run spends context
+before the task starts, but simply hiding tools loses capabilities. Discovery
+plus a bounded pager is the smallest change that keeps both capabilities and
+context.
+
+**Consequences.** A truncated result always names its handle; a handle from
+another run is indistinguishable from a missing one. `tool_invoke` refuses
+effectful tools, so the graph remains the ONLY execution path for anything with
+side effects — the dispatcher cannot bypass budget, duplicate suppression,
+idempotency, approval or recovery. `tool_search` is read-only and its response is
+bounded. The lazy surface never widens an agent's declared tools: it intersects
+with the original set, so an agent that lacks `tool_search` does not gain it.
+Code Mode IS shipped, but only through the real sandbox: `HARNESS_CODE_MODE=1`
+gates `tool_code`, which runs a short Python program in a `code/sandbox.py`
+child and bridges READ-ONLY tool calls over JSON lines. Effectful tools are
+refused at the bridge, so the graph remains the ONLY side-effect path. The child
+gets a scrubbed env, no network, resource caps and a fresh temp cwd; a missing
+isolation primitive is a named refusal, never an unsandboxed fallback. This is
+not `tool_invoke` in a loop — the code runs in a separate, killable process.
+Containment is process/resource/network/env plus a fresh cwd, **not** a
+filesystem jail: an absolute-path read is still possible. The flag is therefore
+opt-in and intended for a single-user install; a multi-tenant deployment must
+wait for C6's filesystem sandbox profiles.
