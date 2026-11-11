@@ -47,8 +47,15 @@ def _playwright_available() -> tuple[bool, Optional[str]]:
     try:
         import playwright  # noqa: F401, PLC0415
         from playwright.async_api import async_playwright  # noqa: F401, PLC0415
-    except Exception as exc:  # noqa: BLE001 - a missing dependency is a supported state
-        return False, f"Python Playwright is not installed ({type(exc).__name__})"
+    except Exception:  # noqa: BLE001 - a missing dependency is a supported state
+        # An actionable sentence beats "ModuleNotFoundError: playwright": the
+        # browser tool is an optional pack, and the user can install it.
+        try:
+            from harness.pack_support import unavailable
+
+            return False, unavailable("browser")
+        except Exception:  # noqa: BLE001 - never let the message path itself fail
+            return False, "The Browser automation pack is not installed."
     return True, None
 
 

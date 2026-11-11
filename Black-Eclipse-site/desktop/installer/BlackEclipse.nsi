@@ -11,6 +11,7 @@
 Unicode true
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
+!include "LogicLib.nsh"
 
 !ifndef APP_VERSION
   !define APP_VERSION "0.0.0"
@@ -84,6 +85,11 @@ Section "Black Eclipse" SecMain
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
+  ; The app is a WebView2 host: without the runtime it opens a message box and
+  ; exits, which reads as "the installer is broken". Check before finishing and
+  ; install the Evergreen runtime when it is missing.
+  Call EnsureWebView2
+
 !ifdef FULL
   ; Offline edition: include whichever optional packs were built for this
   ; platform. The list is generated at build time (a pack such as winsdk has no
@@ -102,8 +108,54 @@ Section "Black Eclipse" SecMain
   CreateShortCut "$DESKTOP\Black Eclipse.lnk" "$INSTDIR\Black Eclipse.exe" "" "$INSTDIR\Black Eclipse.exe" 0
 SectionEnd
 
-Section "Uninstall"
-  ; Stop a running instance so files are not locked.
+; --- WebView2 -----------------------------------------------------------------
+; The runtime registers its version under one of three roots (per-machine 32/64
+; and per-user). Any of them means it is available to this user.
+!macro WV2_READ out
+  ReadRegStr ${out} HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+  ${If} ${out} == ""
+    ReadRegStr ${out} HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+  ${EndIf}
+  ${If} ${out} == ""
+    ReadRegStr ${out} HKCU "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+  ${EndIf}
+!macroend
+
+Function EnsureWebView2
+  !insertmacro WV2_READ $0
+  ${If} $0 != ""
+    DetailPrint "WebView2 runtime already present ($0)"
+    Return
+  ${EndIf}
+
+  DetailPrint "WebView2 runtime not found - installing the Evergreen runtime..."
+
+!ifdef WEBVIEW2_BOOTSTRAPPER
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\MicrosoftEdgeWebview2Setup.exe" "${WEBVIEW2_BOOTSTRAPPER}"
+  ExecWait '"$PLUGINSDIR\MicrosoftEdgeWebview2Setup.exe" /silent /install' $1
+  DetailPrint "WebView2 bootstrapper finished with exit code $1"
+!else
+  DetailPrint "No WebView2 bootstrapper was bundled in this build."
+!endif
+
+  !insertmacro WV2_READ $0
+  ${If} $0 != ""
+    DetailPrint "WebView2 runtime is now available ($0)"
+    Return
+  ${EndIf}
+
+  ; Still missing: explain precisely and let the user decide. Silently finishing
+  ; would leave an app that cannot open, which is worse than a clear message.
+  MessageBox MB_YESNO|MB_ICONEXCLAMATION \
+    "Black Eclipse needs the Microsoft Edge WebView2 Runtime, and it could not be installed automatically.$\r$\n$\r$\nThis usually means there is no internet connection right now, or the installer was blocked by policy.$\r$\n$\r$\nInstall it manually from:$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\nBlack Eclipse is installed already. Without the runtime it will not open.$\r$\n$\r$\nContinue anyway?" \
+    IDYES wv2_continue
+  Abort "Installation paused: install the WebView2 Runtime, then start Black Eclipse again."
+  wv2_continue:
+  DetailPrint "Continuing without WebView2 - the app will ask for it on launch."
+FunctionEnd
+
+Section "Uninstall"  ; Stop a running instance so files are not locked.
   nsExec::Exec 'taskkill /IM "Black Eclipse.exe" /F'
 
   Delete "$SMPROGRAMS\Black Eclipse\Black Eclipse.lnk"

@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(desktop): v0.3.4 release hardening.** Windows installer now checks for
+  the WebView2 Runtime and silently installs the bundled Evergreen bootstrapper
+  when missing, re-checks, and otherwise shows actionable manual instructions
+  instead of finishing with an app that cannot open. Added
+  `python/harness/pack_support.py`, a single catalogue of the five optional packs
+  that turns a missing import into a sentence naming the pack, what it enables,
+  and the install command; the browser provider uses it. The shell shows a
+  one-time, dismissible notice naming the real data directory and stating that
+  browser-version data was not imported and was not deleted. Added
+  `scripts/desktop-python-test.js`: a packaged-Python integration test that
+  imports the harness, exercises the tool registry, executes a deterministic tool
+  (`finance_calc` -> 25.0%) and reads the packaged database (59 tables).
+  Version -> 0.3.4.
 - **fix(shell): the front door is now resident, so stopping Eclipse can never
   show the browser's `ERR_CONNECTION_REFUSED` page.** The branded offline card
   only helped when a service worker was already installed; the real gap was that

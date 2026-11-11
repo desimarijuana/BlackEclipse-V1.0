@@ -45,8 +45,7 @@ function findMakensis() {
   return null;
 }
 
-function sha256(file) {
-  const hash = crypto.createHash("sha256");
+function sha256(file) {  const hash = crypto.createHash("sha256");
   hash.update(fs.readFileSync(file));
   return hash.digest("hex");
 }
@@ -154,6 +153,31 @@ if (FULL) {
     `/DPACKSDIR=${PACKS_LINK}`,
     `/DPACKSINCLUDE=${path.join(DIST, "packs-include.nsi")}`
   );
+}
+
+// WebView2 Evergreen bootstrapper (~2 MB) bundled into the installer so a
+// Windows 10 machine without the runtime can be fixed during setup instead of
+// opening an app that immediately exits. Build-time only; never shipped as a
+// separate download.
+const WV2_URL = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+function webView2Bootstrapper() {
+  const dest = path.join(ROOT, ".black-eclipse", "webview2", "MicrosoftEdgeWebview2Setup.exe");
+  try {
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 1_000_000) return dest;
+  } catch {}
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  console.log("  webview2: downloading the Evergreen bootstrapper");
+  const r = spawnSync("curl", ["-fsSL", "--retry", "3", "-o", dest, WV2_URL], { stdio: "ignore" });
+  if (r.status === 0 && fs.existsSync(dest) && fs.statSync(dest).size > 1_000_000) {
+    return dest;
+  }
+  console.log("  webview2: bootstrapper unavailable — the installer will explain instead");
+  return null;
+}
+
+const wv2 = webView2Bootstrapper();
+if (wv2) {
+  defines.push(`/DWEBVIEW2_BOOTSTRAPPER=${wv2}`);
 }
 
 const result = spawnSync(makensis, [...defines, NSI], { stdio: "inherit", cwd: ROOT });

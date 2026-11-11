@@ -206,6 +206,8 @@ impl Default for Prefs {
 
 struct AppState {
     root: PathBuf,
+    /// Runtime state (locks, log, prefs). Its parent is the data directory.
+    runtime_dir: PathBuf,
     prefs_file: PathBuf,
     prefs: Mutex<Prefs>,
     child: Mutex<Option<Child>>,
@@ -416,6 +418,53 @@ fn kill_tree(state: &AppState) {
     }
 }
 
+/// One-time, dismissible notice injected after the app loads.
+///
+/// The installed app keeps its data in the platform data directory, which is NOT
+/// the repository's `jdds.db`. A user coming from the browser version opens the
+/// desktop app and sees an empty workspace with no explanation. This says where
+/// the data is, that nothing was imported, and that nothing was deleted.
+fn maybe_show_first_run_notice(app: &AppHandle, data_dir: &std::path::Path) {
+    let marker = data_dir.join("first-run-notice-shown");
+    if marker.exists() {
+        return;
+    }
+    let win = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => return,
+    };
+    let shown = serde_json::to_string(&data_dir.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "\"\"".to_string());
+    let script = format!(
+        r#"(function () {{
+  if (document.getElementById('be-first-run')) return;
+  var wrap = document.createElement('div');
+  wrap.id = 'be-first-run';
+  wrap.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:2147483000;max-width:400px;padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(24,24,27,0.96);color:#fafafa;font-family:"Segoe UI",system-ui,sans-serif;font-size:12.5px;line-height:1.55;box-shadow:0 18px 50px -12px rgba(0,0,0,0.8)';
+  var title = document.createElement('div');
+  title.textContent = 'Where your data lives';
+  title.style.cssText = 'font-weight:600;font-size:13px;margin-bottom:6px';
+  var body = document.createElement('div');
+  body.style.cssText = 'color:rgba(250,250,250,0.66)';
+  body.textContent = 'This app stores its data in ' + {shown} + '. If you used the browser version before, that data was not imported and nothing was deleted — it is still where it was.';
+  var row = document.createElement('div');
+  row.style.cssText = 'margin-top:12px;display:flex;gap:8px;justify-content:flex-end';
+  var btn = document.createElement('button');
+  btn.textContent = 'Got it';
+  btn.style.cssText = 'font:inherit;font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.08);color:#fafafa;cursor:pointer';
+  btn.addEventListener('click', function () {{ wrap.remove(); }});
+  row.appendChild(btn);
+  wrap.appendChild(title);
+  wrap.appendChild(body);
+  wrap.appendChild(row);
+  document.body.appendChild(wrap);
+}})();"#
+    );
+    let _ = win.eval(script);
+    let _ = fs::write(&marker, b"shown\n");
+    log_line("[shell] first-run data notice shown");
+}
+
 fn navigate_to_app(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let url: tauri::Url = match format!("http://127.0.0.1:{}/", app_port()).parse() {
@@ -424,6 +473,18 @@ fn navigate_to_app(app: &AppHandle) {
         };
         let _ = win.navigate(url);
         maybe_run_diagnostics(app);
+
+        // The notice is injected after the page has had time to render; it is
+        // written once, so it never nags on later launches.
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(5));
+            let state = handle.state::<AppState>();
+            if let Some(data_dir) = state.runtime_dir.parent() {
+                let data_dir = data_dir.to_path_buf();
+                maybe_show_first_run_notice(&handle, &data_dir);
+            }
+        });
     }
 }
 
@@ -1259,6 +1320,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             root: root.clone(),
+            runtime_dir: runtime_dir.clone(),
             prefs_file: prefs_file.clone(),
             prefs: Mutex::new(prefs.clone()),
             child: Mutex::new(None),
