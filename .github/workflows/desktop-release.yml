@@ -79,7 +79,7 @@ jobs:
           for attempt in 1 2 3; do
             sudo -E apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
               libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
-              libayatana-appindicator3-dev patchelf dpkg && break
+              libayatana-appindicator3-dev patchelf dpkg xvfb && break
             echo "apt install failed (attempt $attempt); retrying"; sleep 15
           done
 
@@ -152,6 +152,28 @@ jobs:
         working-directory: Black-Eclipse-site
         shell: bash
         run: npm run desktop:bundle
+
+      # --- runtime smoke: a binary that compiles is not an app that runs ------
+      - name: Smoke test (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: node scripts/desktop-smoke.js
+
+      - name: Smoke test (Linux, install the deb on Xvfb)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: |
+          sudo dpkg -i dist/*.deb
+          xvfb-run -a node scripts/desktop-smoke.js --bin "/usr/lib/blackeclipse/Black Eclipse"
+
+      - name: Smoke test (macOS)
+        if: matrix.os == 'macos-latest'
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: node scripts/desktop-smoke.js --bin "dist/Black Eclipse.app/Contents/MacOS/black-eclipse-desktop"
+      # -----------------------------------------------------------------------
 
       # --- C5 skeleton -------------------------------------------------------
       # Enable by adding APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD as

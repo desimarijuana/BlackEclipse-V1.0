@@ -24,6 +24,7 @@
     "desktop:brand": "node scripts/brand-runtime.js --out dist/BlackEclipse",
     "desktop:installer": "node scripts/desktop-installer.js",
     "desktop:bundle": "node scripts/desktop-bundle.js",
+    "desktop:smoke": "node scripts/desktop-smoke.js",
     "desktop:runtime": "node scripts/desktop-runtime.js",
     "desktop:packs": "node scripts/desktop-packs.js",
     "desktop:bench": "node scripts/desktop-bench.js",

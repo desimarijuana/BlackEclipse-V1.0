@@ -1,6 +1,37 @@
 # Change Log
 
 ## 2026-11-11
+- **test(desktop): runtime smoke test in CI for all three platforms.** A build
+  that compiles is not an app that runs, so `scripts/desktop-smoke.js` launches
+  the packaged binary from its real layout, waits for the local server to answer
+  (`503` counts — it is the app's warm-up gate), and dumps the log tail on
+  failure. The matrix runs it on Windows (dist), Linux (installs the `.deb`, runs
+  under `xvfb-run` with software rendering) and macOS (the `.app` binary). Also
+  added `xvfb` to the apt set and `npm run desktop:smoke`. Locally the smoke
+  correctly rejected a **stale local payload** (missing
+  `.next-desktop/prerender-manifest.json` from an interrupted concurrent build),
+  which is exactly the class of defect it exists to catch. Docs: no doc change —
+  CI/test-only.
+- **fix(desktop): tabs can be dragged again; each tab owns its sidebar mode; the
+  chat surface is no longer see-through.** Three desktop-only defects:
+  (1) WebView2 replaced the page's HTML5 drag handler with Tauri's file-drop
+  handler, so no `draggable` element worked (tab reorder, workspace widgets,
+  chart symbol drops). The window now calls `.disable_drag_drop_handler()`; the
+  shell never consumed Tauri `DragDropEvent`s, so nothing is lost.
+  (2) The sidebar menu mode is one `sessionStorage` value shared by every
+  in-page desktop tab, so a Bots tab and a Command Center tab fought over it.
+  `DesktopTab` now carries `mode`, the strip records the mode into the active
+  tab and restores it on switch (new pure `setTabMode`; new
+  `applyTabMode` store action that never echoes to the app-wide nav store).
+  (3) `html.glass-window` dropped the chat surface, leaving an existing
+  conversation on translucent acrylic that read washed-out white over a bright
+  desktop. The landing wallpaper is still dropped, but the conversation keeps
+  its normal surface (`#0a0b0b` dark default) and the store's own opacity.
+  Docs updated: `desktop/README.md`, `docs/CHANGELOG.md`.
+- **chore: normalize one stray CRLF in `scripts/desktop-bundle.js`.** The file
+  was committed with 236 bare-LF lines and a single CRLF blank line at EOF,
+  which failed the working-tree line-ending guard. Content is unchanged (git
+  sees no diff after normalization). No doc change — line-ending hygiene only.
 - **feat(desktop): cross-platform builds verified — Windows, macOS and Linux all
   green.** CI run `43066805555` on `57e670e` produced three artifacts:
   `black-eclipse-windows` (364 MB), `black-eclipse-macos` (147 MB) and
