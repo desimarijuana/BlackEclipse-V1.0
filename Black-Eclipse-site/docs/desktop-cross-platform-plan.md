@@ -20,30 +20,37 @@ without forking the application or rewriting the UI.
 | **C4** CI matrix | **verified** — run `43066805555`: **windows ✅ macOS ✅ linux ✅** |
 | **C5** notarisation | **skeleton, gated on secrets** — `notarytool` + `stapler` skip cleanly without them |
 
-### CI evidence (run 43066805555, commit 57e670e)
+### CI evidence (run 43084460874, commit 9180767) — builds **and runs**
 
-| Runner | Result | Artifact |
-| --- | --- | --- |
-| `windows-latest` | **success** | `black-eclipse-windows` — 364 MB |
-| `macos-latest` | **success** | `black-eclipse-macos` — 147 MB |
-| `ubuntu-latest` | **success** | `black-eclipse-linux` — 133 MB |
+| Runner | Result | Artifact | Runtime smoke |
+| --- | --- | --- | --- |
+| `windows-latest` | **success** | `black-eclipse-windows` | **PASS — HTTP 200 after 15 s** |
+| `ubuntu-latest` | **success** | `black-eclipse-linux` | **PASS — HTTP 200 after 16 s** (installed `.deb`, Xvfb) |
+| `macos-latest` | **success** | `black-eclipse-macos` | **PASS — HTTP 200 after 4 s** (`.app` binary) |
 
-Four real defects were found by running it rather than reasoning about it:
+The smoke test installs/launches the real artifact, waits for the local server to
+answer, and dumps the shell log on failure. All three answer.
+
+Seven real defects were found by running it rather than reasoning about it:
 
 1. **Node heap** — the Next build exceeded the default ~4 GB heap on all three
-   runners; fixed with `NODE_OPTIONS=--max-old-space-size=6144`.
+   runners; `NODE_OPTIONS=--max-old-space-size=6144`.
 2. **`codesign --deep`** — descended into the payload and failed on
-   `node_modules/next/dist/compiled/lodash.curry` ("bundle format unrecognized").
-   Now signs the executable and the bundle separately.
+   `node_modules/next/dist/compiled/lodash.curry`.
 3. **Python requirements missing** — `npm ci --ignore-scripts` skips the hook that
-   installs `python/requirements.txt`, so the packaged interpreter had no
-   packages and four of five packs were empty. The workflow now runs
-   `setup-python.js` explicitly.
-4. **Offline NSIS edition hard-coded all five packs** — a platform without one
-   (winsdk has no Linux wheel) aborted the installer. The pack list is generated
-   at build time.
-5. **Flaky apt mirror** — `Temporary failure resolving security.ubuntu.com`;
-   the step now retries with `Acquire::Retries=5`.
+   installs `python/requirements.txt`, so four of five packs were empty.
+4. **Offline NSIS edition hard-coded all five packs** — aborted where `winsdk`
+   has no Linux wheel; the list is generated at build time.
+5. **Flaky apt mirror** — `Acquire::Retries=5` plus three attempts.
+6. **Runtime state in the install directory** — a system `.deb` lives under
+   `/usr/lib` (root-owned), so the bootstrap could not create its lock directory
+   and exited. Runtime state now lives beside the user data
+   (`<data>/.runtime`), with a fallback in the shell.
+7. **Incomplete build manifests** — Next's standalone output carries only a
+   subset of the top-level manifests; the payload was missing
+   `routes-manifest.json`, `prerender-manifest.json`, `export-marker.json`,
+   `images-manifest.json`, `trace` and the `.nft.json` files. The assembler now
+   copies every top-level file.
 
 ### What was actually verified on this machine (no Linux, no Docker, no WSL)
 

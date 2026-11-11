@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(desktop): cross-platform **runtime** verified — all three smoke tests
+  pass.** CI run `43084460874` on `9180767`: Windows, Ubuntu and macOS all green,
+  and each one launched its real artifact and answered HTTP 200 —
+  `[smoke] PASS` after 15 s (Windows), 16 s (Linux, installed `.deb` under Xvfb)
+  and 4 s (macOS `.app`). Two further defects were fixed to get there: runtime
+  state moved out of the install directory into `<data>/.runtime` (a system
+  `.deb` is root-owned, so the bootstrap could not create its lock directory),
+  and the payload now copies **every top-level Next manifest** — standalone
+  output omits `routes-manifest.json`, `prerender-manifest.json`,
+  `export-marker.json`, `images-manifest.json`, `trace` and the `.nft.json`
+  files, which killed the server at startup on both non-Windows platforms. Docs
+  updated: `docs/desktop-cross-platform-plan.md` (runtime evidence + 7 defects),
+  `docs/CHANGELOG.md`.
 - **fix(desktop): payload carries the full set of Next build manifests.** Both the
   Linux and macOS smoke tests launched the installed app and it died with
   `ENOENT ... .next-desktop/routes-manifest.json`. Next's standalone output only
