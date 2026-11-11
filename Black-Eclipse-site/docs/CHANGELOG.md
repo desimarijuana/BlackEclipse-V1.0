@@ -1,6 +1,13 @@
 # Change Log
 
 ## 2026-11-11
+- **ci(desktop): raise the Node heap for the matrix build.** The first real
+  matrix run (dispatch on `main`) failed `macos-latest` at *Build the standalone
+  payload* with `FATAL ERROR: Reached heap limit — JavaScript heap out of memory`;
+  the Next build exceeds Node's default ~4 GB heap on a runner. The build job now
+  sets `NODE_OPTIONS=--max-old-space-size=6144` and disables Next telemetry.
+  Windows and Linux were still running at the time of the fix. Docs: no doc
+  change — CI-only.
 - **test(desktop): cross-platform layouts verified off-platform.** Added
   `--dry-run` / `--target deb|mac` to `desktop-bundle.js` so the `.deb` and
   `.app` staging trees can be built and inspected on a machine that cannot run
@@ -148,6 +155,31 @@
   `test_run_message_cursor.py`, plus the resume pin. The scheduler merge and the
   unified event log remain open. Docs updated: `docs/harness/architecture.md`,
   `docs/harness/decisions.md` (ADR-H349),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): C2 completed — the Fabric owns task execution and
+  `ExecutionEvent` is the one append-only log.** A `task` Fabric job + worker now
+  runs each claimed task through the same `service.task_executor`; the task
+  scheduler keeps its claim/lease/heartbeat/verification loop as the producer,
+  falls back inline only when the submit itself fails, and never silently re-runs
+  a submitted job. `execution_log.py` adds one per-entity-sequenced, bounded,
+  fail-open `ExecutionEvent` log; the run emitter and the Fabric, graph-runtime,
+  task and orchestration stores append to it while their legacy tables remain as
+  projections. New tests: `test_execution_log.py`,
+  `test_task_scheduler_fabric.py`, `test_fabric_task_worker.py`. Docs updated:
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H350),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/CHANGELOG.md`.
+- **refactor(harness): a run is a `RunScope` + `RunSpec`, not 45 keywords
+  (Round 5 / C2.1).** `build_graph(spec, scope)` replaces the ~45-keyword
+  signature; `run_scope.py` holds the reusable services (`RunScope`) and the
+  per-invocation facts (`RunSpec`), and the graph unpacks both at the top so node
+  bodies and tools see the same locals. `RunSpec` copies the allowlist, so a run
+  cannot mutate the caller's surface. A contract test pins the two-parameter
+  signature. Docs updated: `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H351),
   `docs/harness/roadmap/round-5-core-integrity.md`,
   `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
   `docs/CHANGELOG.md`.
