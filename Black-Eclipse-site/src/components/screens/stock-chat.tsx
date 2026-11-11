@@ -1207,7 +1207,7 @@ function StockChatContent() {
       {/* Market Regime panel — headless; opened from the global search / shell.
           Not a header control. */}
       <MarketRegimeControl />
-      <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
+      <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} onNewChat={handleNewChat} />
 
       {/* The primary row: sidebar | main column | optional right-docked terminal.
           The terminal is a REAL column here, so the main panel shrinks to make

@@ -1,6 +1,27 @@
 # Change Log
 
 ## 2026-11-10
+- **fix(desktop): window chrome works, `+` starts a session, tab bar matches the
+  app.** The frameless title bar's controls and drag depended entirely on the
+  injected `be-window-action` event script, which silently no-ops when the
+  global Tauri API is absent; the buttons now call the core window API
+  (`minimize` / `toggleMaximize` / `close` / `startDragging`) with the event
+  bridge as fallback, and `capabilities/default.json` grants those four window
+  permissions plus an internals-based `plugin:event|emit` fallback in the init
+  script. Tabs can be dragged to reorder (new pure `moveTab`), the strip uses
+  `bg-background` to match the ChatBot page instead of `#0D0D0D`, and the `+`
+  button immediately opens a fresh Chat session instead of a page-picker menu.
+  Docs updated: `desktop/README.md` (window chrome + bridge fallback),
+  `docs/CHANGELOG.md`.
+- **feat(setup): redesigned first-run onboarding as a two-column stepper.** The
+  single 580px card became a 1060px setup card with a left rail (wordmark +
+  clickable numbered/iconed step list: active, completed, locked) and a right
+  panel (icon, 22px step title, one-line description, scrollable body, pinned
+  footer with Skip/Back and Continue/Finish). Copy was raised from the dense
+  8–10px scale to 11.5–13px so the questions are readable, and `Finish setup`
+  moved from the Review body into the pinned footer. No change to the setup
+  contract, state, API or defaults. Docs updated:
+  `docs/onboarding-plan.md` (§2.2 shared frame, §5 UI spec); `docs/CHANGELOG.md`.
 - **fix(chat): typing in the composer can no longer fire shell shortcuts.** The
   Ctrl/Cmd+Alt+N (new chat) and Ctrl+Alt+X (focus mode) handlers checked only
   blocking dialogs, and both accept the physical key `code` because AltGr

@@ -8,8 +8,13 @@
 //
 // Tabs are the SPA's top-level pages, not independent webviews. Switching a tab
 // calls `onSelectTab`, so the existing keep-alive panels preserve each page.
+//
+// Window chrome prefers the core window API (minimize / toggleMaximize / close /
+// startDragging) and falls back to the `be-window-action` event bridge used by
+// older shells. Both paths are needed: the event bridge avoids app-command ACLs,
+// while the core API is the one Tauri guarantees for remote origins.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChartLine,
   Code,
@@ -28,23 +33,18 @@ import {
   X,
   type LucideIcon,
 } from '@/lib/icons';
-import { APP_TABS, type AppTab } from '@/lib/app-tabs';
+import type { AppTab } from '@/lib/app-tabs';
 import { DEFAULT_SIDEBAR_SECTIONS } from '@/lib/sidebar/config';
 import { navLabelKey } from '@/lib/i18n/nav';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
   addTab,
+  moveTab,
   readStoredTabs,
   removeTab,
   saveStoredTabs,
 } from '@/lib/desktop/tabs';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 interface TabMeta {
   label: string;
@@ -74,14 +74,6 @@ const EXTRA_META: Partial<Record<AppTab, TabMeta>> = {
   bots: { label: 'Bots', icon: Ghost },
 };
 
-/** The pages offered by the "+" menu. Settings is a modal, not a page. */
-const OPENABLE_TABS: AppTab[] = Array.from(
-  new Set([
-    ...DEFAULT_SIDEBAR_SECTIONS.map((section) => section.id),
-    ...APP_TABS.filter((tab) => !NAV_META.has(tab) && tab !== 'settings'),
-  ]),
-);
-
 function metaFor(tab: AppTab): TabMeta {
   return (
     NAV_META.get(tab) ??
@@ -101,24 +93,85 @@ function hasDesktopShell(): boolean {
   return Boolean(bridge.__TAURI__ || bridge.__TAURI_INTERNALS__);
 }
 
-type WindowAction = 'minimize' | 'toggle-maximize' | 'close';
+type WindowAction = 'minimize' | 'toggle-maximize' | 'close' | 'start-drag';
 
-/** The shell's INIT_SCRIPT forwards these to Rust through `be-window`. */
-function windowAction(action: WindowAction): void {
+interface TauriWindowApi {
+  minimize: () => Promise<void>;
+  toggleMaximize: () => Promise<void>;
+  close: () => Promise<void>;
+  startDragging: () => Promise<void>;
+}
+
+/** The core window object Tauri injects into the page (`withGlobalTauri`). */
+function tauriWindow(): TauriWindowApi | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const bridge = window as unknown as {
+      __TAURI__?: { window?: { getCurrentWindow?: () => TauriWindowApi } };
+    };
+    return bridge.__TAURI__?.window?.getCurrentWindow?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Old-shell fallback: the injected script forwards this to Rust. */
+function eventFallback(action: WindowAction): void {
   window.dispatchEvent(new CustomEvent('be-window-action', { detail: { action } }));
+}
+
+function windowAction(action: Exclude<WindowAction, 'start-drag'>): void {
+  const win = tauriWindow();
+  if (!win) {
+    eventFallback(action);
+    return;
+  }
+  const run =
+    action === 'minimize'
+      ? win.minimize
+      : action === 'toggle-maximize'
+        ? win.toggleMaximize
+        : win.close;
+  try {
+    Promise.resolve(run.call(win)).catch(() => eventFallback(action));
+  } catch {
+    eventFallback(action);
+  }
+}
+
+function beginWindowDrag(): void {
+  const win = tauriWindow();
+  if (!win) {
+    eventFallback('start-drag');
+    return;
+  }
+  try {
+    Promise.resolve(win.startDragging()).catch(() => eventFallback('start-drag'));
+  } catch {
+    eventFallback('start-drag');
+  }
+}
+
+function isChromeTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !(el && typeof el.closest === 'function' && el.closest('[data-be-no-drag]'));
 }
 
 export function DesktopTabBar({
   activeTab,
   onSelectTab,
+  onNewChat,
 }: {
   activeTab: AppTab;
   onSelectTab: (tab: AppTab) => void;
+  /** `+` starts a fresh session and lands on the Chat page. */
+  onNewChat?: () => void;
 }) {
   const t = useT();
   const [desktop, setDesktop] = useState(false);
   const [restored, setRestored] = useState(false);
   const [tabs, setTabs] = useState<AppTab[]>([activeTab]);
+  const [dragging, setDragging] = useState<AppTab | null>(null);
   const bootTab = useRef(activeTab);
 
   // Detect the shell after mount (the Tauri bridge does not exist during SSR).
@@ -155,13 +208,12 @@ export function DesktopTabBar({
     [tabs, activeTab, onSelectTab],
   );
 
-  const openPage = useCallback(
-    (tab: AppTab) => {
-      setTabs((prev) => addTab(prev, tab));
-      onSelectTab(tab);
-    },
-    [onSelectTab],
-  );
+  const newTab = useCallback(() => {
+    // No page picker: a new tab is a fresh Chat session, and any page can be
+    // opened from it afterwards (sidebar, palette, deep link).
+    onNewChat?.();
+    onSelectTab('chat');
+  }, [onNewChat, onSelectTab]);
 
   const labelFor = useCallback(
     (tab: AppTab) => {
@@ -171,17 +223,20 @@ export function DesktopTabBar({
     [t],
   );
 
-  const openable = useMemo(
-    () => OPENABLE_TABS.map((tab) => ({ tab, ...metaFor(tab), label: labelFor(tab) })),
-    [labelFor],
-  );
-
   if (!desktop) return null;
 
   return (
     <div
       data-be-drag=""
-      className="relative z-30 flex h-10 w-full shrink-0 select-none items-stretch bg-[#0D0D0D] pl-2"
+      className="relative z-30 flex h-10 w-full shrink-0 select-none items-stretch bg-background pl-2"
+      onMouseDown={(event) => {
+        if (event.button !== 0 || !isChromeTarget(event.target)) return;
+        beginWindowDrag();
+      }}
+      onDoubleClick={(event) => {
+        if (!isChromeTarget(event.target)) return;
+        windowAction('toggle-maximize');
+      }}
     >
       <div
         role="tablist"
@@ -199,8 +254,9 @@ export function DesktopTabBar({
               role="tab"
               aria-selected={active}
               tabIndex={0}
+              draggable
               data-be-no-drag=""
-              title={label}
+              title={`${label} — drag to reorder`}
               onClick={() => onSelectTab(tab)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -211,8 +267,31 @@ export function DesktopTabBar({
               onAuxClick={(event) => {
                 if (event.button === 1) close(tab);
               }}
+              onDragStart={(event) => {
+                setDragging(tab);
+                event.dataTransfer.effectAllowed = 'move';
+                try {
+                  event.dataTransfer.setData('text/plain', tab);
+                } catch {
+                  /* some webviews refuse setData without a drag image */
+                }
+              }}
+              onDragOver={(event) => {
+                if (!dragging || dragging === tab) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (dragging && dragging !== tab) {
+                  setTabs((prev) => moveTab(prev, dragging, tab));
+                }
+                setDragging(null);
+              }}
+              onDragEnd={() => setDragging(null)}
               className={cn(
                 'group/tab flex h-7 min-w-0 max-w-[220px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md pl-2.5 pr-1 text-[11.5px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-white/20',
+                dragging === tab && 'opacity-50',
                 active
                   ? 'bg-white/[0.08] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
                   : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
@@ -239,32 +318,16 @@ export function DesktopTabBar({
           );
         })}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                data-be-no-drag=""
-                aria-label="Open a page tab"
-                title="Open a page tab"
-                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-white/20"
-              />
-            }
-          >
-            <Plus size={13} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="nav-menu-glass max-h-[70vh] w-56 overflow-y-auto"
-          >
-            {openable.map(({ tab, label, icon: Icon }) => (
-              <DropdownMenuItem key={tab} onClick={() => openPage(tab)}>
-                <Icon size={13} />
-                <span>{label}</span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <button
+          type="button"
+          data-be-no-drag=""
+          onClick={newTab}
+          aria-label="New chat tab"
+          title="New chat tab"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-white/20"
+        >
+          <Plus size={13} />
+        </button>
       </div>
 
       <div data-be-no-drag="" className="flex shrink-0 items-stretch">

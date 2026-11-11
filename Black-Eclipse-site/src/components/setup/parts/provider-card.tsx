@@ -39,25 +39,25 @@ export function ProviderCard({
   };
 
   return (
-    <div className={cn("rounded-xl border border-white/10 bg-white/[0.02]", compact ? "p-2.5" : "p-3")}>
+    <div className={cn("rounded-xl border border-white/10 bg-white/[0.02]", compact ? "p-3" : "p-3.5")}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold text-foreground">{source.label}</span>
+        <span className="text-[12.5px] font-semibold text-foreground">{source.label}</span>
         <LicenseBadge status={source.commercial} />
         <span
           className={cn(
-            "ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold",
+            "ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold",
             configured
               ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
               : "border-white/10 text-muted-foreground",
           )}
         >
-          {configured ? <Check size={9} /> : <CircleDashed size={9} />}
+          {configured ? <Check size={10} /> : <CircleDashed size={10} />}
           {configured ? "Connected" : "Not connected"}
         </span>
       </div>
       <p
         className={cn(
-          "mt-1 text-[9px] font-semibold leading-snug",
+          "mt-1 text-[11px] font-semibold leading-snug",
           source.commercial === "personal-only"
             ? "text-rose-300"
             : source.commercial === "verify"
@@ -67,25 +67,25 @@ export function ProviderCard({
       >
         {commercialSentence(source.commercial)}
       </p>
-      <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">{source.note}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{source.note}</p>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <Input
           type="password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder={configured ? "Replace stored key" : "Paste your API key"}
-          className="h-7 max-w-[240px] text-[11px]"
+          className="h-8 max-w-[240px] text-[12px]"
           autoComplete="off"
         />
         <Button
           type="button"
           size="sm"
           variant="outline"
-          className="cursor-pointer rounded-lg text-[11px]"
+          className="cursor-pointer rounded-lg text-[11.5px]"
           disabled={busy || !value.trim()}
           onClick={() => void save()}
         >
-          {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
           Save key
         </Button>
         {source.termsUrl && (
@@ -93,13 +93,13 @@ export function ProviderCard({
             href={source.termsUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            Terms <ExternalLink size={9} />
+            Terms <ExternalLink size={10} />
           </a>
         )}
       </div>
-      {message && <p className="mt-1.5 text-[9px] text-muted-foreground">{message}</p>}
+      {message && <p className="mt-1.5 text-[11px] text-muted-foreground">{message}</p>}
     </div>
   );
 }

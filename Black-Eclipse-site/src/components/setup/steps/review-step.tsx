@@ -29,9 +29,6 @@ export function ReviewStep({
   checking,
   checkItems,
   onCheck,
-  onFinish,
-  acknowledged,
-  busy,
   error,
 }: {
   state: SetupState;
@@ -40,10 +37,6 @@ export function ReviewStep({
   checking: boolean;
   checkItems: CheckItemView[] | null;
   onCheck: () => void;
-  onFinish: () => void;
-  /** The risk notice was explicitly accepted on the first step. */
-  acknowledged: boolean;
-  busy: boolean;
   error: string | null;
 }) {
   const keyConfigured = (envVar: string) => Boolean(keyStatuses[envVar]?.configured);
@@ -74,63 +67,86 @@ export function ReviewStep({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-xl border border-white/10">
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-white/[0.03] p-2.5">
-          <span className="text-[10px] font-bold text-foreground">Chat</span>
-          <span className={cn("text-[10px]", state.ai.configured || draft.aiKind !== "skip" ? "text-foreground" : "text-amber-300")}>
+      <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]">
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-3">
+          <span className="text-[12.5px] font-semibold text-foreground">Chat</span>
+          <span
+            className={cn(
+              "text-[12px]",
+              state.ai.configured || draft.aiKind !== "skip"
+                ? "text-foreground"
+                : "text-amber-300",
+            )}
+          >
             {aiLabel}
           </span>
         </div>
         {rows.map((cap) => (
-          <div key={cap.id} className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-2.5 py-2 last:border-0">
-            <span className="text-[10px] font-semibold text-foreground">{cap.label}</span>
-            <span className={cn("text-[10px]", STATUS_TONE[cap.status])}>
-              {cap.status === "ready" ? "Ready" : cap.status === "needs-key" ? "Needs a key" : cap.status === "off" ? "Off" : "Unavailable"}
+          <div
+            key={cap.id}
+            className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5 last:border-0"
+          >
+            <span className="text-[12.5px] font-medium text-foreground">{cap.label}</span>
+            <span className={cn("text-[12px]", STATUS_TONE[cap.status])}>
+              {cap.status === "ready"
+                ? "Ready"
+                : cap.status === "needs-key"
+                  ? "Needs a key"
+                  : cap.status === "off"
+                    ? "Off"
+                    : "Unavailable"}
             </span>
           </div>
         ))}
       </div>
 
       {prices?.status !== "ready" && (
-        <p className="flex items-start gap-1.5 rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-2.5 text-[9px] leading-relaxed text-amber-200/90">
-          <WarningCircle size={12} className="mt-0.5 shrink-0" />
-          Live prices are off. Charts and quote pages will show UNAVAILABLE until you connect a
-          licensed provider or explicitly enable a community source.
+        <p className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-3 text-[11.5px] leading-relaxed text-amber-200/90">
+          <WarningCircle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Live prices are off. Charts and quote pages will show UNAVAILABLE until you connect a
+            licensed provider or explicitly enable a community source.
+          </span>
         </p>
       )}
       {!state.ai.configured && draft.aiKind === "skip" && (
-        <p className="flex items-start gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-2.5 text-[9px] leading-relaxed text-muted-foreground">
-          <WarningCircle size={12} className="mt-0.5 shrink-0" />
-          Chat will open with a &quot;model not configured&quot; banner. You can connect one in Settings.
+        <p className="flex items-start gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-[11.5px] leading-relaxed text-muted-foreground">
+          <WarningCircle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Chat will open with a &quot;model not configured&quot; banner. You can connect one in
+            Settings.
+          </span>
         </p>
       )}
 
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="cursor-pointer rounded-lg text-[11px]"
+            className="cursor-pointer rounded-lg text-[12px]"
             disabled={checking}
             onClick={onCheck}
           >
-            {checking ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+            {checking ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
             Run a quick check
           </Button>
-          <span className="text-[9px] text-muted-foreground">Makes real, bounded requests. Never reports a key as working just because it exists.</span>
+          <span className="text-[11px] text-muted-foreground">
+            Makes real, bounded requests. Never reports a key as working just because it exists.
+          </span>
         </div>
 
         {checkItems && (
-          <div className="space-y-1 rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
+          <div className="space-y-1.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
             {checkItems.map((item) => (
-              <div key={item.id} className="flex items-start gap-2 text-[10px]">
+              <div key={item.id} className="flex items-start gap-2 text-[11.5px]">
                 {item.status === "ok" ? (
-                  <Check size={11} className="mt-0.5 shrink-0 text-emerald-400" />
+                  <Check size={12} className="mt-0.5 shrink-0 text-emerald-400" />
                 ) : item.status === "skipped" ? (
-                  <CircleDashed size={11} className="mt-0.5 shrink-0 text-muted-foreground" />
+                  <CircleDashed size={12} className="mt-0.5 shrink-0 text-muted-foreground" />
                 ) : (
-                  <WarningCircle size={11} className="mt-0.5 shrink-0 text-rose-300" />
+                  <WarningCircle size={12} className="mt-0.5 shrink-0 text-rose-300" />
                 )}
                 <span className="min-w-0">
                   <span className="font-semibold text-foreground">{item.label}: </span>
@@ -143,22 +159,10 @@ export function ReviewStep({
       </div>
 
       {error && (
-        <p className="rounded-xl border border-rose-500/25 bg-rose-500/[0.05] p-2.5 text-[10px] text-rose-200">
+        <p className="rounded-xl border border-rose-500/25 bg-rose-500/[0.05] p-3 text-[12px] text-rose-200">
           {error}
         </p>
       )}
-
-      <Button
-        type="button"
-        size="lg"
-        className="w-full cursor-pointer rounded-xl"
-        disabled={busy || !acknowledged}
-        title={acknowledged ? undefined : "Acknowledge the risk notice on the first step"}
-        onClick={onFinish}
-      >
-        {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-        Finish setup
-      </Button>
     </div>
   );
 }

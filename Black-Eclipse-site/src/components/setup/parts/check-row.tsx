@@ -17,7 +17,7 @@ export function CheckRow({
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-start gap-2 text-[10px] leading-relaxed text-muted-foreground",
+        "flex cursor-pointer items-start gap-2.5 text-[11.5px] leading-relaxed text-muted-foreground",
         disabled && "cursor-not-allowed opacity-50",
       )}
     >

@@ -15,7 +15,7 @@ export function LicenseBadge({ status, className }: { status: CommercialStatus; 
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider",
+        "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider",
         TONE[status],
         className,
       )}

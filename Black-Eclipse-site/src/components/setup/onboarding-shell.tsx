@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Loader2 } from "@/lib/icons";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Brain,
+  Check,
+  Database,
+  ListChecks,
+  Loader2,
+  Rocket,
+  SlidersHorizontal,
+} from "@/lib/icons";
+import { cn } from "@/lib/utils";
 import { safeSourceDefaults } from "@/lib/setup/defaults";
 import { bundleSources } from "@/lib/setup/bundles";
 import { getLLMPreset } from "@/lib/agent/presets";
@@ -15,7 +26,43 @@ import { IncludedStep } from "./steps/included-step";
 import { ProvidersStep } from "./steps/providers-step";
 import { ReviewStep, type CheckItemView } from "./steps/review-step";
 
-const STEPS = ["Welcome", "AI", "Included", "Providers", "Review"];
+const STEPS = [
+  {
+    id: "welcome",
+    title: "Welcome",
+    short: "How you'll use Eclipse",
+    description: "Pick a starting point. Everything here can be changed later.",
+    icon: Rocket,
+  },
+  {
+    id: "ai",
+    title: "AI & Chat",
+    short: "Power your assistant",
+    description: "Connect a model so chat works, or add one later.",
+    icon: Brain,
+  },
+  {
+    id: "included",
+    title: "Included data",
+    short: "Open sources on us",
+    description: "Free, open data that ships with Eclipse. No account needed.",
+    icon: Database,
+  },
+  {
+    id: "providers",
+    title: "Providers",
+    short: "Live prices & search",
+    description: "Optional providers for quotes, crypto and web search.",
+    icon: SlidersHorizontal,
+  },
+  {
+    id: "review",
+    title: "Review",
+    short: "Check and finish",
+    description: "Confirm what will work before you start using Eclipse.",
+    icon: ListChecks,
+  },
+] as const;
 
 const PRICE_ADVANCED = ["tradingview", "yfinance", "http", "browser", "scrapling"];
 const PRICE_CONNECTED = ["polygon", "twelvedata", "alphavantage", "marketstack", "finnhub"];
@@ -151,6 +198,13 @@ export function OnboardingShell({
     });
   };
 
+  const goToStep = (step: number) => {
+    if (step < 0 || step >= STEPS.length) return;
+    if (step === 0 && !draft.riskAck) return;
+    setError(null);
+    updateDraft({ step });
+  };
+
   const saveKey = useCallback(async (envVar: string, value: string): Promise<string> => {
     try {
       const res = await fetch("/api/provider-keys", {
@@ -260,23 +314,9 @@ export function OnboardingShell({
     }
   };
 
+  const active = STEPS[draft.step];
+  const ActiveIcon = active.icon;
   const progress = useMemo(() => ((draft.step + 1) / STEPS.length) * 100, [draft.step]);
-
-  const stepTitle = [
-    "Welcome to BlackEclipse",
-    "Choose your AI",
-    "Included data",
-    "Connect providers",
-    "Ready to start",
-  ][draft.step];
-
-  const stepPhase = [
-    "Connect your AI and data. This takes about a minute.",
-    "Chat is the home surface. Connect a model now, or add one later.",
-    "Open sources that ship with Eclipse. No account, no key, no charge.",
-    "Live prices need a provider you are licensed to use.",
-    "Check what will work before you finish.",
-  ][draft.step];
 
   return (
     <div
@@ -285,136 +325,235 @@ export function OnboardingShell({
       aria-modal="true"
       aria-label="BlackEclipse setup"
     >
-      {/* Exact treatment of the production launch page: a masked 44px brand
-          grid, a soft top glow, and the narrow 580px launch card. */}
+      {/* Same launch-page treatment: a masked 44px brand grid and a soft glow. */}
       <div
         className="pointer-events-none fixed inset-0"
         style={{
           backgroundImage:
-            "linear-gradient(rgba(180,255,66,0.10) 1px, transparent 1px), linear-gradient(90deg, rgba(180,255,66,0.10) 1px, transparent 1px)",
+            "linear-gradient(rgba(180,255,66,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(180,255,66,0.08) 1px, transparent 1px)",
           backgroundSize: "44px 44px",
-          maskImage: "radial-gradient(closest-side at 50% 42%, #000 25%, transparent 100%)",
-          WebkitMaskImage: "radial-gradient(closest-side at 50% 42%, #000 25%, transparent 100%)",
+          maskImage: "radial-gradient(closest-side at 50% 42%, #000 20%, transparent 100%)",
+          WebkitMaskImage: "radial-gradient(closest-side at 50% 42%, #000 20%, transparent 100%)",
         }}
       />
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(closest-side_at_50%_34%,rgba(180,255,66,0.16),transparent_72%)]" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(closest-side_at_50%_30%,rgba(180,255,66,0.13),transparent_72%)]" />
 
-      <div className="relative flex min-h-full items-center justify-center p-4">
-        <main className="w-full max-w-[720px]">
+      <div className="relative flex min-h-full items-center justify-center p-3 sm:p-6">
+        <main className="w-full max-w-[1060px]">
           <div
             ref={cardRef}
             tabIndex={-1}
-            className="glass-card-strong relative flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-xl border border-white/15 px-6 pb-[18px] pt-[22px] outline-none"
+            className="glass-card-strong relative flex max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden rounded-2xl border border-white/12 outline-none sm:max-h-[calc(100dvh-3rem)]"
           >
-            {/* Top brand hairline, same as the launch card. */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent opacity-80" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
-            <header className="flex min-h-[23px] items-center">
-              <img
-                src="/branding/LOGO-WORDMARK.svg"
-                alt="BlackEclipse"
-                className="block h-[22px] w-auto"
-              />
-            </header>
-
-            <h1 className="mt-5 font-serif text-[20px] font-semibold leading-[1.3] tracking-[-0.01em] text-foreground">
-              {stepTitle}
-            </h1>
-            <p className="min-h-[42px] text-[13.5px] leading-[1.55] text-muted-foreground/70">
-              {stepPhase}
-            </p>
-
-            <div className="relative my-1 h-[3px] overflow-hidden rounded-full bg-white/[0.08]">
-              <div
-                className="relative h-full rounded-full bg-gradient-to-r from-primary to-[color-mix(in_oklch,var(--primary),white_20%)] transition-[width] duration-700"
-                style={{ width: `${progress}%` }}
-              >
-                <span className="be-setup-sweep absolute inset-y-0 w-[45%] bg-gradient-to-r from-transparent via-white/55 to-transparent" />
-              </div>
-            </div>
-            <div className="mt-2 flex justify-between gap-4 font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground/40">
-              <span>
-                STEP {String(draft.step + 1).padStart(2, "0")} / {String(STEPS.length).padStart(2, "0")}
-              </span>
-              <span>{STEPS[draft.step]}</span>
-            </div>
-
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-              {draft.step === 0 && <WelcomeStep state={state} draft={draft} setDraft={updateDraft} />}
-              {draft.step === 1 && <AiStep state={state} draft={draft} setDraft={updateDraft} />}
-              {draft.step === 2 && (
-                <IncludedStep state={state} draft={draft} setDraft={updateDraft} />
-              )}
-              {draft.step === 3 && (
-                <ProvidersStep
-                  state={state}
-                  draft={draft}
-                  setDraft={updateDraft}
-                  keyStatuses={keyStatuses}
-                  onSaveKey={saveKey}
+            <div className="grid min-h-0 flex-1 md:grid-cols-[300px_minmax(0,1fr)]">
+              {/* ── Left rail: brand + stepper ───────────────────────────── */}
+              <aside className="hidden flex-col border-r border-white/[0.07] bg-white/[0.025] px-6 py-7 md:flex">
+                <img
+                  src="/branding/LOGO-WORDMARK.svg"
+                  alt="BlackEclipse"
+                  className="h-[24px] w-auto self-start"
                 />
-              )}
-              {draft.step === 4 && (
-                <ReviewStep
-                  state={state}
-                  draft={draft}
-                  keyStatuses={keyStatuses}
-                  checking={checking}
-                  checkItems={checkItems}
-                  onCheck={() => void runCheck()}
-                  onFinish={() => void finish(false)}
-                  acknowledged={draft.riskAck}
-                  busy={busy}
-                  error={error}
-                />
-              )}
+
+                <ol className="relative mb-auto mt-9">
+                  {/* One continuous rail behind the discs: the icons are opaque,
+                      so the line can never show through a glyph. */}
+                  <span
+                    aria-hidden
+                    className="absolute left-[19.5px] top-5 bottom-5 w-px bg-white/[0.08]"
+                  />
+                  <span
+                    aria-hidden
+                    className="absolute left-[19.5px] top-5 w-px bg-primary/50"
+                    style={{
+                      height: `calc(${draft.step / (STEPS.length - 1)} * (100% - 2.5rem))`,
+                    }}
+                  />
+                  {STEPS.map((step, index) => {
+                    const done = index < draft.step;
+                    const isActive = index === draft.step;
+                    const Icon = step.icon;
+                    const reachable = index === 0 ? draft.riskAck : index < draft.step + 1;
+                    return (
+                      <li key={step.id} className="relative flex gap-3.5 pb-7 last:pb-0">
+                        <span
+                          className={cn(
+                            "relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors",
+                            isActive
+                              ? "border-primary bg-primary text-primary-foreground shadow-[0_0_0_5px_color-mix(in_srgb,var(--primary)_14%,transparent)]"
+                              : done
+                                ? "border-primary/40 bg-[color-mix(in_srgb,var(--primary)_16%,var(--card))] text-primary"
+                                : "border-white/12 bg-[color-mix(in_srgb,white_4%,var(--card))] text-muted-foreground/70",
+                          )}
+                        >
+                          {done ? <Check size={16} weight="bold" /> : <Icon size={16} />}
+                        </span>
+                        <span className="min-w-0 pt-0.5">
+                          <button
+                            type="button"
+                            disabled={!reachable || index === draft.step}
+                            onClick={() => goToStep(index)}
+                            className={cn(
+                              "block text-left text-[13.5px] font-semibold leading-tight transition-colors",
+                              isActive
+                                ? "text-foreground"
+                                : done
+                                  ? "text-foreground/80 hover:text-foreground"
+                                  : "text-muted-foreground/60",
+                              reachable && !isActive ? "cursor-pointer" : "cursor-default",
+                            )}
+                          >
+                            {step.title}
+                          </button>
+                          <span
+                            className={cn(
+                              "mt-1 block text-[11.5px] leading-snug",
+                              isActive ? "text-muted-foreground" : "text-muted-foreground/55",
+                            )}
+                          >
+                            {step.short}
+                          </span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <div className="mt-8 space-y-1 border-t border-white/[0.07] pt-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/40">
+                    Local setup · 127.0.0.1
+                  </p>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground/50">
+                    Your keys stay on this machine.
+                  </p>
+                </div>
+              </aside>
+
+              {/* ── Right panel: step content + actions ──────────────────── */}
+              <section className="flex min-h-0 flex-col">
+                {/* Mobile brand + progress (rail is hidden below md). */}
+                <div className="flex items-center gap-3 border-b border-white/[0.07] px-5 py-3 md:hidden">
+                  <img
+                    src="/branding/LOGO-WORDMARK.svg"
+                    alt="BlackEclipse"
+                    className="h-[20px] w-auto"
+                  />
+                  <span className="ml-auto text-[11px] text-muted-foreground">
+                    Step {draft.step + 1} of {STEPS.length}
+                  </span>
+                </div>
+                <div className="px-5 pt-4 md:hidden">
+                  <div className="h-[3px] overflow-hidden rounded-full bg-white/[0.08]">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-500"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+
+                <header className="flex items-start gap-3.5 px-5 pb-1 pt-6 sm:px-8">
+                  <span className="mt-0.5 hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/12 text-primary sm:flex">
+                    <ActiveIcon size={20} />
+                  </span>
+                  <div className="min-w-0">
+                    <h1 className="font-serif text-[22px] font-semibold leading-[1.25] tracking-[-0.01em] text-foreground">
+                      {active.title}
+                    </h1>
+                    <p className="mt-1 max-w-[56ch] text-[13px] leading-relaxed text-muted-foreground">
+                      {active.description}
+                    </p>
+                  </div>
+                </header>
+
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 pt-5 sm:px-8">
+                  {draft.step === 0 && (
+                    <WelcomeStep state={state} draft={draft} setDraft={updateDraft} />
+                  )}
+                  {draft.step === 1 && (
+                    <AiStep state={state} draft={draft} setDraft={updateDraft} />
+                  )}
+                  {draft.step === 2 && (
+                    <IncludedStep state={state} draft={draft} setDraft={updateDraft} />
+                  )}
+                  {draft.step === 3 && (
+                    <ProvidersStep
+                      state={state}
+                      draft={draft}
+                      setDraft={updateDraft}
+                      keyStatuses={keyStatuses}
+                      onSaveKey={saveKey}
+                    />
+                  )}
+                  {draft.step === 4 && (
+                    <ReviewStep
+                      state={state}
+                      draft={draft}
+                      keyStatuses={keyStatuses}
+                      checking={checking}
+                      checkItems={checkItems}
+                      onCheck={() => void runCheck()}
+                      error={error}
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 border-t border-white/[0.07] bg-white/[0.015] px-5 py-3.5 sm:px-8">
+                  {draft.step === 0 ? (
+                    <button
+                      type="button"
+                      className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                      disabled={!draft.riskAck}
+                      title={draft.riskAck ? undefined : "Acknowledge the risk notice first"}
+                      onClick={() => void finish(true)}
+                    >
+                      Skip for now
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+                      onClick={() => goToStep(draft.step - 1)}
+                    >
+                      <ArrowLeft size={13} /> Back
+                    </button>
+                  )}
+
+                  <span className="flex-1" />
+
+                  {draft.step < STEPS.length - 1 ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                      disabled={draft.step === 0 && !draft.riskAck}
+                      title={
+                        draft.step === 0 && !draft.riskAck
+                          ? "Acknowledge the risk notice first"
+                          : undefined
+                      }
+                      onClick={() => goToStep(draft.step + 1)}
+                    >
+                      Continue <ArrowRight size={13} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                      disabled={busy || !draft.riskAck}
+                      title={draft.riskAck ? undefined : "Acknowledge the risk notice first"}
+                      onClick={() => void finish(false)}
+                    >
+                      {busy ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Check size={13} weight="bold" />
+                      )}
+                      {busy ? "Saving…" : "Finish setup"}
+                    </button>
+                  )}
+                </div>
+              </section>
             </div>
-
-            <div className="mt-4 flex items-center gap-2 border-t border-white/[0.07] pt-3">
-              {draft.step > 0 ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
-                  onClick={() => updateDraft({ step: draft.step - 1 })}
-                >
-                  <ArrowLeft size={12} /> Back
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={!draft.riskAck}
-                  title={draft.riskAck ? undefined : "Acknowledge the risk notice first"}
-                  onClick={() => void finish(true)}
-                >
-                  Skip for now
-                </button>
-              )}
-
-              <span className="flex-1" />
-
-              {draft.step < 4 && (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary/85 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={draft.step === 0 && !draft.riskAck}
-                  title={draft.step === 0 && !draft.riskAck ? "Acknowledge the risk notice first" : undefined}
-                  onClick={() => updateDraft({ step: draft.step + 1 })}
-                >
-                  Continue <ArrowRight size={12} />
-                </button>
-              )}
-              {draft.step === 4 && busy && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <Loader2 size={12} className="animate-spin" /> Saving
-                </span>
-              )}
-            </div>
-
-            <footer className="mt-3 flex justify-between gap-3 border-t border-white/[0.07] pt-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/30">
-              <span>Local setup · 127.0.0.1</span>
-              <span>First run</span>
-            </footer>
           </div>
         </main>
       </div>

@@ -19,7 +19,7 @@ export function Toggle({
 }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-2">
-      <span className={cn("text-[9px] font-medium tabular-nums", checked ? "text-emerald-300" : "text-muted-foreground/60")}>
+      <span className={cn("text-[10.5px] font-medium tabular-nums", checked ? "text-emerald-300" : "text-muted-foreground/60")}>
         {checked ? "On" : "Off"}
       </span>
       <button

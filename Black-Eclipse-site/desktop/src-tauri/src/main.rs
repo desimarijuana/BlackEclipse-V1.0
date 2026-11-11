@@ -60,8 +60,20 @@ const SPLASH: &str = "index.html";
 const INIT_SCRIPT: &str = r#"
 (function () {
   var T = window.__TAURI__;
-  if (!T || !T.event || typeof T.event.emit !== 'function') return;
-  var emit = T.event.emit;
+  var emit = T && T.event && typeof T.event.emit === 'function' ? T.event.emit : null;
+  // If the global API is not exposed (an older build, or a remote origin the
+  // capability did not list), fall back to the raw IPC invoke. Core event
+  // commands are the one surface Tauri guarantees to a capability-listed
+  // remote origin, so window chrome and notifications keep working.
+  if (!emit) {
+    var I = window.__TAURI_INTERNALS__;
+    if (I && typeof I.invoke === 'function') {
+      emit = function (name, payload) {
+        return I.invoke('plugin:event|emit', { event: name, payload: payload });
+      };
+    }
+  }
+  if (!emit) return;
 
   // Desktop default: turn OS notifications ON for a first run, without ever
   // overriding a user who has explicitly turned them off. The storage key is the
@@ -680,6 +692,7 @@ fn perform_window_action(app: &AppHandle, action: &str) {
         Some(win) => win,
         None => return,
     };
+    log_line(&format!("[window] {action}"));
     match action {
         "minimize" => {
             let _ = win.minimize();

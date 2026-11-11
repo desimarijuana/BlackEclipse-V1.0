@@ -1,7 +1,7 @@
 ---
 title: First-Run Onboarding — Implementation Plan
 status: Implemented (v1)
-last-verified: 2026-11-09
+last-verified: 2026-11-10
 ---
 
 # First-Run Onboarding — Implementation Plan
@@ -86,15 +86,17 @@ Boot loader (existing, z-40)
   └─ App (loader finishes behind the overlay)
 ```
 
-Shared frame: **the exact production launch card** — a masked 44px brand grid,
-a soft top glow, and one centered `glass-card-strong` card at **580px max**
-(`max-h-[calc(100dvh-4rem)]`, internal scroll), with the launch page's
-22/24/18 padding, 22px wordmark, 20px serif title, 13.5px phase line, 3px
-gradient progress bar with the travelling shine, 10.5px mono meta row, compact
-text buttons, and the mono `LOCAL SETUP · 127.0.0.1 / FIRST RUN` footer. The app
-shell (sidebar included) is fully covered; `z-[200]` clears the shell's `z-50`.
-Escape does not close it. Focus-trapped, keyboard accessible, reduced-motion
-aware. Only step 1 has `Skip for now`.
+Shared frame: **a two-column setup card** (max 1060px, `max-h-[calc(100dvh-3rem)]`)
+over the masked 44px brand grid and a soft top glow. The left rail (300px, hidden
+below `md`) holds the wordmark and a numbered/iconed vertical stepper (active
+step filled with `--primary`, completed steps checked, future steps muted and
+not clickable); the right panel holds the step title (22px serif), one-line
+description, the scrolling step body, and a pinned footer with `Skip for now` /
+`Back` on the left and `Continue` / `Finish setup` on the right. Below `md` the
+rail collapses into a brand bar plus a 3px progress line. The app shell (sidebar
+included) is fully covered; `z-[200]` clears the shell's `z-50`. Escape does not
+close it. Focus-trapped, keyboard accessible, reduced-motion aware. Only step 1
+has `Skip for now`.
 
 ### Step 1 — Welcome & how you'll use Eclipse
 
@@ -582,11 +584,11 @@ a silent fallback to a source the user disabled.
 
 ## 5. UI specification (matches the boot page)
 
-- Background: `bg-background/98 backdrop-blur-md`; optional aurora glow already
-  used by the shell (do not add a new effect).
-- Panel: `.glass-card-strong`, `rounded-2xl`, `border-white/15`, subtle shadow.
-- Type: `font-serif` headings (same as dashboard onboarding), `text-xs`
-  body, `text-[10px]` metadata.
+- Background: brand grid + soft top glow (unchanged).
+- Panel: `.glass-card-strong`, `rounded-2xl`, `border-white/12`, two columns
+  (`300px | 1fr`), internal scroll in the content column only, pinned footer.
+- Type: `font-serif` 22px step title, 13px description, 11.5–13px body, 11px
+  metadata. No 8–9px copy — the previous dense card was hard to read.
 - Icons: `@/lib/icons` only (no new icon dependency).
 - Toggles: a real accessible switch (`role="switch"`, `aria-checked`) built
   from existing primitives; no native checkbox styling.

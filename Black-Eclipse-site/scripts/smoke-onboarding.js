@@ -24,7 +24,7 @@ const BASE = (process.env.SMOKE_URL || "http://127.0.0.1:3100").replace(/\/$/, "
 
   await page.goto(`${BASE}/?setup=1`, { waitUntil: "commit", timeout: 180_000 });
   await page.waitForFunction(
-    () => document.body && document.body.innerText.includes("Welcome to BlackEclipse"),
+    () => document.body && document.body.innerText.includes("How will you use Eclipse?"),
     undefined,
     { timeout: 180_000 },
   );
@@ -33,11 +33,11 @@ const BASE = (process.env.SMOKE_URL || "http://127.0.0.1:3100").replace(/\/$/, "
   await dialog.waitFor({ state: "visible", timeout: 30_000 });
 
   const steps = [
-    ["Welcome", "Welcome to BlackEclipse"],
-    ["AI", "Choose your AI"],
-    ["Included", "Included data"],
-    ["Providers", "Connect providers"],
-    ["Review", "Ready to start"],
+    ["Welcome", "Pick a starting point."],
+    ["AI", "Connect a model so chat works"],
+    ["Included", "Free, open data that ships with Eclipse"],
+    ["Providers", "Optional providers for quotes"],
+    ["Review", "Confirm what will work before you start"],
   ];
 
   for (let i = 0; i < steps.length; i++) {
@@ -54,7 +54,7 @@ const BASE = (process.env.SMOKE_URL || "http://127.0.0.1:3100").replace(/\/$/, "
     }
   }
 
-  const setupVisible = await page.evaluate(() => document.body.innerText.includes("Ready to start"));
+  const setupVisible = await page.evaluate(() => document.body.innerText.includes("Confirm what will work before you start"));
   if (!setupVisible) throw new Error("Review step did not render");
   if (errors.length > 0) {
     throw new Error(`Console/page errors:\n${errors.slice(0, 5).join("\n")}`);

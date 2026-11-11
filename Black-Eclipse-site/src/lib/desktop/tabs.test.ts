@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addTab, parseStoredTabs, removeTab } from './tabs';
+import { addTab, moveTab, parseStoredTabs, removeTab } from './tabs';
+import type { AppTab } from '@/lib/app-tabs';
 
 describe('desktop tabs', () => {
   it('adds a tab once and keeps open order', () => {
@@ -33,6 +34,17 @@ describe('desktop tabs', () => {
     const result = removeTab([...tabs], 'chat', 'chat');
     expect(result.tabs).toEqual(['chat']);
     expect(result.activeTab).toBe('chat');
+  });
+
+  it('reorders a dragged tab into the target slot', () => {
+    expect(moveTab(['chat', 'home', 'news'], 'news', 'chat')).toEqual(['news', 'chat', 'home']);
+    expect(moveTab(['chat', 'home', 'news'], 'chat', 'news')).toEqual(['home', 'news', 'chat']);
+  });
+
+  it('ignores unknown or no-op reorders', () => {
+    const tabs: AppTab[] = ['chat', 'home'];
+    expect(moveTab(tabs, 'chat', 'chat')).toBe(tabs);
+    expect(moveTab(tabs, 'news' as AppTab, 'home')).toBe(tabs);
   });
 
   it('drops unknown or malformed stored tabs', () => {

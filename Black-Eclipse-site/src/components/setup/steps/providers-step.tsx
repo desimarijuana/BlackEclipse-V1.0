@@ -23,10 +23,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3">
-      <p className="text-[11px] font-bold text-foreground">{title}</p>
-      <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">{hint}</p>
-      <div className="mt-2.5 space-y-2">{children}</div>
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+      <p className="text-[12.5px] font-semibold text-foreground">{title}</p>
+      <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">{hint}</p>
+      <div className="mt-3 space-y-2">{children}</div>
     </div>
   );
 }
@@ -49,12 +49,12 @@ function AdvancedToggle({
   onToggle: (next: boolean) => void;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
+    <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold text-foreground">{label}</p>
+        <p className="text-[12px] font-semibold text-foreground">{label}</p>
         <p
           className={cn(
-            "text-[9px] font-semibold leading-snug",
+            "text-[11px] font-semibold leading-snug",
             status === "personal-only"
               ? "text-rose-300"
               : status === "verify"
@@ -64,7 +64,7 @@ function AdvancedToggle({
         >
           {commercialSentence(status)}
         </p>
-        <p className="text-[9px] leading-snug text-muted-foreground">{note}</p>
+        <p className="text-[11px] leading-snug text-muted-foreground">{note}</p>
       </div>
       <Toggle
         checked={enabled}
@@ -127,12 +127,12 @@ export function ProvidersStep({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <p className="flex items-center gap-1.5 text-[10px] font-bold text-foreground">
-          <Info size={12} className="text-primary" /> Can you use this?
+    <div className="space-y-5">
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+        <p className="flex items-center gap-2 text-[12px] font-semibold text-foreground">
+          <Info size={13} className="text-primary" /> Can you use this?
         </p>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
           <span className="font-semibold text-emerald-300">Personal use:</span> you are welcome to
           connect anything here.{" "}
           <span className="font-semibold text-rose-300">Commercial company:</span> only use providers
@@ -173,24 +173,24 @@ export function ProvidersStep({
               type="button"
               onClick={() => setPriceMode(option.id)}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors cursor-pointer",
+                "flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors cursor-pointer",
                 active
-                  ? "border-primary/50 bg-primary/10"
+                  ? "border-primary/50 bg-primary/[0.08]"
                   : "border-white/10 bg-white/[0.02] hover:border-white/20",
               )}
             >
               <span
                 className={cn(
-                  "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border",
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
                   active ? "border-primary bg-primary" : "border-white/25",
                 )}
               >
                 {active && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
               </span>
-              <Icon size={13} className={active ? "text-primary" : "text-muted-foreground"} />
+              <Icon size={14} className={active ? "text-primary" : "text-muted-foreground"} />
               <span className="min-w-0 flex-1">
-                <span className="block text-[11px] font-bold text-foreground">{option.title}</span>
-                <span className="block text-[9px] leading-snug text-muted-foreground">{option.body}</span>
+                <span className="block text-[12.5px] font-semibold text-foreground">{option.title}</span>
+                <span className="block text-[11px] leading-snug text-muted-foreground">{option.body}</span>
               </span>
             </button>
           );
@@ -217,10 +217,10 @@ export function ProvidersStep({
 
       {draft.priceMode === "community" && (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] p-3">
-          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
-            <WarningCircle size={12} /> Personal use only
+          <p className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wider text-amber-300">
+            <WarningCircle size={13} /> Personal use only
           </p>
-          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
             These sources do not grant commercial redistribution rights. Do not enable them for a
             product you charge for.
           </p>
@@ -271,7 +271,7 @@ export function ProvidersStep({
       )}
 
       {draft.priceMode === "skip" && (
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-[10px] leading-relaxed text-muted-foreground">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5 text-[11.5px] leading-relaxed text-muted-foreground">
           Live prices are off. Quote pages and charts will show <span className="text-foreground/80">UNAVAILABLE</span>.
           You can connect a provider later in Settings → Data &amp; Storage.
         </div>
@@ -318,13 +318,13 @@ export function ProvidersStep({
               })}
             </div>
             {!cryptoAck && (
-              <p className="text-[9px] text-muted-foreground">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Community crypto sources stay locked until you accept their terms.
               </p>
             )}
           </>
         ) : (
-          <p className="text-[9px] text-muted-foreground">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
             Community crypto sources are hidden in Commercial mode. Connect CoinMarketCap or
             CoinGecko above.
           </p>
@@ -373,7 +373,7 @@ export function ProvidersStep({
             </div>
           </>
         ) : (
-          <p className="text-[9px] text-muted-foreground">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
             The keyless community search source is hidden in Commercial mode. Connect Tavily,
             Brave, Exa or Serper above.
           </p>
@@ -396,8 +396,8 @@ export function ProvidersStep({
         })}
       </Section>
 
-      <p className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-        <Check size={10} /> Anything you skip stays off; its screens show an honest UNAVAILABLE state.
+      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Check size={11} /> Anything you skip stays off; its screens show an honest UNAVAILABLE state.
       </p>
     </div>
   );

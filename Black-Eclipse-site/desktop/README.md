@@ -42,10 +42,19 @@ without the TLS reverse proxy the browser path uses for `https://blackeclipse`.
 The window is **frameless** (`decorations(false)`): the app's
 `DesktopTabBar` (`src/components/layout/desktop-tab-bar.tsx`) is the title bar.
 It shows the open top-level pages as tabs, remembers them in
-`localStorage`, and provides the drag region plus minimize/maximize/close. The
-remote app origin reaches Rust through `be-window` events (the same
-events-not-commands rule as notifications); the bundled splash invokes
-`desktop_window_action` directly. In a browser the bar renders nothing.
+`localStorage`, and provides the drag region plus minimize/maximize/close. Tabs
+can be dragged to reorder and closed with their `X` (the last tab stays open).
+`+` starts a fresh Chat session immediately — there is no page picker; any page
+can be opened afterwards from the sidebar, palette or a deep link.
+
+Window actions prefer the **core window API**
+(`window.__TAURI__.window.getCurrentWindow()`), which needs the explicit
+`core:window:allow-minimize / allow-toggle-maximize / allow-close /
+allow-start-dragging` capabilities in `capabilities/default.json`. They fall
+back to the `be-window-action` → `be-window` event bridge (the same
+events-not-commands rule as notifications), so a shell whose global API is not
+exposed still works. The bundled splash invokes `desktop_window_action`
+directly. In a browser the bar renders nothing.
 
 ## Commands
 ```
@@ -123,7 +132,10 @@ ACL. Two consequences, both learned the hard way:
 
 So the injected `Notification` shim in `src-tauri/src/main.rs` emits
 `be-notify` / `be-shortcut`, and Rust listens for both. That keeps
-`src/lib/alerts/browser-notifier.ts` completely unchanged.
+`src/lib/alerts/browser-notifier.ts` completely unchanged. The injected script
+resolves `__TAURI__.event.emit` first and falls back to
+`__TAURI_INTERNALS__.invoke('plugin:event|emit', …)`, so the same bridge (and
+the window chrome) survives a shell where the global API is not exposed.
 
 `npm run desktop:selftest` reports:
 

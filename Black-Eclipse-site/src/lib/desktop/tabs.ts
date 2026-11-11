@@ -37,6 +37,18 @@ export function removeTab(
   return { tabs: next, activeTab: next[Math.min(index, next.length - 1)] };
 }
 
+/** Move `tab` to the index currently occupied by `before` (drag reorder).
+ *  Returns the same array when either tab is missing or the move is a no-op. */
+export function moveTab(tabs: AppTab[], tab: AppTab, before: AppTab): AppTab[] {
+  const from = tabs.indexOf(tab);
+  const to = tabs.indexOf(before);
+  if (from === -1 || to === -1 || from === to) return tabs;
+  const next = [...tabs];
+  next.splice(from, 1);
+  next.splice(to, 0, tab);
+  return next;
+}
+
 /** Recover a stored tab list, dropping anything no longer in `APP_TABS`. */
 export function parseStoredTabs(raw: string | null): AppTab[] {
   if (!raw) return [];

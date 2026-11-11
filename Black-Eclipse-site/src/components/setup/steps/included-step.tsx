@@ -22,15 +22,15 @@ export function IncludedStep({
     setDraft({ sources: { ...draft.sources, [id]: next } });
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap gap-1.5">
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
         {state.bundles.map((bundle) => (
           <button
             key={bundle.id}
             type="button"
             onClick={() => setDraft({ bundleId: bundle.id })}
             className={cn(
-              "rounded-lg border px-2.5 py-1 text-[10px] cursor-pointer",
+              "rounded-lg border px-2.5 py-1.5 text-[11.5px] cursor-pointer",
               draft.bundleId === bundle.id
                 ? "border-primary/50 bg-primary/10 text-foreground"
                 : "border-white/10 text-muted-foreground hover:border-white/20",
@@ -41,11 +41,11 @@ export function IncludedStep({
         ))}
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <p className="flex items-center gap-1.5 text-[10px] font-bold text-foreground">
-          <ShieldCheck size={12} className="text-primary" /> Which ones can you use?
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+        <p className="flex items-center gap-2 text-[12px] font-semibold text-foreground">
+          <ShieldCheck size={14} className="text-primary" /> Which ones can you use?
         </p>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
           <span className="font-semibold text-emerald-300">Personal use:</span> you are welcome to
           enable anything below.{" "}
           <span className="font-semibold text-rose-300">Commercial company:</span> only use sources
@@ -56,55 +56,56 @@ export function IncludedStep({
         </p>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2.5 sm:grid-cols-2">
         {includedSources.map((source) => (
-          <div key={source.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className="text-[11px] font-semibold text-foreground"
-                    title={`${source.note ?? ""}${source.attribution ? ` Attribution: ${source.attribution}.` : ""}`}
-                  >
-                    {source.label}
-                  </span>
-                  <LicenseBadge status={source.commercial} />
-                </div>
-                <p className="mt-0.5 text-[9px] leading-snug text-muted-foreground/70">
-                  {source.attribution ? source.attribution : source.short}
-                </p>
+          <div
+            key={source.id}
+            className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-3"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="text-[12.5px] font-semibold text-foreground"
+                  title={`${source.note ?? ""}${source.attribution ? ` Attribution: ${source.attribution}.` : ""}`}
+                >
+                  {source.label}
+                </span>
+                <LicenseBadge status={source.commercial} />
               </div>
-              <Toggle
-                checked={draft.sources[source.id] === true}
-                onChange={(next) => toggle(source.id, next)}
-                label={`Enable ${source.label}`}
-              />
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground/70">
+                {source.attribution ? source.attribution : source.short}
+              </p>
             </div>
+            <Toggle
+              checked={draft.sources[source.id] === true}
+              onChange={(next) => toggle(source.id, next)}
+              label={`Enable ${source.label}`}
+            />
           </div>
         ))}
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-        <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          <Info size={12} /> {includedOn} included source{includedOn === 1 ? "" : "s"} enabled
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+        <p className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Info size={13} /> {includedOn} included source{includedOn === 1 ? "" : "s"} enabled
         </p>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
           Included data powers company research, macro, world events and headlines. Live prices,
           crypto and research search are connected on the next step.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.04] p-3">
-        <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">
-          <WarningCircle size={12} /> Community sources are on the next step
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-3.5">
+        <p className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wider text-amber-300">
+          <WarningCircle size={13} /> Community sources are on the next step
         </p>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
           TradingView, Yahoo, Binance, CoinGecko Demo and scraper sources are for personal use and
           are not part of Eclipse&apos;s included data. They stay off unless you accept their terms
           on the Providers step.
         </p>
-        <p className="mt-2 flex items-center gap-1.5 text-[9px] text-muted-foreground">
-          <ShieldCheck size={10} /> Commercial mode never enables these automatically.
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <ShieldCheck size={11} /> Commercial mode never enables these automatically.
         </p>
       </div>
     </div>
