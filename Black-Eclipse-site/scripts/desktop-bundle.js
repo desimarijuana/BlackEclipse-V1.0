@@ -184,7 +184,17 @@ function buildMac() {
     console.log(`[bundle] dry run: staged ${path.relative(ROOT, bundle)} (codesign + hdiutil skipped)`);
     return;
   }
-  sh("codesign", ["--force", "--deep", "--sign", "-", bundle]);
+  // `--deep` must NOT be used: it descends into the payload
+  // (`app/node_modules/...`) and fails with "bundle format unrecognized" on
+  // files such as next's `lodash.curry`. Sign the executable, then the bundle.
+  // Best effort: an unsigned .dmg is still produced, and Gatekeeper needs
+  // notarisation (C5) regardless.
+  const trySign = (args) => spawnSync("codesign", args, { stdio: "inherit" }).status === 0;
+  const signedBinary = trySign(["--force", "--sign", "-", path.join(macos, "black-eclipse-desktop")]);
+  const signedBundle = trySign(["--force", "--sign", "-", bundle]);
+  if (!signedBinary || !signedBundle) {
+    console.log("[bundle] ad-hoc signing failed; continuing with an unsigned bundle");
+  }
 
   const dmg = path.join(DIST, `BlackEclipse-${VERSION}-${process.arch}.dmg`);
   fs.rmSync(dmg, { force: true });

@@ -1,6 +1,14 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(desktop): macOS bundling no longer uses `codesign --deep`.** The matrix
+  run reached the bundle step and failed with *"bundle format unrecognized,
+  invalid, or unsuitable. In subcomponent: ... app/node_modules/next/dist/
+  compiled/lodash.curry"* — `--deep` descends into the payload and treats files
+  like that as nested bundles. The executable and the `.app` are now signed
+  individually, and a signing failure degrades to an unsigned `.dmg` instead of
+  aborting the job. Also confirmed the heap fix worked: macOS cleared the payload
+  build that previously OOM'd. Docs: no doc change — CI/packaging fix.
 - **ci(desktop): raise the Node heap for the matrix build.** The first real
   matrix run (dispatch on `main`) failed `macos-latest` at *Build the standalone
   payload* with `FATAL ERROR: Reached heap limit — JavaScript heap out of memory`;
