@@ -1,6 +1,14 @@
 # Change Log
 
 ## 2026-11-10
+- **polish(setup): no star glyph, rail strictly behind the step discs, wider
+  notice.** The Welcome step icon is a rocket (mode cards use a user and a
+  briefcase) instead of the sparkle star the user rejected. The stepper
+  connector is now one continuous line behind opaque, tinted discs, so it can
+  neither show through an icon glyph nor run past the last step (the list is
+  `mb-auto`, not `flex-1`). The full risk notice paragraph spans its card
+  instead of being clamped by `max-w-prose`. Docs: no doc change beyond this
+  entry — layout contract in `docs/onboarding-plan.md` is unchanged.
 - **fix(desktop): window chrome works, `+` starts a session, tab bar matches the
   app.** The frameless title bar's controls and drag depended entirely on the
   injected `be-window-action` event script, which silently no-ops when the
