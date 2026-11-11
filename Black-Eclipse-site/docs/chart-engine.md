@@ -116,9 +116,20 @@ must be able to check `R2 = 0.87` from the picture.
 `scene` — a camera, three axes and a cube — so the reader can orbit, zoom and
 pick points. The flat axes step aside for a 3D chart. A 3D panel also gets a
 real matplotlib 3D axes for the PNG fallback, so the picture is not a blank
-flat box under the live scene. The Quant Figure Kit uses 3D only where the
-third dimension is measured (a parameter sensitivity surface, for example) and
-falls back to a 3D point cloud when the grid is incomplete.
+flat box under the live scene. A surface grid may be written either as a
+`matrix` (rows of z) or, the way a parameter sweep is usually written, as
+`x` + `y` + a FLAT row-major `z` (`len(z) == len(x) * len(y)`); both become the
+same grid. A 3D mark with no grid/three vectors is refused by name, never drawn
+as an empty box. The Quant Figure Kit uses 3D only where the third dimension is
+measured (a parameter sensitivity surface, for example) and falls back to a 3D
+point cloud when the grid is incomplete.
+
+**An unsupported mark is named, never silently substituted.** The wire contract
+preserves a mark `type` the renderer does not know (and `(missing)` when the
+field is absent), so `response_validate` and the chart surface can report
+exactly which primitive was refused. A mark's primitive is always `type`; the
+parser also accepts `kind`/`markType` as synonyms so a well-meant mark is
+recovered instead of being lost.
 
 A panel may set: `title`, `xLabel`, `yLabel`, `valueFormat`, `logScale` and
 `height` (its share of the figure). A scene is up to 6 panels.

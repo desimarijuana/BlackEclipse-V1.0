@@ -17,7 +17,7 @@ import json
 from typing import Any, Optional
 
 from .regression import linear_fit
-from .scene import ChartMark, ChartPanel
+from .scene import ChartMark, ChartPanel, surface_grid
 from .spec import ChartSpec
 from .theme import ChartTheme
 
@@ -335,10 +335,14 @@ def _mark_traces(
         return traces
 
     if mark.type == "surface":
+        grid = surface_grid(mark)
+        if grid is None:
+            return traces
+        xs, ys, rows = grid
         traces.append({
             "type": "surface", "name": name, "scene": "scene",
-            "z": mark.matrix or [],
-            "x": mark.x or None, "y": mark.y or None,
+            "z": rows,
+            "x": xs, "y": ys,
             "colorscale": "Viridis",
             "showscale": True,
         })

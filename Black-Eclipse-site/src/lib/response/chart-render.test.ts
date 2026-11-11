@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseResponsePayload } from './contract';
 import { chartBlockToSpec } from './chart-spec';
-import { chartBlockWarning } from './chart-capabilities';
+import { chartBlockWarning, chartSpecWarning } from './chart-capabilities';
 import { fetchQuantFigure, hydrateChartBlock } from './chart-data';
 
 function chartBlock(value: unknown) {
@@ -185,5 +185,71 @@ describe('drawability is checked with the renderer, not just the schema', () => 
       type: 'chart', chartType: 'line', dataSource: { symbol: 'AAPL' },
     });
     expect(chartBlockWarning(block)).toBeNull();
+  });
+});
+
+describe('3D is a mark, and a flat z grid is a real surface', () => {
+  it('recovers a surface whose primitive is spelled `kind`', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      panels: [{
+        marks: [{
+          kind: 'surface',
+          name: 'Sharpe',
+          x: [5, 10, 15],
+          y: [20, 40, 60],
+          z: [0.4, 0.5, 0.6, 0.5, 0.7, 0.8, 0.3, 0.6, 0.9],
+        }],
+      }],
+    });
+    expect(block.panels?.[0].marks[0].type).toBe('surface');
+    const plan = chartBlockToSpec(block)!;
+    expect(plan.spec.panels?.[0].marks[0].type).toBe('surface');
+    expect(plan.spec.panels?.[0].marks[0].z).toHaveLength(9);
+    expect(chartBlockWarning(block)).toBeNull();
+    expect(chartSpecWarning(plan.spec)).toBeNull();
+  });
+
+  it('accepts a 2D `z` as the surface matrix', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      panels: [{ marks: [{ type: 'surface', z: [[1, 2], [3, 4]] }] }],
+    });
+    expect(block.panels?.[0].marks[0].matrix).toEqual([[1, 2], [3, 4]]);
+    expect(chartSpecWarning(chartBlockToSpec(block)!.spec)).toBeNull();
+  });
+
+  it('names a surface that carries no grid instead of drawing an empty one', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      panels: [{ marks: [{ type: 'surface', z: [1] }] }],
+    });
+    expect(chartSpecWarning(chartBlockToSpec(block)!.spec)).toMatch(/needs a grid/);
+    expect(chartBlockWarning(block)).toMatch(/needs a grid/);
+  });
+});
+
+describe('an unsupported mark fails loudly, never silently', () => {
+  it('names the primitive the producer asked for', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      panels: [{ marks: [{ type: 'waterfall3d', y: [1, 2] }] }],
+    });
+    expect(block.panels?.[0].marks[0].type).toBe('waterfall3d');
+    expect(chartBlockWarning(block)).toMatch(/cannot draw a "waterfall3d" mark/);
+    expect(chartSpecWarning(chartBlockToSpec(block)!.spec)).toMatch(/waterfall3d/);
+  });
+
+  it('names a mark with no primitive at all', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      panels: [{ marks: [{ name: 'orphan', y: [1, 2] }] }],
+    });
+    expect(chartBlockWarning(block)).toMatch(/has no `type`/);
   });
 });

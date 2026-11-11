@@ -118,7 +118,10 @@ _MODULES: tuple[DesignModule, ...] = (
             "A linear regression is a `regression` mark (or `chartType: "
             "\"regression\"`); never fit the line yourself. Use `panels`/`marks` "
             "for anything the simple kinds cannot express (violin, box, Gantt, "
-            "funnel, dual axis). Carry `source`/`asOf`, and put a tool's "
+            "funnel, dual axis). 3D is a MARK, not a `chartType`: use a `surface` "
+            "mark for a grid (`x` + `y` + a flat row-major `z`, or a `matrix`) or "
+            "a `scatter3d` mark for a point cloud (`x` + `y` + `z`). Carry "
+            "`source`/`asOf`, and put a tool's "
             "`formula` in `provenance.formula` for a derived figure. Never invent "
             "points, and never draw an empty chart for data you do not hold."
         ),
@@ -148,6 +151,29 @@ _MODULES: tuple[DesignModule, ...] = (
                             "chartType": "line",
                             "title": "AAPL — 6 months",
                             "dataSource": {"symbol": "AAPL", "interval": "1d"},
+                        }
+                    ]
+                },
+            ),
+            (
+                "A 3D parameter surface (3D is a mark, not a chartType)",
+                {
+                    "blocks": [
+                        {
+                            "type": "chart",
+                            "chartType": "line",
+                            "title": "Sharpe vs EMA periods",
+                            "panels": [{
+                                "xLabel": "Fast EMA",
+                                "yLabel": "Slow EMA",
+                                "marks": [{
+                                    "type": "surface",
+                                    "name": "Sharpe",
+                                    "x": [5, 10, 15],
+                                    "y": [20, 40, 60],
+                                    "z": [0.4, 0.5, 0.6, 0.5, 0.7, 0.8, 0.3, 0.6, 0.9],
+                                }],
+                            }],
                         }
                     ]
                 },

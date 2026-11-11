@@ -24,6 +24,16 @@ describe('response contract bridge — schema read-back', () => {
     expect(callout.fields.find((f) => f.name === 'tone')?.kind).toContain('enum(');
   });
 
+  it('reaches the chart mark vocabulary (3D included), not just the panel', () => {
+    const chart = describeResponseBlocks().find((b) => b.type === 'chart')!;
+    const panels = chart.fields.find((f) => f.name === 'panels')!;
+    const marks = panels.itemDetail?.find((f) => f.name === 'marks')!;
+    expect(marks.itemFields).toEqual(expect.arrayContaining(['type', 'x', 'y', 'z', 'matrix']));
+    const type = marks.itemDetail?.find((f) => f.name === 'type')!;
+    expect(type.kind).toContain('scatter3d');
+    expect(type.kind).toContain('surface');
+  });
+
   it('filters to one block type when asked', async () => {
     const out = await responseContractCapability({ op: 'schema', block_type: 'mermaid' });
     expect(out.status).toBe('OK');
@@ -79,6 +89,39 @@ describe('response contract bridge — validation read-back', () => {
     expect(blocks[1].ok).toBe(false);
     expect(blocks[1].error).toContain('gauges.0.value');
     expect(blocks[2].ok).toBe(true);
+  });
+
+  it('validates the natural 3D surface shape (kind + flat z)', async () => {
+    const markdown = JSON.stringify({
+      blocks: [{
+        type: 'chart',
+        chartType: 'line',
+        panels: [{
+          marks: [{
+            kind: 'surface', name: 'Sharpe',
+            x: [5, 10], y: [20, 40], z: [0.4, 0.5, 0.6, 0.7],
+          }],
+        }],
+      }],
+    });
+    const out = await responseContractCapability({ op: 'validate', markdown });
+    expect(out.status).toBe('OK');
+    expect(out.ok).toBe(true);
+  });
+
+  it('refuses an unsupported mark by name instead of passing it', async () => {
+    const markdown = JSON.stringify({
+      blocks: [{
+        type: 'chart',
+        chartType: 'line',
+        panels: [{ marks: [{ type: 'waterfall3d', y: [1, 2] }] }],
+      }],
+    });
+    const out = await responseContractCapability({ op: 'validate', markdown });
+    expect(out.ok).toBe(false);
+    const blocks = out.blocks as { ok: boolean; error: string | null }[];
+    expect(blocks[0].ok).toBe(false);
+    expect(blocks[0].error).toContain('waterfall3d');
   });
 
   it('reports malformed JSON as such', async () => {

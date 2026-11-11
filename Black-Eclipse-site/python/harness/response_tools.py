@@ -22,6 +22,34 @@ from .tools import ToolContext, ToolDefinition, ToolRegistry
 _MAX_VALIDATE_CHARS = 200_000
 
 
+def _field_label(field: dict[str, Any]) -> str:
+    name = str(field.get("name"))
+    return name if field.get("required") else f"{name}?"
+
+
+def _field_kind(field: dict[str, Any]) -> str:
+    kind = str(field.get("kind") or "value")
+    items = field.get("itemFields")
+    return f"{kind}{{{','.join(str(i) for i in items)}}}" if items else kind
+
+
+def _nested_field_lines(detail: list[dict[str, Any]], prefix: str) -> list[str]:
+    """Describe an array element's own fields, one level deeper.
+
+    The chart SCENE lives here: `panels` → `marks` → a mark's primitive enum
+    and `z`/`matrix` fields. Without these lines the model can see that a scene
+    exists but not what a mark may be, so it guesses (`kind` instead of `type`).
+    """
+    lines: list[str] = []
+    for field in detail or []:
+        name = str(field.get("name"))
+        path = f"{prefix}.{name}"
+        lines.append(f"    {path}: {_field_label(field)} ({_field_kind(field)})")
+        if field.get("itemDetail"):
+            lines.extend(_nested_field_lines(field["itemDetail"], path))
+    return lines
+
+
 def _fmt_schema(payload: dict[str, Any]) -> str:
     blocks = payload.get("blocks") or []
     if not blocks:
@@ -31,17 +59,19 @@ def _fmt_schema(payload: dict[str, Any]) -> str:
         )
     lines = [
         "eclipse-response block fields (exact names; `?` marks an optional field; "
-        "one-line `{…}` lists an array item's fields — do not invent names):",
+        "one-line `{…}` lists an array item's fields; indented lines are that "
+        "item's own fields — do not invent names):",
     ]
     for block in blocks:
         parts: list[str] = []
         for field in block.get("fields") or []:
-            name = str(field.get("name"))
-            kind = str(field.get("kind") or "value")
-            items = field.get("itemFields")
-            detail = f"{kind} {{{','.join(str(i) for i in items)}}}" if items else kind
-            parts.append(f"{name}{'' if field.get('required') else '?'} ({detail})")
+            parts.append(f"{_field_label(field)} ({_field_kind(field)})")
         lines.append(f"- {block.get('type')}: " + ", ".join(parts))
+        for field in block.get("fields") or []:
+            if field.get("itemDetail"):
+                lines.extend(
+                    _nested_field_lines(field["itemDetail"], f"{block.get('type')}.{field.get('name')}")
+                )
     icon_keys = [str(k) for k in payload.get("iconKeys") or []]
     if icon_keys:
         lines.append(
@@ -78,12 +108,13 @@ def _fmt_schema_prompt(payload: dict[str, Any]) -> str:
     for block in blocks:
         parts: list[str] = []
         for field in block.get("fields") or []:
-            name = str(field.get("name"))
-            kind = str(field.get("kind") or "value")
-            items = field.get("itemFields")
-            detail = f"{kind}{{{','.join(str(i) for i in items)}}}" if items else kind
-            parts.append(f"{name}{'' if field.get('required') else '?'}:{detail}")
+            parts.append(f"{_field_label(field)}:{_field_kind(field)}")
         lines.append(f"- {block.get('type')}: " + "; ".join(parts))
+        for field in block.get("fields") or []:
+            if field.get("itemDetail"):
+                lines.extend(
+                    _nested_field_lines(field["itemDetail"], f"{block.get('type')}.{field.get('name')}")
+                )
     icon_keys = [str(k) for k in payload.get("iconKeys") or []]
     if icon_keys:
         lines.append(

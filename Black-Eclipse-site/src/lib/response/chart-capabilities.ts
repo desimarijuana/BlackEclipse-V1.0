@@ -5,8 +5,8 @@
 // and still ask for something the renderer cannot draw, so validation and the
 // UI share THIS list instead of guessing.
 
-import type { ChartSpec } from '@/lib/harness/charts';
-import type { ChartBlock } from './contract';
+import type { ChartMark, ChartSpec } from '@/lib/harness/charts';
+import { CHART_MARK_TYPES, type ChartBlock } from './contract';
 import { chartBlockToSpec } from './chart-spec';
 
 export const CHART_KINDS = new Set<ChartSpec['kind']>([
@@ -14,12 +14,11 @@ export const CHART_KINDS = new Set<ChartSpec['kind']>([
   'heatmap', 'candlestick', 'waterfall', 'radar', 'gauge', 'treemap', 'scene',
 ]);
 
-export const CHART_MARKS = new Set([
-  'line', 'area', 'bar', 'scatter', 'band', 'rule', 'label', 'box', 'violin',
-  'histogram', 'errorbar', 'heatmap', 'pie', 'donut', 'candlestick', 'waterfall',
-  'ridge', 'stem', 'treemap', 'sunburst', 'funnel', 'sankey', 'scatter3d',
-  'surface', 'regression',
-]);
+// Derived from the contract's own vocabulary so the two can never drift.
+export const CHART_MARKS = new Set<string>(CHART_MARK_TYPES);
+
+/** The marks that need a third dimension, and therefore three vectors/a grid. */
+const MARK_TYPES_3D = new Set(['scatter3d', 'surface']);
 
 /**
  * Why a spec cannot be drawn, or `null` when it can.
@@ -36,7 +35,11 @@ export function chartSpecWarning(spec: ChartSpec): string | null {
       }
       for (const mark of panel.marks) {
         if (!CHART_MARKS.has(mark.type)) {
-          return `the renderer cannot draw a "${mark.type}" mark (panel ${panelIndex + 1})`;
+          return `the renderer cannot draw a "${mark.type}" mark (panel ${panelIndex + 1}); a mark's primitive is its \`type\``;
+        }
+        if (MARK_TYPES_3D.has(mark.type)) {
+          const missing = missing3dData(mark);
+          if (missing) return `${missing} (panel ${panelIndex + 1})`;
         }
       }
     }
@@ -64,6 +67,26 @@ export function chartSpecWarning(spec: ChartSpec): string | null {
   return null;
 }
 
+/** The missing part of a 3D mark's data, or `null` when it can be drawn. */
+function missing3dData(mark: ChartMark): string | null {
+  // A named source is fetched before the figure is drawn; it cannot be
+  // judged here.
+  if (mark.dataSource) return null;
+  if (mark.type === 'scatter3d') {
+    if (!mark.x?.length) return 'a scatter3d mark needs `x`';
+    if (!mark.y?.length) return 'a scatter3d mark needs `y`';
+    if (!mark.z?.length) return 'a scatter3d mark needs `z`';
+    return null;
+  }
+  if (mark.type === 'surface') {
+    const matrix = mark.matrix?.filter((row) => Array.isArray(row) && row.length > 0) ?? [];
+    if (matrix.length >= 2 && Math.max(...matrix.map((row) => row.length)) >= 2) return null;
+    if ((mark.z?.length ?? 0) >= 4) return null;
+    return 'a surface mark needs a grid: `matrix`, or `x`/`y` plus a flat `z`';
+  }
+  return null;
+}
+
 /**
  * The drawability check for a raw block, before any data is fetched.
  *
@@ -80,12 +103,19 @@ export function chartBlockWarning(block: ChartBlock): string | null {
     if (block.panels.every((panel) => panel.marks.length === 0)) return 'the chart has no marks to draw';
     for (const [panelIndex, panel] of block.panels.entries()) {
       for (const mark of panel.marks) {
-        if (!CHART_MARKS.has(mark.type)) {
-          return `the renderer cannot draw a "${mark.type}" mark (panel ${panelIndex + 1})`;
+        // The contract PRESERVES an unsupported primitive (or `(missing)`).
+        // Name it instead of letting a fallback hide the mistake.
+        const markType = mark.type as string;
+        if (markType === '(missing)') {
+          return `a mark in panel ${panelIndex + 1} has no \`type\`; set it to one of: ${[...CHART_MARKS].join(', ')}`;
+        }
+        if (!CHART_MARKS.has(markType)) {
+          return `the renderer cannot draw a "${markType}" mark (panel ${panelIndex + 1}); a mark's primitive is its \`type\`, one of: ${[...CHART_MARKS].join(', ')}`;
         }
       }
     }
-    return null;
+    const plan = chartBlockToSpec(block);
+    return plan ? chartSpecWarning(plan.spec) : 'the chart has no drawable data (series, panels or a dataSource is required)';
   }
   const plan = chartBlockToSpec(block);
   if (!plan) return 'the chart has no drawable data (series, panels or a dataSource is required)';

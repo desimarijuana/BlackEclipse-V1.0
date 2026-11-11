@@ -252,6 +252,41 @@ async def test_schema_prompt_block_carries_exact_names_and_enums():
 
 
 @pytest.mark.asyncio
+async def test_schema_prompt_block_names_a_scene_mark_and_its_3d_fields():
+    from harness.response_tools import response_schema_prompt_block
+
+    bridge = _Bridge({
+        "status": "OK",
+        "blocks": [{
+            "type": "chart",
+            "fields": [
+                {"name": "chartType", "required": True, "kind": "enum(line|bar)"},
+                {
+                    "name": "panels", "required": False, "kind": "object[]",
+                    "itemFields": ["title", "marks"],
+                    "itemDetail": [{
+                        "name": "marks", "required": True, "kind": "object[]",
+                        "itemFields": ["type", "x", "y", "z", "matrix"],
+                        "itemDetail": [
+                            {"name": "type", "required": True,
+                             "kind": "enum(line|scatter3d|surface)"},
+                            {"name": "z", "required": False, "kind": "array"},
+                            {"name": "matrix", "required": False, "kind": "array"},
+                        ],
+                    }],
+                },
+            ],
+        }],
+    })
+    digest = await response_schema_prompt_block(bridge)
+    assert "panels?" in digest
+    assert "chart.panels.marks:" in digest
+    assert "chart.panels.marks.type:" in digest
+    assert "enum(line|scatter3d|surface)" in digest
+    assert "chart.panels.marks.z:" in digest
+
+
+@pytest.mark.asyncio
 async def test_schema_prompt_block_degrades_quietly():
     from harness.response_tools import response_schema_prompt_block
 

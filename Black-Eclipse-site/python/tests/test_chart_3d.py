@@ -64,6 +64,34 @@ def test_a_surface_carries_its_matrix():
     assert trace["x"] == [10, 20]
 
 
+def test_a_flat_z_grid_becomes_a_surface():
+    # What a model writes for an x-by-y sweep: x = 3 values, y = 3 values,
+    # z = the 9 readings in row-major order. It must become a real grid.
+    spec = ChartSpec(
+        kind="scene",
+        panels=[{
+            "marks": [{
+                "type": "surface", "name": "Sharpe",
+                "x": [5, 10, 15], "y": [20, 40, 60],
+                "z": [0.4, 0.5, 0.6, 0.5, 0.7, 0.8, 0.3, 0.6, 0.9],
+            }],
+        }],
+    )
+    trace = _figure(spec)["data"][0]
+    assert trace["type"] == "surface"
+    assert trace["z"] == [[0.4, 0.5, 0.6], [0.5, 0.7, 0.8], [0.3, 0.6, 0.9]]
+    assert trace["x"] == [5, 10, 15]
+    assert trace["y"] == [20, 40, 60]
+
+
+def test_a_surface_with_no_grid_is_not_drawn():
+    spec = ChartSpec(
+        kind="scene",
+        panels=[{"marks": [{"type": "surface", "z": [1]}]}],
+    )
+    assert _figure(spec)["data"] == []
+
+
 def test_a_flat_chart_has_no_scene():
     spec = ChartSpec(kind="line", categories=["a"], series=[{"name": "s", "data": [1]}])
     assert "scene" not in _figure(spec)["layout"]

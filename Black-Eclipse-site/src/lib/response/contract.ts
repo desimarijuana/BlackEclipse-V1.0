@@ -260,11 +260,13 @@ const chartSeriesSchema = z.object({
  * or a dual-axis chart is a COMPOSITION of the primitives, so the model can
  * draw any chart the user asks for without a new kind being invented for it.
  */
-const CHART_MARK_TYPES = [
+export const CHART_MARK_TYPES = [
   'line', 'area', 'bar', 'scatter', 'band', 'rule', 'label', 'box', 'violin',
   'histogram', 'errorbar', 'heatmap', 'pie', 'donut', 'candlestick', 'waterfall',
   'ridge', 'stem', 'treemap', 'sunburst', 'funnel', 'sankey',
-  // The 3D family: a point cloud, a surface.
+  // The 3D family: a point cloud, a surface. 3D is a MARK, not a top-level
+  // `chartType`: a surface needs a grid (`x` + `y` + `z`, or `matrix`) and a
+  // point cloud needs three vectors, neither of which the simple form carries.
   'scatter3d', 'surface',
   // The points, the least-squares line through them, and its R-squared.
   'regression',
@@ -299,8 +301,17 @@ const chartQuantSourceSchema = z.object({
 });
 
 const chartMarkSchema = z.object({
-  /** The mark's primitive. An UNKNOWN type falls back to `line`: one odd mark must never cost the reader every other panel. */
-  type: z.enum(CHART_MARK_TYPES).catch('line'),
+  /**
+   * The mark's primitive. An UNKNOWN type is preserved instead of being
+   * swallowed: one odd mark must never cost the reader every other panel, but
+   * validation and the UI must be able to NAME the primitive that was asked
+   * for (the drawability check refuses it) rather than drawing a quiet line.
+   * `(missing)` marks a mark with no `type` at all.
+   */
+  type: z.enum(CHART_MARK_TYPES).catch((ctx) => {
+    const raw = typeof ctx.input === 'string' ? ctx.input.trim() : '';
+    return (raw || '(missing)') as (typeof CHART_MARK_TYPES)[number];
+  }),
   name: shortString.optional(),
   /** The series to fetch instead of carrying the values. */
   dataSource: chartDataSourceSchema.optional(),

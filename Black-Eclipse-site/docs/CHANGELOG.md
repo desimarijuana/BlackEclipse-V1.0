@@ -1,5 +1,19 @@
 # Change Log
 
+## 2026-11-11
+- **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
+  unsupported mark is named, not silently drawn as a line.** The live
+  `response_block_schema` digest (and the injected prompt digest) now includes
+  the nested `panels[].marks[]` fields, so the 3D mark vocabulary
+  (`scatter3d`/`surface`, `z`, `matrix`) is visible instead of guessed; `kind`/
+  `markType` are normalized to the canonical mark `type`, and a 2D `z` is read
+  as the surface `matrix`. A `surface` now accepts the natural sweep shape
+  (`x` + `y` + flat row-major `z`) in both Plotly and the matplotlib fallback.
+  An unknown/missing mark primitive is preserved by the contract and reported
+  by name in `response_validate` and the chart surface instead of falling back
+  to an unrequested line. Docs updated: `docs/chart-engine.md`,
+  `docs/CHANGELOG.md`.
+
 ## 2026-11-10
 - **feat(desktop): keyboard tab reordering.** The tab strip could be reordered by
   dragging; it now also moves the ACTIVE tab with `Ctrl/Cmd+Shift+Home` (first),

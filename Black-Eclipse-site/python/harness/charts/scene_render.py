@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .regression import linear_fit
-from .scene import ChartMark, ChartPanel
+from .scene import ChartMark, ChartPanel, surface_grid
 from .theme import ChartTheme
 
 
@@ -244,15 +244,12 @@ def draw_mark(ax: Any, mark: ChartMark, theme: ChartTheme, index: int, panel: Ch
             import numpy as np  # noqa: PLC0415
         except Exception:  # noqa: BLE001
             return
-        matrix = [[float(v) for v in row] for row in (mark.matrix or []) if row]
-        if len(matrix) < 2 or len(matrix[0]) < 2:
+        grid = surface_grid(mark)
+        if grid is None:
             return
-        rows = min(len(matrix), len(mark.y) or len(matrix))
-        cols = min(len(matrix[0]), len(mark.x) or len(matrix[0]))
-        z = np.asarray([row[:cols] for row in matrix[:rows]])
-        xs = np.asarray([float(v) for v in mark.x[:cols]]) if mark.x else np.arange(cols)
-        ys = np.asarray([float(v) for v in mark.y[:rows]]) if mark.y else np.arange(rows)
-        grid_x, grid_y = np.meshgrid(xs, ys)
+        xs, ys, rows = grid
+        z = np.asarray(rows)
+        grid_x, grid_y = np.meshgrid(np.asarray(xs), np.asarray(ys))
         ax.plot_surface(grid_x, grid_y, z, cmap="viridis", alpha=alpha, label=mark.name)
         return
 

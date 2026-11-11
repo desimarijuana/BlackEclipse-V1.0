@@ -149,6 +149,41 @@ const CHART_TYPE_ALIASES: Record<string, string> = {
   scatter_fit: 'regression',
 };
 
+// A MARK primitive has the same synonyms as a chart kind (a candle mark is a
+// candlestick), plus the 3D spellings a producer reaches for. An unknown mark
+// primitive is NOT aliased away here: validation reports it by name.
+const CHART_MARK_TYPE_ALIASES: Record<string, string> = {
+  candles: 'candlestick',
+  candle: 'candlestick',
+  ohlc: 'candlestick',
+  bars: 'bar',
+  columns: 'bar',
+  points: 'scatter',
+  boxplot: 'box',
+  violinplot: 'violin',
+  linear: 'regression',
+  linear_regression: 'regression',
+  'linear regression': 'regression',
+  trend: 'regression',
+  trendline: 'regression',
+  trend_line: 'regression',
+  ols: 'regression',
+  fit: 'regression',
+  best_fit: 'regression',
+  scatter_fit: 'regression',
+  // The 3D family, under the spellings a person writes.
+  scatter_3d: 'scatter3d',
+  'scatter 3d': 'scatter3d',
+  scatter3_d: 'scatter3d',
+  points3d: 'scatter3d',
+  '3d_scatter': 'scatter3d',
+  surface3d: 'surface',
+  surface_3d: 'surface',
+  'surface 3d': 'surface',
+  '3d_surface': 'surface',
+  grid3d: 'surface',
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -520,6 +555,27 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
         next.marks = (panel.marks as unknown[]).map((mark) => {
           if (!isRecord(mark)) return mark;
           const m: Record<string, unknown> = { ...mark };
+          // A mark's primitive is `type`; a producer may spell it `kind` or
+          // `markType`. Recover the mark rather than losing it to the fallback.
+          if (m.type === undefined) {
+            const primitive = m.kind ?? m.markType ?? m.mark_type;
+            if (typeof primitive === 'string') m.type = primitive;
+          }
+          if (typeof m.type === 'string') {
+            const mapped = CHART_MARK_TYPE_ALIASES[m.type.trim().toLowerCase()];
+            if (mapped) m.type = mapped;
+          }
+          // A surface's grid may arrive as a 2D `z` (what a person writes)
+          // instead of `matrix`. Both mean the same grid.
+          if (
+            Array.isArray(m.z) &&
+            m.z.length > 0 &&
+            Array.isArray(m.z[0]) &&
+            m.matrix === undefined
+          ) {
+            m.matrix = m.z;
+            delete m.z;
+          }
           if (m.y !== undefined) m.y = normalizeChartPoints(m.y);
           if (m.data !== undefined) m.data = normalizeChartPoints(m.data);
           return m;

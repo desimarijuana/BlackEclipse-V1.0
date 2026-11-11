@@ -232,6 +232,9 @@ function sceneSpec(block: ChartBlock, options: ChartPlanOptions): ChartSpec {
     logScale: panel.logScale,
     height: panel.height,
     marks: panel.marks.map((mark) => ({
+      // An unsupported primitive is preserved by the contract (it is not
+      // silently rewritten to `line`), so the drawability check can refuse it
+      // by name instead of drawing a chart the producer never asked for.
       type: mark.type,
       name: mark.name,
       dataSource: mark.dataSource,

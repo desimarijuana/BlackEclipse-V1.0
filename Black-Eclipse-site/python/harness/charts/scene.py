@@ -16,6 +16,7 @@ invents a point, a value or a scale.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -155,6 +156,11 @@ class ChartMark(BaseModel):
             "linear": "regression", "linear_regression": "regression",
             "trend": "regression", "trendline": "regression", "ols": "regression",
             "fit": "regression",
+            # The 3D family, under the spellings a producer reaches for.
+            "scatter_3d": "scatter3d", "scatter 3d": "scatter3d",
+            "points3d": "scatter3d", "3d_scatter": "scatter3d",
+            "surface3d": "surface", "surface_3d": "surface",
+            "surface 3d": "surface", "3d_surface": "surface", "grid3d": "surface",
         }
         resolved = aliases.get(raw, raw)
         return resolved if resolved in MARK_TYPES else "line"
@@ -231,4 +237,53 @@ class ChartPanel(BaseModel):
     highlights: list[ChartHighlight] = Field(default_factory=list)
 
 
-__all__ = ["ChartMark", "ChartPanel", "MarkType"]
+def _axis(values: list[Any]) -> list[float]:
+    out: list[float] = []
+    for value in values or []:
+        try:
+            out.append(float(value))
+        except (TypeError, ValueError):
+            out.append(float("nan"))
+    return out
+
+
+def surface_grid(mark: ChartMark) -> Optional[tuple[list[float], list[float], list[list[float]]]]:
+    """The (x, y, z-rows) grid of a `surface` mark, or None.
+
+    Two shapes are accepted because both are natural ways to write a surface:
+
+    * `matrix` — the rows of z, with optional `x`/`y` axis vectors; and
+    * a FLAT `z` — what a model writes for an x-by-y parameter sweep
+      (`x` = 10 values, `y` = 10 values, `z` = 100 values). A flat z is
+      reshaped row-major (y-major), matching the order the sweep was written.
+    """
+    x = _axis(mark.x)
+    y = _axis(mark.y)
+    z = _axis(mark.z)
+
+    matrix = [[float(v) for v in row] for row in (mark.matrix or []) if row]
+    if len(matrix) >= 2:
+        cols = max(len(row) for row in matrix)
+        if cols >= 2:
+            rows = [
+                row + [float("nan")] * (cols - len(row)) for row in matrix
+            ]
+            xs = x[:cols] if len(x) >= cols else [float(i) for i in range(cols)]
+            ys = y[:len(rows)] if len(y) >= len(rows) else [float(i) for i in range(len(rows))]
+            return xs, ys, rows
+
+    if len(z) < 4:
+        return None
+    if x and y and len(x) * len(y) == len(z):
+        rows = [z[i * len(x):(i + 1) * len(x)] for i in range(len(y))]
+        return x, y, rows
+
+    side = math.isqrt(len(z))
+    if side >= 2 and side * side == len(z):
+        axis = [float(i) for i in range(side)]
+        rows = [z[i * side:(i + 1) * side] for i in range(side)]
+        return axis, axis, rows
+    return None
+
+
+__all__ = ["ChartMark", "ChartPanel", "MarkType", "surface_grid"]
