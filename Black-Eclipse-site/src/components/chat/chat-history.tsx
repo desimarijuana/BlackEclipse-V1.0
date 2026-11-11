@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy
 import { cn } from '@/lib/utils';
 import { Message, type MessageQuote } from '@/types/chat';
 import { boundQuote } from '@/lib/chat/quote';
+import { selectionGapFillers, type Filler } from '@/lib/chat/selection-band';
 import { QuoteCard } from './quote-card';
 import { Markdown } from './markdown';
 import { ResponseRuntimeProvider } from '@/components/response/figure-context';
@@ -114,12 +115,22 @@ const USER_MESSAGE_PREVIEW_CHARS = 800;
 
 /** The floating "Quote" chip anchored to a text selection. */
 interface SelectionAction {
+  /** Fixed-position chip anchor (the cursor for a pointer selection). */
   x: number;
   top: number;
+  /** No room above the anchor — draw the chip below it instead. */
+  below: boolean;
   text: string;
   messageId: string;
   role: 'user' | 'assistant';
   author?: string;
+  /**
+   * Empty bands between the selected lines, positioned relative to the
+   * quote-content wrapper (rendered BEHIND the prose, never over it). The
+   * native highlight only paints glyph boxes, so the transcript's line-height
+   * and block rhythm leave stripes that make a selection look broken.
+   */
+  fillers: Filler[];
 }
 
 /**
@@ -189,6 +200,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const rootRef = useRef<HTMLDivElement>(null);
+  // Wrapper around all messages; carries selection gap fillers behind the text.
+  const quoteContentRef = useRef<HTMLDivElement>(null);
   const avatars = useBotAvatarStore((s) => s.avatars);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -382,11 +395,21 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   // Selected-text quoting. Only selections inside a `[data-quotable-content]`
   // block count, so quoting an activity row, toolbar or attachment chip cannot
   // happen by accident. The chip is portaled to <body> so glass/backdrop and
-  // overflow clipping cannot hide it.
+  // overflow clipping cannot hide it, and it is anchored to the pointer (the
+  // cursor the user released on), not to the middle of a multi-line range — the
+  // old centre-top anchor covered prose and read as if it were behind it.
   useEffect(() => {
     if (!onQuote) return;
     const root = rootRef.current;
     if (!root) return;
+
+    // Keyboard selections have no pointer; fall back to the range's own box.
+    let pointer: { x: number; y: number } | null = null;
+    // Rough pill box used only for viewport clamping (the chip is translate-
+    // centred, so half a typical width is enough to keep it on screen).
+    const CHIP_HALF_W = 56;
+    const CHIP_H = 32;
+    const EDGE = 8;
 
     const readSelection = (): SelectionAction | null => {
       const selection = window.getSelection();
@@ -407,22 +430,61 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       if (!bounded.text) return null;
       const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return null;
+
+      // The chip follows the cursor HORIZONTALLY but always floats above the
+      // passage itself, so it never covers the text it is quoting.
+      const anchorX = pointer ? pointer.x : rect.left + rect.width / 2;
+      const x = Math.min(
+        Math.max(anchorX, EDGE + CHIP_HALF_W),
+        Math.max(EDGE + CHIP_HALF_W, window.innerWidth - EDGE - CHIP_HALF_W),
+      );
+      const above = rect.top - 10;
+      const below = above - CHIP_H < EDGE;
+      const top = below ? rect.bottom + 10 : above;
+
+      // Fillers live in the content wrapper's coordinate space so they scroll
+      // with the transcript and paint behind the prose (negative z-index).
+      const host = quoteContentRef.current;
+      const hostRect = host?.getBoundingClientRect();
+      const fillers = hostRect
+        ? selectionGapFillers(Array.from(range.getClientRects())).map((filler) => ({
+            left: filler.left - hostRect.left,
+            top: filler.top - hostRect.top,
+            width: filler.width,
+            height: filler.height,
+          }))
+        : [];
+
       return {
-        x: rect.left + rect.width / 2,
-        top: rect.top,
+        x,
+        top,
+        below,
         text: bounded.text,
         messageId,
         role: message.role,
         ...(message.author?.name ? { author: message.author.name } : {}),
+        fillers,
       };
     };
 
     const update = () => setSelectionAction(readSelection());
     const clear = () => setSelectionAction(null);
-    const onMouseUp = () => window.setTimeout(update, 0);
+    // A new gesture starts a new anchor; selectionchange during the drag uses
+    // the range, pointerup swaps to the release point.
+    const onPointerDown = () => { pointer = null; };
+    const onPointerUp = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      pointer = { x: event.clientX, y: event.clientY };
+      window.setTimeout(update, 0);
+    };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') clear();
-      else update();
+      if (event.key === 'Escape') {
+        clear();
+        return;
+      }
+      // Keyboard-grown selections are not cursor-anchored.
+      pointer = null;
+      update();
     };
     const onSelectionChange = () => {
       const selection = window.getSelection();
@@ -431,15 +493,19 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     };
     const onScroll = () => clear();
 
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointerup', onPointerUp);
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('selectionchange', onSelectionChange);
     window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
     return () => {
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('pointerup', onPointerUp);
       document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('selectionchange', onSelectionChange);
       window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
     };
   }, [onQuote]);
 
@@ -480,11 +546,26 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
         onScroll={onScroll}
         style={bottomInset ? { paddingBottom: bottomInset } : undefined}
         className={cn(
-          'h-full w-full overflow-y-auto min-h-0 scrollbar-hide',
-          compact ? 'space-y-3 p-3 pr-1.5' : 'px-4 md:px-6 pr-6 md:pr-5 space-y-6 pb-6',
+          'h-full w-full overflow-y-auto min-h-0 scrollbar-hide selection:bg-primary/30',
+          compact ? 'p-3 pr-1.5' : 'px-4 md:px-6 pr-6 md:pr-5 pb-6',
         )}
       >
-      <div className={compact ? 'space-y-3' : 'space-y-6'}>
+      <div ref={quoteContentRef} className="relative isolate">
+        {selectionAction?.fillers.length ? (
+          // Behind the prose: `-z-10` inside the isolated wrapper paints above
+          // the page surface but under every glyph, so the bands fill the
+          // rhythm without tinting or overlapping selected text.
+          <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+            {selectionAction.fillers.map((filler, i) => (
+              <span
+                key={i}
+                className="absolute rounded-[2px] bg-primary/30"
+                style={{ left: filler.left, top: filler.top, width: filler.width, height: filler.height }}
+              />
+            ))}
+          </div>
+        ) : null}
+        <div className={compact ? 'space-y-3' : 'space-y-6'}>
         {messages.map((msg) => {
           const working = msg.role === 'assistant' && msg.status != null && msg.status !== 'completed';
           const inCanvas = msg.role === 'assistant' && canvasMessageId != null && canvasMessageId === msg.id;
@@ -890,6 +971,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
             </div>
           );
         })}
+        </div>
       </div>
       </div>
 
@@ -918,7 +1000,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
         <button
           type="button"
           // Keep the selection alive while the button is pressed.
-          onMouseDown={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.preventDefault()}
           onClick={() => {
             if (!onQuote) return;
             onQuote({
@@ -932,10 +1014,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
           }}
           style={{
             position: 'fixed',
-            left: Math.min(Math.max(selectionAction.x, 64), window.innerWidth - 64),
-            top: Math.max(8, selectionAction.top - 38),
+            left: selectionAction.x,
+            top: selectionAction.top,
+            transform: selectionAction.below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
           }}
-          className="z-[130] flex items-center gap-1.5 rounded-full glass-tooltip px-3 py-1.5 text-[11px] font-medium text-foreground shadow-lg transition-colors hover:text-primary cursor-pointer animate-fade-in"
+          className="quote-chip z-[150] flex select-none items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-medium text-foreground shadow-lg transition-colors hover:text-primary cursor-pointer animate-fade-in"
           title="Quote this passage into your next message"
           aria-label="Quote selected text"
         >

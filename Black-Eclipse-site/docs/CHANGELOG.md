@@ -1,6 +1,20 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(chat): the selected-text Quote chip sits above the passage, follows the
+  cursor, and the selection highlight is continuous.** The chip was anchored to
+  the middle of a multi-line range and used a 0.5-alpha glass fill, so it covered
+  prose and the message text read through the pill; it now follows the release
+  point horizontally, floats above the selected block (flipping below only when
+  there is no room), uses the denser `.quote-chip` surface, and sits at
+  `z-[150]`. Empty bands between selected lines/paragraphs (the browser only
+  paints glyph boxes) are filled with the same `primary/30` accent via the new
+  pure `lib/chat/selection-band.ts` (band merge + gap fillers, tested); they
+  paint BEHIND the prose inside an isolated wrapper, so they never overlap or
+  tint the selected text. Also
+  handles touch/pen (`pointerup`), resets the anchor on a new gesture, and adds
+  `selection:bg-primary/30` on the transcript so the filler always matches.
+  No doc change — UX fix, contracts unchanged.
 - **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
   unsupported mark is named, not silently drawn as a line.** The live
   `response_block_schema` digest (and the injected prompt digest) now includes
