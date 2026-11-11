@@ -50,7 +50,14 @@ jobs:
 
       - name: Install dependencies (also vendors Python for the payload)
         working-directory: Black-Eclipse-site
-        run: npm ci
+        shell: bash
+        # `npm ci` alone runs the postinstall hook, which also does `npm link`-style
+        # global wiring and git-hook installation. Those are developer-machine
+        # concerns and can fail on a clean runner, so run only what packaging needs.
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+          node scripts/setup-python.js
 
       - name: Build the standalone payload
         working-directory: Black-Eclipse-site

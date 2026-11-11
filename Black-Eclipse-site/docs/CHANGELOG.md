@@ -1,6 +1,13 @@
 # Change Log
 
 ## 2026-11-10
+- **ci(desktop): install only what packaging needs on the runner.** The
+  `npm ci` postinstall hook also performs global link wiring and git-hook
+  installation — developer-machine concerns that can fail on a clean runner and
+  would break the release workflow before the payload is ever built. The workflow
+  now runs `npm ci --ignore-scripts` plus `prisma generate` and
+  `setup-python.js` explicitly. No app behaviour changed. Docs: no doc change —
+  CI-only.
 - **polish(setup): no star glyph, rail strictly behind the step discs, wider
   notice.** The Welcome step icon is a rocket (mode cards use a user and a
   briefcase) instead of the sparkle star the user rejected. The stepper
