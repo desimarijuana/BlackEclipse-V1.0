@@ -85,14 +85,11 @@ Section "Black Eclipse" SecMain
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
 !ifdef FULL
-  ; Offline edition: include every optional pack so the install works with no
-  ; network. The slim edition ships the same packs as separate downloads.
+  ; Offline edition: include whichever optional packs were built for this
+  ; platform. The list is generated at build time (a pack such as winsdk has no
+  ; Linux wheel), so NSIS does not hard-code it.
   SetOutPath "$INSTDIR\app\scripts\vendor\python\Lib\site-packages"
-  File /r "${PACKSDIR}\browser\site-packages\*"
-  File /r "${PACKSDIR}\ml\site-packages\*"
-  File /r "${PACKSDIR}\documents\site-packages\*"
-  File /r "${PACKSDIR}\computer\site-packages\*"
-  File /r "${PACKSDIR}\charts\site-packages\*"
+  !include "${PACKSINCLUDE}"
 !endif
 
   ; Start Menu

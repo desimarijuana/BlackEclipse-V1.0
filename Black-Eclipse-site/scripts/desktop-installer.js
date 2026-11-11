@@ -110,11 +110,19 @@ try {
 if (FULL) {
   const packsDir = path.join(DIST, "packs");
   const required = ["browser", "ml", "documents", "computer", "charts"];
-  const missing = required.filter((p) => !fs.existsSync(path.join(packsDir, p, "site-packages")));
-  if (missing.length) {
-    console.error(`Full installer needs every pack. Missing: ${missing.join(", ")}`);
+  const present = required.filter((p) => fs.existsSync(path.join(packsDir, p, "site-packages")));
+  const missing = required.filter((p) => !present.includes(p));
+
+  // A platform may legitimately lack a pack (winsdk has no Linux wheel), so the
+  // offline edition includes whatever exists instead of failing the whole build.
+  if (present.length === 0) {
+    console.error("Full installer needs at least one pack; none were built.");
     process.exit(4);
   }
+  if (missing.length) {
+    console.log(`  offline edition includes ${present.join(", ")}; skipping ${missing.join(", ")}`);
+  }
+
   try {
     fs.rmSync(PACKS_LINK, { recursive: false, force: true });
   } catch {}
@@ -123,6 +131,15 @@ if (FULL) {
   } catch (err) {
     console.error(`Could not create the short packs path ${PACKS_LINK}: ${err.message}`);
   }
+
+  // NSIS cannot loop over a list at compile time, so generate the File lines.
+  const includePath = path.join(DIST, "packs-include.nsi");
+  fs.writeFileSync(
+    includePath,
+    present
+      .map((p) => `  File /r "${PACKS_LINK}\\${p}\\site-packages\\*"`)
+      .join("\n") + "\n"
+  );
 }
 
 const defines = [
@@ -132,7 +149,11 @@ const defines = [
   `/DOUTFILE=${OUT_EXE}`,
 ];
 if (FULL) {
-  defines.push("/DFULL", `/DPACKSDIR=${PACKS_LINK}`);
+  defines.push(
+    "/DFULL",
+    `/DPACKSDIR=${PACKS_LINK}`,
+    `/DPACKSINCLUDE=${path.join(DIST, "packs-include.nsi")}`
+  );
 }
 
 const result = spawnSync(makensis, [...defines, NSI], { stdio: "inherit", cwd: ROOT });

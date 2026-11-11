@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(desktop): install Python requirements in CI, unblock apt, tolerate missing packs.**
+  Three failures from the matrix run, each with a distinct cause:
+  (1) the Windows payload was 503 MB instead of ~900 MB and the offline edition
+  refused to build because four packs were empty — `npm ci --ignore-scripts` skips
+  the postinstall that installs `python/requirements.txt`, so the packaged
+  interpreter had no packages. The workflow now runs `setup-python.js` after
+  provisioning the interpreter.
+  (2) `ubuntu-latest` hung for 30+ minutes in *Install Linux build dependencies*;
+  the apt step now sets `DEBIAN_FRONTEND=noninteractive` and a 15-minute timeout.
+  (3) the offline NSIS edition hard-coded all five packs, so a platform missing
+  one (winsdk has no Linux wheel) aborted the whole installer. The pack list is
+  now generated at build time and the edition includes whatever exists.
+  Docs: no doc change — CI/packaging fix.
 - **fix(desktop): macOS bundling no longer uses `codesign --deep`.** The matrix
   run reached the bundle step and failed with *"bundle format unrecognized,
   invalid, or unsuitable. In subcomponent: ... app/node_modules/next/dist/
