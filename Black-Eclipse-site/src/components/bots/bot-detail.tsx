@@ -110,7 +110,7 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
   const last = status?.lastExecution ?? null;
 
   return (
-    <div className="glass-card flex h-full min-h-0 flex-col rounded-2xl">
+    <div className="bots-text-scope glass-card flex h-full min-h-0 flex-col rounded-2xl">
       {/* Header */}
       <div className="flex items-start gap-3 border-b border-border/10 p-4">
         <button

@@ -188,7 +188,7 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
+    <div className="bots-text-scope flex h-full min-h-0 w-full flex-col">
       {(actionError || error) && (
         <div className="glass-card-subtle mx-2 mt-2 flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-sm text-rose-300 md:mx-3">
           <span className="flex-1">{actionError || error}</span>

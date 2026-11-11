@@ -14,6 +14,14 @@
   imports the harness, exercises the tool registry, executes a deterministic tool
   (`finance_calc` -> 25.0%) and reads the packaged database (59 tables).
   Version -> 0.3.4.
+- **feat(bots): per-bots text size + plain-language run-failure help.** The Bots
+  workspace (sidebar, conversation, details drawer) now has its own text-size
+  setting (90–150%), persisted in `be_bots_appearance_v1` and applied via the
+  scoped `--bots-font-scale` CSS variable — independent of the app-wide theme
+  text size. The run detail now explains the stable `errorClass` in plain
+  language (what failed, the concrete next step, whether the runtime retries
+  it) instead of only naming the class. No doc change — UI preference/copy only,
+  no architecture, data shape or setup contract changed.
 - **fix(shell): the front door is now resident, so stopping Eclipse can never
   show the browser's `ERR_CONNECTION_REFUSED` page.** The branded offline card
   only helped when a service worker was already installed; the real gap was that

@@ -18,6 +18,7 @@ import {
   type ExecutionView,
 } from '@/lib/harness/automation-browser';
 import { formatDateTime, formatDuration, formatRelative, isTerminalExecution } from '@/lib/bots/state';
+import { runErrorHelp } from '@/lib/bots/run-error-help';
 
 const POLL_MS = 4000;
 
@@ -180,6 +181,7 @@ function RunDetail({
   }
   const live = !isTerminalExecution(run.state);
   const events = run.events ?? [];
+  const help = runErrorHelp(run.errorClass);
 
   return (
     <div className="glass-card-subtle min-w-0 rounded-xl p-4">
@@ -223,7 +225,16 @@ function RunDetail({
       {run.errorClass && (
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3 py-2 text-xs text-rose-200">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 break-words">{run.errorClass}</span>
+          <span className="min-w-0 break-words">
+            <span className="font-semibold">{run.errorClass}</span>
+            {help ? <span className="mt-1 block text-rose-100/90">{help.what}</span> : null}
+            {help ? (
+              <span className="mt-1 block text-[11px] text-rose-100/70">
+                <span className="font-semibold">Next step: </span>{help.fix}
+                {help.retryable ? ' The runtime retries this class when the bot\'s retry policy allows it.' : ''}
+              </span>
+            ) : null}
+          </span>
         </div>
       )}
 

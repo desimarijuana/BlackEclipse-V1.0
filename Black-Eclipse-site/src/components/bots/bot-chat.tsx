@@ -40,6 +40,7 @@ import type { SessionFile } from '@/lib/chat/session-types';
 import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
+import { BotsTextSizeMenu } from '@/components/bots/bots-text-size';
 import { BreakerPill, LifecyclePill } from '@/components/bots/status-pill';
 import {
   pauseAutomation, resumeAutomation, updateAutomation,
@@ -688,6 +689,7 @@ export function BotChat({
             >
               <CalendarDays size={14} />
             </Button>
+            <BotsTextSizeMenu className="p-1.5" />
             <Button
               size="icon-sm"
               variant="ghost"

@@ -1970,3 +1970,37 @@ html:not(.dark) [data-aurora-glow] {
 .graph-canvas .react-flow__attribution {
   display: none;
 }
+
+/* ── Bots text size ─────────────────────────────────────────────────────────
+ * Scoped, opt-in scaling for the Bots workspace (conversation, sidebar list,
+ * details drawer). The control in the sidebar / chat header sets
+ * `--bots-font-scale` on <html>; these rules multiply each fixed size the bot
+ * surfaces use. Unlayered on purpose so they win over Tailwind's @layer
+ * utilities without !important, and they never leak into other screens. */
+.bots-text-scope {
+  font-size: calc(1rem * var(--bots-font-scale, 1));
+}
+.bots-text-scope :where(.text-xs) {
+  font-size: calc(0.75rem * var(--bots-font-scale, 1));
+  line-height: calc(1rem * var(--bots-font-scale, 1));
+}
+.bots-text-scope :where(.text-sm) {
+  font-size: calc(0.875rem * var(--bots-font-scale, 1));
+  line-height: calc(1.25rem * var(--bots-font-scale, 1));
+}
+.bots-text-scope :where(.text-base) {
+  font-size: calc(1rem * var(--bots-font-scale, 1));
+  line-height: calc(1.5rem * var(--bots-font-scale, 1));
+}
+.bots-text-scope :where(.text-lg) {
+  font-size: calc(1.125rem * var(--bots-font-scale, 1));
+  line-height: calc(1.75rem * var(--bots-font-scale, 1));
+}
+.bots-text-scope :where(.text-\[9px\]) { font-size: calc(9px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[10px\]) { font-size: calc(10px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[11px\]) { font-size: calc(11px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[12px\]) { font-size: calc(12px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[13px\]) { font-size: calc(13px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[14px\]) { font-size: calc(14px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[15px\]) { font-size: calc(15px * var(--bots-font-scale, 1)); }
+.bots-text-scope :where(.text-\[17px\]) { font-size: calc(17px * var(--bots-font-scale, 1)); }

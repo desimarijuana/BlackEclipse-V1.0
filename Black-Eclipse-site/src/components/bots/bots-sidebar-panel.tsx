@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { CalendarDays, Copy, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, Trash2, Users } from '@/lib/icons';
 import { BotAvatar } from '@/components/bots/bot-avatar';
+import { BotsTextSizeMenu } from '@/components/bots/bots-text-size';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -290,12 +291,13 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   }
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="bots-text-scope flex min-h-0 flex-col">
       <div className="mb-2 flex items-center justify-between gap-2 px-1">
         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {t('bots.title')} · {bots.length}
         </span>
         <div className="flex items-center gap-0.5">
+          <BotsTextSizeMenu />
           <button
             type="button"
             onClick={toggleScheduler}
