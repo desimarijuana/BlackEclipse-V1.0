@@ -386,6 +386,14 @@ fs.mkdirSync(path.join(OUT, "runtime"), { recursive: true });
 // binary. `--from-system` is a local shortcut for same-platform builds.
 ensureNode(path.join(OUT, "runtime"), { fromSystem: process.argv.includes("--from-system") });
 console.log(`  runtime/node${process.platform === "win32" ? ".exe" : ""}`);
+
+// 6b. Give the two runtime executables inside the install OUR identity. Windows
+// takes each process's Task Manager icon and display name from the executable it
+// runs, so an unbranded install shows "Node.js JavaScript Runtime" and "Python"
+// next to the app. Cosmetics only — the binaries behave identically.
+const { brandPackagedRuntime } = require("./brand-runtime");
+brandPackagedRuntime(OUT);
+
 fs.copyFileSync(SHELL, path.join(OUT, OUT_SHELL));
 try {
   fs.chmodSync(path.join(OUT, OUT_SHELL), 0o755);

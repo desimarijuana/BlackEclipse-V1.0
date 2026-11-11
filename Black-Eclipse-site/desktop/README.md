@@ -91,6 +91,7 @@ npm run desktop:server     # the bootstrap alone, in a terminal
 npm run desktop:selftest   # prove the OS-toast path end to end (fires a real toast)
 npm run desktop:payload    # standalone Next payload -> .next-desktop
 npm run desktop:package    # assemble dist/BlackEclipse (app + bundled Node + shell)
+npm run desktop:brand      # re-apply the Black Eclipse icon/name to the bundled runtimes
 npm run desktop:installer  # NSIS installer + SHA256SUMS + winget manifests
 ```
 
@@ -118,6 +119,27 @@ CI runs exactly this in `.github/workflows/desktop-release.yml` on a `v*` tag.
 Per-user is not a style choice: the app resolves `python/harness` and its
 `.black-eclipse` locks from `process.cwd()`, so the install directory must be
 writable. Program Files is not.
+
+### Task Manager identity
+
+Windows draws each process's icon and display name from the executable that
+process runs, so the install carries **two rebranded executables**:
+
+| File | Appears as |
+| --- | --- |
+| `Black Eclipse.exe` | Black Eclipse (Tauri embeds `icons/icon.ico`) |
+| `runtime\node.exe` | Black Eclipse Server (Node.js) |
+| `app\scripts\vendor\python\python.exe` | Black Eclipse Agent Runtime (Python) |
+
+`scripts/brand-runtime.js` rewrites the icon and the `VERSIONINFO` strings on the
+Node and Python copies at package time (`desktop:package` calls it; `desktop:brand`
+re-applies it to an existing `dist/BlackEclipse`). Behaviour is untouched — only
+the resources change. Upstream `node.exe`/`python.exe` are Authenticode-signed and
+editing invalidates those signatures; the install is unsigned anyway. A repository
+checkout (`desktop:dev`) uses the machine's own interpreters and is not branded.
+
+The `msedgewebview2.exe` helpers are the system WebView2 runtime; their icon is
+Microsoft's, not ours.
 
 ## Distribution
 
