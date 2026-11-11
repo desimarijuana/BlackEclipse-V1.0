@@ -45,10 +45,21 @@ const LOCK_TTL_MS = 90_000;
 // serves both so the attach/lock/identity logic is never duplicated.
 const STANDALONE = fs.existsSync(path.join(ROOT, "server.js"));
 
-const RUNTIME_DIR = path.join(ROOT, ".black-eclipse");
-const LOCK_FILE = path.join(RUNTIME_DIR, "desktop-server.lock");
-const GUARD_STAMP = path.join(RUNTIME_DIR, "db-guard.stamp");
-const GUARD_FAILED = path.join(RUNTIME_DIR, "db-guard.failed");
+// Runtime state (locks, stamps, logs) belongs beside the user's data, never in
+// the install directory: a system-wide .deb installs under /usr/lib, which is
+// root-owned, and a normal user cannot write there. The paths are resolved once
+// the data directory is known (see `setRuntimeDir`).
+let RUNTIME_DIR = null;
+let LOCK_FILE = null;
+let GUARD_STAMP = null;
+let GUARD_FAILED = null;
+
+function setRuntimeDir(dataDir) {
+  RUNTIME_DIR = path.join(dataDir, ".runtime");
+  LOCK_FILE = path.join(RUNTIME_DIR, "desktop-server.lock");
+  GUARD_STAMP = path.join(RUNTIME_DIR, "db-guard.stamp");
+  GUARD_FAILED = path.join(RUNTIME_DIR, "db-guard.failed");
+}
 
 function marker(kind, payload = "") {
   process.stdout.write(`@@BE:${kind}@@${payload}\n`);
@@ -467,6 +478,16 @@ async function waitForLive(timeoutMs) {
 async function main() {
   log(`root=${ROOT} host=${HOST} port=${PORT}`);
 
+  // Runtime state and the data directory are resolved first: the lock and the
+  // guard markers live beside the user data, not in the (possibly read-only)
+  // install directory.
+  const { dir: dataDir } = reportDataDir();
+  setRuntimeDir(dataDir);
+  fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+  process.env.BE_DESKTOP_RUNTIME = RUNTIME_DIR;
+  applySingleUserDefaults(dataDir);
+  seedFirstRunDatabase(dataDir);
+
   // 1. Is a server already there? If so, is it OURS? Identity is verified
   //    BEFORE attaching, because an existing process might be anything.
   const first = await classify(PORT);
@@ -556,9 +577,9 @@ async function main() {
   }
 
   // 4. Canonical data directory, resolved before any service starts.
-  const { dir: dataDir } = reportDataDir();
-  applySingleUserDefaults(dataDir);
-  seedFirstRunDatabase(dataDir);
+  //    (Done at the top of main: the lock and guard markers depend on it.)
+  setRuntimeDir(dataDir);
+  fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 
   if (!STANDALONE && needsBuild()) {
     marker("WARN", "Starting the last build — your source is newer. Run `npm run build` to refresh it.");

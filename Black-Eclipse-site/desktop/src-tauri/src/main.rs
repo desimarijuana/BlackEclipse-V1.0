@@ -238,6 +238,40 @@ fn log_line(line: &str) {
     }
 }
 
+/// Where user data lives, mirroring `scripts/desktop-server.js`. Used only when
+/// the install directory cannot be written to.
+fn data_fallback_dir(root: &std::path::Path) -> PathBuf {
+    if let Ok(dir) = std::env::var("BE_DATA_DIR") {
+        if !dir.trim().is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            return PathBuf::from(local).join("BlackEclipse").join("data");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join("Library/Application Support/BlackEclipse/data");
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            if !xdg.trim().is_empty() {
+                return PathBuf::from(xdg).join("BlackEclipse/data");
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(".local/share/BlackEclipse/data");
+        }
+    }
+    root.to_path_buf()
+}
+
 /// Locate the repository root by walking up from the executable and looking for
 /// the bootstrap script. Works for `target/debug`, `target/release` and a
 /// future packaged layout without any hard-coded depth.
@@ -1033,6 +1067,11 @@ fn build_window(app: &AppHandle, prefs: &Prefs) -> tauri::Result<WebviewWindow> 
         // minimize/maximize/close). The native title text/logo is gone; the
         // title stays for the taskbar and accessibility.
         .decorations(false)
+        // WebView2 replaces the page's HTML5 drag-and-drop handler with Tauri's
+        // own file-drop handler. That silently kills every `draggable` element
+        // in the app (tab reordering, workspace widgets, chart symbol drops).
+        // The app uses HTML5 DnD, never Tauri's DragDropEvent, so opt out.
+        .disable_drag_drop_handler()
         .initialization_script(INIT_SCRIPT);
 
     // A transparent window is what lets the acrylic/blur layer show through the
@@ -1151,8 +1190,23 @@ fn main() {
         }
     };
 
-    let runtime_dir = root.join(".black-eclipse");
-    let _ = fs::create_dir_all(&runtime_dir);
+    // Runtime state prefers the install directory (works for a per-user install
+    // and for a checkout) but falls back beside the user's data when the install
+    // is read-only — a system-wide .deb lives under /usr/lib, owned by root.
+    let mut runtime_dir = root.join(".black-eclipse");
+    if fs::create_dir_all(&runtime_dir).is_err() {
+        let fallback = data_fallback_dir(&root).join(".runtime");
+        match fs::create_dir_all(&fallback) {
+            Ok(()) => {
+                runtime_dir = fallback;
+                eprintln!(
+                    "[black-eclipse] install directory is not writable; runtime state goes to {}",
+                    runtime_dir.to_string_lossy()
+                );
+            }
+            Err(err) => eprintln!("[black-eclipse] no writable runtime directory: {err}"),
+        }
+    }
     let prefs_file = runtime_dir.join("desktop-prefs.json");
     let log_file = runtime_dir.join("desktop-native.log");
     std::env::set_var("BE_DESKTOP_LOG", &log_file);

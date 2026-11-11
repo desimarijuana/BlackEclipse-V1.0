@@ -1,6 +1,15 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(desktop): runtime state moves out of the install directory.** The Linux
+  smoke test launched the app from the installed `.deb` and it never served:
+  `/usr/lib/blackeclipse` is root-owned, so the bootstrap could not create its
+  lock/stamp directory and exited. Runtime state (locks, guard stamps, log) now
+  lives beside the user's data (`<data>/.runtime`), and the shell falls back to
+  the data directory when the install directory is not writable — which keeps a
+  per-user Windows install working exactly as before. The smoke test now reads
+  the shell log from that fallback location too. Verified: `cargo check` clean,
+  both scripts parse. Docs: no doc change — packaging fix.
 - **test(desktop): runtime smoke test in CI for all three platforms.** A build
   that compiles is not an app that runs, so `scripts/desktop-smoke.js` launches
   the packaged binary from its real layout, waits for the local server to answer

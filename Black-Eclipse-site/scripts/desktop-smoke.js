@@ -116,12 +116,28 @@ function killTree(pid) {
     .slice(-12);
 
   if (answered === null) {
-    console.error(`[smoke] FAIL — no answer after ${elapsed}s`);
-    if (interesting.length) {
-      console.error("[smoke] log:");
-      for (const line of interesting) console.error(`  ${line}`);
+    console.error(`[smoke] FAIL — no answer after ${elapsed}s (exit ${child.exitCode})`);
+
+    // The shell writes its own log, not to stdout. Try the install tree first,
+    // then the data directory (used when the install dir is read-only).
+    const candidates = [
+      path.join(path.dirname(BIN), "app", ".black-eclipse", "desktop-native.log"),
+      path.join(path.dirname(BIN), ".black-eclipse", "desktop-native.log"),
+      path.join(dataDir, ".runtime", "desktop-native.log"),
+    ];
+    const internalLog = candidates.find((p) => fs.existsSync(p));
+    if (internalLog) {
+      console.error(`[smoke] shell log ${internalLog}:`);
+      for (const line of fs.readFileSync(internalLog, "utf8").split("\n").slice(-15)) {
+        console.error(`  ${line}`);
+      }
     } else {
-      console.error("[smoke] log was empty — the binary probably exited immediately");
+      console.error(`[smoke] no shell log found in: ${candidates.join(", ")}`);
+    }
+
+    if (interesting.length) {
+      console.error("[smoke] captured output:");
+      for (const line of interesting) console.error(`  ${line}`);
     }
     process.exit(1);
   }
