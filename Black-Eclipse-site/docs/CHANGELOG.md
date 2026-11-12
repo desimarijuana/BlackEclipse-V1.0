@@ -15,6 +15,15 @@
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
+- **feat(eval): every scorecard dimension is now measured from runs (C8.7).**
+  `scorecard:from-runs` also consumes the conformance result, so all 8
+  dimensions carry a numeric metric with `{value, unit, direction, source,
+  runId, generatedAt}`: loop (reliability), context (tokens/task), aci
+  (tool accuracy), safety, ext (misroute rate), eval (task success), ops
+  (terminal correctness) and core_integrity (conformance pass ratio). The
+  curated labels, weights, targets and evidence paths are preserved; nothing is
+  hand-typed. Docs: `agent-evaluation.md`, roadmap. no other doc change - the
+  scorecard files are regenerated from runs.
 - **feat(eval): C8.2-C8.6 — external adapters, finance QA, comparability.**
   One `DatasetAdapter` protocol with four offline fixtures (SWE-bench Lite,
   GAIA, tau-bench, FinanceBench), each two license-labelled, provenance-tagged

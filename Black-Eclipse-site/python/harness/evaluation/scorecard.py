@@ -41,6 +41,7 @@ def _metric(
 
 def _measurements(
     suite: Any, release: Optional[dict[str, Any]], generated_at: str,
+    conformance: Optional[dict[str, Any]] = None,
 ) -> dict[str, dict[str, Any]]:
     run_id = str(getattr(suite, "run_id", "") or "") or None
     source = "python -m harness.evaluation"
@@ -49,6 +50,14 @@ def _measurements(
     if task_success is not None:
         measured["eval"] = _metric(task_success, unit="ratio", direction="higher",
                                    source=source, run_id=run_id, generated_at=generated_at)
+    reliability = _aggregate(suite, "reliability")
+    if reliability is not None:
+        measured["loop"] = _metric(reliability, unit="ratio", direction="higher",
+                                   source=source, run_id=run_id, generated_at=generated_at)
+    token_usage = _aggregate(suite, "token_usage")
+    if token_usage is not None:
+        measured["context"] = _metric(token_usage, unit="tokens/task", direction="lower",
+                                      source=source, run_id=run_id, generated_at=generated_at)
     tool_accuracy = _aggregate(suite, "tool_accuracy")
     if tool_accuracy is not None:
         measured["aci"] = _metric(tool_accuracy, unit="ratio", direction="higher",
@@ -72,6 +81,14 @@ def _measurements(
                 source="GET /observability/release-report (or C7 probe)",
                 run_id=run_id, generated_at=generated_at,
             )
+    if conformance:
+        total = int(conformance.get("total") or 0)
+        passed = int(conformance.get("passed") or 0)
+        if total:
+            measured["core_integrity"] = _metric(
+                passed / total, unit="ratio", direction="higher",
+                source="npm run gate:conformance", run_id=run_id, generated_at=generated_at,
+            )
     return measured
 
 
@@ -80,13 +97,14 @@ def regenerate(
     *,
     suite: Any,
     release: Optional[dict[str, Any]] = None,
+    conformance: Optional[dict[str, Any]] = None,
     generated_at: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return a scorecard with run-derived metrics; never invents a value."""
     stamp = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     result = copy.deepcopy(base)
     result["generated"] = stamp
-    measurements = _measurements(suite, release, stamp)
+    measurements = _measurements(suite, release, stamp, conformance)
     for dimension in result.get("dimensions") or []:
         metric = measurements.get(str(dimension.get("id")))
         if metric is None:

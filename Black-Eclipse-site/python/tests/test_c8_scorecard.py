@@ -11,18 +11,40 @@ def _base() -> dict:
     return {
         "generated": "old",
         "dimensions": [
+            {"id": "loop", "label": "Loop", "status": "partial", "evidence": ["l"], "note": "old"},
             {"id": "eval", "label": "Evaluation", "status": "partial", "evidence": ["a"], "note": "old"},
             {"id": "aci", "label": "Tool contract", "status": "partial", "evidence": ["b"], "note": "old"},
             {"id": "safety", "label": "Safety", "status": "partial", "evidence": ["c"], "note": "old"},
             {"id": "ext", "label": "Extension", "status": "partial", "evidence": ["d"], "note": "old"},
             {"id": "ops", "label": "Ops", "status": "unmeasured", "evidence": [], "note": "old"},
             {"id": "context", "label": "Context", "status": "partial", "evidence": ["e"], "note": "old"},
+            {"id": "core_integrity", "label": "Core", "status": "partial", "evidence": ["f"], "note": "old"},
         ],
     }
 
 
 def _suite(**aggregates):
     return SimpleNamespace(run_id="run_c85", aggregates=aggregates)
+
+
+def test_loop_and_context_are_measured_from_the_suite():
+    result = regenerate(
+        _base(), suite=_suite(reliability=0.99, token_usage=1200.0), generated_at="t",
+    )
+    by_id = {d["id"]: d for d in result["dimensions"]}
+    assert by_id["loop"]["metric"]["value"] == 0.99
+    assert by_id["context"]["metric"]["value"] == 1200.0
+    assert by_id["context"]["metric"]["direction"] == "lower"
+
+
+def test_conformance_measures_core_integrity():
+    result = regenerate(
+        _base(), suite=_suite(), conformance={"total": 12, "passed": 12}, generated_at="t",
+    )
+    by_id = {d["id"]: d for d in result["dimensions"]}
+    assert by_id["core_integrity"]["status"] == "measured"
+    assert by_id["core_integrity"]["metric"]["value"] == 1.0
+    assert by_id["core_integrity"]["metric"]["source"] == "npm run gate:conformance"
 
 
 def test_measured_dimensions_get_a_sourced_metric():

@@ -24,6 +24,7 @@ DEFAULT_OUT = ROOT / "docs" / "harness" / "scorecard.json"
 
 from harness.evaluation.gate import run_offline_gate  # noqa: E402
 from harness.evaluation.scorecard import regenerate  # noqa: E402
+from harness.evaluation.conformance import run_conformance  # noqa: E402
 from harness.observability.probe import run_probe  # noqa: E402
 
 
@@ -37,7 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     base = json.loads(args.base.read_text(encoding="utf-8"))
     suite = run_offline_gate()
     release = run_probe(runs=20)
-    generated = regenerate(base, suite=suite, release=release)
+    conformance = run_conformance().to_dict()
+    generated = regenerate(base, suite=suite, release=release, conformance=conformance)
     args.out.write_text(json.dumps(generated, indent=2) + "\n", encoding="utf-8")
     measured = [d["id"] for d in generated["dimensions"] if d.get("status") == "measured"]
     print(f"[scorecard] wrote {args.out} — measured: {', '.join(measured)}")

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-12T04:46:34Z",
+  "generated": "2026-11-12T16:21:40Z",
   "note": "This file is the evidence ledger behind the harness scorecard. `status: measured` requires a metric and at least one runnable evidence path; `partial` and `unmeasured` are deliberate, honest states. The Round 4 target is 9.5 per dimension; do not put a number here that a gate cannot reproduce.",
   "dimensions": [
     {
@@ -7,7 +7,7 @@
       "label": "Loop correctness & resilience",
       "weight": 20,
       "target": 9.5,
-      "status": "partial",
+      "status": "measured",
       "evidence": [
         "python/tests/test_step_retry.py",
         "python/tests/test_execution_registry.py",
@@ -15,14 +15,22 @@
         "python/tests/test_service_background_parity.py",
         "python/tests/test_run_resume.py"
       ],
-      "note": "Retry, run deadline, foreground registration and resume are covered. A terminal-correctness fault matrix (kill -9 at every state, duplicate side effects) is still missing."
+      "note": "Retry, run deadline, foreground registration and resume are covered. A terminal-correctness fault matrix (kill -9 at every state, duplicate side effects) is still missing. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
+      "metric": {
+        "value": 1.0,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
     },
     {
       "id": "context",
       "label": "Context & tool economics",
       "weight": 18,
       "target": 9.5,
-      "status": "partial",
+      "status": "measured",
       "evidence": [
         "python/tests/test_context_budget.py",
         "python/tests/test_context_overflow.py",
@@ -33,7 +41,15 @@
         "python/tests/test_tool_surface.py",
         "python/tests/test_code_mode.py"
       ],
-      "note": "C3 done: measured request/window budgeting + provider usage and always-on deterministic compaction (pre-existing), full-output handle/pager, discovery (tool_search / read-only tool_invoke / opt-in lazy surface), and sandboxed read-only code mode (HARNESS_CODE_MODE=1)."
+      "note": "C3 done: measured request/window budgeting + provider usage and always-on deterministic compaction (pre-existing), full-output handle/pager, discovery (tool_search / read-only tool_invoke / opt-in lazy surface), and sandboxed read-only code mode (HARNESS_CODE_MODE=1). Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
+      "metric": {
+        "value": 0.0,
+        "unit": "tokens/task",
+        "direction": "lower",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
     },
     {
       "id": "aci",
@@ -46,14 +62,14 @@
         "python/tests/test_tool_contracts.py",
         "python/tests/test_surface_honesty.py"
       ],
-      "note": "The one execute seam, schema admission and context isolation are tested. A <=50-tool lazy surface is not implemented. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source.",
+      "note": "The one execute seam, schema admission and context isolation are tested. A <=50-tool lazy surface is not implemented. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
       "metric": {
         "value": 0.97124,
         "unit": "ratio",
         "direction": "higher",
         "source": "python -m harness.evaluation",
-        "runId": "evalrun-1794458722667",
-        "generatedAt": "2026-11-12T04:46:34Z"
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
       }
     },
     {
@@ -68,14 +84,14 @@
         "python/tests/test_tool_contracts.py",
         "python/tests/test_finance_guardrails.py"
       ],
-      "note": "Authorization, approvals and money guardrails are tested. OS-enforced sandbox profiles (C6) are not implemented. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source.",
+      "note": "Authorization, approvals and money guardrails are tested. OS-enforced sandbox profiles (C6) are not implemented. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
       "metric": {
         "value": 1.0,
         "unit": "ratio",
         "direction": "higher",
         "source": "python -m harness.evaluation",
-        "runId": "evalrun-1794458722667",
-        "generatedAt": "2026-11-12T04:46:34Z"
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
       }
     },
     {
@@ -90,14 +106,14 @@
         "python/tests/test_skills_registry.py",
         "python/tests/test_skills_runtime.py"
       ],
-      "note": "MCP and skills are covered. A versioned public plugin SDK (C9) is not implemented. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source.",
+      "note": "MCP and skills are covered. A versioned public plugin SDK (C9) is not implemented. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
       "metric": {
         "value": 0.0,
         "unit": "rate",
         "direction": "lower",
         "source": "deterministic routing benchmark",
-        "runId": "evalrun-1794458722667",
-        "generatedAt": "2026-11-12T04:46:34Z"
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
       }
     },
     {
@@ -112,14 +128,14 @@
         "python/tests/test_evaluation_regression.py",
         "python/tests/test_published_benchmarks.py"
       ],
-      "note": "The corpus and scoring exist. No external suite (SWE-bench/GAIA/tau-bench) adapter is implemented (C8). Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source.",
+      "note": "The corpus and scoring exist. No external suite (SWE-bench/GAIA/tau-bench) adapter is implemented (C8). Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
       "metric": {
-        "value": 0.996933,
+        "value": 0.997015,
         "unit": "ratio",
         "direction": "higher",
         "source": "python -m harness.evaluation",
-        "runId": "evalrun-1794458722667",
-        "generatedAt": "2026-11-12T04:46:34Z"
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
       }
     },
     {
@@ -133,8 +149,8 @@
         "unit": "ratio",
         "direction": "higher",
         "source": "GET /observability/release-report (or C7 probe)",
-        "runId": "evalrun-1794458722667",
-        "generatedAt": "2026-11-12T04:46:34Z"
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
       },
       "evidence": [
         "python/tests/test_c7_spans.py",
@@ -144,14 +160,14 @@
         "scripts/slo-gate.js",
         "docs/harness/slo-budgets.json"
       ],
-      "note": "C7: run/step/tool spans, failure taxonomy, run/step cost, USE sampling, SLO v2 (terminal correctness, p95 latency, resume p95, orphan rate, cost/task), a deterministic release gate wired into CI, and a per-SLO dashboard. Delivery (tag/PyPI) remains C9. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source."
+      "note": "C7: run/step/tool spans, failure taxonomy, run/step cost, USE sampling, SLO v2 (terminal correctness, p95 latency, resume p95, orphan rate, cost/task), a deterministic release gate wired into CI, and a per-SLO dashboard. Delivery (tag/PyPI) remains C9. Metric generated from run evalrun-1794458722667 at 2026-11-12T04:46:34Z; every measured dimension must carry a source. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source."
     },
     {
       "id": "core_integrity",
       "label": "Round 5 core integrity",
       "weight": 0,
       "target": "C1/C2-core",
-      "status": "partial",
+      "status": "measured",
       "evidence": [
         "python/tests/test_step_retry.py",
         "python/tests/test_execution_registry.py",
@@ -193,7 +209,15 @@
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
-      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor), C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn), C6 (auth-by-default outside loopback, sandbox profiles enforced at the gateway and terminal/computer executors, native bubblewrap/Seatbelt/AppContainer backends, per-call effect tokens, escape suite, Ed25519/HMAC plugin install signature/review) and C7 (run/step/tool spans, failure taxonomy, run/step cost, USE, SLO v2, release gate, dashboard) shipped. A human plugin-review UI, external evals and release (C8-C9) remain."
+      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor), C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn), C6 (auth-by-default outside loopback, sandbox profiles enforced at the gateway and terminal/computer executors, native bubblewrap/Seatbelt/AppContainer backends, per-call effect tokens, escape suite, Ed25519/HMAC plugin install signature/review) and C7 (run/step/tool spans, failure taxonomy, run/step cost, USE, SLO v2, release gate, dashboard) shipped. A human plugin-review UI, external evals and release (C8-C9) remain. Metric generated from run evalrun-1794500350279 at 2026-11-12T16:21:40Z; every measured dimension must carry a source.",
+      "metric": {
+        "value": 1.0,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "npm run gate:conformance",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
     }
   ]
 }
