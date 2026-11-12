@@ -15,6 +15,17 @@
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
+- **feat(release): C9 core — versioned API, wheel, ACP, core architecture.**
+  `harness.__version__`, `harness.public.HARNESS_API_VERSION`,
+  `package.json` and `pyproject.toml` are aligned at 0.4.0 and checked by
+  `npm run release:check`; `npm run package:python` builds the wheel (pip
+  fallback) and the installed wheel was smoke-tested (1091 tools, conformance
+  11/11 quick, ACP self-test). A minimal JSON-RPC 2.0 ACP adapter
+  (`initialize`, `session/new`, `session/prompt`, `session/cancel`, `shutdown`,
+  typed errors) lives in `harness/acp/`. `core-architecture.md` states the five
+  "ones" and the invariants; `external-quickstart.md` and `release.md` document
+  install, proof and the operator tag/publish steps. ADR-H359. Tag + PyPI upload
+  remain operator steps (credentials never in the repo).
 - **feat(eval): every scorecard dimension is now measured from runs (C8.7).**
   `scorecard:from-runs` also consumes the conformance result, so all 8
   dimensions carry a numeric metric with `{value, unit, direction, source,

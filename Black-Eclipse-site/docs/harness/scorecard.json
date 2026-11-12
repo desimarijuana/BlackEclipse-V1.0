@@ -206,6 +206,7 @@
         "python/tests/test_c8_finance_qa.py",
         "python/tests/test_c8_compare.py",
         "python/tests/test_c8_offline_tier.py",
+        "python/tests/test_c9_acp.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],

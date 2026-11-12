@@ -39,6 +39,10 @@ from .schemas import ModelSettings, RunInput, RunRequest, RunResult
 from .service import AgenticService
 from .tools import ToolDefinition, ToolRegistry
 
+#: The version of the declared public API surface (see `__all__`). It changes
+#: only when the shape changes; the package version is `harness.__version__`.
+HARNESS_API_VERSION = "1.0.0"
+
 #: The manifest version. A consumer can rely on the SHAPE, and this changes
 # only when the shape changes.
 TOOL_MANIFEST_VERSION = "1"
@@ -110,6 +114,7 @@ def _default_registry() -> ToolRegistry:
 
 __all__ = [
     "AgenticService",
+    "HARNESS_API_VERSION",
     "ModelSettings",
     "PUBLISHABLE_EFFECTS",
     "RunInput",

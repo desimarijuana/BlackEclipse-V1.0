@@ -42,6 +42,7 @@ def test_the_public_surface_is_exactly_what_it_declares() -> None:
 
     assert sorted(public.__all__) == [
         "AgenticService",
+        "HARNESS_API_VERSION",
         "ModelSettings",
         "PUBLISHABLE_EFFECTS",
         "RunInput",

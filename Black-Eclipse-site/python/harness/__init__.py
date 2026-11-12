@@ -13,4 +13,8 @@ Layers:
     main.py      FastAPI app (run / cancel / models / health)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
+
+#: The declared PUBLIC API surface version (harness.public). It changes only
+#: when the exported shape changes, independent of the package version.
+HARNESS_API_VERSION = "1.0.0"

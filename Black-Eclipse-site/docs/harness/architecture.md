@@ -6,6 +6,10 @@ last-verified: 2026-11-11
 
 # Harness Architecture
 
+> **Core invariants:** `docs/harness/core-architecture.md` is authoritative for
+> the five "ones" and the loop/safety/observability invariants. This file
+> explains the subsystems; start there.
+
 **Who this is for:** anyone extending BlackEclipse's agentic layer — adding an
 agent, a tool, a model provider, or a front-door surface.
 

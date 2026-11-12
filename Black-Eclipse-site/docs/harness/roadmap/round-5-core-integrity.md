@@ -1,6 +1,6 @@
 ---
 title: Round 5 - Core Integrity (a world-class general harness)
-status: In progress (C0-C8 shipped 2026-11-12; C9 open)
+status: In progress (C0-C8 shipped 2026-11-12; C9 core shipped, tag/publish pending)
 last-verified: 2026-11-11
 depends_on: rounds 1-4, docs/harness/architecture.md, docs/harness/execution-fabric.md
 ---
@@ -56,7 +56,7 @@ one tool contract, one policy seam, plus the tests that prove it.
 | C6 safety envelope | **Shipped** | auth-by-default outside loopback; `SandboxProfile` resolver + gateway/executor enforcement (terminal, background, computer); native bubblewrap/Seatbelt/AppContainer; per-call effect tokens; escape suite; Ed25519/HMAC plugin install signing + review. Follow-up: human review UI. |
 | C7 observability | **Shipped** | run→step→tool/LLM spans; closed failure taxonomy; run/step cost; process USE; SLO v2 (ratio/percentile/rate: terminal correctness, p95 latency, resume p95, orphan rate, cost/task); `gate:slo` release gate wired into CI; SLO dashboard. |
 | C8 evaluation | **Shipped** | conformance gate; generated scorecard (8/8 dimensions measured from runs); real-graph offline tier; finance QA corpus; four external adapter fixtures + offline gate; release comparability. Follow-ups: full kill-at-every-state matrix, real external dataset runs in an opt-in lane. |
-| C9 | **Not started** | - |
+| C9 | **In progress** | shipped: aligned `0.4.0` package/API versions, release check/package scripts, wheel install smoke, minimal tested ACP adapter, core-architecture + quickstart/release docs. Remaining: tag + PyPI upload (operator credentials), broader ACP methods. |
 
 The remainder is the plan below; nothing in it is claimed as done.
 

@@ -1,6 +1,6 @@
 {
   "name": "black-eclipse",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "private": true,
   "license": "MIT",
   "bin": {
@@ -65,6 +65,8 @@
     "gate:slo": "node scripts/slo-gate.js",
     "gate:conformance": "node scripts/conformance-gate.js",
     "gate:external": "node scripts/external-gate.js",
+    "release:check": "node scripts/release-check.js",
+    "package:python": "node scripts/package-python.js",
     "check:secrets": "node scripts/scan-secrets.js",
     "self:maintenance": "node scripts/self-maintenance.js",
     "vault:plan": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-data-vault.ps1 -DryRun",

@@ -11576,3 +11576,26 @@ dataset/checksum/tier. The finance QA corpus (`finance_qa_v1`) is the internal
 counterpart: deterministic numbers, recomputed by the financial grader, plus an
 explicit unavailable-figure task. The offline tier is already the real graph
 (`ScriptedAgentInvoker` calls `execute_run`); only the model is scripted.
+
+## ADR-H359 - The public surface is versioned; ACP is a wire adapter
+
+**Decision.** The package version (`harness.__version__`) and the public API
+surface version (`harness.public.HARNESS_API_VERSION`) are declared and checked
+together by `npm run release:check`; `pyproject.toml`, `package.json` and the
+package must agree. The wheel is built from `pyproject.toml` and carries only the
+runtime (no data/vault/DB). ACP is a small JSON-RPC 2.0 stdio adapter
+(`harness/acp/`) over the existing runtime: `initialize`, `session/new`,
+`session/prompt`, `session/cancel`, `shutdown`; unsupported methods are typed
+errors. It is a wire surface, never a second loop.
+
+**Why.** C9 needs an external consumer to depend on a declared surface and to
+install the runtime without this repository. Four version fields drifting (the
+package was 0.3.4, the wheel 0.2.1-rc.1, the harness 0.1.0) is a release bug, not
+a cosmetic one. ACP was only a name in the roadmap; a minimal, tested adapter is
+better than a claim.
+
+**Consequences.** Version bumps are one operation checked by a gate. The wheel
+install smoke and the installed conformance/ACP self-test are the release
+evidence. The ACP surface is intentionally minimal; broader methods remain a
+follow-up. Tagging and PyPI upload are operator steps (credentials never live in
+the repo).
