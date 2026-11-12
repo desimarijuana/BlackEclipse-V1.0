@@ -21,6 +21,8 @@ export interface RiskAcknowledgement {
 export interface RiskAckStatus {
   requiredVersion: string;
   acceptedVersion?: string;
+  /** When the CURRENT version was accepted; absent for a stale acceptance. */
+  acceptedAt?: string;
   accepted: boolean;
 }
 
@@ -56,10 +58,12 @@ export async function readRiskAcknowledgement(): Promise<RiskAcknowledgement | n
  */
 export async function riskAcknowledgementStatus(): Promise<RiskAckStatus> {
   const ack = await readRiskAcknowledgement();
+  const current = ack?.version === RISK_DISCLOSURE_VERSION;
   return {
     requiredVersion: RISK_DISCLOSURE_VERSION,
     acceptedVersion: ack?.version,
-    accepted: ack?.version === RISK_DISCLOSURE_VERSION,
+    acceptedAt: current ? ack?.acceptedAt : undefined,
+    accepted: current,
   };
 }
 

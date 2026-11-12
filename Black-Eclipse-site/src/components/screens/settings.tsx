@@ -34,6 +34,7 @@ import { TradingSettingsPanel } from "./trading-settings";
 import { ConnectionsSettingsPanel } from "./connections-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
+import { RiskAiSettingsPanel } from "./risk-ai-settings";
 import { Panel, SectionHeader, SubSection } from "./settings-ui";
 import { IconBadge } from "@/components/layout/page-header";
 import { SoundSettingsPanel } from "./sound-settings";
@@ -192,13 +193,13 @@ let settingsCache: SettingsSnapshot | null = readCachedSnapshot();
 export type SectionId =
   | "general" | "persona" | "sound" | "voice" | "ai" | "agents" | "investor-eye" | "economics" | "market" | "news"
   | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security"
-  | "money-guardrails" | "connections" | "trading";
+  | "money-guardrails" | "connections" | "trading" | "risk";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
   "general", "persona", "sound", "voice", "ai", "agents", "investor-eye", "economics", "market", "news",
   "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security",
-  "money-guardrails", "connections", "trading",
+  "money-guardrails", "connections", "trading", "risk",
 ] as const;
 
 /**
@@ -499,6 +500,7 @@ export function Settings({
     { id: "security", label: "Security", desc: "Approvals, capabilities & audit", icon: ShieldCheck, group: "System", terms: ["security", "approvals", "permissions", "capabilities", "audit", "floor", "policy", "network", "secrets", "sandbox", "gateway"] },
     { id: "money-guardrails", label: "Money Guardrails", desc: "Scam, impaired, crisis & limits", icon: Wallet, group: "System", terms: ["money", "guardrails", "scam", "coercion", "fraud", "impaired", "crisis", "panic", "pause", "spend", "limit", "velocity", "transfer", "withdraw", "payment", "confirm"] },
     { id: "trading", label: "Broker connection", desc: "MetaTrader 5 broker & execution", icon: Handshake, group: "System", terms: ["trading", "broker", "connection", "mt5", "metatrader", "forex", "cfd", "account", "positions", "orders", "live", "demo", "arm", "kill", "sync", "fills"] },
+    { id: "risk", label: "Risk & AI", desc: "Not advice, agent limits & acknowledgment", icon: ShieldCheck, group: "System", terms: ["risk", "disclaimer", "advice", "ai", "agent", "acknowledgement", "terms", "legal", "responsibility", "trading", "loss"] },
     { id: "system", label: "System", desc: "Health & integrations", icon: Cpu, group: "System", terms: ["system", "health", "database", "jdds", "integrations", "status", "diagnostics"] },
   ];
 
@@ -1024,6 +1026,7 @@ export function Settings({
             {section === "security" && <SecuritySettingsPanel />}
             {section === "money-guardrails" && <MoneyGuardrailsSettings />}
             {section === "trading" && <TradingSettingsPanel />}
+            {section === "risk" && <RiskAiSettingsPanel />}
             {section === "connections" && <ConnectionsSettingsPanel />}
             {section === "system" && (
               <div className="animate-fade-in-up">

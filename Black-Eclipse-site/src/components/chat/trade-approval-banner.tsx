@@ -24,6 +24,7 @@ import {
   type OrderIntent,
   type TradeApproval,
 } from '@/lib/harness/clients/trading-client';
+import { ORDER_PREVIEW_NOTICE, TRADE_RESPONSIBILITY_LABEL } from '@/lib/legal/disclosure';
 
 const POLL_MS = 6000;
 const LIVE_ORDER_STATUSES = new Set(['pending', 'approved']);
@@ -237,6 +238,9 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
                 <p className="mt-1 text-[12.5px] font-semibold text-foreground">
                   {approval.actionSummary || 'Order awaiting confirmation'}
                 </p>
+                <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground/80">
+                  {ORDER_PREVIEW_NOTICE}
+                </p>
                 {error?.id === approval.id && (
                   <p className="mt-1 text-[11px] leading-relaxed text-rose-300">{error.message}</p>
                 )}
@@ -264,8 +268,7 @@ export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}
                     }
                   />
                   <span>
-                    I understand this order is my decision and my responsibility, and I verified
-                    it with my broker.
+                    {TRADE_RESPONSIBILITY_LABEL}
                   </span>
                 </label>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">

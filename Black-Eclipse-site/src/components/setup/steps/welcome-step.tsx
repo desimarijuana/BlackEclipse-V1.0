@@ -4,7 +4,7 @@ import { Briefcase, Check, User } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { SetupBundleRow, SetupDraft, SetupState } from "../types";
 import { bundleHighlights } from "@/lib/setup/bundles";
-import { RISK_ACK_LABEL, RISK_DISCLOSURE_FULL } from "@/lib/legal/disclosure";
+import { RISK_ACK_LABEL, RESPONSIBILITY_SHORT, RISK_DISCLOSURE_FULL } from "@/lib/legal/disclosure";
 
 export function WelcomeStep({
   state,
@@ -137,6 +137,9 @@ export function WelcomeStep({
           <span className="min-w-0">
             <span className="block text-[12px] font-semibold text-foreground">
               Before you start
+            </span>
+            <span className="mt-0.5 block text-[11.5px] font-medium text-foreground">
+              {RESPONSIBILITY_SHORT}
             </span>
             <span className="mt-0.5 block text-[11.5px] leading-relaxed text-muted-foreground">
               {RISK_ACK_LABEL}

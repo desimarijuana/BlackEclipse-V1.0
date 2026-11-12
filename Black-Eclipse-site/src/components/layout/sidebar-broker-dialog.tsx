@@ -45,6 +45,7 @@ import {
   type BrokerKindId,
 } from "@/components/layout/broker-connection-form";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BROKER_RESPONSIBILITY_NOTICE } from "@/lib/legal/disclosure";
 import { Skeleton, SkeletonBlock } from "@/components/ui/skeleton";
 import {
   armBrokerConnection,
@@ -607,6 +608,9 @@ function SidebarBrokerDialog({
             Alpaca / IBKR account. Reads are always safe; credentials stay inside the Python
             runtime, never in the journal database.
           </DialogDescription>
+          <p className="mt-1.5 text-[10.5px] leading-relaxed text-muted-foreground/70">
+            {BROKER_RESPONSIBILITY_NOTICE}
+          </p>
         </DialogHeader>
 
         {connections.length > 0 && (

@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-12
+- **feat(legal): the risk position is now visible where users act.** Bumped the
+  risk notice to `2026-11-12` and made the copy carry one consistent position:
+  Eclipse is self-directed research and order-entry software; the user owns the
+  decision, the account, and the outcome. First-run now says "not my adviser or
+  broker, every trade at my own risk"; the trade approval card shows an order
+  preview and requires a "my decision / my own risk" checkbox; broker surfaces
+  state that Eclipse never holds funds and the broker is the source of truth;
+  every settled AI answer carries "Eclipse is an AI agent. It can be wrong —
+  verify the facts and make the call yourself."; Settings gains a Risk & AI
+  panel with the accepted version/date and a re-accept action. `/api/legal/risk-ack`
+  now returns `acceptedAt` for the current version. Tests:
+  `src/lib/legal/disclosure.test.ts` (4). Docs: `docs/legal/README.md`,
+  `docs/CHANGELOG.md`.
 - **fix(chat): Eclipse Agent composer is neutral grey again.** The
   `.glass-composer` fill used the near-black `--card-rgb` tint, so the input
   bubble read as black over the dark conversation surface. It now uses a

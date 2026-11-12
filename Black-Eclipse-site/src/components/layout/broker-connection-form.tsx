@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BROKER_RESPONSIBILITY_NOTICE } from "@/lib/legal/disclosure";
 
 export type BrokerKindId = "mt5" | "mt4_bridge" | "alpaca" | "ibkr";
 
@@ -270,6 +271,11 @@ export function ConnectionForm({
               placing any order.
             </>
           )}
+        </p>
+      )}
+      {!compact && (
+        <p className="text-[9.5px] leading-relaxed text-muted-foreground/70">
+          {BROKER_RESPONSIBILITY_NOTICE}
         </p>
       )}
       <Button type="button" size="sm" className="w-full" onClick={onSubmit} disabled={busy}>

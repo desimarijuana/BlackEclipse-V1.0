@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Field, Panel, SectionHeader } from "./settings-ui";
+import { BROKER_RESPONSIBILITY_NOTICE } from "@/lib/legal/disclosure";
 import {
   armBrokerConnection,
   createBrokerConnection,
@@ -192,6 +193,12 @@ export function TradingSettingsPanel() {
         title="Broker connection"
         description="Attach Eclipse to a running MetaTrader 5 terminal. Reads are always safe; live execution requires a typed arm and a per-order confirmation."
       />
+
+      <Panel className="p-4">
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {BROKER_RESPONSIBILITY_NOTICE}
+        </p>
+      </Panel>
 
       {error && <p className="text-xs text-rose-300">{error}</p>}
       {notice && <p className="text-xs text-emerald-300">{notice}</p>}

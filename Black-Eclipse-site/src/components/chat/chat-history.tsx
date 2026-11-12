@@ -30,6 +30,7 @@ import { MessageRail } from './message-rail';
 import { MessageAttachments } from './message-attachments';
 import { TtsButton } from './tts-button';
 import { useAutoSpeak } from '@/lib/tts';
+import { AI_OUTPUT_FULL } from '@/lib/legal/disclosure';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
@@ -671,6 +672,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                         <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
                       </ResponseRuntimeProvider>
                     </div>
+                  )}
+                  {!working && msg.content && !msg.error && !restatesError(msg.content, msg.error) && (
+                    <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground/60">
+                      {AI_OUTPUT_FULL}
+                    </p>
                   )}
                   {msg.research && (
                     <div className="mt-2 flex w-full flex-col gap-2">

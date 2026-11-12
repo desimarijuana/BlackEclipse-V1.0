@@ -92,6 +92,22 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 - Do not add discretionary management, copy-trading, pooled funds, custody, or
   performance fees without licensed advice.
 
+## Implemented in the product
+
+The code now carries the position in the places a user actually acts:
+
+| Surface | What it says |
+|---|---|
+| Setup wizard (first launch) | Research/order-entry tool, not an adviser or broker; AI can be wrong; every trade is at the user's own risk |
+| Trade approval card | Order preview, broker execution warning, and a required "my decision / my own risk" checkbox |
+| Broker connection / live arm | Eclipse never holds funds; the broker is the source of truth; trading is at the user's own risk |
+| Every settled AI answer | "Eclipse is an AI agent. It can be wrong — verify the facts and make the call yourself." |
+| Settings → Risk & AI | The full position, the AI line, the accepted notice version/date, and a re-accept action |
+
+The canonical copy lives in `src/lib/legal/disclosure.ts`. Bump
+`RISK_DISCLOSURE_VERSION` when the substance changes; stale acceptances are
+re-asked.
+
 ## Related
 
 - [`../fiduciary-advice.md`](../fiduciary-advice.md) - the Advisory Gate.
