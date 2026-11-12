@@ -374,9 +374,9 @@ ECLIPSE_AGENT = AgentConfig(
         "get_quote",
         "get_historical_prices",
         "get_ohlcv",
-        # The local data vault: what history this machine already holds, and how
-        # to bundle more of it. Served from the durable cache, so it works
-        # offline.
+        # Provider-cached daily history (store=history_cache), NOT the JDdS
+        # vault: what bars this machine already holds, and how to bundle more.
+        # Served from the durable cache, so it works offline.
         "history_catalog",
         "backfill_history",
         "get_volume",

@@ -4,7 +4,7 @@
 // the Python runtime (`GET /agents`) and caches them for the process. This keeps
 // exactly one source of truth for agent identity and prompt content.
 
-import { listAgentsFromRuntime } from "./python-client";
+import { listAgentsFromRuntime } from "./clients/python-client";
 
 export interface AgentPreset {
   id: string;

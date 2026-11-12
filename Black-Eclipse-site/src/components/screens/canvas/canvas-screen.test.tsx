@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MutableRefObject } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { CanvasSnapshot } from '@/lib/harness/canvas-client';
+import type { CanvasSnapshot } from '@/lib/harness/clients/canvas-client';
 import { CanvasScreen } from './canvas-screen';
 import { CanvasWorkspace, type CanvasWorkspaceProps } from './canvas-workspace';
 import type { CanvasAiPanelProps } from './canvas-ai-panel';
@@ -21,7 +21,7 @@ import {
   type CanvasEditorHandle,
 } from './canvas-utils';
 
-vi.mock('@/lib/harness/canvas-client', () => ({
+vi.mock('@/lib/harness/clients/canvas-client', () => ({
   listCanvasArtifacts: vi.fn(async () => []),
   createCanvasArtifact: vi.fn(),
   getCanvasArtifact: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('@/lib/harness/canvas-client', () => ({
   proposeCanvasEdit: vi.fn(),
 }));
 
-vi.mock('@/lib/harness/artifacts-browser', () => ({
+vi.mock('@/lib/harness/clients/artifacts-browser', () => ({
   updateArtifact: vi.fn(),
   archiveArtifact: vi.fn(),
 }));

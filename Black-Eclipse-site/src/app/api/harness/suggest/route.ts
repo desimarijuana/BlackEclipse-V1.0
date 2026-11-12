@@ -5,12 +5,12 @@
 // degradesto an empty list rather than an error toast.
 
 import { NextResponse } from "next/server";
-import { listSkills } from "@/lib/harness/skills-client";
-import { listPortfolios } from "@/lib/harness/portfolio-client";
-import { listWorkflows } from "@/lib/harness/workflows-client";
-import { listModelProviders } from "@/lib/harness/python-client";
+import { listSkills } from "@/lib/harness/clients/skills-client";
+import { listPortfolios } from "@/lib/harness/clients/portfolio-client";
+import { listWorkflows } from "@/lib/harness/clients/workflows-client";
+import { listModelProviders } from "@/lib/harness/clients/python-client";
 import { getAllInstruments } from "@/lib/search/registry";
-import type { CommandSuggestion } from "@/lib/harness/command-suggest-types";
+import type { CommandSuggestion } from "@/lib/harness/commands/command-suggest-types";
 
 export const dynamic = "force-dynamic";
 

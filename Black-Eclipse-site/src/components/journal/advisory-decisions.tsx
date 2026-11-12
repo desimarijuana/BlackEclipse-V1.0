@@ -14,7 +14,7 @@ import {
   listDecisions,
   type AdvisoryDecisionView,
   type AdvisoryScorecardView,
-} from '@/lib/harness/advisory-browser';
+} from '@/lib/harness/clients/advisory-browser';
 
 const STATUS_STYLE: Record<string, string> = {
   computed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',

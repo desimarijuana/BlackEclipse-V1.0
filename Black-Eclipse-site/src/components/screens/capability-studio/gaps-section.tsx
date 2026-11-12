@@ -10,7 +10,7 @@ import {
   suppressGap,
   type CapabilityGapRow,
   type CapabilityGapSummary,
-} from '@/lib/harness/capabilities-client';
+} from '@/lib/harness/clients/capabilities-client';
 
 /**
  * The durable gap queue: runs that could not finish and the one route Eclipse

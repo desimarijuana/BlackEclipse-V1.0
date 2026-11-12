@@ -4,7 +4,7 @@ import { useT } from "@/lib/i18n/use-t";
 import type {
   EvolutionHarnessState,
   EvolutionSurfacePreview,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 
 export function SurfaceActivationCard({
   state,

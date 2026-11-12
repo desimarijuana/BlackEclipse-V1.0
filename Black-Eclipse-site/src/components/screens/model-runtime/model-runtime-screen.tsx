@@ -22,7 +22,7 @@ import {
   type RuntimeProviderView,
   type RuntimeRoutingView,
   type RuntimeUsageView,
-} from '@/lib/harness/model-runtime-browser';
+} from '@/lib/harness/clients/model-runtime-browser';
 import { ProvidersPane } from './providers-pane';
 import { ModelsPane } from './models-pane';
 import { RoutingPane } from './routing-pane';

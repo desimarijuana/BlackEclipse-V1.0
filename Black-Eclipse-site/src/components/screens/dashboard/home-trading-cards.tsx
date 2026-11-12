@@ -20,7 +20,7 @@ import {
 import { navigateTo } from '@/lib/sdk/navigate';
 import { openSettingsSection } from '@/lib/investor-eye/navigation';
 import { cn } from '@/lib/utils';
-import type { BrokerWorkingOrder } from '@/lib/harness/trading-client';
+import type { BrokerWorkingOrder } from '@/lib/harness/clients/trading-client';
 import { useTradingHomeData } from '@/lib/dashboard/use-trading-home-data';
 import { marginHealth, type MarginHealth } from '@/lib/dashboard/trading-home-model';
 import {

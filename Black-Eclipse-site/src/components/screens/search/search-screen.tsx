@@ -22,7 +22,7 @@ import {
   reindexSearchDocument,
   runSearch,
   testSearchEmbedding,
-} from '@/lib/harness/search-client';
+} from '@/lib/harness/clients/search-client';
 import type {
   EmbeddingResolution,
   EmbeddingSuggestion,

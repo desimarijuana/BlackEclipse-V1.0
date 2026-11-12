@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Layers, RefreshCw } from "@/lib/icons";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { discoverRuntimeModels } from "@/lib/harness/model-runtime-browser";
+import { discoverRuntimeModels } from "@/lib/harness/clients/model-runtime-browser";
 import { sortModelsNewestFirst } from "@/lib/agent/model-recency";
 import {
   compactModels,

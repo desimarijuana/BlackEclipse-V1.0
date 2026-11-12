@@ -11,9 +11,9 @@ import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile, readStoredCompaction, writeStoredCompaction, applyStoredCompaction } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
-import { parseCommandInvocation } from "@/lib/harness/command-parser";
-import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { parseCommandInvocation } from "@/lib/harness/commands/command-parser";
+import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/commands/command-router";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { newRunId } from "@/lib/harness/ids";
 
 export const dynamic = "force-dynamic";

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listStandingGrants } from "@/lib/harness/grants-client";
+import { listStandingGrants } from "@/lib/harness/clients/grants-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

@@ -10,7 +10,7 @@ import {
   AlertTriangle, Check, Download, FileOutput, History, Loader2,
   Maximize2, Minimize2, MoreHorizontal, Redo2, Save, Trash2, Undo2, Upload, X,
 } from '@/lib/icons';
-import type { CanvasSnapshot } from '@/lib/harness/canvas-client';
+import type { CanvasSnapshot } from '@/lib/harness/clients/canvas-client';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {

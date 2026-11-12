@@ -1,0 +1,78 @@
+#!/bin/sh
+# BlackEclipse pre-push guard: no rewriting or deleting protected branches.
+#
+# WHY THIS EXISTS: GitHub only enforces branch protection on private repositories
+# on a paid plan (Free returns "Upgrade to GitHub Pro or make this repository
+# public"). Until this repo is on Pro, `main` is one `--force` away from losing
+# history — which already happened once (the `backup/main-wip-*` branches are the
+# scar). This hook is the free, always-on replacement: it refuses the two
+# operations the banner warns about, on every machine that ran `npm install`.
+#
+# It is a guard against MISTAKES, not a security boundary: `git push --no-verify`
+# and `SKIP_PUSH_GUARD=1` both bypass it by design. Server-side enforcement
+# (rulesets + required status checks) needs GitHub Pro; see
+# docs/harness/git-version-control.md.
+#
+# Protected branches: main (default) plus PUSH_GUARD_BRANCHES, space-separated.
+
+protected="main ${PUSH_GUARD_BRANCHES:-}"
+
+if [ "${SKIP_PUSH_GUARD:-0}" = "1" ]; then
+  echo "! pre-push guard skipped (SKIP_PUSH_GUARD=1)." >&2
+  exit 0
+fi
+
+# `git push` feeds one line per ref update:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# An all-zero local sha is a deletion; an all-zero remote sha is a new branch.
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$remote_ref" ] || continue
+
+  branch="${remote_ref#refs/heads/}"
+  case "$remote_ref" in refs/heads/*) ;; *) continue ;; esac
+
+  is_protected=0
+  for p in $protected; do
+    [ "$branch" = "$p" ] && is_protected=1 && break
+  done
+  [ "$is_protected" = "1" ] || continue
+
+  # Deletion: `git push origin :main` / `--delete`.
+  case "$local_sha" in
+    *[!0]*)
+      ;;
+    *)
+      echo "✗ PUSH BLOCKED: refusing to DELETE protected branch '$branch'." >&2
+      echo "  Deleting it on the remote destroys the shared history." >&2
+      status=1
+      continue
+      ;;
+  esac
+
+  # New branch on the remote: nothing to overwrite.
+  case "$remote_sha" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+
+  # Fast-forward check. If the remote tip is not in this clone we cannot judge,
+  # so defer to git itself (a plain push is still rejected as non-fast-forward).
+  if ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+    echo "! pre-push guard: remote tip of '$branch' is not local; ancestry unchecked." >&2
+    continue
+  fi
+
+  if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+    echo "✗ PUSH BLOCKED: this would REWRITE protected branch '$branch'." >&2
+    echo "    remote tip: $remote_sha" >&2
+    echo "    your tip:   $local_sha" >&2
+    echo "" >&2
+    echo "  History rewrite drops commits other clones (and CI) may depend on." >&2
+    echo "  If this is deliberate: SKIP_PUSH_GUARD=1 git push …" >&2
+    echo "  If it is a botched rebase, recover instead: git reflog / git reset --hard." >&2
+    status=1
+  fi
+done
+
+exit $status

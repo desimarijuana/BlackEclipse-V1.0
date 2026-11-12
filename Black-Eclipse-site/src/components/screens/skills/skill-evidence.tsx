@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   compareSkillVersions, getSkillPromotionEvidence,
-} from "@/lib/harness/skills-browser";
+} from "@/lib/harness/clients/skills-browser";
 import type {
   SkillPromotionEvidence, SkillQualityComparison, SkillQualityMetrics,
 } from "@/lib/harness/skills-types";

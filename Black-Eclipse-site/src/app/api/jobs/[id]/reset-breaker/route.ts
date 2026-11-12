@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { resetJobBreaker } from "@/lib/harness/jobs-client";
+import { resetJobBreaker } from "@/lib/harness/clients/jobs-client";
 
 export const dynamic = "force-dynamic";
 

@@ -13,7 +13,7 @@
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
-import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
+import { HarnessRuntimeUnavailable } from "@/lib/harness/clients/python-client";
 import type { GitCommitInfo, GitFileChange, GitStatus } from "./types";
 
 // Re-export the wire types so `service.ts` stays the server-side entry point.

@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import { ArrowRight, Search } from '@/lib/icons';
-import { routeModel, dynKey, type RuntimeRouteDecisionView, type RuntimeRoutingView } from '@/lib/harness/model-runtime-browser';
+import { routeModel, dynKey, type RuntimeRouteDecisionView, type RuntimeRoutingView } from '@/lib/harness/clients/model-runtime-browser';
 
 interface Props {
   routing: RuntimeRoutingView | null;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/harness/skills-client", () => ({
+vi.mock("@/lib/harness/clients/skills-client", () => ({
   listSkills: vi.fn(async () => ({
     skills: [
       { id: "crypto-onchain-research", name: "Crypto on-chain research", description: "Token flows", category: "research" },
@@ -9,19 +9,19 @@ vi.mock("@/lib/harness/skills-client", () => ({
   })),
 }));
 
-vi.mock("@/lib/harness/portfolio-client", () => ({
+vi.mock("@/lib/harness/clients/portfolio-client", () => ({
   listPortfolios: vi.fn(async () => [
     { id: "pf_1", name: "Core fund", baseCurrency: "USD", description: null },
   ]),
 }));
 
-vi.mock("@/lib/harness/workflows-client", () => ({
+vi.mock("@/lib/harness/clients/workflows-client", () => ({
   listWorkflows: vi.fn(async () => [
     { id: "wf_1", version: "1", name: "Morning routine", description: null, createdAt: "" },
   ]),
 }));
 
-vi.mock("@/lib/harness/python-client", () => ({
+vi.mock("@/lib/harness/clients/python-client", () => ({
   listModelProviders: vi.fn(async () => [
     { id: "openai", label: "OpenAI", models: ["gpt-5", "gpt-5-mini"] },
   ]),
@@ -81,7 +81,7 @@ describe("GET /api/harness/suggest", () => {
   });
 
   it("degrades to an empty list when a provider is unavailable", async () => {
-    const { listSkills } = await import("@/lib/harness/skills-client");
+    const { listSkills } = await import("@/lib/harness/clients/skills-client");
     vi.mocked(listSkills).mockRejectedValueOnce(new Error("runtime down"));
     const res = await GET(request("provider=skills&q=crypto"));
     expect(res.status).toBe(200);

@@ -44,7 +44,7 @@ export {
   getRunReceiptFromRuntime,
   cancelRunInRuntime,
   HarnessRuntimeUnavailable,
-} from "./python-client";
+} from "./clients/python-client";
 export {
   listRuntimeProviders,
   listRuntimeModels,
@@ -54,7 +54,7 @@ export {
   routeModel,
   getRuntimeHealth,
   getRuntimeUsage,
-} from "./model-runtime-client";
+} from "./clients/model-runtime-client";
 export type {
   CapabilityState,
   PricingKind,
@@ -67,5 +67,5 @@ export type {
   RuntimeHealthView,
   RuntimeUsageView,
   RouteQuery,
-} from "./model-runtime-client";
+} from "./clients/model-runtime-client";
 export { ensurePythonRuntime, HARNESS_PY_URL } from "./python-runtime";

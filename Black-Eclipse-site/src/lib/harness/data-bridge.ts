@@ -14,7 +14,7 @@ import { fetchCryptoQuote } from "@/lib/scraper/fetchers/crypto";
 import { normalizeEconomicSeries, sortByDate } from "@/lib/economics/fetch";
 import { getSource } from "@/lib/economics/sources";
 import { searchWeb, fetchWebPageDetailed } from "@/lib/web-research";
-import { imageSearchCapability } from "@/lib/harness/data-bridge-images";
+import { imageSearchCapability } from "@/lib/harness/data-bridge/data-bridge-images";
 import { resolveCustomSearchProvider, describeDiagnostics } from "@/lib/harness/web-provider-resolve";
 import {
   resolveSearchProviders,
@@ -38,8 +38,8 @@ import {
 } from "@/lib/harness/health-key";
 import { resolveMacroSeries } from "@/lib/harness/macro-identity";
 import { MARKET_FULL_NAME, resolveMarketId, splitExchangeSuffix } from "@/lib/markets";
-import { unavailable, unavailableClass } from "@/lib/harness/data-bridge-result";
-import { capabilityMatrix, providerKeyStatus, researchHealth } from "@/lib/harness/data-bridge-health";
+import { unavailable, unavailableClass } from "@/lib/harness/data-bridge/data-bridge-result";
+import { capabilityMatrix, providerKeyStatus, researchHealth } from "@/lib/harness/data-bridge/data-bridge-health";
 import {
   videoSearchCapability,
   playlistSearchCapability,
@@ -48,21 +48,21 @@ import {
   courseSearchCapability,
   githubSearchCapability,
   structuredConnectorCapability,
-} from "@/lib/harness/data-bridge-education";
+} from "@/lib/harness/data-bridge/data-bridge-education";
 import {
   fetchHistorySeriesFallback,
   fetchMarketDataHistory,
   isMarketDataSymbol,
   marketDataAssetClass,
   resolveHistoryParams,
-} from "@/lib/harness/data-bridge-history";
+} from "@/lib/harness/data-bridge/data-bridge-history";
 import {
   liveCompanyProfile,
   readCachedStatements,
   staleStatementsResult,
   statementPeriodFields,
   type StaleStatements,
-} from "@/lib/harness/data-bridge-statements";
+} from "@/lib/harness/data-bridge/data-bridge-statements";
 import {
   coveringRangeFor,
   timestampWithinWindow,
@@ -72,15 +72,15 @@ import type { DataCapability } from "./types";
 
 // The result shape lives in `data-bridge-types.ts` (shared with the health
 // ledger) and is re-exported here for existing importers.
-export type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
-import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+export type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
 import {
   recordCapabilityHealth,
   sourceHealth,
   coverageCapability,
   routeProbe,
 } from "@/lib/harness/health-ledger";
-import { dispatchExtendedCapability } from "./data-bridge-extensions";
+import { dispatchExtendedCapability } from "./data-bridge/data-bridge-extensions";
 
 /**
  * Resolve a symbol + raw market qualifier to a canonical instrument using the
@@ -480,7 +480,7 @@ async function dispatchCapability(
     case "response_contract": // schema + validation for eclipse-response blocks (model read-back)
       return (await import("./response-bridge")).responseContractCapability(params);
     case "web_collect": // bounded page → records (SSRF-hardened + cheerio; R3-04)
-      return (await import("./data-bridge-collect")).webCollectCapability(params);
+      return (await import("./data-bridge/data-bridge-collect")).webCollectCapability(params);
     default:
       return (await dispatchExtendedCapability(capability, params)) ?? unavailable(`Unknown capability: ${String(capability)}`);
   }

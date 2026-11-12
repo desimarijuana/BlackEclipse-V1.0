@@ -26,7 +26,7 @@ import {
   selectTrustedRoot,
   type BrowseEntry,
   type TrustedRoot,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 
 const RECENT_KEY = 'eclipse.folderPicker.recent';
 const MAX_RECENT = 6;

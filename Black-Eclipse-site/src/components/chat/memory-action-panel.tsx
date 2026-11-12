@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { Brain, Check, Info, ListChecks, Loader2, RotateCcw, ShieldAlert } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { buildMemoryRunView } from '@/lib/chat/memory-action';
-import { learnFromRun } from '@/lib/harness/skills-browser';
+import { learnFromRun } from '@/lib/harness/clients/skills-browser';
 
 const ACTION_META: Record<string, { icon: typeof Check; tone: string; label: string }> = {
   saved: { icon: Check, tone: 'text-emerald-400', label: 'Remembered' },

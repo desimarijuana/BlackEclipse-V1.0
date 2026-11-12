@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Blocks, RefreshCw } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
-import { listSkills, type SkillListResult } from '@/lib/harness/skills-browser';
+import { listSkills, type SkillListResult } from '@/lib/harness/clients/skills-browser';
 
 export interface SkillSummaryCounts {
   total: number;

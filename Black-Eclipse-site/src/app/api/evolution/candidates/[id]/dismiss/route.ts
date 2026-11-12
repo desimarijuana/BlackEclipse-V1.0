@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { dismissEvolutionCandidate } from "@/lib/harness/evolution-client";
+import { dismissEvolutionCandidate } from "@/lib/harness/clients/evolution-client";
 
 export const dynamic = "force-dynamic";
 

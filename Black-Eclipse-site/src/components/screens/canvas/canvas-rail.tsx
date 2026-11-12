@@ -7,7 +7,7 @@
 import {
   AlertTriangle, FileJson, FileText, Loader2, PanelLeft, Plus, RefreshCw, Search, SquareCode, Upload,
 } from '@/lib/icons';
-import type { CanvasKind, CanvasListItem } from '@/lib/harness/canvas-client';
+import type { CanvasKind, CanvasListItem } from '@/lib/harness/clients/canvas-client';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

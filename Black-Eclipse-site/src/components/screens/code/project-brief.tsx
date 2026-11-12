@@ -14,7 +14,7 @@ import {
   prepareProjectIndex,
   type ProjectBrief,
   type ProjectTarget,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 
 const CHECKS_KEY: Record<string, TranslationKey> = {
   detected: 'code.project.checks.detected',

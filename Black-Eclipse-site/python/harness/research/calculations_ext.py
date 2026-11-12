@@ -323,8 +323,9 @@ def alpha(
 
 
 def _var_index(n: int, confidence: float) -> int:
+    """Nearest-rank tail index: the last of the ceil(alpha*n) worst observations."""
     alpha = 1.0 - confidence
-    return max(0, min(n - 1, int(math.floor(alpha * n))))
+    return max(0, min(n - 1, int(math.ceil(alpha * n - 1e-9)) - 1))
 
 
 def cvar(

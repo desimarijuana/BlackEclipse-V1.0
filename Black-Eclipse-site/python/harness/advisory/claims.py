@@ -63,7 +63,23 @@ _SYMBOL_STOP = frozenset({
     # Trade-confirmation vocabulary: a bracket table is a report, not advice.
     "ATR", "RSI", "MACD", "EMA", "SMA", "SL", "TP", "OHLC", "OHLCV",
     "CFD", "PIP", "PIPS", "LOT", "LOTS", "MT4", "MT5", "BE", "RR",
+    # Financial-metric / modelling vocabulary: these are quantities, not
+    # instruments. Without this, "exit FCFF to 3%" and "add ADV" became
+    # recommendations (audit T04/T18 false positives).
+    "FCFF", "FCF", "FCFE", "EBITDA", "EBIT", "EBT", "NOPAT", "COGS", "OPEX",
+    "CAPEX", "CAGR", "ROIC", "ROCE", "MOIC", "XIRR", "MIRR", "EVA", "PEG",
+    "YTM", "OAS", "DV01", "BP", "BPS", "AUM", "ADV", "TV", "PV", "FV", "PMT",
+    "APR", "APY", "LLM", "ML", "RAG", "ETL", "ROA", "ROI",
+    "AUC", "ROC", "RMSE", "MAE", "MSE", "SHAP", "F1", "PR", "PNL", "KS",
 })
+
+# A number-only directive ("trim 5%") is advice only in a position context.
+# Without one it is a modelling parameter ("exit FCFF to 3%"), not a trade.
+_POSITION_CONTEXT_RE = re.compile(
+    r"\b(portfolio|position|holding|allocation|weight|exposure|book|account|"
+    r"shares?|units?|stake|long|short)\b",
+    re.IGNORECASE,
+)
 
 _PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s?%")
 _DOLLAR_RE = re.compile(r"\$\s?(\d[\d,]*(?:\.\d+)?)\s?([kKmMbB])?")
@@ -166,6 +182,10 @@ def extract_claims(answer: str) -> list[AdvisoryClaim]:
         symbols = tuple(_symbols(sentence))
         values, labels = _parse_numbers(sentence)
         if not symbols and not values:
+            continue
+        # A number alone is not a trade: require a position/portfolio context
+        # so a modelling parameter ("exit FCFF to 3%") is never advice.
+        if not symbols and not _POSITION_CONTEXT_RE.search(sentence):
             continue
 
         target = _dedupe_target(labels)

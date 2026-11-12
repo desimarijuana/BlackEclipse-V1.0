@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import {
   getAuthoringMeta, createUserSkill, updateUserSkill,
   type AuthoringMeta, type AuthorSkillInput,
-} from "@/lib/harness/skills-browser";
+} from "@/lib/harness/clients/skills-browser";
 import type { SkillDetail } from "@/lib/harness/skills-types";
 
 interface Draft {

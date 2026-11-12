@@ -560,8 +560,10 @@ def value_at_risk(
         raise CalculationError("value-at-risk needs at least 6 observations (5 returns)")
     ordered = sorted(returns)
     alpha = 1.0 - confidence
-    idx = max(0, min(len(ordered) - 1, int(math.floor(alpha * len(ordered)))))
-    per_period = ordered[idx]
+    # Nearest-rank tail: ceil(alpha*n) observations at or below the VaR cutoff,
+    # so n=20 at 95% selects the single worst return (not the second worst).
+    tail_count = max(1, min(len(ordered), int(math.ceil(alpha * len(ordered) - 1e-9))))
+    per_period = ordered[tail_count - 1]
     horiz = per_period * math.sqrt(horizon_periods)
     result = _base_record(
         "value_at_risk",

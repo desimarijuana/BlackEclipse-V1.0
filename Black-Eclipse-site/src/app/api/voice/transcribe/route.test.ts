@@ -16,9 +16,9 @@ vi.mock('@/lib/voice/config-server', () => ({
   resolveVoiceProvider: (...args: unknown[]) => resolveVoiceProvider(...args),
 }));
 
-vi.mock('@/lib/harness/transcribe-client', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/harness/transcribe-client')>(
-    '@/lib/harness/transcribe-client',
+vi.mock('@/lib/harness/clients/transcribe-client', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/harness/clients/transcribe-client')>(
+    '@/lib/harness/clients/transcribe-client',
   );
   return {
     ...actual,
@@ -27,7 +27,7 @@ vi.mock('@/lib/harness/transcribe-client', async () => {
 });
 
 import { POST } from '@/app/api/voice/transcribe/route';
-import { VoiceRuntimeError } from '@/lib/harness/transcribe-client';
+import { VoiceRuntimeError } from '@/lib/harness/clients/transcribe-client';
 
 function request(body: Record<string, unknown>) {
   return new Request('http://localhost/api/voice/transcribe', {

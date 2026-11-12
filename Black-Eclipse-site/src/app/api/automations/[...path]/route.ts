@@ -24,7 +24,7 @@ import {
   testAutomation,
   updateAutomation,
   validateAutomation,
-} from "@/lib/harness/automation-client";
+} from "@/lib/harness/clients/automation-client";
 
 export const dynamic = "force-dynamic";
 

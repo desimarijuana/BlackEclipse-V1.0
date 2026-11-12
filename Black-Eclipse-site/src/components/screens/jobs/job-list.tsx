@@ -7,7 +7,7 @@
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { cn } from '@/lib/utils';
-import { breakerStateKey, jobRunStatusKey, type JobDefinitionView } from '@/lib/harness/jobs-browser';
+import { breakerStateKey, jobRunStatusKey, type JobDefinitionView } from '@/lib/harness/clients/jobs-browser';
 
 export interface JobListProps {
   jobs: JobDefinitionView[];

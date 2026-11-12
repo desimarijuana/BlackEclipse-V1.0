@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { listMemories, memoryProfile } from "@/lib/harness/eclipse-memory-client";
-import { listSkills } from "@/lib/harness/skills-client";
+import { listMemories, memoryProfile } from "@/lib/harness/clients/eclipse-memory-client";
+import { listSkills } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { memoryFilesRoot, renderMemoryFiles } from "@/lib/harness/memory-files";
 

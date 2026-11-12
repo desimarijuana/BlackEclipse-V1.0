@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Network, Loader2 } from '@/lib/icons';
 import { useT } from '@/lib/i18n';
-import { learningJourney } from '@/lib/harness/skills-browser';
+import { learningJourney } from '@/lib/harness/clients/skills-browser';
 import type { LearningJourney } from '@/lib/harness/skills-types';
 import { LearningGraphChart, KIND_COLOR } from '@/components/screens/skills/learning-graph';
 

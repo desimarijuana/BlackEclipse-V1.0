@@ -5,7 +5,7 @@
 // measure is not shown as zero - only measured counts appear here.
 
 import { useT } from '@/lib/i18n/use-t';
-import type { CodeScorecard } from '@/lib/harness/code-browser';
+import type { CodeScorecard } from '@/lib/harness/clients/code-browser';
 
 export function ScorecardStrip({ card }: { card: CodeScorecard | null }) {
   const t = useT();

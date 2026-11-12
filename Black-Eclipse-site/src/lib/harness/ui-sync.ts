@@ -14,7 +14,7 @@
 
 import { appSurfaces } from '@/lib/app-surfaces';
 import { dashboardComponentSpecs } from '@/lib/ui-engineering/registry-catalog';
-import { registerComponents, registerSurfaces } from '@/lib/harness/ui-client';
+import { registerComponents, registerSurfaces } from '@/lib/harness/clients/ui-client';
 
 let synced = false;
 let surfacesSynced = false;

@@ -28,13 +28,13 @@ import {
   listTradingMandates,
   type BrokerConnection,
   type TradingMandate,
-} from '@/lib/harness/trading-client';
-import { listAutomations, type AutomationView } from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/trading-client';
+import { listAutomations, type AutomationView } from '@/lib/harness/clients/automation-browser';
 import { isBotAutomation } from '@/lib/bots/state';
 import type { PortDef } from '@/lib/graph-studio/types';
 import type { DatasetSummary, NodeRunRecord } from '@/lib/graph-studio/execution-client';
 import { listDatasets } from '@/lib/graph-studio/execution-client';
-import { listSkills } from '@/lib/harness/skills-browser';
+import { listSkills } from '@/lib/harness/clients/skills-browser';
 import type { SkillSummary } from '@/lib/harness/skills-types';
 import { nodeIcon } from './node-icons';
 import { ConfigField } from './config-field';

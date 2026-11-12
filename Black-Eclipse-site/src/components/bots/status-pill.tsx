@@ -14,7 +14,7 @@ import {
   Pause,
   type LucideIcon,
 } from '@/lib/icons';
-import type { AutomationState, BreakerState, ExecutionState } from '@/lib/harness/automation-client';
+import type { AutomationState, BreakerState, ExecutionState } from '@/lib/harness/clients/automation-client';
 import { executionLabel, executionTone, lifecycleLabel, type Tone } from '@/lib/bots/state';
 
 const TONE_CLASS: Record<Tone, string> = {

@@ -5,8 +5,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
-import { getEvolutionRslReportBrowser } from "@/lib/harness/evolution-browser";
-import type { EvolutionRslDigest } from "@/lib/harness/evolution-client";
+import { getEvolutionRslReportBrowser } from "@/lib/harness/clients/evolution-browser";
+import type { EvolutionRslDigest } from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 
 function _fmt(value: number | null | undefined, digits = 2): string {

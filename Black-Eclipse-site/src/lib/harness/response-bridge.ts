@@ -20,7 +20,7 @@ import { splitResponseSegments } from "@/lib/response/parse";
 import { finalizeFenceSource } from "@/lib/response/finalize";
 import { RESPONSE_ICON_KEYS } from "@/lib/response/icon-vocabulary";
 import { chartBlockWarning } from "@/lib/response/chart-capabilities";
-import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
 
 const MAX_VALIDATE_CHARS = 200_000;
 

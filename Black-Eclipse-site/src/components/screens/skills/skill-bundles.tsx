@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import {
   listSkillBundles, saveSkillBundle, deleteSkillBundle,
   lockSkillBundle, unlockSkillBundle, bundleUpdatePreview, rollbackSkillBundle,
-} from "@/lib/harness/skills-browser";
+} from "@/lib/harness/clients/skills-browser";
 import type {
   BundleUpdatePreview, SkillBundle, SkillBundleResolution,
 } from "@/lib/harness/skills-types";

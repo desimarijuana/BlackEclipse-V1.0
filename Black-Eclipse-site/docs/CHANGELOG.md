@@ -1,6 +1,87 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(finance): explicit price/return input contract for `finance_series`.**
+  The series calculators difference their observations (they expect levels), so
+  a returns input was differenced twice and, after the synthetic path, dropped
+  the first return. `finance_series` now takes `input: prices|returns|auto`,
+  compounds a returns series once (n+1 levels → exactly n returns) and records
+  the interpretation. `auto` infers returns only for signed values within
+  [-1, 1]. VaR/CVaR now use a float-safe nearest-rank tail
+  (`ceil(alpha*n - 1e-9)`), so n=20 at 95% selects the single worst return.
+  Prompt updated to require `input`. Tests: `test_finance_series_contract.py`
+  (12) plus 112 calculation/quality tests pass. No change to percent outputs.
+- **fix(advisory): stop metric/ML prose from becoming advice.** Expanded the
+  symbol stop-list (`FCFF/FCF/ADV/WACC/EBITDA/CAGR/ROIC/…`, `AUC/ROC/RMSE/…`)
+  and required a position/portfolio context for number-only directives. A
+  ticker claim or a contextual weight claim still fires. Tests:
+  `test_advisory_precision_audit.py` + gate tests (27) pass.
+- **feat(market): name the store on cached-history payloads.** `coverage`,
+  `list_series` and `history_catalog` now carry `store=history_cache` and the
+  provider set; the tool description and agent comments state this is the
+  provider cache, not JDdS. Tests: 26 market store/cache/gateway tests pass.
+- **fix(runtime): checkpoint-aware orphan recovery.** A restart now marks a run
+  with a checkpoint `interrupted` (`RUN_INTERRUPTED`) so the existing resume
+  endpoint can accept it; only a run with nothing to resume is terminal
+  `RUN_ORPHANED`. The terminal update is conditional (`status IN
+  ('created','running')`), so a live worker is never overwritten. Boot now logs
+  pid/env/port/db/schema/orphan count for forensics. Tests: 14
+  recovery/resume/watchdog tests pass.
+- **fix(chat): recoverable timeout contract.** A synchronous wait deadline maps
+  to 504 (not 500), and every error response carries the run id/stream/events
+  handles when a run exists; 202 adds `eventsUrl`/`pollAfterMs`. Unknown model
+  timeouts no longer look like a server fault. Tests: 11 chat-route tests pass;
+  `npx tsc --noEmit` clean.
+- **docs(roadmap): record the implemented slice and its evidence** in
+  `docs/harness/roadmap/agent-reliability-remediation-plan.md` (§0a). Remaining
+  P0: lease/fencing, effect ledger, partial output/SSE replay/resume route,
+  budgets, assurance expansion. No `jdds.db` change.
+- **refactor(structure): group the flat `src/lib/harness` hot spots; freeze
+  import-direction debt.** Mechanical, behaviour-preserving move of 107 modules:
+  the 29 slash-command files → `src/lib/harness/commands/`; the 24
+  `data-bridge-*` satellites (entry `data-bridge.ts` unchanged) →
+  `src/lib/harness/data-bridge/`; the 54 `*-client.ts` / `*-browser.ts` pairs
+  (tests included) → `src/lib/harness/clients/`; `app/alerts/alerts-client.tsx`
+  → `src/components/screens/alerts/` so no component imports a route. Every
+  `@/` alias, relative specifier and `vi.mock()` string was rewritten by a
+  single-pass codemod; `npx tsc --noEmit` is clean. New
+  `src/lib/import-boundaries.test.ts` enforces app → components → lib with a
+  ratchet of the 23 pre-existing lib → components edges (tests exempt), so the
+  boundary can only improve. Docs updated: `docs/NAVIGATION.md`,
+  `docs/DATA-FLOW.md`, `docs/harness/slash-commands.md`,
+  `docs/harness/task-plan-system.md`, `docs/voice.md`, `docs/video-pipeline.md`,
+  `docs/ui-engineering.md`, `docs/trading.md`, `docs/portfolio-accounting.md`,
+  `docs/CHANGELOG.md`. No runtime behaviour, API contract or data shape changed.
+- **docs(roadmap): revise the agent-reliability remediation plan after an
+  architecture review.** Verified the plan against the working tree and
+  corrected four wrong assumptions: `HarnessRun` lives in `agent-memory.db`
+  (migrations via `MigrationRunner`, not Prisma); resume currently refuses
+  terminal `failed` runs, so orphan recovery needs an `interrupted` state;
+  `series_store` is only the provider-cache half; and the ×100 calculation
+  scales are intentional (the defect is the missing price/return input
+  contract). Added lease fencing, an effect ledger with at-most-once semantics
+  for irreversible tools, the full HTTP lifecycle, licensing boundaries,
+  budget/token limits, prompt-provenance capture, evaluation hard gates and a
+  realistic 11–15-week solo estimate. Updated:
+  `docs/harness/roadmap/agent-reliability-remediation-plan.md`,
+  `docs/harness/roadmap/README.md`. No source or database change.
+- **docs(roadmap): remediation programme for the pre-launch agent audit.**
+  `docs/harness/roadmap/agent-reliability-remediation-plan.md` turns the 18-test
+  audit findings into 7 workstreams (resume-first recovery, deadline/partial
+  delivery, calculation units, store provenance, loop budgets/ergonomics,
+  answer trust, assurance) with file-level tasks, effort estimates, 8 release
+  gates and a first-week checklist. Indexed from
+  `docs/harness/roadmap/README.md`. No source change — planning artifact only.
+- **test(eval): independent pre-launch quantitative audit of the Eclipse agent.**
+  17 primary tests plus 5 controlled retries against the live front door
+  (statistics, DCF, portfolio, cointegration, backtest, reproducibility, ML,
+  provenance, injection, fabrication, live-order safety), with every figure
+  re-computed independently. Verdict **CONDITIONAL PASS, 82/100**: closed-form
+  accuracy and trading safety are strong; run orphaning/timeouts, the
+  `finance_series` unit defects, and JDdS-vs-provider-cache misattribution block
+  an unconditional pass. Report added:
+  `docs/quant-research/agent-evaluation-2026-11-11.md`. No source change —
+  evaluation artifact only; no `jdds.db` change.
 - **feat(harness): C6 completed — AppContainer, Ed25519 publisher signatures,
   computer-executor guard.** `security/appcontainer.py` adds the opt-in Windows
   native boundary (`BLACK_ECLIPSE_WINDOWS_APPCONTAINER=1`): a package SID, zero
@@ -61,6 +142,18 @@
   `docs/harness/roadmap/round-5-core-integrity.md`,
   `docs/harness/roadmap/README.md`, `docs/harness/scorecard.json`,
   `docs/harness/scorecard.md`, `docs/CHANGELOG.md`.
+- **chore(git): a free guard for the unprotected `main` branch.** GitHub reports
+  `main` as unprotected because both branch protection and rulesets answer `403`
+  on a private repository (`Upgrade to GitHub Pro…`); nothing in-repo can change
+  that. Added `.githooks/pre-push`, installed by the existing `postinstall`
+  (`scripts/install-git-hooks.js` now chmods it too), which refuses to **delete**
+  or **rewrite** (non-fast-forward) `main` — the exact two operations the banner
+  warns about — while leaving normal fast-forward pushes alone. `SKIP_PUSH_GUARD=1`
+  bypasses deliberately, `PUSH_GUARD_BRANCHES` adds branches. Server-side
+  enforcement (required PR + the `ci` status check) still needs GitHub Pro; the
+  exact ruleset is documented. Verified with simulated ref updates (fast-forward,
+  delete, rewrite, other branch, multi-ref). docs updated:
+  `docs/repository-guards.md` (new), `docs/NAVIGATION.md`.
 - **feat(desktop): v0.3.4 release hardening.** Windows installer now checks for
   the WebView2 Runtime and silently installs the bundled Evergreen bootstrapper
   when missing, re-checks, and otherwise shows actionable manual instructions
@@ -82,6 +175,14 @@
   language (what failed, the concrete next step, whether the runtime retries
   it) instead of only naming the class. No doc change — UI preference/copy only,
   no architecture, data shape or setup contract changed.
+- **fix(sidebar): the brand logo no longer disappears.** Two causes.
+  (1) In the collapsed rail the mark faded to `opacity-0` whenever the pointer
+  entered ANYWHERE in the sidebar (a `group-hover/sidebar` rule), which read as
+  the logo randomly vanishing; the mark now stays visible and Expand is a small
+  corner button that appears on hover. (2) The shipped wordmark SVG is white
+  artwork, so on a light theme it was white-on-white and invisible; the shipped
+  asset gets `invert(1)` under `html:not(.dark)` (a user-uploaded `logoUrl`
+  keeps its own colours).
 - **fix(shell): the front door is now resident, so stopping Eclipse can never
   show the browser's `ERR_CONNECTION_REFUSED` page.** The branded offline card
   only helped when a service worker was already installed; the real gap was that

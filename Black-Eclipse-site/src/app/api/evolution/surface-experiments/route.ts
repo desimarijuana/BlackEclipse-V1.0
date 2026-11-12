@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createEvolutionSurfaceExperiment } from "@/lib/harness/evolution-client";
+import { createEvolutionSurfaceExperiment } from "@/lib/harness/clients/evolution-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
-import type { EvolutionSurfaceExperimentInput } from "@/lib/harness/evolution-client";
+import type { EvolutionSurfaceExperimentInput } from "@/lib/harness/clients/evolution-client";
 
 export const dynamic = "force-dynamic";
 

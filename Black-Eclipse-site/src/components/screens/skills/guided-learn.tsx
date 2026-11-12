@@ -12,7 +12,7 @@ import { GraduationCap, Loader2, ShieldAlert, WandSparkles } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { learnFromSource } from "@/lib/harness/skills-browser";
+import { learnFromSource } from "@/lib/harness/clients/skills-browser";
 import type { LearnDraftResult } from "@/lib/harness/skills-types";
 import { PanelHeader } from "./skill-ui";
 

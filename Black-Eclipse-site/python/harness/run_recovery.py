@@ -2,15 +2,17 @@
 
 The runtime executes agent runs in-process, so a run row left `created`/`running`
 by a previous process can never finish: no task will ever complete it and a
-client streaming it would wait forever. `fail_orphaned_runs` marks each one
-failed with a durable `run.failed` event so every consumer sees a terminal state.
-A run whose last event was an APPROVAL WAIT (it was paused on an operator's
-decision, not on model progress) is reported as `RUN_INTERRUPTED` rather than a
-generic orphan: the wait was lost and nothing was applied.
+client streaming it would wait forever. ``fail_orphaned_runs`` therefore
+reconciles each one to a terminal or recoverable state with a durable event:
 
-Lives in its own module (rather than on `AgentMemoryStore`) so `persistence.py`
-stays within its size ratchet; it uses the store's ONE shared connection, exactly
-like the other per-subsystem stores under `harness/`.
+  * an approval wait  -> `failed` (`RUN_INTERRUPTED`): the wait was lost;
+  * a checkpoint       -> `interrupted` (`RUN_INTERRUPTED`): resumable through
+    `POST /runs/{id}/resume`;
+  * no checkpoint      -> `failed` (`RUN_ORPHANED`): nothing to resume.
+
+The update is conditional (`status IN ('created','running')`) so a live worker
+that advanced the row is never overwritten. It uses the store's ONE shared
+connection, exactly like the other per-subsystem stores under `harness/`.
 """
 
 from __future__ import annotations
@@ -41,12 +43,25 @@ def _last_event_type(db: Any, run_id: str) -> str:
     return str(row["type"] or "") if row is not None else ""
 
 
-def fail_orphaned_runs(store: Any, reason: str) -> int:
-    """Fail non-terminal runs left behind by a previous process. Returns the count.
+def _has_checkpoint(db: Any, run_id: str) -> bool:
+    try:
+        row = db.execute(
+            "SELECT 1 AS present FROM RunCheckpoint WHERE runId = ? LIMIT 1", (run_id,)
+        ).fetchone()
+    except Exception:  # noqa: BLE001 - a missing table means nothing to resume
+        return False
+    return row is not None
 
-    A run paused on an operator approval (its last event is an approval wait) is
-    reported as `RUN_INTERRUPTED` with a message that says nothing was applied;
-    every other non-terminal run is `RUN_ORPHANED` with `reason`.
+
+def fail_orphaned_runs(store: Any, reason: str) -> int:
+    """Reconcile non-terminal runs left behind by a previous process.
+
+    A run paused on an operator approval is `failed` with `RUN_INTERRUPTED`: the
+    wait was lost and nothing was applied. A run that HAS a durable checkpoint is
+    `interrupted` — a recoverable state the resume endpoint accepts. Only a run
+    with nothing to resume is terminal `RUN_ORPHANED` (there is genuinely no work
+    to recover). The update is conditional, so a run that a live worker has
+    already advanced is never overwritten.
 
     Idempotent (a second pass finds nothing) and safe to call on every boot.
     """
@@ -54,30 +69,46 @@ def fail_orphaned_runs(store: Any, reason: str) -> int:
     rows = db.execute(
         "SELECT id FROM HarnessRun WHERE status IN ('created', 'running')"
     ).fetchall()
-    failed = 0
+    reconciled = 0
     for row in rows:
         run_id = row["id"]
         now = now_iso()
         if _last_event_type(db, run_id) in APPROVAL_WAIT_EVENTS:
-            code, message = INTERRUPTED_CODE, INTERRUPTED_MESSAGE
+            status, code, message, event_type = (
+                "failed", INTERRUPTED_CODE, INTERRUPTED_MESSAGE, "run.failed",
+            )
+        elif _has_checkpoint(db, run_id):
+            status, code, message, event_type = (
+                "interrupted",
+                "RUN_INTERRUPTED",
+                "the agent runtime restarted while this run was in flight; "
+                "a checkpoint exists and the run can be resumed",
+                "run.interrupted",
+            )
         else:
-            code, message = "RUN_ORPHANED", reason
+            status, code, message, event_type = (
+                "failed", "RUN_ORPHANED", reason, "run.failed",
+            )
         error = json.dumps({"code": code, "message": message})
-        db.execute(
-            "UPDATE HarnessRun SET status = 'failed', error = ?, updatedAt = ?, finishedAt = ? WHERE id = ?",
-            (error, now, now, run_id),
+        cursor = db.execute(
+            "UPDATE HarnessRun SET status = ?, error = ?, updatedAt = ?, finishedAt = ? "
+            "WHERE id = ? AND status IN ('created', 'running')",
+            (status, error, now, now, run_id),
         )
+        if cursor.rowcount == 0:
+            # A live worker advanced this row between the SELECT and the UPDATE.
+            continue
         max_seq = db.execute(
             "SELECT COALESCE(MAX(seq), 0) AS s FROM HarnessEvent WHERE runId = ?", (run_id,)
         ).fetchone()["s"]
         db.execute(
-            "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, 'run.failed', ?, ?, ?)",
-            (new_id("evt"), run_id, max_seq + 1, now, error),
+            "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, ?, ?, ?, ?)",
+            (new_id("evt"), run_id, event_type, max_seq + 1, now, error),
         )
-        failed += 1
-    if failed:
+        reconciled += 1
+    if reconciled:
         db.commit()
-    return failed
+    return reconciled
 
 
 def _runtime_port_is_free() -> bool:

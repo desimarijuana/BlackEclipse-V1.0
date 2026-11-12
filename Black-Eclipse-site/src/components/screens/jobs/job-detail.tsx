@@ -13,12 +13,12 @@ import {
   jobRunStatusKey,
   type JobDefinitionView,
   type JobRunView,
-} from '@/lib/harness/jobs-browser';
+} from '@/lib/harness/clients/jobs-browser';
 import {
   dryRunAutomation,
   testAutomation,
   type ValidationIssueView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 
 export interface JobDetailProps {
   job: JobDefinitionView;

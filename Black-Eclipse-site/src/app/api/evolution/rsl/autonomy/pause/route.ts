@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pauseEvolutionAutonomy } from "@/lib/harness/evolution-client";
+import { pauseEvolutionAutonomy } from "@/lib/harness/clients/evolution-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

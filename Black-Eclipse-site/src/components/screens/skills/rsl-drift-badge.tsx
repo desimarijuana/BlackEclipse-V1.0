@@ -6,8 +6,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
-import { getEvolutionDriftScopesBrowser } from "@/lib/harness/evolution-browser";
-import type { EvolutionDriftScopes } from "@/lib/harness/evolution-client";
+import { getEvolutionDriftScopesBrowser } from "@/lib/harness/clients/evolution-browser";
+import type { EvolutionDriftScopes } from "@/lib/harness/clients/evolution-client";
 import { EVOLUTION_VERIFIED_EVENT } from "@/lib/harness/evolution-events";
 import { ALERT_NOTIFY_EVENT } from "@/lib/alerts/browser-notifier";
 import type { NotificationRequest } from "@/lib/notifications/store";

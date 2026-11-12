@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { guardMutation } from "@/lib/api-guard";
-import { prepareProjectIndex } from "@/lib/harness/code-client";
+import { prepareProjectIndex } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

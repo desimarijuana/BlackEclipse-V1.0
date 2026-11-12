@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import {
   getSkillMaintenance, runSkillMaintenance, pinSkillVersion,
-} from "@/lib/harness/skills-browser";
+} from "@/lib/harness/clients/skills-browser";
 import type { SkillMaintenanceReport } from "@/lib/harness/skills-types";
 import { ErrorState, LoadingState, MetaRow, Panel, PanelHeader, formatWhen } from "./skill-ui";
 

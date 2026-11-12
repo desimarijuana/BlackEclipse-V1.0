@@ -12,7 +12,7 @@ import {
   stopApplication,
   type AdapterView,
   type RuntimeView,
-} from "@/lib/harness/application-browser";
+} from "@/lib/harness/clients/application-browser";
 import { cn } from "@/lib/utils";
 
 //: Health status → a tint. `RUNNING` is NOT `HEALTHY`: the state column and the

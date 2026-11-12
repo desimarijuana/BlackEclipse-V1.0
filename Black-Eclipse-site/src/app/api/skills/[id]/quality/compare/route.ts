@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { compareSkillVersions } from "@/lib/harness/skills-client";
+import { compareSkillVersions } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

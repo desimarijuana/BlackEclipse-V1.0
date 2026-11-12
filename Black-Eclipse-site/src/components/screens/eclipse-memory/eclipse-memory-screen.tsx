@@ -36,7 +36,7 @@ import {
   learningReviewHealth, listLearningReviewsPage, runLearningReview, decideLearningReview,
   getMemoryFiles, regenerateMemoryFiles, previewMarkdownImport, importMarkdown, restoreMemoryFiles,
   editMemoryFile, listFileHistory, rollbackMemoryFile, type FileEditOperation, type FileRevision,
-} from "@/lib/harness/eclipse-memory-browser";
+} from "@/lib/harness/clients/eclipse-memory-browser";
 import {
   EmptyBox, ErrorBox, FilterRow, Header, MEMORY_STATUSES, MEMORY_TYPES, Meta, Muted,
   OriginBadge, Section, SegmentedTabs, Spinner, StatusPill, TypeBadge,

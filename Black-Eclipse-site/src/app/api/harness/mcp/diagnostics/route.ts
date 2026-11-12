@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMCPDiagnostics } from "@/lib/harness/mcp-client";
+import { getMCPDiagnostics } from "@/lib/harness/clients/mcp-client";
 import { listMcpSecretStatus } from "@/lib/harness/mcp-secrets";
 import { listOauthTokenStatus } from "@/lib/harness/mcp-oauth-store";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";

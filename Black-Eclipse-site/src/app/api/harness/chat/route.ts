@@ -4,9 +4,9 @@ import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJ
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile, readStoredCompaction, writeStoredCompaction, applyStoredCompaction } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
-import { parseCommandInvocation } from "@/lib/harness/command-parser";
-import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { parseCommandInvocation } from "@/lib/harness/commands/command-parser";
+import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/commands/command-router";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { newRunId } from "@/lib/harness/ids";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,10 @@ export const maxDuration = 180;
 // final answer as an output file. The Python runtime stays read-only; all
 // filesystem work happens here, on the front door.
 export async function POST(request: Request) {
+  // The run id this request is (or will be) associated with. Declared outside
+  // the try so a failure can still hand the caller a handle to the run instead
+  // of an orphaned 500.
+  let activeRunId: string | undefined;
   const blocked = guardExpensiveMutation(request, "harness-chat", { limit: 60, windowMs: 5 * 60_000 });
   if (blocked) {
     return NextResponse.json(blocked.body, { status: blocked.status, headers: blocked.headers });
@@ -196,6 +200,7 @@ export async function POST(request: Request) {
     // killed mid-run with no handle, stop WAITING before that ceiling and hand
     // the caller a run id + stream URL; the runtime keeps working.
     const effectiveRunId = runId ?? newRunId();
+    activeRunId = effectiveRunId;
     const softDeadlineMs = Number(process.env.HARNESS_CHAT_SOFT_DEADLINE_MS || 150_000);
     const running = { status: "running" as const };
     const result = await Promise.race([
@@ -213,6 +218,8 @@ export async function POST(request: Request) {
           status: "running",
           runId: effectiveRunId,
           streamUrl: `/api/harness/runs/${effectiveRunId}/stream`,
+          eventsUrl: `/api/harness/runs/${effectiveRunId}/events`,
+          pollAfterMs: 2000,
           content:
             "This run is still working and has outlived the one-shot chat endpoint. " +
             `It continues in the background — follow run ${effectiveRunId} to see the result.`,
@@ -251,12 +258,29 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const error = toHarnessErrorJson(err);
+    // A synchronous wait deadline is NOT a failed run: it is a still-running
+    // run the caller can follow. Use 504 (recoverable) and always include the
+    // handle when one exists — never a bare 500.
     const status =
       err instanceof HarnessRuntimeUnavailable ? 503
       : err instanceof HarnessError && err.code === "PROVIDER_NOT_CONFIGURED" ? 503
       : err instanceof HarnessError && err.code === "INVALID_INPUT" ? 400
+      : err instanceof HarnessError && /TIMEOUT|DEADLINE/i.test(`${err.code} ${error.message}`) ? 504
       : 500;
     console.error("[api/harness/chat] POST error:", error.message);
-    return NextResponse.json({ error: error.message, code: error.code }, { status });
+    return NextResponse.json(
+      {
+        error: error.message,
+        code: error.code,
+        ...(activeRunId
+          ? {
+              runId: activeRunId,
+              streamUrl: `/api/harness/runs/${activeRunId}/stream`,
+              eventsUrl: `/api/harness/runs/${activeRunId}/events`,
+            }
+          : {}),
+      },
+      { status },
+    );
   }
 }

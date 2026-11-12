@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { backtestClient } from '@/lib/backtest/backtest-client';
-import { listBrokerConnections, type BrokerConnection } from '@/lib/harness/trading-client';
+import { listBrokerConnections, type BrokerConnection } from '@/lib/harness/clients/trading-client';
 import { Loader2, Radio } from '@/lib/icons';
 
 export interface LiveStrategyPanelProps {

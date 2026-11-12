@@ -99,6 +99,16 @@ describe('per-tab nav mode', () => {
     expect(useSidebarConfigStore.getState().mode).toBe('graph');
   });
 
+  it('restores a desktop tab mode without touching the shared seed', () => {
+    shared.set(SIDEBAR_MODE_KEY, 'terminal');
+
+    useSidebarConfigStore.getState().applyTabMode('bots');
+
+    expect(useSidebarConfigStore.getState().mode).toBe('bots');
+    expect(perTab.get(SIDEBAR_TAB_MODE_KEY)).toBe('bots');
+    expect(shared.get(SIDEBAR_MODE_KEY)).toBe('terminal');
+  });
+
   it('a fresh tab defaults to Terminal even when the shared seed is another mode', () => {
     shared.set(SIDEBAR_MODE_KEY, 'bots');
 

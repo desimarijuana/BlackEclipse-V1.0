@@ -26,7 +26,7 @@ import {
   type Plan,
   type PlanView,
   type TaskNode,
-} from '@/lib/harness/tasks-browser';
+} from '@/lib/harness/clients/tasks-browser';
 
 const STATUS_MARK: Record<string, string> = {
   TODO: '○', IN_PROGRESS: '●', BLOCKED: '⛔', WAITING: '…',

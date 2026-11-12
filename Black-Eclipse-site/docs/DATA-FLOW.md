@@ -242,7 +242,7 @@ the `SystemConfig` key `econ:fred-series-overrides`
 
 ### SEC filing index
 
-`src/lib/harness/data-bridge-filings.ts` (`sec_filing_list`) reads EDGAR's
+`src/lib/harness/data-bridge/data-bridge-filings.ts` (`sec_filing_list`) reads EDGAR's
 submissions index (form, filed, period, accession, primary document). The native
 route `GET /api/stocks/[symbol]/filings` wraps it with rate limiting and a
 30-minute cache; the Fundamentals panel renders the same data in its **Filings**

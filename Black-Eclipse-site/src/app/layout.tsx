@@ -4,6 +4,7 @@ import './fonts.css';
 import './katex.css';
 import { cn } from "@/lib/utils";
 import { AgentationMount } from "@/components/layout/agentation-mount";
+import { ThemeHydrator } from "@/components/layout/theme-hydrator";
 import { GlobalLoader } from "@/components/ui/global-loader";
 import { OnboardingGate } from "@/components/setup/onboarding-gate";
 import { RiskAckGate } from "@/components/legal/risk-ack-gate";
@@ -71,6 +72,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             __html: `try{if(new URLSearchParams(location.search).get('setup')==='1'){sessionStorage.setItem('be_setup_force','1');}}catch(e){}`,
           }}
         />
+        <ThemeHydrator />
         <GlobalLoader />
         <OnboardingGate />
         <RiskAckGate />

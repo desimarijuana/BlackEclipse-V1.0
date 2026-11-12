@@ -808,11 +808,14 @@ async def finance_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             {"status": "ERROR", "error": "metric and observations required", "available": list(web_finance.SERIES_METRICS)},
         )
     try:
+        options = dict(args.get("options") or {}) if isinstance(args.get("options"), dict) else {}
+        if args.get("input"):
+            options["input"] = args.get("input")
         result = web_finance.compute_series(
             metric,
             observations,
             benchmark=args.get("benchmark") if isinstance(args.get("benchmark"), list) else None,
-            options=args.get("options") if isinstance(args.get("options"), dict) else None,
+            options=options,
         )
     except Exception as exc:  # noqa: BLE001
         return (
@@ -821,7 +824,8 @@ async def finance_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         )
     return (
         f"{metric} = {result.get('value')}{result.get('unit') or ''} "
-        f"(formula: {result['formula']}; {result['observationCount']} observations). Deterministic.",
+        f"(formula: {result['formula']}; {result['observationCount']} observations; "
+        f"input={result.get('inputKind') or 'unknown'}). Deterministic.",
         {"status": "OK", "result": result},
     )
 
@@ -1109,7 +1113,8 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
     "finance_series": _obj({
         "metric": {**_STR, "description": "A time-series metric id (see finance_metric_catalog): sharpe, sortino, value_at_risk, parametric_var, monte_carlo_var, cvar, beta, alpha, correlation, covariance, cumulative_return, annualized_return, annualized_volatility, max_drawdown, drawdown_analysis, rolling_volatility, rolling_correlation, rolling_beta, cagr."},
         "observations": {"type": "array", "items": {"type": "object"}, "description": "each {date, value}"},
-        "benchmark": {"type": "array", "items": {"type": "object"}, "description": "second series for beta/alpha/correlation/covariance"},
+        "input": {**_STR, "enum": ["prices", "returns", "auto"], "description": "What `observations` contain: price/equity LEVELS, periodic decimal RETURNS (0.02 = +2%), or `auto` to infer. Pass `returns` when you computed returns; otherwise the calculator will difference them again."},
+        "benchmark": {"type": "array", "items": {"type": "object"}, "description": "second series for beta/alpha/correlation/covariance (same input kind)"},
         "options": {"type": "object", "description": "e.g. {risk_free_rate, frequency, confidence, method (simple|log or pearson|spearman|kendall), ddof, window, top_n, horizon_periods, simulations, seed, distribution, years}"},
     }, ["metric", "observations"]),
     "finance_valuation": _obj({

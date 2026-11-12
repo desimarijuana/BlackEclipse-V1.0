@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { deleteMCPServer } from "@/lib/harness/mcp-client";
+import { deleteMCPServer } from "@/lib/harness/clients/mcp-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

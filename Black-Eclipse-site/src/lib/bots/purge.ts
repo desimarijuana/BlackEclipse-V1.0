@@ -6,7 +6,7 @@
 
 'use client';
 
-import { forgetConversation } from '@/lib/harness/eclipse-memory-browser';
+import { forgetConversation } from '@/lib/harness/clients/eclipse-memory-browser';
 import { useBotAvatarStore } from './avatar-store';
 import { useBotChatStore } from './chat-store';
 import { useBotGroupsStore } from './groups-store';

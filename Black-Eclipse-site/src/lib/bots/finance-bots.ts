@@ -12,7 +12,7 @@ import {
   createAutomation,
   type AutomationView,
   type CreateAutomationInput,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useBotGroupsStore } from '@/lib/bots/groups-store';
 import { localTimezone } from '@/lib/bots/state';

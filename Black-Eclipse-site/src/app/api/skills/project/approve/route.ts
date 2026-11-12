@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { approveProjectSkill, isOperatorRequest } from "@/lib/harness/skills-client";
+import { approveProjectSkill, isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

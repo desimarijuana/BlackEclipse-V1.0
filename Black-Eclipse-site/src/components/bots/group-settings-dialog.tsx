@@ -20,7 +20,7 @@ import { fileToAvatarDataUrl } from '@/lib/bots/image';
 import { useBotGroupsStore } from '@/lib/bots/groups-store';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import { scheduleSummary } from '@/lib/bots/state';
-import type { AutomationView } from '@/lib/harness/automation-browser';
+import type { AutomationView } from '@/lib/harness/clients/automation-browser';
 
 const MIN_MEMBERS = 2;
 const MAX_MEMBERS = 6;

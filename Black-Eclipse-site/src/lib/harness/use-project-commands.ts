@@ -6,7 +6,7 @@
 // already in the bundle), and caches them for the session.
 
 import { useEffect, useState } from 'react';
-import type { CommandSpec } from './command-registry';
+import type { CommandSpec } from './commands/command-registry';
 
 const EMPTY: readonly CommandSpec[] = Object.freeze([]);
 let cache: CommandSpec[] | null = null;

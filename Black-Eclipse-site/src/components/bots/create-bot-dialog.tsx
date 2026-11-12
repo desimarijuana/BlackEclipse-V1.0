@@ -22,7 +22,7 @@ import { BotModelPicker } from '@/components/bots/bot-model-picker';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { createAutomation, type AutomationView } from '@/lib/harness/automation-browser';
+import { createAutomation, type AutomationView } from '@/lib/harness/clients/automation-browser';
 import { listWorkflows, type WorkflowSummary } from '@/lib/graph-studio/persistence-client';
 import { useBotAvatarStore } from '@/lib/bots/avatar-store';
 import { fileToAvatarDataUrl } from '@/lib/bots/image';

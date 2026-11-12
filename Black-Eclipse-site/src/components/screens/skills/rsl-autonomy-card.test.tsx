@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type {
   EvolutionAutonomyStatus,
   EvolutionHarnessState,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 
 vi.mock("@/lib/i18n/use-t", () => ({
   useT: () => (key: string, vars?: Record<string, string | number>) =>

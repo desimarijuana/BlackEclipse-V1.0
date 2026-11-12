@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkspaceLayout as WireLayout } from '@/lib/harness/ui-client';
+import type { WorkspaceLayout as WireLayout } from '@/lib/harness/clients/ui-client';
 import type { WorkspaceLayout as KernelLayout } from '@/lib/workspace/types';
 import { blueprintLayoutToKernel, isDashboardMirrorPath, kernelLayoutToWire, pageStorageKey } from './live-page';
 

@@ -34,7 +34,7 @@ import {
   type BrokerConnection,
   type BrokerKind,
   type TradingMandate,
-} from "@/lib/harness/trading-client";
+} from "@/lib/harness/clients/trading-client";
 
 const DEFAULT_TERMINAL = "C:\\Program Files\\MetaTrader 5\\terminal64.exe";
 const inputClass =

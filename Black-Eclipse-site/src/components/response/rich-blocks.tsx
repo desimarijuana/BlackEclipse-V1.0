@@ -22,7 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Markdown } from '@/components/chat/markdown';
 import { resolveResponseIcon } from '@/lib/response/icons';
-import { downloadUrl } from '@/lib/harness/artifacts-browser';
+import { downloadUrl } from '@/lib/harness/clients/artifacts-browser';
 import type {
   ActionGroupBlock as ActionGroupBlockType,
   ArtifactBlock as ArtifactBlockType,

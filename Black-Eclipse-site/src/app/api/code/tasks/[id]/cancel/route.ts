@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { cancelCodeTask } from "@/lib/harness/code-client";
+import { cancelCodeTask } from "@/lib/harness/clients/code-client";
 
 export const dynamic = "force-dynamic";
 

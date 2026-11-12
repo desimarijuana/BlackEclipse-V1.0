@@ -17,7 +17,7 @@ import {
   type BuiltinCapability,
   type CapabilityRecord,
   type CapabilityStatus,
-} from '@/lib/harness/capabilities-client';
+} from '@/lib/harness/clients/capabilities-client';
 import { GapsSection } from './gaps-section';
 
 const STATUS_KEY: Record<CapabilityStatus, TranslationKey> = {

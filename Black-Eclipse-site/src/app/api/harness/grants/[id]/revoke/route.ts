@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { revokeStandingGrant } from "@/lib/harness/grants-client";
+import { revokeStandingGrant } from "@/lib/harness/clients/grants-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

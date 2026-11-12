@@ -233,17 +233,19 @@ export function Sidebar({
           {isCollapsed ? (
             /* Collapsed — show only the favicon in its place. */
             <div className="relative flex items-center justify-center shrink-0" style={logoBox}>
-              <img
-                src={markSrc}
-                alt={appName}
-                className="h-6 w-6 object-contain transition-all duration-200 group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75"
-              />
+              {/* The brand mark stays visible at all times. It used to fade to
+                  zero the moment the pointer entered ANYWHERE in the sidebar,
+                  which read as the logo randomly disappearing. Expand is now a
+                  small corner affordance that appears on hover without hiding
+                  the mark. */}
+              <img src={markSrc} alt={appName} className="h-6 w-6 object-contain" />
               <button
                 onClick={() => setDesktopCollapsed(false)}
-                className="absolute inset-0 flex items-center justify-center rounded-xl border border-border/40 bg-card text-muted-foreground hover:text-foreground cursor-pointer shadow opacity-0 scale-75 group-hover/sidebar:opacity-100 group-hover/sidebar:scale-100 transition-all duration-200 hover:bg-accent"
+                aria-label="Expand Sidebar"
                 title="Expand Sidebar"
+                className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full border border-border/40 bg-card text-muted-foreground opacity-0 shadow transition-opacity duration-150 hover:bg-accent hover:text-foreground cursor-pointer group-hover/sidebar:opacity-100"
               >
-                <ChevronRight size={15} />
+                <ChevronRight size={11} />
               </button>
             </div>
           ) : (
@@ -251,7 +253,9 @@ export function Sidebar({
             <img
               src={wordmarkSrc}
               alt={appName}
-              className="h-7 w-auto max-w-[170px] object-contain select-none"
+              className={`h-7 w-auto max-w-[170px] object-contain select-none${
+                logoUrl ? '' : ' brand-wordmark'
+              }`}
             />
           )}
         </div>

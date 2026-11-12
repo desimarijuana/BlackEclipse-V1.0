@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { decideEvolutionAutonomy } from "@/lib/harness/evolution-client";
-import type { EvolutionAutonomyDecideInput } from "@/lib/harness/evolution-client";
+import { decideEvolutionAutonomy } from "@/lib/harness/clients/evolution-client";
+import type { EvolutionAutonomyDecideInput } from "@/lib/harness/clients/evolution-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

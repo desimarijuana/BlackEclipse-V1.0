@@ -6,7 +6,7 @@
 // providers in order. Routing/fallback/health live in Python (the ProviderRouter
 // + MarketStore); this file is pure adapter execution over ONE transport.
 
-import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
 import { ProviderError, type MarketDataRequest, type MarketProvider } from "./types";
 import { yahooProvider } from "./providers/yahoo";
 import { binanceProvider } from "./providers/binance";

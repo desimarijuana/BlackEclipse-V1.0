@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { lockSkillBundle, unlockSkillBundle, isOperatorRequest } from "@/lib/harness/skills-client";
+import { lockSkillBundle, unlockSkillBundle, isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

@@ -5,8 +5,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
-import { getEvolutionStatesParetoBrowser } from "@/lib/harness/evolution-browser";
-import type { EvolutionPareto } from "@/lib/harness/evolution-client";
+import { getEvolutionStatesParetoBrowser } from "@/lib/harness/clients/evolution-browser";
+import type { EvolutionPareto } from "@/lib/harness/clients/evolution-client";
 import { EVOLUTION_VERIFIED_EVENT } from "@/lib/harness/evolution-events";
 
 export function paretoSummary(pareto: EvolutionPareto | null): {

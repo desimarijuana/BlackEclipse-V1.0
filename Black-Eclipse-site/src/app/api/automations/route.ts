@@ -5,7 +5,7 @@ import {
   listAutomations,
   type AutomationState,
   type CreateAutomationInput,
-} from "@/lib/harness/automation-client";
+} from "@/lib/harness/clients/automation-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

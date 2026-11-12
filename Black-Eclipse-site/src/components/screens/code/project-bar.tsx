@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Folder, FolderOpen, Trash2 } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
-import { listTrustedRoots, revokeTrustedRoot, selectTrustedRoot, type TrustedRoot } from '@/lib/harness/code-browser';
+import { listTrustedRoots, revokeTrustedRoot, selectTrustedRoot, type TrustedRoot } from '@/lib/harness/clients/code-browser';
 import { FolderPicker } from '@/components/workspace/folder-picker';
 
 /** The short name of a project folder (or the neutral default). */

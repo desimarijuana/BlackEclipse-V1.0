@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   forgetConversation,
   listConversationMemories,
-} from '@/lib/harness/eclipse-memory-browser';
+} from '@/lib/harness/clients/eclipse-memory-browser';
 import type { MemoryRecord } from '@/lib/harness/eclipse-memory-types';
 
 export function BotMemorySection({ botId }: { botId: string }) {

@@ -15,7 +15,7 @@ import type {
   ReplayOutcomeView,
   SubscriptionView,
   DeclaredSubscriptionView,
-} from "@/lib/harness/events-client";
+} from "@/lib/harness/clients/events-client";
 
 type Tab = "history" | "live" | "dlq" | "subscriptions" | "registry" | "metrics" | "graph";
 

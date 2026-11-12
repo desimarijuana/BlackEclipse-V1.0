@@ -17,7 +17,7 @@
 // older shells. Both paths are needed: the event bridge avoids app-command ACLs,
 // while the core API is the one Tauri guarantees for remote origins.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ChartLine,
   Code,
@@ -52,9 +52,11 @@ import {
   readStoredTabs,
   removeTab,
   saveStoredTabs,
+  setTabMode,
   setTabPage,
   type DesktopTab,
 } from '@/lib/desktop/tabs';
+import { useSidebarConfigStore } from '@/lib/sidebar/store';
 
 interface TabMeta {
   label: string;
@@ -191,6 +193,48 @@ export function DesktopTabBar({
   const [activeId, setActiveId] = useState(bootId.current);
   const [dragging, setDragging] = useState<string | null>(null);
   const tabListRef = useRef<HTMLDivElement>(null);
+  // Pointer-based reorder. HTML5 drag-and-drop is the fragile path inside the
+  // Tauri shell (WebView2 replaces the page's drag handler with Tauri's file-drop
+  // handler unless the native window opts out), so tabs reorder with plain
+  // pointer events: they work in the browser, in the desktop webview, and on a
+  // shell that predates the native opt-out. A mouse/pen only — touch keeps
+  // scrolling the strip.
+  const pointerDragRef = useRef<{
+    id: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null>(null);
+  // Set when a real drag moved the tab, so the pointerup does not also select it.
+  const suppressClickRef = useRef(false);
+  // FLIP snapshot: the strip's rects just before a reorder. The layout effect
+  // below animates each tab from its old X to its new X, so a drag reads as a
+  // smooth slide instead of an instant swap.
+  const flipRectsRef = useRef<Map<string, DOMRect> | null>(null);
+  // Live FLIP animations, cancelled when a newer reorder lands so rapid drags
+  // never stack two transforms on the same tab.
+  const flipAnimationsRef = useRef<Map<string, Animation>>(new Map());
+
+  const captureTabRects = useCallback(() => {
+    const strip = tabListRef.current;
+    if (!strip) return;
+    const rects = new Map<string, DOMRect>();
+    strip.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+      const id = el.dataset.tabId;
+      if (id) rects.set(id, el.getBoundingClientRect());
+    });
+    flipRectsRef.current = rects;
+  }, []);
+
+  const setDragCursor = useCallback((active: boolean) => {
+    if (typeof document === 'undefined') return;
+    // The grab cursor belongs to an ACTIVE drag only — hovering a tab shows the
+    // normal arrow, so the strip does not advertise a drag handle it does not have.
+    document.documentElement.style.cursor = active ? 'grabbing' : '';
+  }, []);
+
+  useEffect(() => () => setDragCursor(false), [setDragCursor]);
 
   // Detect the shell after mount (the Tauri bridge does not exist during SSR).
   // Restore the previous session's tabs once, keeping the URL/boot page open.
@@ -201,16 +245,56 @@ export function DesktopTabBar({
     if (stored.length > 0) {
       const boot = stored.find((tab) => tab.page === bootTab.current);
       if (boot) {
-        setTabs(stored);
+        // Seed an upgraded tab (stored before modes were part of the record)
+        // with the mode this shell is already showing, then restore the mode
+        // that tab had last time.
+        const mode = useSidebarConfigStore.getState().mode;
+        setTabs(setTabMode(stored, boot.id, mode));
         setActiveId(boot.id);
+        if (boot.mode) useSidebarConfigStore.getState().applyTabMode(boot.mode);
       } else {
-        const added = appendTab(stored, bootTab.current);
+        const added = appendTab(stored, bootTab.current, useSidebarConfigStore.getState().mode);
         setTabs(added.tabs);
         setActiveId(added.tab.id);
       }
     }
     setRestored(true);
   }, []);
+
+  // The sidebar's menu mode is per SHELL (sessionStorage), but desktop tabs are
+  // in-page instances inside ONE shell — so without this every tab would share
+  // one mode. Each tab records the mode it was showing and restores it when it
+  // becomes active, so a Bots tab and a Command Center tab keep their own menu.
+  //
+  // Declared after the Sidebar's own mode-sync effect in the tree, so applying a
+  // tab's saved mode wins even when that tab's page would otherwise force the
+  // page's mode.
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  useEffect(() => {
+    if (!desktop) return;
+    const tab = tabsRef.current.find((item) => item.id === activeId);
+    if (!tab) return;
+    const store = useSidebarConfigStore.getState();
+    if (tab.mode) {
+      if (tab.mode !== store.mode) store.applyTabMode(tab.mode);
+    } else {
+      setTabs((prev) => setTabMode(prev, activeId, store.mode));
+    }
+  }, [desktop, activeId]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    // Every mode change (switcher, shortcut, navigation) belongs to the tab in
+    // front, so write it back into that tab's record.
+    return useSidebarConfigStore.subscribe((state, prev) => {
+      if (state.mode === prev.mode) return;
+      setTabs((current) => setTabMode(current, activeIdRef.current, state.mode));
+    });
+  }, [desktop]);
 
   // In-app navigation (sidebar, palette, deep link) moves the ACTIVE tab.
   useEffect(() => {
@@ -248,7 +332,7 @@ export function DesktopTabBar({
   const newTab = useCallback(() => {
     // A real new tab instance: it starts as a fresh Chat session, and whatever
     // page the user opens next becomes that tab's page.
-    const { tabs: next, tab } = appendTab(tabs, 'chat');
+    const { tabs: next, tab } = appendTab(tabs, 'chat', useSidebarConfigStore.getState().mode);
     setTabs(next);
     setActiveId(tab.id);
     onNewChat?.();
@@ -301,6 +385,36 @@ export function DesktopTabBar({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [desktop, tabs, activeId]);
 
+  // Slide every tab that changed slot after a reorder (pointer drag OR the
+  // keyboard chords). Runs before paint, so there is no flash of the new order.
+  useLayoutEffect(() => {
+    const before = flipRectsRef.current;
+    flipRectsRef.current = null;
+    if (!before) return;
+    const strip = tabListRef.current;
+    if (!strip) return;
+    strip.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+      const id = el.dataset.tabId;
+      const prev = id ? before.get(id) : undefined;
+      if (!id || !prev) return;
+      const next = el.getBoundingClientRect();
+      const dx = prev.left - next.left;
+      if (Math.abs(dx) < 0.5 || typeof el.animate !== 'function') return;
+      // Cancel a still-running slide so two transforms never stack.
+      flipAnimationsRef.current.get(id)?.cancel();
+      const animation = el.animate(
+        [{ transform: `translateX(${dx}px)` }, { transform: 'translateX(0)' }],
+        { duration: 170, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
+      );
+      flipAnimationsRef.current.set(id, animation);
+      animation.onfinish = () => {
+        if (flipAnimationsRef.current.get(id) === animation) {
+          flipAnimationsRef.current.delete(id);
+        }
+      };
+    });
+  }, [tabs]);
+
   if (!desktop) return null;
 
   return (
@@ -333,10 +447,17 @@ export function DesktopTabBar({
               role="tab"
               aria-selected={active}
               tabIndex={0}
-              draggable
               data-be-no-drag=""
+              data-tab-id={tab.id}
               title={`${label} — drag to reorder`}
-              onClick={() => select(tab)}
+              onClick={() => {
+                // A completed drag already moved the tab; do not also activate it.
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  return;
+                }
+                select(tab);
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
@@ -346,31 +467,100 @@ export function DesktopTabBar({
               onAuxClick={(event) => {
                 if (event.button === 1) close(tab.id);
               }}
-              onDragStart={(event) => {
-                setDragging(tab.id);
-                event.dataTransfer.effectAllowed = 'move';
-                try {
-                  event.dataTransfer.setData('text/plain', tab.id);
-                } catch {
-                  /* some webviews refuse setData without a drag image */
+              onPointerDown={(event) => {
+                if (event.button !== 0 || event.pointerType === 'touch') return;
+                // The close control and other buttons keep their own behaviour.
+                if ((event.target as HTMLElement).closest('button')) return;
+                pointerDragRef.current = {
+                  id: tab.id,
+                  pointerId: event.pointerId,
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  active: false,
+                };
+              }}
+              onPointerMove={(event) => {
+                const drag = pointerDragRef.current;
+                if (!drag || drag.id !== tab.id || drag.pointerId !== event.pointerId) return;
+                if (!drag.active) {
+                  const dx = event.clientX - drag.startX;
+                  const dy = event.clientY - drag.startY;
+                  if (dx * dx + dy * dy < 25) return; // 5px dead zone
+                  drag.active = true;
+                  suppressClickRef.current = true;
+                  setDragging(tab.id);
+                  setDragCursor(true);
+                  try {
+                    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+                  } catch {
+                    /* capture is a nicety; moves still arrive on the element */
+                  }
+                }
+                event.preventDefault();
+                const strip = tabListRef.current;
+                if (!strip) return;
+                // Edge auto-scroll: dragging past either end of a long strip
+                // keeps the destination visible.
+                const box = strip.getBoundingClientRect();
+                const edge = 28;
+                if (event.clientX < box.left + edge) {
+                  strip.scrollLeft = Math.max(0, strip.scrollLeft - 14);
+                } else if (event.clientX > box.right - edge) {
+                  strip.scrollLeft += 14;
+                }
+                // Stable insertion boundary: cross the MIDPOINT of a neighbour
+                // to move past it. Hit-testing the raw hovered tab oscillates
+                // when the strip reflows under the cursor; midpoints do not.
+                const els = Array.from(strip.querySelectorAll<HTMLElement>('[data-tab-id]'));
+                let boundary = tabs.length;
+                for (let i = 0; i < els.length; i += 1) {
+                  const rect = els[i].getBoundingClientRect();
+                  if (event.clientX < rect.left + rect.width / 2) {
+                    boundary = i;
+                    break;
+                  }
+                }
+                const from = tabs.findIndex((item) => item.id === drag.id);
+                if (from === -1) return;
+                const insertAt = boundary > from ? boundary - 1 : boundary;
+                if (insertAt === from) return;
+                // Snapshot before the reorder so the layout effect can slide
+                // every displaced tab from its old slot to the new one.
+                captureTabRects();
+                const next = [...tabs];
+                const [moved] = next.splice(from, 1);
+                next.splice(insertAt, 0, moved);
+                setTabs(next);
+              }}
+              onPointerUp={(event) => {
+                const drag = pointerDragRef.current;
+                if (!drag || drag.id !== tab.id) return;
+                pointerDragRef.current = null;
+                if (drag.active) {
+                  try {
+                    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+                  } catch {
+                    /* already released */
+                  }
+                  setDragging(null);
+                  setDragCursor(false);
+                  // The click that follows this pointerup must be ignored; clear
+                  // the flag right after in case no click is dispatched at all.
+                  window.setTimeout(() => {
+                    suppressClickRef.current = false;
+                  }, 0);
                 }
               }}
-              onDragOver={(event) => {
-                if (!dragging || dragging === tab.id) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                if (dragging && dragging !== tab.id) {
-                  setTabs((prev) => moveTab(prev, dragging, tab.id));
-                }
+              onPointerCancel={() => {
+                pointerDragRef.current = null;
                 setDragging(null);
+                setDragCursor(false);
+                suppressClickRef.current = false;
               }}
-              onDragEnd={() => setDragging(null)}
               className={cn(
-                'group/tab flex h-7 min-w-0 max-w-[220px] shrink-0 cursor-grab items-center gap-1.5 rounded-md pl-2.5 pr-1 text-[11.5px] font-medium outline-none transition-colors active:cursor-grabbing focus-visible:ring-1 focus-visible:ring-white/20',
-                dragging === tab.id && 'opacity-50',
+                'group/tab flex h-7 min-w-0 max-w-[220px] shrink-0 items-center gap-1.5 rounded-md pl-2.5 pr-1 text-[11.5px] font-medium outline-none transition-[color,background-color,box-shadow,opacity] duration-150 focus-visible:ring-1 focus-visible:ring-white/20',
+                dragging === tab.id &&
+                  'z-10 bg-white/[0.10] text-foreground opacity-80 shadow-[0_6px_18px_rgba(0,0,0,0.45)] ring-1 ring-white/15',
                 active
                   ? 'bg-white/[0.08] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
                   : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',

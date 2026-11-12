@@ -8,7 +8,7 @@
 // "no events happened"), and an absent id is `not_found`.
 
 import { prisma } from "@/lib/db";
-import type { DataBridgeResult } from "./data-bridge-types";
+import type { DataBridgeResult } from "./data-bridge/data-bridge-types";
 
 function parseWorldArray(raw: string | null | undefined): string[] {
   if (!raw) return [];

@@ -29,7 +29,7 @@ import {
   type CodeSession,
   type CodeTask,
   type CodeTaskDiff,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 import { ScorecardStrip } from './scorecard-strip';
 import { ProjectBar } from './project-bar';
 import { PreviewPanel } from './preview-panel';

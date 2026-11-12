@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/harness/command-plugins", () => ({
+vi.mock("@/lib/harness/commands/command-plugins", () => ({
   loadProjectCommands: vi.fn(async () => ({ commands: [], errors: [] })),
 }));
 
-import { loadProjectCommands } from "@/lib/harness/command-plugins";
-import type { CommandSpec } from "@/lib/harness/command-registry";
+import { loadProjectCommands } from "@/lib/harness/commands/command-plugins";
+import type { CommandSpec } from "@/lib/harness/commands/command-registry";
 import { GET } from "./route";
 
 const projectSpec: CommandSpec = {

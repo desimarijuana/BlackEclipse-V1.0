@@ -6,9 +6,9 @@
 // "not measured yet" — never a fabricated 0.
 
 import { useT } from '@/lib/i18n/use-t';
-import type { RuntimeHealthView, RuntimeProviderView } from '@/lib/harness/model-runtime-browser';
-import { healthBucket } from '@/lib/harness/model-runtime-browser';
-import { dynKey } from '@/lib/harness/model-runtime-browser';
+import type { RuntimeHealthView, RuntimeProviderView } from '@/lib/harness/clients/model-runtime-browser';
+import { healthBucket } from '@/lib/harness/clients/model-runtime-browser';
+import { dynKey } from '@/lib/harness/clients/model-runtime-browser';
 import { EmptyState } from './providers-pane';
 
 interface Props {

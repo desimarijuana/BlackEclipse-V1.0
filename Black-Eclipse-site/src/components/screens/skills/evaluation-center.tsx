@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { SkillEvaluationRecord, SkillSummary } from "@/lib/harness/skills-types";
-import { listSkillEvaluations } from "@/lib/harness/skills-browser";
+import { listSkillEvaluations } from "@/lib/harness/clients/skills-browser";
 import { EmptyState, ErrorState, EvalBadge, formatWhen, LoadingState, Panel, PanelHeader } from "./skill-ui";
 
 export function EvaluationCenter({

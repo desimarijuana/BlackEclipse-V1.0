@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { RefreshCw } from "@/lib/icons";
-import { listPorts, type PortEntry } from "@/lib/harness/terminal-browser";
+import { listPorts, type PortEntry } from "@/lib/harness/clients/terminal-browser";
 import { cn } from "@/lib/utils";
 
 export function PortPanel() {

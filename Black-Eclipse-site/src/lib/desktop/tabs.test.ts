@@ -7,6 +7,7 @@ import {
   moveTabToEdge,
   parseStoredTabs,
   removeTab,
+  setTabMode,
   setTabPage,
   type DesktopTab,
 } from './tabs';
@@ -90,6 +91,24 @@ describe('desktop tabs', () => {
     ]);
     expect(setTabPage(tabs, 'a', 'chat')).toBe(tabs);
     expect(setTabPage(tabs, 'missing', 'chart')).toBe(tabs);
+  });
+
+  it('records and restores a per-tab sidebar mode', () => {
+    const tabs = [tab('a'), tab('b', 'dashboard')];
+    const tagged = setTabMode(tabs, 'a', 'bots');
+    expect(tagged[0]).toEqual({ id: 'a', page: 'chat', mode: 'bots' });
+    expect(tagged[1]).toEqual(tab('b', 'dashboard'));
+    expect(setTabMode(tagged, 'a', 'bots')).toBe(tagged);
+    expect(setTabMode(tagged, 'a', 'terminal')[0].mode).toBe('terminal');
+    expect(setTabMode(tabs, 'missing', 'bots')).toBe(tabs);
+  });
+
+  it('round-trips tab modes through storage and drops malformed ones', () => {
+    const stored = '[{"id":"a","page":"chat","mode":"bots"},{"id":"b","page":"dashboard","mode":"nope"}]';
+    expect(parseStoredTabs(stored)).toEqual([
+      { id: 'a', page: 'chat', mode: 'bots' },
+      { id: 'b', page: 'dashboard' },
+    ]);
   });
 
   it('parses current tabs and migrates the legacy page-only list', () => {

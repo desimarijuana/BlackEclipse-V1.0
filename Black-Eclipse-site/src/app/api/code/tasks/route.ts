@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listCodeTasks, createCodeTask, type Autonomy } from "@/lib/harness/code-client";
+import { listCodeTasks, createCodeTask, type Autonomy } from "@/lib/harness/clients/code-client";
 import { resolveRunModelSettings } from "@/lib/harness/run-service";
 import { runtimeBaseUrl, runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";

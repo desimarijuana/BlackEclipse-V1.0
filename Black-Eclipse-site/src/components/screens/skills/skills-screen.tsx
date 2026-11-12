@@ -20,7 +20,7 @@ import {
   listSkills, getSkill, listCandidates, generateDraft, rejectCandidate,
   listSkillExecutions, learnFromRun, evaluateSkill, setSkillLifecycle,
   executeSkill, approveDraft, rejectDraft, submitDraftReview, deleteUserSkill,
-} from "@/lib/harness/skills-browser";
+} from "@/lib/harness/clients/skills-browser";
 import type {
   LearningCandidate, SkillDetail, SkillExecutionRecord, SkillSummary,
 } from "@/lib/harness/skills-types";

@@ -654,7 +654,7 @@ adapter's `deals_window(N)` and still dedupes by deal ticket. See
 | Boot wiring | `python/harness/trade/bootstrap.py`, `service.py` |
 | Routes | `python/harness/routers/trading.py` |
 | Front door | `src/app/api/trading/[[...path]]/route.ts`, `src/lib/harness/trading-routes.ts` |
-| Client | `src/lib/harness/trading-client.ts` |
+| Client | `src/lib/harness/clients/trading-client.ts` |
 | Settings UI | `src/components/screens/trading-settings.tsx` |
 | Sidebar connect | `src/components/layout/sidebar-broker-dialog.tsx`, `src/components/layout/sidebar-broker-panels.tsx` |
 | Dashboard widgets | `src/lib/dashboard/trading-widgets.tsx`; shared read path `src/lib/dashboard/use-broker-snapshot.ts`; Home Trading section `src/components/screens/dashboard/home-trading-cards.tsx` + `src/lib/dashboard/use-trading-home-data.ts` + `src/lib/dashboard/trading-home-model.ts` |

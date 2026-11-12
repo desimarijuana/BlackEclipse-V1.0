@@ -3,7 +3,7 @@
 // mapping the container uses. Duck-typed against the client error classes so
 // this module never needs to import (and be mocked with) the client itself.
 
-import type { CanvasKind } from '@/lib/harness/canvas-client';
+import type { CanvasKind } from '@/lib/harness/clients/canvas-client';
 
 export const CANVAS_KINDS: CanvasKind[] = ['document', 'code', 'visual'];
 

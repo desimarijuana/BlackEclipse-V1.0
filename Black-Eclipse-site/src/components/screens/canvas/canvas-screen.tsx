@@ -7,12 +7,12 @@
 // surfaces an honest conflict UI instead of overwriting.
 
 import { useCallback, useEffect, useRef, useState, type JSX, type MutableRefObject } from 'react';
-import { archiveArtifact, updateArtifact } from '@/lib/harness/artifacts-browser';
+import { archiveArtifact, updateArtifact } from '@/lib/harness/clients/artifacts-browser';
 import {
   createCanvasArtifact, getCanvasArtifact, listCanvasArtifacts,
   proposeCanvasEdit, restoreCanvasVersion, saveCanvasArtifact,
   type CanvasKind, type CanvasListItem, type CanvasMode, type CanvasProposal, type CanvasSnapshot,
-} from '@/lib/harness/canvas-client';
+} from '@/lib/harness/clients/canvas-client';
 import { CanvasWorkspace } from './canvas-workspace';
 import {
   contentExtension, contentMime, describeCanvasError, kindLabel, starterContent,

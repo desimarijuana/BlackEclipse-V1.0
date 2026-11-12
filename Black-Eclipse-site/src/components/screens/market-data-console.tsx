@@ -21,7 +21,7 @@ import {
   type MarketProviderRow,
   type MarketQualityEvent,
   type MarketStreamSnapshot,
-} from "@/lib/harness/market-client";
+} from "@/lib/harness/clients/market-client";
 import { Panel } from "./settings-ui";
 
 const REFRESH_MS = 15_000;

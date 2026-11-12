@@ -21,8 +21,7 @@ def store():
     s.close()
 
 
-def test_fail_orphaned_runs_marks_non_terminal_rows_and_appends_event(store):
-    # A previous process died mid-run: the row must become failed with a durable
+def test_fail_orphaned_runs_marks_non_terminal_rows_and_appends_event(store):    # A previous process died mid-run: the row must become failed with a durable
     # run.failed event, so a watching client sees a terminal state.
     store.create_run("run_stuck", "eclipse-agent", {"query": "x"})
     store.update_run("run_stuck", status="running")
@@ -116,3 +115,33 @@ def test_reconcile_runs_when_the_port_is_free(store):
     finally:
         os.environ.pop("HARNESS_PY_HOST", None)
         os.environ.pop("HARNESS_PY_PORT", None)
+
+
+def test_orphan_with_a_checkpoint_is_recoverable_not_terminal(store):
+    """A restart must not destroy the one state the resume endpoint accepts."""
+    from harness.run_lineage import RunLineage
+
+    lineage = RunLineage(store)
+    store.create_run("run_resumable", "eclipse-agent", {"query": "x"})
+    store.update_run("run_resumable", status="running")
+    store.append_event("run_resumable", "model.requested", 1, {"step": 1})
+    lineage.save_checkpoint("run_resumable", "step", {"step": 1})
+
+    reconciled = fail_orphaned_runs(store, "the agent runtime restarted")
+
+    assert reconciled == 1
+    run = store.get_run("run_resumable")
+    assert run["status"] == "interrupted"
+    assert run["error"]["code"] == "RUN_INTERRUPTED"
+    events = store.list_events("run_resumable")
+    assert events[-1]["type"] == "run.interrupted"
+    # Idempotent: a second pass has nothing left to reconcile.
+    assert fail_orphaned_runs(store, "again") == 0
+
+
+def test_terminal_run_is_not_overwritten_by_reconciliation(store):
+    store.create_run("run_done", "eclipse-agent", {"query": "x"})
+    store.update_run("run_done", status="completed", output="ok")
+    assert fail_orphaned_runs(store, "again") == 0
+    assert store.get_run("run_done")["status"] == "completed"
+    assert store.get_run("run_done")["output"] == "ok"

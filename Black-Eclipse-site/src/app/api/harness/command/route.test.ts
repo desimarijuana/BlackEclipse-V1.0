@@ -7,11 +7,11 @@ const executeCommandFromText = vi.fn();
 const buildAgentInstruction = vi.fn();
 const chatWithAgent = vi.fn();
 
-vi.mock("@/lib/harness/command-router", () => ({
+vi.mock("@/lib/harness/commands/command-router", () => ({
   executeCommandFromText: (...args: unknown[]) => executeCommandFromText(...args),
 }));
 
-vi.mock("@/lib/harness/command-agent", () => ({
+vi.mock("@/lib/harness/commands/command-agent", () => ({
   buildAgentInstruction: (...args: unknown[]) => buildAgentInstruction(...args),
 }));
 
@@ -19,7 +19,7 @@ vi.mock("@/lib/harness/run-service", () => ({
   chatWithAgent: (...args: unknown[]) => chatWithAgent(...args),
 }));
 
-vi.mock("@/lib/harness/skills-client", () => ({
+vi.mock("@/lib/harness/clients/skills-client", () => ({
   isOperatorRequest: () => false,
 }));
 

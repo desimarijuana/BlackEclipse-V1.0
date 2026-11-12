@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Loader2, Play, RotateCcw, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
-import { downloadUrl, inlineUrl } from '@/lib/harness/artifacts-browser';
-import { VideoApiError, cancelVideoJob, getVideoJob, renderVideoProject } from '@/lib/harness/video-client';
+import { downloadUrl, inlineUrl } from '@/lib/harness/clients/artifacts-browser';
+import { VideoApiError, cancelVideoJob, getVideoJob, renderVideoProject } from '@/lib/harness/clients/video-client';
 import {
   coerceVideoBlob,
   coerceVideoJobStatus,

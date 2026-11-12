@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import {
   createProfile, deleteProfile, getPolicies, listProfiles,
   memoryProviderSearch, memoryProviderStatus, memoryProviderTest, updatePolicies,
-} from "@/lib/harness/eclipse-memory-browser";
+} from "@/lib/harness/clients/eclipse-memory-browser";
 import type { MemoryProfileRecord, MemoryProviderStatus } from "@/lib/harness/eclipse-memory-types";
 import { ErrorBox, Header, MEMORY_TYPES, Spinner } from "./memory-ui";
 

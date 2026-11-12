@@ -18,7 +18,7 @@ import {
   verifySecurityAudit,
   type SecurityCapability,
   type SecurityStatus,
-} from "@/lib/harness/security-browser";
+} from "@/lib/harness/clients/security-browser";
 
 const RISK_TONE: Record<string, string> = {
   critical: "text-rose-300 border-rose-400/30 bg-rose-500/10",

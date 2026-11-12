@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { memoryProviderSearch } from "@/lib/harness/eclipse-memory-client";
+import { memoryProviderSearch } from "@/lib/harness/clients/eclipse-memory-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { guardMutation } from "@/lib/api-guard";
 

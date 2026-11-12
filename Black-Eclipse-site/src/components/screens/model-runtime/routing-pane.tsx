@@ -9,8 +9,8 @@
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import { ArrowRight, Save } from '@/lib/icons';
-import type { RuntimeRoutingView } from '@/lib/harness/model-runtime-browser';
-import { dynKey } from '@/lib/harness/model-runtime-browser';
+import type { RuntimeRoutingView } from '@/lib/harness/clients/model-runtime-browser';
+import { dynKey } from '@/lib/harness/clients/model-runtime-browser';
 import { EmptyState } from './providers-pane';
 
 /** The default task → alias story shown in the routing panel (spec §40). */

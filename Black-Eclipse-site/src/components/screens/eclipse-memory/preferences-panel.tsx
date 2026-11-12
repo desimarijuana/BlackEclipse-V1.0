@@ -12,7 +12,7 @@ import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import {
   archiveMemory, acceptSuggestion, dismissSuggestion, learnPreferences,
   memoryPreferences, updatePolicies,
-} from "@/lib/harness/eclipse-memory-browser";
+} from "@/lib/harness/clients/eclipse-memory-browser";
 import type { PreferenceSummary } from "@/lib/harness/eclipse-memory-types";
 import {
   EmptyBox, ErrorBox, Header, Muted, OriginBadge, Section, Spinner, TypeBadge,

@@ -1225,6 +1225,31 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - reconciliation must never block boot
             log.warning("orphaned run reconciliation failed", exc_info=True)
             result["orphanedRuns"] = {"ok": False, "error": "reconciliation failed"}
+        # Forensics: a restart must leave a record of which process owns which
+        # database and how many runs it reconciled. Without this, an orphaned
+        # run cannot be attributed to a boot, a kill, or a second runtime.
+        try:
+            schema_version = None
+            try:
+                from .migrations import MigrationRunner  # noqa: PLC0415
+                from .run_lineage import RunLineage  # noqa: PLC0415
+
+                schema_version = MigrationRunner(
+                    RunLineage(self.store)._db, "agent-memory"
+                ).current_version()
+            except Exception:  # noqa: BLE001 - a log field must never block boot
+                schema_version = None
+            log.info(
+                "runtime boot: pid=%s env=%s port=%s db=%s schema=%s orphaned=%s",
+                os.getpid(),
+                os.environ.get("BE_PROFILE") or "prod",
+                os.environ.get("HARNESS_PY_PORT") or "unknown",
+                getattr(self.store, "path", getattr(self.store, "_path", "unknown")),
+                schema_version,
+                result.get("orphanedRuns"),
+            )
+        except Exception:  # noqa: BLE001 - forensics must never block boot
+            pass
         return result
 
     def run_skill_maintenance(self) -> dict[str, Any]:

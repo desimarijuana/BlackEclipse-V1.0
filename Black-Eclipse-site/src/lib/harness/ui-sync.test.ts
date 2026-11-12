@@ -7,7 +7,7 @@ const registerSurfaces = vi.hoisted(() =>
   vi.fn(async (_surfaces: unknown[]) => ({ total: 1, registered: 1 })),
 );
 
-vi.mock('@/lib/harness/ui-client', () => ({ registerComponents, registerSurfaces }));
+vi.mock('@/lib/harness/clients/ui-client', () => ({ registerComponents, registerSurfaces }));
 vi.mock('@/lib/ui-engineering/registry-catalog', () => ({
   dashboardComponentSpecs: () => [{ id: 'a' }, { id: 'b' }],
 }));

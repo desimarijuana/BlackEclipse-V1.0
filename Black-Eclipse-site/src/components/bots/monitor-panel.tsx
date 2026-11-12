@@ -12,7 +12,7 @@ import {
   createMonitor,
   listMonitors,
   type AdvisoryMonitorView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 
 const PARAM_LABEL: Record<string, string> = {
   portfolio_id: 'Portfolio id',

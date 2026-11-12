@@ -106,11 +106,14 @@ class SeriesStore:
 
     def coverage(self, symbol: str, interval: str = "1d", *, adjusted: bool = True) -> dict[str, Any]:
         row = self._db.execute(
-            "SELECT COUNT(*) AS n, MIN(eventTime) AS start, MAX(eventTime) AS end "
+            "SELECT COUNT(*) AS n, MIN(eventTime) AS start, MAX(eventTime) AS end, "
+            "GROUP_CONCAT(DISTINCT provider) AS providers "
             "FROM MarketBarSeries WHERE symbol=? AND interval=? AND adjusted=?",
             ((symbol or "").upper(), interval or "1d", 1 if adjusted else 0),
         ).fetchone()
+        providers = [p for p in str(row["providers"] or "").split(",") if p] if row else []
         return {"symbol": (symbol or "").upper(), "interval": interval,
+                "store": "history_cache", "providers": providers,
                 "barCount": int(row["n"]) if row else 0,
                 "start": row["start"] if row else None, "end": row["end"] if row else None}
 
@@ -122,7 +125,7 @@ class SeriesStore:
             "ORDER BY symbol, interval LIMIT ?",
             (max(1, int(limit)),),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [{**dict(r), "store": "history_cache"} for r in rows]
 
 
 #: The process-wide series store, so a tool can reach the durable history

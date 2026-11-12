@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMCPSupplyChain } from "@/lib/harness/mcp-client";
+import { getMCPSupplyChain } from "@/lib/harness/clients/mcp-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

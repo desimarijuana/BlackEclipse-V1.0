@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { memoryConflictReview } from "@/lib/harness/eclipse-memory-client";
+import { memoryConflictReview } from "@/lib/harness/clients/eclipse-memory-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

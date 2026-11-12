@@ -117,7 +117,7 @@ and no second layout engine.
 
 Operator routes (`/ui/*`, operator-gated) live in `routers/ui.py`; the Next.js
 front door proxies them at `/api/ui/[[...path]]` and exposes a client-safe
-`src/lib/harness/ui-client.ts`. The **Capability Studio**
+`src/lib/harness/clients/ui-client.ts`. The **Capability Studio**
 (`src/components/screens/capability-studio/capability-studio-screen.tsx`,
 AppTab `ui-builder`) is the visible surface: ONE navigable place for pages &
 widgets (the embedded **UI Builder**,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { restoreMemoryFiles } from "@/lib/harness/memory-files";
 
 export const dynamic = "force-dynamic";

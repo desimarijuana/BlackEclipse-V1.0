@@ -6,12 +6,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const memoryProviderSearch = vi.fn();
 
-vi.mock("@/lib/harness/eclipse-memory-client", () => ({
+vi.mock("@/lib/harness/clients/eclipse-memory-client", () => ({
   memoryProviderSearch: (...a: unknown[]) => memoryProviderSearch(...a),
 }));
 
 import { POST } from "@/app/api/memory-providers/search/route";
-import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
+import { HarnessRuntimeUnavailable } from "@/lib/harness/clients/python-client";
 
 function req(body: unknown, origin = "http://localhost:3000"): Request {
   return new Request("http://localhost:3000/api/memory-providers/search", {

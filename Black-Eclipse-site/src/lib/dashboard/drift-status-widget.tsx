@@ -9,11 +9,11 @@ import { cn } from "@/lib/utils";
 import {
   getEvolutionDriftHistoryBrowser,
   getEvolutionDriftScopesBrowser,
-} from "@/lib/harness/evolution-browser";
+} from "@/lib/harness/clients/evolution-browser";
 import type {
   EvolutionDriftHistory,
   EvolutionDriftScopes,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { EVOLUTION_VERIFIED_EVENT } from "@/lib/harness/evolution-events";
 
 export function DriftStatusWidget() {

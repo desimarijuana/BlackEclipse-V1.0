@@ -74,7 +74,7 @@ export type HarnessUiEvent =
       /** Native video: the video jobs this run queued (live job card). */
       video?: unknown;
       /** A typed client intent from a routed command (`navigate`/`openCanvas`). */
-      ui?: import('@/lib/harness/command-ui').CommandUiAction;
+      ui?: import('@/lib/harness/commands/command-ui').CommandUiAction;
     }
   | { kind: 'error'; message: string; code?: string }
   /** The run is blocked on an operator decision (approval card). */
@@ -284,17 +284,17 @@ const CHANGE_BY_OP: Record<string, TurnChange['change']> = {
   rename_file: 'renamed',
 };
 
-function coerceCommandUi(value: unknown): import('@/lib/harness/command-ui').CommandUiAction | undefined {
+function coerceCommandUi(value: unknown): import('@/lib/harness/commands/command-ui').CommandUiAction | undefined {
   if (!isRecord(value)) return undefined;
   if (
     value.type === 'navigate' &&
     typeof value.tab === 'string' &&
     (APP_TABS as readonly string[]).includes(value.tab)
   ) {
-    return value as unknown as import('@/lib/harness/command-ui').CommandUiAction;
+    return value as unknown as import('@/lib/harness/commands/command-ui').CommandUiAction;
   }
   if (value.type === 'openCanvas') {
-    return value as unknown as import('@/lib/harness/command-ui').CommandUiAction;
+    return value as unknown as import('@/lib/harness/commands/command-ui').CommandUiAction;
   }
   return undefined;
 }
