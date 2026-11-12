@@ -1,6 +1,7 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(eval): the scorecard is generated from runs (C8.5).** `npm run scorecard:from-runs` runs the offline suite plus the C7 release report and writes numeric `{value, unit, source, runId, generatedAt}` metrics for the dimensions that produced data (currently aci, safety, ext, eval, ops); dimensions without a measurement stay honest. Tests: `test_c8_scorecard.py`; docs: `docs/harness/agent-evaluation.md`. no other doc change - the scorecard files are regenerated from runs.
 - **fix(harness): the gated research finisher imports its fenced update.** `_finish_research` is module-level, so the `execute_run` local import did not cover it and every gated research run failed with `NameError` at the terminal write. Import it in the finisher. no doc change - internal wiring fix.
 - **feat(eval): C8 conformance gate — retry faults, golden trace, contracts.**
   `python -m harness.evaluation.conformance` (npm `gate:conformance`) runs an

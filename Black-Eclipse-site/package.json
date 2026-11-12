@@ -58,6 +58,7 @@
     "check:adr": "node scripts/check-adr-numbers.js",
     "check:size": "node scripts/size-budget.js",
     "harness:scorecard": "node scripts/harness-scorecard.js",
+    "scorecard:from-runs": "node scripts/scorecard-from-runs.js",
     "harness:scorecard:check": "node scripts/harness-scorecard.js --check",
     "harness:scorecard:gate": "node scripts/harness-scorecard.js --strict",
     "probe:slo": "node scripts/slo-probe.js",

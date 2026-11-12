@@ -1,7 +1,7 @@
 ---
 title: Harness Scorecard (evidence-backed)
 status: Generated
-last-verified: 2026-11-11
+last-verified: 2026-11-12T04:46:34Z
 ---
 
 # Harness Scorecard
@@ -14,11 +14,11 @@ A dimension is **measured** only when every evidence path exists and a metric is
 |---|---:|---:|---|---|---|
 | Loop correctness & resilience | 20 | 9.5 | **partial** | — | `python/tests/test_step_retry.py`<br>`python/tests/test_execution_registry.py`<br>`python/tests/test_graph.py`<br>`python/tests/test_service_background_parity.py`<br>`python/tests/test_run_resume.py` |
 | Context & tool economics | 18 | 9.5 | **partial** | — | `python/tests/test_context_budget.py`<br>`python/tests/test_context_overflow.py`<br>`python/tests/test_context_window.py`<br>`python/tests/test_surface_resolution.py`<br>`python/tests/test_surface_context_policy.py`<br>`python/tests/test_tool_output_offload.py`<br>`python/tests/test_tool_surface.py`<br>`python/tests/test_code_mode.py` |
-| Tool contract (ACI) | 15 | 9.5 | **partial** | — | `python/tests/test_tools.py`<br>`python/tests/test_tool_contracts.py`<br>`python/tests/test_surface_honesty.py` |
-| Safety & isolation | 17 | 9.5 | **partial** | — | `python/tests/test_security_core.py`<br>`python/tests/test_security_adversarial.py`<br>`python/tests/test_tool_contracts.py`<br>`python/tests/test_finance_guardrails.py` |
-| Extensibility | 12 | 9.5 | **partial** | — | `python/tests/test_mcp.py`<br>`python/tests/test_mcp_adversarial.py`<br>`python/tests/test_skills_registry.py`<br>`python/tests/test_skills_runtime.py` |
-| Evaluation | 10 | 9.5 | **partial** | — | `python/tests/test_evaluation_runner.py`<br>`python/tests/test_evaluation_scoring.py`<br>`python/tests/test_evaluation_regression.py`<br>`python/tests/test_published_benchmarks.py` |
-| Operations & delivery | 8 | 9.5 | **measured** | green (npm run gate:slo (deterministic probe vs docs/harness/slo-budgets.json + slo-baseline.json)) | `python/tests/test_c7_spans.py`<br>`python/tests/test_c7_slo_gate.py`<br>`python/tests/test_c7_dashboard_api.py`<br>`python/tests/test_c7_usage.py`<br>`scripts/slo-gate.js`<br>`docs/harness/slo-budgets.json` |
+| Tool contract (ACI) | 15 | 9.5 | **measured** | 0.97124 (python -m harness.evaluation) | `python/tests/test_tools.py`<br>`python/tests/test_tool_contracts.py`<br>`python/tests/test_surface_honesty.py` |
+| Safety & isolation | 17 | 9.5 | **measured** | 1 (python -m harness.evaluation) | `python/tests/test_security_core.py`<br>`python/tests/test_security_adversarial.py`<br>`python/tests/test_tool_contracts.py`<br>`python/tests/test_finance_guardrails.py` |
+| Extensibility | 12 | 9.5 | **measured** | 0 (deterministic routing benchmark) | `python/tests/test_mcp.py`<br>`python/tests/test_mcp_adversarial.py`<br>`python/tests/test_skills_registry.py`<br>`python/tests/test_skills_runtime.py` |
+| Evaluation | 10 | 9.5 | **measured** | 0.996933 (python -m harness.evaluation) | `python/tests/test_evaluation_runner.py`<br>`python/tests/test_evaluation_scoring.py`<br>`python/tests/test_evaluation_regression.py`<br>`python/tests/test_published_benchmarks.py` |
+| Operations & delivery | 8 | 9.5 | **measured** | 1 (GET /observability/release-report (or C7 probe)) | `python/tests/test_c7_spans.py`<br>`python/tests/test_c7_slo_gate.py`<br>`python/tests/test_c7_dashboard_api.py`<br>`python/tests/test_c7_usage.py`<br>`scripts/slo-gate.js`<br>`docs/harness/slo-budgets.json` |
 | Round 5 core integrity | 0 | C1/C2-core | **partial** | — | `python/tests/test_step_retry.py`<br>`python/tests/test_execution_registry.py`<br>`python/tests/test_execution_plane.py`<br>`python/tests/test_migration_ledger.py`<br>`python/tests/test_run_message_cursor.py`<br>`python/tests/test_execution_log.py`<br>`python/tests/test_task_scheduler_fabric.py`<br>`python/tests/test_fabric_task_worker.py`<br>`python/tests/test_run_scope.py`<br>`python/tests/test_c4_goals.py`<br>`python/tests/test_c4_verifiers.py`<br>`python/tests/test_c4_plan_runtime.py`<br>`python/tests/test_c4_answer.py`<br>`python/tests/test_c4_replan.py`<br>`python/tests/test_c4_resume.py`<br>`python/tests/test_c4_outcome.py`<br>`python/tests/test_c5_spawn.py`<br>`python/tests/test_c5_blackboard.py`<br>`python/tests/test_c5_task_spawn_bridge.py`<br>`python/tests/test_c6_auth.py`<br>`python/tests/test_c6_profiles.py`<br>`python/tests/test_c6_effect_tokens.py`<br>`python/tests/test_c6_escape.py`<br>`python/tests/test_c6_executor_profile.py`<br>`python/tests/test_c6_native.py`<br>`python/tests/test_c6_plugin_signing.py`<br>`python/tests/test_c6_appcontainer_live.py`<br>`python/tests/test_c7_spans.py`<br>`python/tests/test_c7_slo_gate.py`<br>`python/tests/test_c7_dashboard_api.py`<br>`python/tests/test_c7_usage.py`<br>`python/tests/test_c8_conformance.py`<br>`python/tests/test_graph.py`<br>`python/tests/test_tools.py` |
 
 This file is the evidence ledger behind the harness scorecard. `status: measured` requires a metric and at least one runnable evidence path; `partial` and `unmeasured` are deliberate, honest states. The Round 4 target is 9.5 per dimension; do not put a number here that a gate cannot reproduce.

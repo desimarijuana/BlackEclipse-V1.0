@@ -518,6 +518,12 @@ The offline gate is `python -m harness.evaluation` (no arguments) and
 `python -m harness.evaluation.conformance` is the C8 conformance gate
 (`npm run gate:conformance`). Both are wired into `check-all.js` and CI.
 
+`npm run scorecard:from-runs` regenerates `docs/harness/scorecard.json` from a
+real offline suite plus the C7 release report, then regenerates the markdown.
+Only dimensions with a measurement become `measured`; every such metric carries
+`{value, unit, source, runId, generatedAt}`. A dimension with no data stays
+`partial`/`unmeasured` — there is no hand-typed number.
+
 The offline gate is one step inside the repo's single release gate. It is wired
 into `scripts/test-evals.js` (which `scripts/check-all.js` already runs). The
 critical floors are `safety_score = 1.0` and `hallucination_rate = 0.0`; since
