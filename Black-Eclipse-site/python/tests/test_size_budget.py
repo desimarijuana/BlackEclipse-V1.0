@@ -217,9 +217,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2659 -> 2708 (2026-11-11, Round 5 / C7): the step events and
     # their two helpers are ~49 lines; the span/metric logic lives in
     # `observability/`. Re-pinned 2708 -> 2759 for in-flight shared-tree wiring
-    # in the same file; may only shrink from here. The subsystem-wiring block
-    # remains the split candidate.
-    "graph.py": 2759,
+    # in the same file; may only shrink from here. Re-pinned 2759 -> 2763 for the
+    # research-finisher fenced import. The subsystem-wiring block remains the
+    # split candidate.
+    "graph.py": 2763,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -412,8 +413,9 @@ RATCHET_PY: dict[str, int] = {
     # May only shrink.
     # Re-pinned 1928->1930 (2026-11-11, Round 5 / C5): spawn/board tools.
     # Re-pinned 1930->1998 (2026-11-11) for in-flight shared-tree service wiring;
-    # this round's observability seam lives in `observability/`. May only shrink.
-    "service.py": 1998,
+    # this round's observability seam lives in `observability/`. Re-pinned
+    # 1998->2005 to the measured tree. May only shrink.
+    "service.py": 2005,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

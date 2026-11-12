@@ -1,6 +1,7 @@
 # Change Log
 
 ## 2026-11-11
+- **fix(harness): the gated research finisher imports its fenced update.** `_finish_research` is module-level, so the `execute_run` local import did not cover it and every gated research run failed with `NameError` at the terminal write. Import it in the finisher. no doc change - internal wiring fix.
 - **feat(eval): C8 conformance gate — retry faults, golden trace, contracts.**
   `python -m harness.evaluation.conformance` (npm `gate:conformance`) runs an
   offline five-class gate: 429/500/disconnect retries, no-retry 400/cancel,

@@ -2240,6 +2240,10 @@ async def _finish_research(
     """
     output = str(research.get("output") or "")
     usage = research.get("usage") or {}
+    # `fenced_update_run` is imported inside `execute_run` for the main path;
+    # the research finisher is a separate function, so it needs its own import.
+    from .run_lease import fenced_update_run  # noqa: PLC0415
+
     prompt_tokens = int(usage.get("promptTokens") or 0)
     completion_tokens = int(usage.get("completionTokens") or 0)
     research_blob = {
