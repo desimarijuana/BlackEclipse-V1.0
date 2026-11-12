@@ -27,6 +27,7 @@ from typing import Any, Callable, Optional
 
 from .context import ObservationContext, new_trace_id
 from .events import make_event
+from .failures import classify_failure
 from .tracing import Span, STATUS_ERROR, STATUS_OK
 
 log = logging.getLogger("harness.observability.integration")
@@ -79,6 +80,10 @@ class RunEventProjector:
             self._run_start(str(run_id), etype, data, ts)
         elif etype in ("run.completed", "run.failed", "run.cancelled") and run_id:
             self._run_end(str(run_id), etype, data, ts)
+        elif etype == "step.started" and run_id:
+            self._step_start(str(run_id), data, ts)
+        elif etype == "step.completed" and run_id:
+            self._step_end(str(run_id), data, ts)
         elif etype == "model.requested" and run_id:
             self._llm_start(str(run_id), data, ts)
         elif etype.startswith("model.request.") and run_id:
@@ -119,10 +124,80 @@ class RunEventProjector:
         elif etype.startswith("model.routing") or etype.startswith("mcp.") or etype.startswith("code_intel"):
             self.hub.emit("onEventPublished", attributes={"eventType": etype})
 
-        if etype.endswith("failed") and etype != "run.failed":
-            self.hub.emit("onError", context=self._ctx(run_id), error_type=(data.get("error") or {}).get("code") if isinstance(data.get("error"), dict) else str(data.get("code") or ""),
-                          error_message=str((data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("message") or etype)[:500],
-                          attributes={"eventType": etype})
+        if etype.endswith("failed") and etype not in ("run.failed", "model.request.failed"):
+            code = (data.get("error") or {}).get("code") if isinstance(data.get("error"), dict) else str(data.get("code") or data.get("errorClass") or "")
+            self.hub.emit(
+                "onError", context=self._ctx(run_id),
+                error_type=code,
+                error_message=str((data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("message") or etype)[:500],
+                attributes={"eventType": etype, "failureClass": classify_failure(code=code)},
+            )
+
+    # ── step lifecycle ──────────────────────────────────────────────────────
+    def _step_start(self, run_id: str, data: dict[str, Any], ts: float) -> None:
+        state = self._runs.get(run_id)
+        if state is None:
+            return
+        # A run that starts a new step without a completion closes the previous
+        # one honestly rather than losing it.
+        if state.get("step"):
+            self._step_end(run_id, {"status": "abandoned", "step": state["step"]["step"]}, ts)
+        step_number = data.get("step")
+        step_id = str(data.get("stepId") or f"{run_id}:step:{step_number}")
+        ctx = state["ctx"].child(attributes={"step": step_number, "stepId": step_id})
+        span = Span(
+            trace_id=ctx.trace_id, span_id=ctx.span_id, parent_span_id=ctx.parent_span_id,
+            name="eclipse.step", kind="internal", start_time=ts, sampled=state["ctx"].sampled,
+            attributes={
+                "runId": run_id, "step": step_number, "stepId": step_id,
+                "agentId": data.get("agentId"),
+            },
+        )
+        state["step"] = {"span": span, "ctx": ctx, "step": step_number, "stepId": step_id, "start": ts}
+        self.hub.emit(
+            "onStepStart", context=ctx, name="eclipse.step",
+            attributes={"runId": run_id, "step": step_number, "stepId": step_id},
+        )
+
+    def _step_end(self, run_id: str, data: dict[str, Any], ts: float) -> None:
+        state = self._runs.get(run_id)
+        if state is None:
+            return
+        current = state.get("step")
+        if not current:
+            return
+        span = current["span"]
+        step_number = data.get("step", current["step"])
+        status = str(data.get("status") or "ok").lower()
+        error = data.get("error") if isinstance(data.get("error"), dict) else None
+        code = (error or {}).get("code")
+        failed = status not in ("ok", "completed", "succeeded")
+        span.attributes.update({
+            "step": step_number,
+            "status": status,
+            "toolCalls": data.get("toolCalls", 0),
+            "toolErrors": data.get("toolErrors", 0),
+        })
+        if code:
+            span.attributes["errorCode"] = code
+            span.attributes["failureClass"] = classify_failure(code=code)
+            span.error_type = code
+        elif failed:
+            span.attributes["failureClass"] = "internal"
+        if span.end_time is None:
+            span.end(STATUS_ERROR if failed else STATUS_OK)
+        self._finish(span)
+        state["step"] = None
+        self.hub.emit(
+            "onStepEnd", context=current["ctx"], name="eclipse.step",
+            status="ERROR" if failed else "OK", duration_ms=span.duration_ms,
+            error_type=code,
+            attributes={
+                "runId": run_id, "step": step_number, "stepId": current["stepId"],
+                "status": status, "toolCalls": data.get("toolCalls", 0),
+                "toolErrors": data.get("toolErrors", 0),
+            },
+        )
 
     # ── run lifecycle ───────────────────────────────────────────────────────
     def _run_start(self, run_id: str, etype: str, data: dict[str, Any], ts: float) -> None:
@@ -144,7 +219,10 @@ class RunEventProjector:
             name="eclipse.run", kind="server", start_time=ts, sampled=decision.sampled,
             attributes={"runId": run_id, "agentId": data.get("agentId"), "provider": data.get("provider"), "event": etype},
         )
-        self._runs[run_id] = {"ctx": ctx, "span": span, "llm": [], "tools": {}, "start": ts}
+        self._runs[run_id] = {
+            "ctx": ctx, "span": span, "llm": [], "tools": {}, "start": ts,
+            "step": None, "resumed": etype == "run.resumed",
+        }
         self._remember(run_id)
         self.hub.emit("onRunStart", context=ctx, name="eclipse.run", attributes={"agentId": data.get("agentId"), "provider": data.get("provider")})
 
@@ -156,6 +234,12 @@ class RunEventProjector:
         status = "ERROR" if etype == "run.failed" else ("CANCELLED" if etype == "run.cancelled" else "OK")
         error = data.get("error") if isinstance(data.get("error"), dict) else None
         # Close any spans still open for this run (a failure may abandon them).
+        if state.get("step"):
+            self._step_end(run_id, {
+                "status": "failed" if status == "ERROR" else "ok",
+                "step": state["step"]["step"],
+                "error": error,
+            }, ts)
         for span in state["llm"]:
             if span.end_time is None:
                 span.end(STATUS_ERROR if status != "OK" else STATUS_OK)
@@ -167,6 +251,10 @@ class RunEventProjector:
         span = state["span"]
         span.end(STATUS_ERROR if status == "ERROR" else STATUS_OK)
         span.attributes["status"] = status.lower()
+        failure_class = classify_failure(
+            code=(error or {}).get("code"), error_type=(error or {}).get("code"),
+        ) if status == "ERROR" else "none"
+        span.attributes["failureClass"] = failure_class
         if error:
             span.attributes["errorCode"] = error.get("code")
             span.attributes["errorMessage"] = str(error.get("message"))[:500]
@@ -175,7 +263,11 @@ class RunEventProjector:
         self.hub.emit(
             "onRunEnd", context=ctx, status=status, duration_ms=duration,
             error_type=(error or {}).get("code"), error_message=(error or {}).get("message"),
-            attributes={"steps": data.get("steps"), "agentId": ctx.agent_id},
+            attributes={
+                "steps": data.get("steps"), "agentId": ctx.agent_id,
+                "failureClass": failure_class, "runId": run_id,
+                "resumed": bool(state.get("resumed")),
+            },
         )
         if etype == "run.failed":
             self.hub.emit("onError", context=ctx, error_type=(error or {}).get("code") or "RUN_FAILED",
@@ -187,7 +279,8 @@ class RunEventProjector:
         state = self._runs.get(run_id)
         if state is None:
             return
-        ctx = state["ctx"].child(attributes={"step": data.get("step")})
+        base = (state.get("step") or {}).get("ctx") or state["ctx"]
+        ctx = base.child(attributes={"step": data.get("step")})
         span = Span(
             trace_id=ctx.trace_id, span_id=ctx.span_id, parent_span_id=ctx.parent_span_id,
             name="eclipse.llm", kind="llm", start_time=ts, sampled=state["ctx"].sampled,
@@ -209,6 +302,9 @@ class RunEventProjector:
             span.attributes["latencyMs"] = data.get("latencyMs")
         if etype == "model.request.failed":
             span.attributes["errorClass"] = data.get("errorClass")
+            span.attributes["failureClass"] = classify_failure(
+                code=data.get("errorClass"), error_type=data.get("errorClass"),
+            )
             span.error_type = data.get("errorClass")
             span.end(STATUS_ERROR)
             self._finish(span)
@@ -242,7 +338,8 @@ class RunEventProjector:
         if state is None:
             return
         call_id = str(data.get("toolCallId") or data.get("name") or "tool")
-        ctx = state["ctx"].child(attributes={"tool": data.get("name")})
+        base = (state.get("step") or {}).get("ctx") or state["ctx"]
+        ctx = base.child(attributes={"tool": data.get("name")})
         span = Span(
             trace_id=ctx.trace_id, span_id=ctx.span_id, parent_span_id=ctx.parent_span_id,
             name=f"eclipse.tool.{data.get('name') or 'tool'}", kind="tool", start_time=ts,
@@ -268,11 +365,12 @@ class RunEventProjector:
             span.attributes["truncated"] = data.get("truncated")
             if is_error:
                 span.attributes["errorCode"] = data.get("code")
+                span.attributes["failureClass"] = classify_failure(code=data.get("code"))
                 span.error_type = data.get("code")
             span.end(STATUS_ERROR if is_error else STATUS_OK)
             self._finish(span)
             duration = duration if duration is not None else span.duration_ms
-        ctx = self._ctx(run_id)
+        ctx = self._ctx_for_span(state, span) if span is not None else self._ctx(run_id)
         hook = "onToolError" if is_error else "onToolEnd"
         self.hub.emit(
             hook, context=ctx, tool_name=data.get("name"), name=str(data.get("name")),

@@ -1,6 +1,27 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(harness): C7 observability that bites — step spans, SLO v2, release
+  gate, dashboard.** The graph emits `step.started|completed`; the projector
+  builds `eclipse.run → eclipse.step → eclipse.llm/eclipse.tool.*` with children
+  parented to the step. `observability/failures.py` is a closed taxonomy
+  (provider/timeout/transient/validation/tool/budget/policy/sandbox/persistence/
+  cancel/internal) labelling spans, errors and `eclipse_failures_total`. Run and
+  step cost are attributed (`eclipse_run_cost_usd`, `eclipse_step_cost_usd`);
+  process CPU/memory/threads and worker utilization are sampled honestly.
+  `slo.py` gains `ratio|percentile|rate` kinds and five objectives: terminal
+  correctness, p95 latency, resume p95, orphan rate and cost per task.
+  `observability/probe.py` runs a deterministic workload through the shipped
+  projector; `gate.py` + `docs/harness/slo-budgets.json` + `slo-baseline.json`
+  make `npm run gate:slo` fail CI on a breach or committed regression (wired into
+  `check-all.js` and the workflow). `GET /observability/release-report` exposes
+  the gate input and `/observability/dashboard` renders one escaped card per SLO.
+  Tests: `test_c7_{spans,slo_gate,dashboard_api,usage}.py`; the `ops` scorecard
+  dimension is now measured. Docs updated: `docs/harness/observability.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H356),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/scorecard.json`,
+  `docs/harness/scorecard.md`, `docs/CHANGELOG.md`.
 - **fix(finance): explicit price/return input contract for `finance_series`.**
   The series calculators difference their observations (they expect levels), so
   a returns input was differenced twice and, after the synthetic path, dropped

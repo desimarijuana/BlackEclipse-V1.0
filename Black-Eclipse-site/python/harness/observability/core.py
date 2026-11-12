@@ -21,7 +21,10 @@ health, including dropped-record counters and exporter backpressure.
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
+from collections import deque
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator, Optional
 
@@ -30,6 +33,8 @@ from .config import ObservabilityConfig, load_config
 from .context import ObservationContext, current_context, get_or_create_context, inject
 from .costs import CostEngine
 from .events import HookEvent, make_event
+from .failures import classify_failure
+from .usage import process_usage
 from .exporters import (
     BoundedExporter,
     ConsoleExporter,
@@ -79,6 +84,19 @@ class ObservabilityHub:
         self._direct: list[Exporter] = []
         self._error_sink: list[dict[str, Any]] = []
         self._max_errors = 500
+        # C7 release-readiness aggregates (bounded; process lifetime).
+        self._run_ms: deque[float] = deque(maxlen=5000)
+        self._resume_ms: deque[float] = deque(maxlen=2000)
+        self._run_costs: deque[float] = deque(maxlen=5000)
+        self._run_cost_unpriced = 0
+        self._created = 0
+        self._terminal: dict[str, int] = {"ok": 0, "failed": 0, "cancelled": 0}
+        self._orphans = 0
+        self._active_since: dict[str, float] = {}
+        self._tool_calls = 0
+        self._tool_errors = 0
+        self._failures: dict[str, int] = {}
+        self._step_cost: dict[tuple[str, str], float] = {}
         self._span_store = SpanStore(
             max_spans=self.config.retention_spans, max_traces=self.config.retention_traces
         )
@@ -204,12 +222,66 @@ class ObservabilityHub:
         if hook == "onRunStart":
             m.inc_gauge("eclipse_active_runs", 1)
             m.inc_counter("eclipse_runs_total", labels={**labels, "status": "started"}, help_text="Total agent runs")
+            run_key = event.context.run_id or event.span_id
+            self._created += 1
+            self._active_since[run_key] = time.time()
         elif hook == "onRunEnd":
             m.inc_gauge("eclipse_active_runs", -1)
             status = {"OK": "completed", "ERROR": "failed", "CANCELLED": "cancelled"}.get(event.status, "completed")
             m.inc_counter("eclipse_runs_total", labels={**labels, "status": status})
             if event.duration_ms:
                 m.observe_histogram("eclipse_run_duration_ms", event.duration_ms, help_text="Run duration")
+                self._run_ms.append(float(event.duration_ms))
+            if (event.attributes or {}).get("resumed") and event.duration_ms:
+                self._resume_ms.append(float(event.duration_ms))
+                m.observe_histogram("eclipse_run_resume_ms", event.duration_ms, help_text="Resume to continuation")
+            key = "ok" if status == "completed" else ("cancelled" if status == "cancelled" else "failed")
+            self._terminal[key] += 1
+            self._active_since.pop(event.context.run_id or event.span_id, None)
+            run_id = event.context.run_id
+            if run_id:
+                run_cost = self.costs.run_cost(str(run_id))
+                if int(run_cost.get("requests") or 0) > 0:
+                    if run_cost.get("costKnown"):
+                        value = float(run_cost.get("cost") or 0.0)
+                        self._run_costs.append(value)
+                        m.observe_histogram("eclipse_run_cost_usd", value, help_text="Cost per run (USD)")
+                        m.inc_counter("eclipse_run_cost_usd_total", amount=value, help_text="Total run cost (USD)")
+                        event.attributes["costUsd"] = round(value, 8)
+                        event.attributes["costKnown"] = True
+                    else:
+                        self._run_cost_unpriced += 1
+                        event.attributes["costKnown"] = False
+        elif hook in ("onStepStart", "onStepEnd"):
+            step = (event.attributes or {}).get("step")
+            step_labels = {"step": str(step if step is not None else "unknown")}
+            if hook == "onStepStart":
+                m.inc_counter("eclipse_steps_total", labels={**step_labels, "status": "started"},
+                              help_text="Agent loop steps")
+            else:
+                status = "ok" if event.status == "OK" else "failed"
+                m.inc_counter("eclipse_steps_total", labels={**step_labels, "status": status})
+                if event.duration_ms:
+                    m.observe_histogram("eclipse_step_duration_ms", event.duration_ms,
+                                        help_text="Agent step duration")
+                run_id = str(event.context.run_id or "")
+                key = (run_id, str(step))
+                step_cost = self._step_cost.pop(key, None)
+                if step_cost is not None:
+                    m.observe_histogram("eclipse_step_cost_usd", step_cost, help_text="Cost per step (USD)")
+                    event.attributes["costUsd"] = round(step_cost, 8)
+        elif hook == "onError":
+            failure_class = classify_failure(
+                code=event.error_type or (event.attributes or {}).get("errorCode"),
+                error_type=event.error_type,
+            )
+            component = _failure_component(event)
+            self._failures[failure_class] = self._failures.get(failure_class, 0) + 1
+            m.inc_counter(
+                "eclipse_failures_total",
+                labels={"failureClass": failure_class, "component": component},
+                help_text="Failures by closed taxonomy class",
+            )
         elif hook in ("onLLMEnd", "onLLMError"):
             status = "ok" if hook == "onLLMEnd" else "error"
             m.inc_counter(
@@ -235,6 +307,9 @@ class ObservabilityHub:
                 m.inc_counter("eclipse_llm_fallbacks_total", labels={"provider": event.provider or "unknown"})
         elif hook in ("onToolEnd", "onToolError"):
             status = "ok" if hook == "onToolEnd" else "error"
+            self._tool_calls += 1
+            if hook != "onToolEnd":
+                self._tool_errors += 1
             m.inc_counter("eclipse_tool_calls_total", labels={"tool": event.tool_name or event.name or "unknown", "status": status},
                           help_text="Tool calls")
             if event.duration_ms:
@@ -319,6 +394,13 @@ class ObservabilityHub:
                 help_text="LLM cost in USD",
             )
             event.cost = breakdown.to_dict()
+            step = (event.attributes or {}).get("step")
+            if step is not None:
+                key = (str(ctx.run_id or ""), str(step))
+                self._step_cost[key] = self._step_cost.get(key, 0.0) + float(breakdown.total_cost)
+                if len(self._step_cost) > 5000:
+                    for stale in list(self._step_cost)[:1000]:
+                        self._step_cost.pop(stale, None)
 
     def _anomaly_for(self, event: HookEvent) -> None:
         if event.hook == "onToolEnd" and event.duration_ms is not None:
@@ -363,10 +445,155 @@ class ObservabilityHub:
             result = self.slos.record("agent_success_rate", good=(event.status != "ERROR" and not event.error_type))
             if result and not result["healthy"]:
                 self.emit("onSLOViolation", context=event.context, attributes=result)
+
+            # C7: terminal correctness, latency, resume and cost are observable
+            # objectives, not prose. The release report computes the exact
+            # terminal ratio from created/terminal counts; this runtime view
+            # records every run that reached a terminal state.
+            self.slos.define(
+                "terminal_correctness",
+                _env_float("ECLIPSE_SLO_TERMINAL_TARGET", 0.999),
+                description="Runs that reach exactly one terminal state",
+            )
+            self.slos.record("terminal_correctness", good=True)
+
+            self.slos.define(
+                "run_p95_latency",
+                _env_float("ECLIPSE_SLO_P95_TARGET", 0.95),
+                kind="percentile",
+                threshold=_env_float("ECLIPSE_SLO_RUN_P95_MS", 120_000.0),
+                unit="ms",
+                description="Run p95 latency within budget",
+            )
+            if event.duration_ms:
+                latency = self.slos.record_value("run_p95_latency", event.duration_ms)
+                if latency and not latency["healthy"]:
+                    self.emit("onSLOViolation", context=event.context, attributes=latency)
+
+            if (event.attributes or {}).get("resumed") and event.duration_ms:
+                self.slos.define(
+                    "resume_p95",
+                    _env_float("ECLIPSE_SLO_P95_TARGET", 0.95),
+                    kind="percentile",
+                    threshold=_env_float("ECLIPSE_SLO_RESUME_P95_MS", 10_000.0),
+                    unit="ms",
+                    description="Resume to continued run p95",
+                )
+                self.slos.record_value("resume_p95", event.duration_ms)
+
+            cost = (event.attributes or {}).get("costUsd")
+            if cost is not None and (event.attributes or {}).get("costKnown"):
+                self.slos.define(
+                    "cost_per_task",
+                    _env_float("ECLIPSE_SLO_P95_TARGET", 0.95),
+                    kind="percentile",
+                    threshold=_env_float("ECLIPSE_SLO_COST_PER_TASK_USD", 1.0),
+                    unit="usd",
+                    description="Cost per completed task within budget",
+                )
+                self.slos.record_value("cost_per_task", float(cost))
+
+            self.slos.define(
+                "orphan_rate", 1.0, kind="rate",
+                threshold=_env_float("ECLIPSE_SLO_ORPHAN_RATE", 0.0),
+                description="Runs left active without a terminal state",
+            )
+            self.slos.record("orphan_rate", good=True)
         elif event.hook in ("onToolEnd", "onToolError"):
             target = self.config.slo_tool_success_rate
             self.slos.define("tool_success_rate", target, description="Tool calls succeed")
             self.slos.record("tool_success_rate", good=(event.hook == "onToolEnd"))
+
+    # ── release readiness (C7) ───────────────────────────────────────────────
+    def sweep_orphans(self, *, max_age_s: Optional[float] = None) -> int:
+        """Count runs still active past the terminal deadline (fail-open)."""
+        limit = max_age_s if max_age_s is not None else _env_float("ECLIPSE_ORPHAN_AFTER_S", 1800.0)
+        now = time.time()
+        with self._lock:
+            stale = [run for run, started in self._active_since.items() if now - started >= limit]
+            for run in stale:
+                self._active_since.pop(run, None)
+                self._orphans += 1
+        if stale:
+            self.slos.define(
+                "orphan_rate", 1.0, kind="rate",
+                threshold=_env_float("ECLIPSE_SLO_ORPHAN_RATE", 0.0),
+                description="Runs left active without a terminal state",
+            )
+            for _ in stale:
+                self.slos.record("orphan_rate", good=False)
+            self.metrics.inc_counter(
+                "eclipse_orphaned_runs_total", amount=len(stale),
+                help_text="Runs still active past the terminal deadline",
+            )
+            self.emit("onError", error_type="ORPHANED_RUN",
+                      error_message=f"{len(stale)} run(s) exceeded the terminal deadline",
+                      attributes={"eventType": "run.orphaned", "failureClass": "internal"})
+        return len(stale)
+
+    def refresh_use_metrics(self) -> dict[str, Any]:
+        """Sample process USE gauges (and sweep orphans) on demand."""
+        usage = process_usage()
+        if usage.get("available"):
+            if usage.get("cpuPercent") is not None:
+                self.metrics.set_gauge(
+                    "eclipse_process_cpu_percent", float(usage["cpuPercent"]),
+                    help_text="Harness process CPU, normalized to the machine",
+                )
+            if usage.get("memoryBytes") is not None:
+                self.metrics.set_gauge(
+                    "eclipse_process_memory_bytes", float(usage["memoryBytes"]),
+                    help_text="Harness process working set / RSS",
+                )
+            if usage.get("threads") is not None:
+                self.metrics.set_gauge(
+                    "eclipse_process_threads", float(usage["threads"]),
+                    help_text="Active Python threads",
+                )
+        active = len(self._active_since)
+        limit = max(1.0, _env_float("HARNESS_MAX_CONCURRENCY", 4.0))
+        self.metrics.set_gauge("eclipse_runs_active_sampled", float(active),
+                               help_text="Runs currently active (sampled)")
+        self.metrics.set_gauge("eclipse_worker_utilization", min(1.0, active / limit),
+                               help_text="Active runs / configured concurrency")
+        self.sweep_orphans()
+        return usage
+
+    def release_report(self) -> dict[str, Any]:
+        """A machine-readable release-readiness report (C7 gate input)."""
+        durations = list(self._run_ms)
+        resumes = list(self._resume_ms)
+        costs = list(self._run_costs)
+        terminal_total = sum(self._terminal.values())
+        return {
+            "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "runs": {
+                "created": self._created,
+                "terminal": terminal_total,
+                "completed": self._terminal.get("ok", 0),
+                "failed": self._terminal.get("failed", 0),
+                "cancelled": self._terminal.get("cancelled", 0),
+                "orphaned": self._orphans,
+                "active": len(self._active_since),
+            },
+            "latency": {
+                "samples": len(durations),
+                "p50": _pct(durations, 0.50),
+                "p95": _pct(durations, 0.95),
+                "p99": _pct(durations, 0.99),
+            },
+            "resume": {"samples": len(resumes), "p95": _pct(resumes, 0.95)},
+            "cost": {
+                "samples": len(costs),
+                "totalUsd": round(sum(costs), 8),
+                "perTaskP50": _pct(costs, 0.50),
+                "perTaskP95": _pct(costs, 0.95),
+                "unpricedRuns": self._run_cost_unpriced,
+            },
+            "tools": {"calls": self._tool_calls, "errors": self._tool_errors},
+            "failures": dict(sorted(self._failures.items())),
+            "slos": self.slos.report(),
+        }
 
     # ── errors + export ─────────────────────────────────────────────────────
     def _record_error(self, event: HookEvent) -> None:
@@ -386,7 +613,8 @@ class ObservabilityHub:
             "model": event.model,
             "environment": self.config.environment,
             "release": self.config.release,
-            "tags": {"hook": event.hook, "service": self.config.effective_name},
+            "tags": {"hook": event.hook, "service": self.config.effective_name,
+                     "failureClass": classify_failure(code=event.error_type, error_type=event.error_type)},
         }
         record = self.redactor.redact(record)
         with self._lock:
@@ -489,6 +717,42 @@ class ObservabilityHub:
                 sink.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _pct(values: list[float], q: float) -> Optional[float]:
+    if not values:
+        return None
+    samples = sorted(values)
+    idx = min(len(samples) - 1, max(0, int(q * (len(samples) - 1) + 0.5)))
+    return round(samples[idx], 4)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        raw = os.environ.get(name)
+        return float(raw) if raw not in (None, "") else float(default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _failure_component(event: HookEvent) -> str:
+    """Coarse component for failure counters (bounded cardinality)."""
+    event_type = str((event.attributes or {}).get("eventType") or "").lower()
+    if event_type.startswith("tool."):
+        return "tool"
+    if event_type.startswith("model."):
+        return "provider"
+    if event_type.startswith("run."):
+        return "run"
+    if event_type.startswith("step."):
+        return "step"
+    if event_type.startswith("job."):
+        return "job"
+    if event_type.startswith("plugin."):
+        return "plugin"
+    if event_type.startswith("mcp."):
+        return "mcp"
+    return "run"
 
 
 def _corr_labels(event: HookEvent) -> dict[str, str]:

@@ -23,7 +23,10 @@ from .config import ObservabilityConfig, load_config
 from .context import ObservationContext, bind_context, current_context, extract, inject
 from .core import ObservabilityHub
 from .events import HOOKS, HookEvent, make_event
+from .failures import FAILURE_CLASSES, classify_failure
 from .observers import Observer, ObserverHub
+from .slo import SLO, SLORegistry
+from .usage import process_usage
 from .integration import (
     install_observability,
     start_observability,
@@ -52,8 +55,13 @@ __all__ = [
     "ObservationContext",
     "HookEvent",
     "HOOKS",
+    "FAILURE_CLASSES",
+    "SLO",
+    "SLORegistry",
     "Observer",
     "ObserverHub",
+    "classify_failure",
+    "process_usage",
     "load_config",
     "make_event",
     "current_context",

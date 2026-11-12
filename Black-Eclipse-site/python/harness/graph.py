@@ -698,6 +698,36 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         except Exception:  # noqa: BLE001 - a checkpoint must never break a run
             pass
 
+    # Round 5 / C7: one step span per loop iteration. The step id is stable and
+    # carries the run id so a trace tree is reconstructable from the bus alone.
+    async def _emit_step_started(step: int) -> None:
+        try:
+            await emitter.emit("step.started", {
+                "step": step,
+                "stepId": f"{request.runId}:step:{step}",
+                "agentId": getattr(agent, "id", None),
+            })
+        except Exception:  # noqa: BLE001 - telemetry must never break a run
+            pass
+
+    async def _emit_step_completed(
+        step: int, *, status: str, tool_calls: int = 0, tool_errors: int = 0,
+        error: Optional[dict[str, Any]] = None,
+    ) -> None:
+        data: dict[str, Any] = {
+            "step": step,
+            "stepId": f"{request.runId}:step:{step}",
+            "status": status,
+            "toolCalls": int(tool_calls or 0),
+            "toolErrors": int(tool_errors or 0),
+        }
+        if error:
+            data["error"] = error
+        try:
+            await emitter.emit("step.completed", data)
+        except Exception:  # noqa: BLE001 - telemetry must never break a run
+            pass
+
     # Round 3 / W1 (ADR-H281): the repair budget's wall clock starts when the
     # run starts, not when the first failure happens - a run that spent an hour
     # before its first check has not earned an hour of repair.
@@ -705,6 +735,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
 
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
+        await _emit_step_started(step)
         step_now = plan.current_step if plan is not None else None
         plan_step_id = step_now.id if step_now is not None else state.get("plan_step_id")
         # Round 5 / C1: the RUN deadline is checked before every model call. A
@@ -712,6 +743,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         # of starting one more call that can only be abandoned.
         if deadline.expired():
             message = f"Run exceeded its {int(run_timeout_s)}s deadline."
+            await _emit_step_completed(step, status="failed", error={"code": "RUN_TIMEOUT", "message": message})
             await emitter.emit("run.failed", {"error": {"code": "RUN_TIMEOUT", "message": message}})
             return {**state, "step": step, "error": {"code": "RUN_TIMEOUT", "message": message}}
         await emitter.emit("model.requested", {"step": step, "messages": len(state["messages"])})
@@ -759,6 +791,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 run_id=request.runId,
             )
             code = "RUN_TIMEOUT" if deadline.expired() else "PROVIDER_TIMEOUT"
+            await _emit_step_completed(step, status="failed", error={"code": code, "message": timed_out_message})
             await emitter.emit("run.failed", {"error": {"code": code, "message": timed_out_message}})
             return {**state, "step": step, "error": {"code": code, "message": timed_out_message}}
         except Exception as exc:  # noqa: BLE001
@@ -795,6 +828,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                     "context.overflow",
                     {"step": step, "provider": provider, "windowKnown": window is not None},
                 )
+                await _emit_step_completed(step, status="failed", error={"code": code, "message": message})
                 return {**state, "step": step, "error": {"code": code, "message": message}}
             runtime.record_step(
                 resolution,
@@ -808,6 +842,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model,
                 base_url=getattr(request.modelSettings, "base_url", None))
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": failure_message}})
+            await _emit_step_completed(step, status="failed", error={"code": "PROVIDER_ERROR", "message": failure_message})
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": failure_message}}
 
         runtime.record_step(
@@ -873,6 +908,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 except Exception:  # noqa: BLE001 - audit must not break the run
                     pass
                 await emitter.emit("run.failed", {"error": {"code": code, "message": message}})
+                await _emit_step_completed(step, status="failed", error={"code": code, "message": message})
                 return {**state, **usage_state, "step": step, "error": {"code": code, "message": message}}
             # C4: record the answer's checkable claims, verify them against this
             # step's evidence, and divert through one bounded replan when a
@@ -896,6 +932,11 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 "plan_step_id": plan_step_id,
             }
             await _write_checkpoint("agent_final", completed)
+            await _emit_step_completed(
+                step, status="ok",
+                tool_calls=int(state.get("tool_calls", 0) or 0),
+                tool_errors=int(state.get("tool_errors", 0) or 0),
+            )
             return completed
 
         tool_state: GraphState = {
@@ -1118,6 +1159,14 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         }
         # Durable boundary: a checkpoint after the tool results are recorded.
         await _write_checkpoint("tool_results", tool_done)
+        await _emit_step_completed(
+            int(state.get("step", 0) or 0),
+            status="failed" if step_failures else "ok",
+            tool_calls=tool_calls,
+            tool_errors=tool_errors,
+            error={"code": (failure_details[-1].get("code") if failure_details else "TOOL_ERROR")}
+            if step_failures else None,
+        )
         return tool_done
 
     def route_after_agent(state: GraphState) -> str:

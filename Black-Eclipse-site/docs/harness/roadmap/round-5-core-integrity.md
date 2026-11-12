@@ -1,6 +1,6 @@
 ---
 title: Round 5 - Core Integrity (a world-class general harness)
-status: In progress (C0-C6 shipped 2026-11-11; C7-C9 open)
+status: In progress (C0-C7 shipped 2026-11-11; C8-C9 open)
 last-verified: 2026-11-11
 depends_on: rounds 1-4, docs/harness/architecture.md, docs/harness/execution-fabric.md
 ---
@@ -54,7 +54,8 @@ one tool contract, one policy seam, plus the tests that prove it.
 | C4 plan/verify/evidence | **Done** | goal/plan/step view; `EvidenceClaim`/`Handle` ledger; verifier registry (finance/citation/code/artifact); answer seam; bounded evidence replan; plan cursor in checkpoint; outcome blocks. |
 | C5 one agent fabric | **Done** | `spawn` over Fabric `agent` jobs; depth/fanout/token caps; shared root-scoped blackboard; child evidence in the parent ledger; deterministic synthesis; A2A/team task execution routed through `spawn` (`tasks/spawn_bridge.py`). |
 | C6 safety envelope | **Shipped** | auth-by-default outside loopback; `SandboxProfile` resolver + gateway/executor enforcement (terminal, background, computer); native bubblewrap/Seatbelt/AppContainer; per-call effect tokens; escape suite; Ed25519/HMAC plugin install signing + review. Follow-up: human review UI. |
-| C7-C9 | **Not started** | - |
+| C7 observability | **Shipped** | run→step→tool/LLM spans; closed failure taxonomy; run/step cost; process USE; SLO v2 (ratio/percentile/rate: terminal correctness, p95 latency, resume p95, orphan rate, cost/task); `gate:slo` release gate wired into CI; SLO dashboard. |
+| C8-C9 | **Not started** | - |
 
 The remainder is the plan below; nothing in it is claimed as done.
 
@@ -397,6 +398,14 @@ failure taxonomy from the unified error model; SLOs with error budgets and
 release gates (terminal correctness, p95 latency, resume time, orphan rate).
 
 **Acceptance.** a dashboard per SLO; CI fails a release that regresses a budget.
+
+**Shipped (2026-11-11).** `step.started|completed` events and `eclipse.step`
+spans (LLM/tool reparented); `observability/failures.py` closed taxonomy;
+`eclipse_run_cost_usd`/`eclipse_step_cost_usd`; process USE sampling; SLO v2
+kinds and five objectives; `observability/probe.py` + `gate.py`,
+`docs/harness/slo-budgets.json` + `slo-baseline.json`, `npm run gate:slo` wired
+into `check-all.js` and CI; `/observability/release-report` and
+`/observability/dashboard`. Tests: `test_c7_{spans,slo_gate,dashboard_api,usage}.py`.
 
 ### C8 - Evaluation as a gate (P1, 10 days)
 

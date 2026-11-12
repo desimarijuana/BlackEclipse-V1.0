@@ -683,6 +683,18 @@ isolation-requiring profiles. Untrusted plugins already run out-of-process;
 installs now pass a signature + review gate with Ed25519 publisher keys
 (`plugin.sig`) or operator HMAC over manifest + package digest.
 
+**Telemetry has to bite (Round 5 / C7, ADR-H356).** Every run exports
+`eclipse.run → eclipse.step → eclipse.llm/eclipse.tool.*`; the step events are
+emitted by the graph loop and the projector parents children to the step. A
+closed failure taxonomy (`provider|timeout|transient|validation|tool|budget|
+policy|sandbox|persistence|cancel|internal`) labels spans, errors and the
+`eclipse_failures_total` metric. Cost is attributed per run and per step. SLOs
+support ratio, percentile and rate kinds: terminal correctness, p95 latency,
+resume p95, orphan rate and cost per task, plus agent/tool success. The release
+gate (`npm run gate:slo`) evaluates the deterministic probe report against
+`docs/harness/slo-budgets.json` and the committed baseline, and CI fails on a
+breach or regression. `/observability/dashboard` renders one card per SLO.
+
 **There is one way to spawn a child (Round 5 / C5, ADR-H354).** The `spawn`
 tool submits a normal Fabric `agent` job (`parentRunId`, `maxSteps`,
 `runTimeoutMs`, depth/budget caps), so the Fabric owns lease, timeout, retry and

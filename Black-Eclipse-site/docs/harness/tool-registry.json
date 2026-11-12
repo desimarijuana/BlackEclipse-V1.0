@@ -1,7 +1,7 @@
 {
-  "digest": "78715f10432d7047",
+  "digest": "b1048f03f32b6208",
   "manifestVersion": "1",
-  "toolCount": 1090,
+  "toolCount": 1091,
   "tools": [
     {
       "deprecated": false,
@@ -9379,6 +9379,37 @@
     },
     {
       "deprecated": false,
+      "description": "Store-exact inventory: JDdS (`jdds.db`) versus the provider cache (`history_cache`). Reports which store holds what, with counts and coverage, and never merges them. With a symbol, resolves the series across stores and marks a count disagreement as a conflict. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "interval": {
+            "type": "string"
+          },
+          "store": {
+            "enum": [
+              "all",
+              "jdds",
+              "history_cache",
+              "resolved"
+            ],
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "data_inventory",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Approve or reject a pending strategy approval.",
       "effect": null,
       "inputSchema": {
@@ -12025,11 +12056,20 @@
       "inputSchema": {
         "properties": {
           "benchmark": {
-            "description": "second series for beta/alpha/correlation/covariance",
+            "description": "second series for beta/alpha/correlation/covariance (same input kind)",
             "items": {
               "type": "object"
             },
             "type": "array"
+          },
+          "input": {
+            "description": "What `observations` contain: price/equity LEVELS, periodic decimal RETURNS (0.02 = +2%), or `auto` to infer. Pass `returns` when you computed returns; otherwise the calculator will difference them again.",
+            "enum": [
+              "prices",
+              "returns",
+              "auto"
+            ],
+            "type": "string"
           },
           "metric": {
             "description": "A time-series metric id (see finance_metric_catalog): sharpe, sortino, value_at_risk, parametric_var, monte_carlo_var, cvar, beta, alpha, correlation, covariance, cumulative_return, annualized_return, annualized_volatility, max_drawdown, drawdown_analysis, rolling_volatility, rolling_correlation, rolling_beta, cagr.",
@@ -16193,7 +16233,7 @@
     },
     {
       "deprecated": false,
-      "description": "What history this machine already holds: the durable local copy of the market Eclipse has already paid for - which instruments, how many bars, how fresh, and from which provider. With `symbol`, the coverage of that one instrument. Served from the local cache; no provider is called.",
+      "description": "What provider-cached history this machine already holds (store=history_cache): which instruments, how many bars, how fresh, and from which provider. This is the durable copy of bars fetched from providers; it is NOT the JDdS vault and its counts are not JDdS counts. With `symbol`, the coverage of that one instrument. Served from the local cache; no provider is called.",
       "effect": null,
       "inputSchema": {
         "properties": {

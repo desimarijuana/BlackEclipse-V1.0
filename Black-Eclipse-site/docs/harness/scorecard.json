@@ -95,9 +95,20 @@
       "label": "Operations & delivery",
       "weight": 8,
       "target": 9.5,
-      "status": "unmeasured",
-      "evidence": [],
-      "note": "Round 4 records this at 4.0: not landed, no tag, no PyPI release, placeholder CODEOWNERS. Nothing here is a runnable gate yet."
+      "status": "measured",
+      "metric": {
+        "value": "green",
+        "source": "npm run gate:slo (deterministic probe vs docs/harness/slo-budgets.json + slo-baseline.json)"
+      },
+      "evidence": [
+        "python/tests/test_c7_spans.py",
+        "python/tests/test_c7_slo_gate.py",
+        "python/tests/test_c7_dashboard_api.py",
+        "python/tests/test_c7_usage.py",
+        "scripts/slo-gate.js",
+        "docs/harness/slo-budgets.json"
+      ],
+      "note": "C7: run/step/tool spans, failure taxonomy, run/step cost, USE sampling, SLO v2 (terminal correctness, p95 latency, resume p95, orphan rate, cost/task), a deterministic release gate wired into CI, and a per-SLO dashboard. Delivery (tag/PyPI) remains C9."
     },
     {
       "id": "core_integrity",
@@ -133,10 +144,14 @@
         "python/tests/test_c6_native.py",
         "python/tests/test_c6_plugin_signing.py",
         "python/tests/test_c6_appcontainer_live.py",
+        "python/tests/test_c7_spans.py",
+        "python/tests/test_c7_slo_gate.py",
+        "python/tests/test_c7_dashboard_api.py",
+        "python/tests/test_c7_usage.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
-      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor), C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn) and C6 (auth-by-default outside loopback, sandbox profiles enforced at the gateway and terminal/computer executors, native bubblewrap/Seatbelt/AppContainer backends, per-call effect tokens, escape suite, Ed25519/HMAC plugin install signature/review) shipped. A human plugin-review UI, external evals, SLOs and release remain."
+      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor), C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn), C6 (auth-by-default outside loopback, sandbox profiles enforced at the gateway and terminal/computer executors, native bubblewrap/Seatbelt/AppContainer backends, per-call effect tokens, escape suite, Ed25519/HMAC plugin install signature/review) and C7 (run/step/tool spans, failure taxonomy, run/step cost, USE, SLO v2, release gate, dashboard) shipped. A human plugin-review UI, external evals and release (C8-C9) remain."
     }
   ]
 }

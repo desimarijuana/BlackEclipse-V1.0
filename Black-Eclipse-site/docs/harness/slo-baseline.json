@@ -1,0 +1,183 @@
+{
+  "cost": {
+    "perTaskP50": 0.0007,
+    "perTaskP95": 0.0007,
+    "samples": 39,
+    "totalUsd": 0.0273,
+    "unpricedRuns": 0
+  },
+  "failures": {
+    "timeout": 1,
+    "validation": 1
+  },
+  "generatedAt": "2026-11-12T03:20:33Z",
+  "latency": {
+    "p50": 1405.0,
+    "p95": 1885.0,
+    "p99": 1885.0,
+    "samples": 40
+  },
+  "probe": {
+    "at": "2026-11-12T03:20:33Z",
+    "model": "eclipse-probe",
+    "provider": "probe",
+    "runs": 40,
+    "schema": 1
+  },
+  "resume": {
+    "p95": 1405.0,
+    "samples": 8
+  },
+  "runs": {
+    "active": 0,
+    "cancelled": 0,
+    "completed": 39,
+    "created": 40,
+    "failed": 1,
+    "orphaned": 0,
+    "terminal": 40
+  },
+  "slos": {
+    "allHealthy": true,
+    "objectives": [
+      {
+        "burnRate": 0.0,
+        "compliance": 1.0,
+        "description": "Tool calls succeed",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "ratio",
+        "lastViolationAt": null,
+        "name": "tool_success_rate",
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "target": 0.98,
+        "threshold": null,
+        "total": 1,
+        "unit": "",
+        "violations": 0
+      },
+      {
+        "burnRate": 0.0,
+        "compliance": 1.0,
+        "description": "Agent runs complete without error",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "ratio",
+        "lastViolationAt": null,
+        "name": "agent_success_rate",
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "target": 0.99,
+        "threshold": null,
+        "total": 1,
+        "unit": "",
+        "violations": 0
+      },
+      {
+        "burnRate": 0.0,
+        "compliance": 1.0,
+        "description": "Runs that reach exactly one terminal state",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "ratio",
+        "lastViolationAt": null,
+        "name": "terminal_correctness",
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "target": 0.999,
+        "threshold": null,
+        "total": 1,
+        "unit": "",
+        "violations": 0
+      },
+      {
+        "burnRate": 0.0,
+        "compliance": 1.0,
+        "description": "Run p95 latency within budget",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "percentile",
+        "lastViolationAt": null,
+        "name": "run_p95_latency",
+        "p50": 1885.0,
+        "p95": 1885.0,
+        "p99": 1885.0,
+        "target": 0.95,
+        "threshold": 120000.0,
+        "total": 1,
+        "unit": "ms",
+        "violations": 0
+      },
+      {
+        "burnRate": 0.0,
+        "compliance": 1.0,
+        "description": "Resume to continued run p95",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "percentile",
+        "lastViolationAt": null,
+        "name": "resume_p95",
+        "p50": 1405.0,
+        "p95": 1405.0,
+        "p99": 1405.0,
+        "target": 0.95,
+        "threshold": 10000.0,
+        "total": 1,
+        "unit": "ms",
+        "violations": 0
+      },
+      {
+        "burnRate": 0.0,
+        "compliance": 1.0,
+        "description": "Cost per completed task within budget",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "percentile",
+        "lastViolationAt": null,
+        "name": "cost_per_task",
+        "p50": 0.0007,
+        "p95": 0.0007,
+        "p99": 0.0007,
+        "target": 0.95,
+        "threshold": 1.0,
+        "total": 1,
+        "unit": "usd",
+        "violations": 0
+      },
+      {
+        "burnRate": null,
+        "compliance": 1.0,
+        "description": "Runs left active without a terminal state",
+        "errorBudgetRemaining": 1.0,
+        "good": 1,
+        "healthy": true,
+        "kind": "rate",
+        "lastViolationAt": null,
+        "name": "orphan_rate",
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "target": 1.0,
+        "threshold": 0.0,
+        "total": 1,
+        "unit": "",
+        "violations": 0
+      }
+    ],
+    "violations": []
+  },
+  "tools": {
+    "calls": 40,
+    "errors": 1
+  }
+}

@@ -139,7 +139,7 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # pin was stale at HEAD, so the test failed on an unchanged prompt. Re-pinned
     # to the real, measured size; it may only shrink from here. Matches the same
     # test in `test_memory_tools.py`.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 47121
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 47371
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

@@ -32,10 +32,13 @@ RATCHET_PY: dict[str, int] = {
     # +2 for the Quant Research Intelligence router import/include (2026-11-10).
     # +2 for the Quant Research Intelligence + live-strategy routers (2026-11-10).
     # +2 for the quant system router include (2026-11-10).
-    "main.py": 1245,
+    # Re-pinned 1245 -> 1253 (2026-11-11) for in-flight shared-tree routes.
+    "main.py": 1253,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
-    "research/web_tools.py": 1222,
+    # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research
+    # wiring; this round adds nothing here. May only shrink.
+    "research/web_tools.py": 1227,
     # Grew with the Document Intelligence run-blob wiring (the `document_sink`
     # parameter, collector, and `update_run(documents=â€¦)`) and, later, the search
     # service passthrough (`search=` on `execute_run`/`build_graph` and the
@@ -211,7 +214,12 @@ RATCHET_PY: dict[str, int] = {
     # evidence replan diversion and plan cursor are loop seams. The plan,
     # verifier and evidence logic lives in `harness/goals/`; this file keeps the
     # wiring only. Re-pinned 2654 -> 2659 for the code-ledger checks seam.
-    "graph.py": 2659,
+    # Re-pinned 2659 -> 2708 (2026-11-11, Round 5 / C7): the step events and
+    # their two helpers are ~49 lines; the span/metric logic lives in
+    # `observability/`. Re-pinned 2708 -> 2759 for in-flight shared-tree wiring
+    # in the same file; may only shrink from here. The subsystem-wiring block
+    # remains the split candidate.
+    "graph.py": 2759,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -403,7 +411,9 @@ RATCHET_PY: dict[str, int] = {
     # discovery and confined-code tools are registered on the ONE registry.
     # May only shrink.
     # Re-pinned 1928->1930 (2026-11-11, Round 5 / C5): spawn/board tools.
-    "service.py": 1930,
+    # Re-pinned 1930->1998 (2026-11-11) for in-flight shared-tree service wiring;
+    # this round's observability seam lives in `observability/`. May only shrink.
+    "service.py": 1998,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

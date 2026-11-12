@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "description": "C7 release budgets. `npm run gate:slo` fails when a budget or a committed regression allowance is exceeded.",
+  "budgets": {
+    "terminal_correctness": {
+      "kind": "ratio",
+      "target": 0.999
+    },
+    "run_p95_latency": {
+      "kind": "percentile",
+      "thresholdMs": 120000,
+      "maxRegression": 0.1
+    },
+    "resume_p95": {
+      "kind": "percentile",
+      "thresholdMs": 10000,
+      "maxRegression": 0.1
+    },
+    "orphan_rate": {
+      "kind": "rate",
+      "max": 0.0
+    },
+    "cost_per_task": {
+      "kind": "percentile",
+      "thresholdUsd": 1.0,
+      "maxRegression": 0.3
+    }
+  }
+}

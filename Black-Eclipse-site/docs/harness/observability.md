@@ -1,7 +1,7 @@
 ---
 title: Observability Platform
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-11-11
 ---
 
 # Observability Platform
@@ -22,6 +22,13 @@ It is **not** a second runtime. It observes the existing event stream. The `serv
 is Eclipse's universal publication point (agent runs, model routing, tool calls,
 fabric jobs, plugins, A2A, research, memory, canonical events); one subscriber
 projects it into spans, metrics and typed hook events.
+
+**C7 makes it bite.** Every run exports a `run → step → tool/LLM` tree; every
+failure carries one class from a closed taxonomy; run/step cost is attributed;
+process USE is sampled; five SLOs (terminal correctness, p95 latency, resume p95,
+orphan rate, cost per task) have error budgets; `npm run gate:slo` fails CI on a
+budget breach or a committed regression; and `/observability/dashboard` renders
+one card per SLO.
 
 ## The one rule
 
@@ -74,7 +81,12 @@ error tracking; Prometheus is a scrape endpoint.
 | `sampling.py` | Head + tail sampling; **always keeps errors/security/anomalies** |
 | `health.py` | Subsystem + telemetry health registry (worst-state rollup) |
 | `anomaly.py` | `LoopDetector` + statistical `AnomalyDetector` |
-| `slo.py` | Objectives, error budget, burn rate |
+| `slo.py` | Objectives (ratio / percentile / rate), error budget, burn rate |
+| `failures.py` | Closed failure taxonomy + code/exception mapping |
+| `usage.py` | Process CPU / memory / thread USE sampling (stdlib only) |
+| `dashboard.py` | Server-rendered SLO dashboard (escaped, read-only) |
+| `gate.py` | Release-gate math over a report + budgets + baseline |
+| `probe.py` | Deterministic telemetry workload for the release gate |
 | `logging_setup.py` | Structured JSON logging with context + redaction |
 | `exporters.py` | `Exporter` protocol + `BoundedExporter` + vendor/local sinks |
 | `core.py` | `ObservabilityHub` — ingestion, metrics, cost, exports, diagnostics |
@@ -85,6 +97,8 @@ error tracking; Prometheus is a scrape endpoint.
 
 1. **Bus projection** (`RunEventProjector`) — the primary source. It maps:
    - `run.created|started|resumed` → root `eclipse.run` span + `onRunStart`
+   - `step.started|completed` → `eclipse.step` span + `onStepStart`/`onStepEnd`;
+     LLM and tool spans are **parented to the step**, not the run
    - `model.requested` → `eclipse.llm` span; `model.request.*` → provider/model/latency; `model.completed` → tokens + `onLLMEnd`/`onLLMError`
    - `tool.requested` → `eclipse.tool.<name>` span; `tool.completed|failed|truncated` → status/duration + `onToolEnd`/`onToolError`
    - `job.*` → `eclipse.job` span + `onJobStart`/`onJobEnd`/`onJobRetry`/`onJobFailure`
@@ -127,7 +141,15 @@ the families the platform records: `eclipse_runs_total`, `eclipse_run_duration_m
 `eclipse_security_events_total`, `eclipse_response_blocks_total`,
 `eclipse_telemetry_dropped_total`.
 
-Scrape the Prometheus text exposition at `GET /observability/metrics/prometheus`.
+C7 adds: `eclipse_steps_total{step,status}`, `eclipse_step_duration_ms`,
+`eclipse_step_cost_usd`, `eclipse_run_cost_usd`, `eclipse_run_cost_usd_total`,
+`eclipse_run_resume_ms`, `eclipse_failures_total{failureClass,component}`,
+`eclipse_orphaned_runs_total`, `eclipse_process_cpu_percent`,
+`eclipse_process_memory_bytes`, `eclipse_process_threads`,
+`eclipse_runs_active_sampled`, `eclipse_worker_utilization`.
+
+Scrape the Prometheus text exposition at `GET /observability/metrics/prometheus`
+(the handler samples USE gauges first).
 
 The `onResponseBlocks` hook (Interactive-Response Engine, Phase 4) records
 `eclipse_response_blocks_total{outcome,type}` — how many structured-answer blocks
@@ -143,6 +165,39 @@ defaults for the common catalog, overridable per deployment via
 `ECLIPSE_PRICING_FILE` or `PricingRegistry.register`. An unknown model yields an
 honest `priced: false` (never a fabricated zero). Aggregates are kept by run,
 session, agent, task, workflow, model, provider, day and month.
+
+C7 also records cost **per run** on `onRunEnd` (histogram + counter, when every
+request was priced) and **per step** from the step's LLM events. The release
+report exposes `cost.perTaskP50/P95`, `totalUsd` and `unpricedRuns`.
+
+## Failure taxonomy
+
+`failures.py` maps every code/exception to exactly one of: `provider`,
+`timeout`, `transient`, `validation`, `tool`, `budget`, `policy`, `sandbox`,
+`persistence`, `cancel`, `internal`. Spans carry `failureClass`; errors and the
+`eclipse_failures_total` counter are labelled with it. Unknown codes become
+`internal` deliberately (visible, extendable) rather than an unbounded label.
+
+## SLOs v2 and the release gate
+
+`SLORegistry` supports three kinds: `ratio` (success), `percentile` (p95 must be
+≤ threshold) and `rate` (failure ratio ≤ max). The runtime objectives are
+`agent_success_rate`, `tool_success_rate`, `terminal_correctness`,
+`run_p95_latency`, `resume_p95`, `cost_per_task`, `orphan_rate`.
+
+Budgets live in `docs/harness/slo-budgets.json`; the committed baseline is
+`docs/harness/slo-baseline.json`. `npm run gate:slo` runs the deterministic
+probe (`observability/probe.py`) through the shipped event projector, writes
+`docs/harness/slo-report.json`, and fails on a budget breach or a regression
+beyond the configured allowance. `npm run probe:slo` only writes the report.
+CI and `check-all.js` run the gate.
+
+## Dashboard
+
+`GET /observability/dashboard` is an operator-gated, self-contained HTML page:
+one card per SLO (compliance, p95, error budget, burn), plus runs, latency,
+cost, tools and failures by class. It refreshes every 15 s and escapes every
+value; it adds no front-end dependency.
 
 ## Failure investigation & trajectory
 
@@ -182,6 +237,13 @@ state. `GET /observability/slos` reports objectives, error budget and burn rate.
 | `ECLIPSE_PRICING_FILE` | `` | JSON pricing overrides |
 | `ECLIPSE_SLO_AGENT_SUCCESS_RATE` | `0.99` | Agent success SLO |
 | `ECLIPSE_SLO_TOOL_SUCCESS_RATE` | `0.98` | Tool success SLO |
+| `ECLIPSE_SLO_TERMINAL_TARGET` | `0.999` | Terminal-correctness SLO |
+| `ECLIPSE_SLO_RUN_P95_MS` | `120000` | Run p95 latency budget |
+| `ECLIPSE_SLO_RESUME_P95_MS` | `10000` | Resume p95 budget |
+| `ECLIPSE_SLO_COST_PER_TASK_USD` | `1.0` | Cost per task budget |
+| `ECLIPSE_SLO_ORPHAN_RATE` | `0.0` | Max orphan ratio |
+| `ECLIPSE_ORPHAN_AFTER_S` | `1800` | Age before a run is orphaned |
+| `HARNESS_MAX_CONCURRENCY` | `4` | USE utilization denominator |
 
 An enabled backend missing its credentials is downgraded to disabled and
 reported in `problems`; `status` never claims a healthy backend that is inert.
@@ -194,6 +256,7 @@ reported in `problems`; `status` never claims a healthy backend that is inert.
 
 `diagnostics` is the self-diagnostic surface: exporter health, dropped spans,
 dropped records, backpressure, observed hooks, anomaly/loop state, SLOs, cost.
+C7 adds `release-report` (the gate input) and `dashboard` (HTML).
 
 ## Tests
 
@@ -203,6 +266,10 @@ redaction, sampling, cost/token math, metrics/Prometheus, anomaly/loop, SLO, the
 event-bus projection, failure modes (dead/flaky/slow exporters, circuit breaker),
 secret leakage, cross-worker/queue/A2A trace integrity, overhead bounds, and the
 `/observability/*` HTTP surface.
+
+C7 adds `test_c7_{spans,slo_gate,dashboard_api,usage}.py`: step-tree parentage,
+failure classes, run/step cost, SLO ratio/percentile/rate, probe invariants,
+gate pass/breach/regression/malformed, dashboard escaping and USE/orphan sweeps.
 
 ## Adding a subsystem to the trace
 

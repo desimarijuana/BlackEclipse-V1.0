@@ -21,6 +21,7 @@ from .redaction import get_default_redactor
 
 HOOKS: frozenset[str] = frozenset({
     "onRunStart", "onRunEnd",
+    "onStepStart", "onStepEnd",
     "onAgentStart", "onAgentEnd",
     "onPlanStart", "onPlanEnd",
     "onTaskStart", "onTaskEnd",

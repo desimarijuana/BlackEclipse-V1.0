@@ -11502,3 +11502,31 @@ material and `HARNESS_PLUGIN_REQUIRE_REVIEW=1` requires the operator
 acknowledgment; install and update both roll back on refusal
 (`test_c6_plugin_signing.py`). Remaining follow-up: a human review UI (the review
 gate is the explicit operator decision, not a UI).
+
+## ADR-H356 - Telemetry is a release gate, not a dashboard
+
+**Decision.** The observability platform becomes the release gate for the core
+loop. The graph emits `step.started`/`step.completed`; the projector produces a
+`run → step → llm/tool` span tree. A closed failure taxonomy labels spans,
+errors and `eclipse_failures_total`. Cost is attributed per run and per step.
+SLOs support `ratio`, `percentile` and `rate` kinds, with terminal correctness,
+p95 latency, resume p95, orphan rate and cost per task alongside the existing
+agent/tool success objectives. `npm run gate:slo` runs a deterministic probe
+through the shipped projector and evaluates `docs/harness/slo-budgets.json` plus
+the committed baseline; CI and `check-all.js` fail on a breach or regression.
+`/observability/dashboard` renders one card per objective.
+
+**Why.** The audit's "measurement" finding was that scorecard claims outran
+evidence. A dashboard nobody can fail is decoration. C7 makes the same numbers
+that describe the system decide whether a release ships: a latency regression, a
+missing terminal state, an orphan or a cost blow-up is CI-red, not a chart.
+
+**Consequences.** Every failure must map to a known class; unknown codes become
+`internal` and are counted so the vocabulary grows deliberately. The gate is
+deterministic and offline (no provider/network), so it runs in every CI job; real
+deployments can feed `GET /observability/release-report` into the same
+`gate.py`. Percentile SLOs use a bounded sample window and skip honestly when
+there are no samples. The `ops` scorecard dimension moves from `unmeasured` to
+`measured` because `gate:slo` is runnable. The dashboard is server-rendered HTML
+(operator-gated), not a second front-end stack. Budgets and baselines are data in
+`docs/harness/`, reviewed like code.

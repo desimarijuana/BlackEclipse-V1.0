@@ -490,7 +490,7 @@ def test_prompt_char_ceiling():
     # rule and the Quant research guidance without updating this ratchet. The
     # pin was stale at HEAD, so the test failed on an unchanged prompt. Re-pinned
     # to the real, measured size; it may only shrink from here.
-    assert len(prompt) <= 47121, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 47371, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

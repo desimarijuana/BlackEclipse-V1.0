@@ -11,9 +11,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ..deps import require_operator, service
+from ..observability.dashboard import render_dashboard
 
 router = APIRouter(tags=["observability"], prefix="/observability")
 
@@ -56,7 +58,9 @@ def observability_metrics(_: bool = Depends(require_operator)) -> dict[str, Any]
 
 @router.get("/metrics/prometheus")
 def observability_prometheus(_: bool = Depends(require_operator)) -> Response:
-    return Response(content=_hub().metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
+    hub = _hub()
+    hub.refresh_use_metrics()
+    return Response(content=hub.metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 
 @router.get("/traces")
@@ -110,6 +114,22 @@ def observability_anomalies(_: bool = Depends(require_operator)) -> dict[str, An
 @router.get("/slos")
 def observability_slos(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, **_hub().slos.report()}
+
+
+@router.get("/release-report")
+def observability_release_report(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """C7: the machine-readable report `npm run gate:slo` consumes."""
+    hub = _hub()
+    hub.refresh_use_metrics()
+    return {"success": True, **hub.release_report()}
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def observability_dashboard(_: bool = Depends(require_operator)) -> HTMLResponse:
+    """C7: one card per SLO, with budget, burn and failure classes."""
+    hub = _hub()
+    hub.refresh_use_metrics()
+    return HTMLResponse(render_dashboard(hub.release_report()))
 
 
 class ExporterAction(BaseModel):

@@ -46,8 +46,15 @@ run("security preflight", "node", ["scripts/security-preflight.js"]);
 // are silent when they pass, and both fail the release gate when they do not.
 run("decision record", "node", ["scripts/check-adr-numbers.js"]);
 run("harness size budget", "node", ["scripts/size-budget.js"]);
+// C7: observability must bite. The deterministic probe runs through the shipped
+// telemetry path; the gate fails a release that breaches an SLO budget or a
+// committed regression allowance.
+run("SLO release gate", "node", ["scripts/slo-gate.js"]);
 run("tests (vitest + python)", "npm", ["run", "test"]);
 run("eval gates", "node", ["scripts/test-evals.js"]);
+// 10b. The independent-audit corpus: numeric contracts, provenance, leases,
+// effects, budgets and the release gate. Release-blocking, offline.
+run("agent audit corpus", "node", ["scripts/agent-audit.js"]);
 // The corpus GATE: the same corpus, compared with the COMMITTED baseline. A
 // critical regression (task success, safety, hallucination rate, financial
 // accuracy, routing) fails the release here.
