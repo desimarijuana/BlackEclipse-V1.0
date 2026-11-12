@@ -1322,18 +1322,18 @@ html:not(.dark) .glass-command-popover {
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-/* Chat composer â€” a NEAR-TRANSPARENT frosted panel: the solid fill is removed
- * and only the blur remains, so the transcript behind reads through real glass.
- * Low tint (0.16), high blur + saturation. Keep the tint low â€” a higher alpha
- * hides the blur (see hard rule #2). */
+/* Chat composer â€” a NEUTRAL GREY frosted panel. The `--card-rgb` tint read as
+ * black over the dark conversation surface, so the composer now uses a straight
+ * neutral grey (zinc) tint while keeping the real blur. Alpha stays ≤ ~0.55 so
+ * the frost remains visible (see hard rule #2). */
 .glass-composer {
-  background: rgb(var(--card-rgb, 18 18 20) / 0.16);
+  background: rgb(113 113 122 / 0.30);
   backdrop-filter: blur(28px) saturate(1.5);
-  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.10);
 }
 html:not(.dark) .glass-composer {
-  background: rgba(255, 255, 255, 0.22);
-  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  background: rgba(244, 244, 245, 0.72);
+  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.70);
 }
 /* Frosted-glass button â€” translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
@@ -1437,13 +1437,13 @@ html:not(.dark) .glass-button-add:hover {
  * the hardcoded recipes is untouched until the user opts into customization.
  * `theme-glass-off` (glass disabled) removes the blur entirely and makes the
  * tint opaque, turning every tier into a solid panel. */
-html.theme-glass-active .glass-card,html.theme-glass-active .glass-card-strong,html.theme-glass-active .glass-card-subtle,html.theme-glass-active .glass-drawer,html.theme-glass-active .glass-command-popover,html.theme-glass-active .glass-composer,html.theme-glass-active .glass-button,html.theme-glass-active .ws-glass,html.theme-glass-active .tab-bar-glass,html.theme-glass-active .tab-bar-subtle,html.theme-glass-active .fund-tabs-glass,html.theme-glass-active .glass-ticker,html.theme-glass-active .fund-menu-glass,html.theme-glass-active .command-glass,html.theme-glass-active .command-glass-bar {
+html.theme-glass-active .glass-card,html.theme-glass-active .glass-card-strong,html.theme-glass-active .glass-card-subtle,html.theme-glass-active .glass-drawer,html.theme-glass-active .glass-command-popover,html.theme-glass-active .glass-button,html.theme-glass-active .ws-glass,html.theme-glass-active .tab-bar-glass,html.theme-glass-active .tab-bar-subtle,html.theme-glass-active .fund-tabs-glass,html.theme-glass-active .glass-ticker,html.theme-glass-active .fund-menu-glass,html.theme-glass-active .command-glass,html.theme-glass-active .command-glass-bar {
   background-color: rgb(var(--glass-tint, 18 18 20) / var(--glass-opacity, 0.55)) !important;
   backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.35);
   box-shadow: var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 /* Light mode keeps its white frost (or a lightened custom tint). */
-html:not(.dark).theme-glass-active .glass-card,html:not(.dark).theme-glass-active .glass-card-strong,html:not(.dark).theme-glass-active .glass-card-subtle,html:not(.dark).theme-glass-active .glass-drawer,html:not(.dark).theme-glass-active .glass-command-popover,html:not(.dark).theme-glass-active .glass-composer,html:not(.dark).theme-glass-active .glass-button,html:not(.dark).theme-glass-active .ws-glass,html:not(.dark).theme-glass-active .tab-bar-glass,html:not(.dark).theme-glass-active .tab-bar-subtle,html:not(.dark).theme-glass-active .fund-tabs-glass,html:not(.dark).theme-glass-active .glass-ticker,html:not(.dark).theme-glass-active .fund-menu-glass,html:not(.dark).theme-glass-active .command-glass,html:not(.dark).theme-glass-active .command-glass-bar {
+html:not(.dark).theme-glass-active .glass-card,html:not(.dark).theme-glass-active .glass-card-strong,html:not(.dark).theme-glass-active .glass-card-subtle,html:not(.dark).theme-glass-active .glass-drawer,html:not(.dark).theme-glass-active .glass-command-popover,html:not(.dark).theme-glass-active .glass-button,html:not(.dark).theme-glass-active .ws-glass,html:not(.dark).theme-glass-active .tab-bar-glass,html:not(.dark).theme-glass-active .tab-bar-subtle,html:not(.dark).theme-glass-active .fund-tabs-glass,html:not(.dark).theme-glass-active .glass-ticker,html:not(.dark).theme-glass-active .fund-menu-glass,html:not(.dark).theme-glass-active .command-glass,html:not(.dark).theme-glass-active .command-glass-bar {
   background-color: rgb(var(--glass-tint-light, 255 255 255) / var(--glass-opacity, 0.55)) !important;
 }
 /* The drawer/menu tiers keep their gradient when glass is on; a solid fill would
@@ -1456,12 +1456,12 @@ html:not(.dark).theme-glass-active .glass-drawer,html:not(.dark).theme-glass-act
   background-image: linear-gradient(    180deg,    rgb(var(--glass-tint-light) / var(--glass-opacity)),    rgb(var(--glass-tint-light) / calc(var(--glass-opacity) + 0.08))  ) !important;
 }
 /* Glass disabled: solid, no blur, everywhere. */
-html.theme-glass-off .glass-card,html.theme-glass-off .glass-card-strong,html.theme-glass-off .glass-card-subtle,html.theme-glass-off .glass-drawer,html.theme-glass-off .glass-command-popover,html.theme-glass-off .glass-composer,html.theme-glass-off .glass-button,html.theme-glass-off .ws-glass,html.theme-glass-off .tab-bar-glass,html.theme-glass-off .tab-bar-subtle,html.theme-glass-off .fund-tabs-glass,html.theme-glass-off .glass-ticker,html.theme-glass-off .fund-menu-glass,html.theme-glass-off .command-glass,html.theme-glass-off .command-glass-bar,html.theme-glass-off .nav-menu-glass {
+html.theme-glass-off .glass-card,html.theme-glass-off .glass-card-strong,html.theme-glass-off .glass-card-subtle,html.theme-glass-off .glass-drawer,html.theme-glass-off .glass-command-popover,html.theme-glass-off .glass-button,html.theme-glass-off .ws-glass,html.theme-glass-off .tab-bar-glass,html.theme-glass-off .tab-bar-subtle,html.theme-glass-off .fund-tabs-glass,html.theme-glass-off .glass-ticker,html.theme-glass-off .fund-menu-glass,html.theme-glass-off .command-glass,html.theme-glass-off .command-glass-bar,html.theme-glass-off .nav-menu-glass {
   backdrop-filter: none !important;
   background-image: none !important;
   background-color: rgb(var(--glass-tint) / 0.96) !important;
 }
-html:not(.dark).theme-glass-off .glass-card,html:not(.dark).theme-glass-off .glass-card-strong,html:not(.dark).theme-glass-off .glass-card-subtle,html:not(.dark).theme-glass-off .glass-drawer,html:not(.dark).theme-glass-off .glass-command-popover,html:not(.dark).theme-glass-off .glass-composer,html:not(.dark).theme-glass-off .glass-button,html:not(.dark).theme-glass-off .tab-bar-glass,html:not(.dark).theme-glass-off .tab-bar-subtle,html:not(.dark).theme-glass-off .fund-tabs-glass,html:not(.dark).theme-glass-off .glass-ticker,html:not(.dark).theme-glass-off .fund-menu-glass,html:not(.dark).theme-glass-off .command-glass,html:not(.dark).theme-glass-off .command-glass-bar,html:not(.dark).theme-glass-off .nav-menu-glass {
+html:not(.dark).theme-glass-off .glass-card,html:not(.dark).theme-glass-off .glass-card-strong,html:not(.dark).theme-glass-off .glass-card-subtle,html:not(.dark).theme-glass-off .glass-drawer,html:not(.dark).theme-glass-off .glass-command-popover,html:not(.dark).theme-glass-off .glass-button,html:not(.dark).theme-glass-off .tab-bar-glass,html:not(.dark).theme-glass-off .tab-bar-subtle,html:not(.dark).theme-glass-off .fund-tabs-glass,html:not(.dark).theme-glass-off .glass-ticker,html:not(.dark).theme-glass-off .fund-menu-glass,html:not(.dark).theme-glass-off .command-glass,html:not(.dark).theme-glass-off .command-glass-bar,html:not(.dark).theme-glass-off .nav-menu-glass {
   background-color: rgb(var(--glass-tint-light) / 0.92) !important;
 }
 /* â”€â”€ Sidebar surface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

@@ -1,47 +1,91 @@
 # Change Log
 
 ## 2026-11-12
+- **fix(chat): Eclipse Agent composer is neutral grey again.** The
+  `.glass-composer` fill used the near-black `--card-rgb` tint, so the input
+  bubble read as black over the dark conversation surface. It now uses a
+  neutral zinc tint (alpha 0.30, keeping the real blur) with a light-mode
+  override, and the composer is excluded from the theme glass tint overrides so
+  a customized glass theme cannot repaint it black. `globals.css` only. No doc
+  change — styling only, no contract or setup impact.
 - **fix(sidebar): collapsed logo swaps to the expand chevron on hover.**
   Restored the previous affordance: at the collapsed width the brand mark fades
   out and a full-size `ChevronRight` button replaces it (instead of the tiny
-  corner button that left the mark competing with it). No doc change - visual
+  corner button that left the mark competing with it). No doc change — visual
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
-- **feat(eval): the scorecard is generated from runs (C8.5).** `npm run scorecard:from-runs` runs the offline suite plus the C7 release report and writes numeric `{value, unit, source, runId, generatedAt}` metrics for the dimensions that produced data (currently aci, safety, ext, eval, ops); dimensions without a measurement stay honest. Tests: `test_c8_scorecard.py`; docs: `docs/harness/agent-evaluation.md`. no other doc change - the scorecard files are regenerated from runs.
-- **fix(harness): the gated research finisher imports its fenced update.** `_finish_research` is module-level, so the `execute_run` local import did not cover it and every gated research run failed with `NameError` at the terminal write. Import it in the finisher. no doc change - internal wiring fix.
-- **feat(eval): C8 conformance gate — retry faults, golden trace, contracts.**
-  `python -m harness.evaluation.conformance` (npm `gate:conformance`) runs an
-  offline five-class gate: 429/500/disconnect retries, no-retry 400/cancel,
-  expired-deadline refusal, duplicate-effect idempotence, a golden
-  `run → step → tool/LLM` trace, and contract checks for the hook vocabulary,
-  portable tool manifest, release report and plugin SDK version.
-  `docs/harness/conformance.json` is authoritative: a missing or undeclared case
-  fails. Wired into `check-all.js` and CI; tests
-  `test_c8_conformance.py`. Docs: `docs/harness/conformance.md`,
-  `docs/harness/agent-evaluation.md`, ADR-H357. Remaining C8: external adapters,
-  finance QA, real-agent offline tier, generated scorecard, comparability.
-- **feat(harness): C7 observability that bites — step spans, SLO v2, release
-  gate, dashboard.** The graph emits `step.started|completed`; the projector
-  builds `eclipse.run → eclipse.step → eclipse.llm/eclipse.tool.*` with children
-  parented to the step. `observability/failures.py` is a closed taxonomy
-  (provider/timeout/transient/validation/tool/budget/policy/sandbox/persistence/
-  cancel/internal) labelling spans, errors and `eclipse_failures_total`. Run and
-  step cost are attributed (`eclipse_run_cost_usd`, `eclipse_step_cost_usd`);
-  process CPU/memory/threads and worker utilization are sampled honestly.
-  `slo.py` gains `ratio|percentile|rate` kinds and five objectives: terminal
-  correctness, p95 latency, resume p95, orphan rate and cost per task.
-  `observability/probe.py` runs a deterministic workload through the shipped
-  projector; `gate.py` + `docs/harness/slo-budgets.json` + `slo-baseline.json`
-  make `npm run gate:slo` fail CI on a breach or committed regression (wired into
-  `check-all.js` and the workflow). `GET /observability/release-report` exposes
-  the gate input and `/observability/dashboard` renders one escaped card per SLO.
-  Tests: `test_c7_{spans,slo_gate,dashboard_api,usage}.py`; the `ops` scorecard
-  dimension is now measured. Docs updated: `docs/harness/observability.md`,
-  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H356),
-  `docs/harness/roadmap/round-5-core-integrity.md`,
-  `docs/harness/roadmap/README.md`, `docs/harness/scorecard.json`,
-  `docs/harness/scorecard.md`, `docs/CHANGELOG.md`.
+- **feat: close the audit backlog — client recovery, per-run cost, versioned
+  audit corpus.** The chat client now remembers the server-started `runId`; a
+  dropped stream polls the run to terminal instead of submitting a second run,
+  and a reload reattaches an in-flight run by `chatId` (completed runs are left
+  to the persisted transcript, so no duplicate). `run_cost.py` prices a run from
+  the one `observability.costs` registry and reports `costUsd`/`priced` (unknown
+  model = `None`, never zero). The audit corpus is a versioned manifest
+  (`evaluation/corpus/agent_audit_v1.json`, 9 areas) executed by
+  `npm run audit:agent` as a `check-all` gate. Tests: 44 corpus checks, 3 cost, 3
+  manifest; `tsc` clean.
+- **feat(runtime): token budget, vault inventory, audit gate and the G1 soak.**
+  `AgentConfig.maxTokens` is enforced: at the budget the graph stops binding
+  tools and forces a final answer (`TOKEN_BUDGET_EXCEEDED` only if that answer is
+  empty). New read-only `market/vault.py` + `data_inventory` tool report JDdS
+  (`jdds.db`, SQLite `mode=ro`) and `history_cache` separately, and
+  `resolve_series` labels both stores and flags count conflicts without merging.
+  The 41-case independent-audit corpus runs as `npm run audit:agent` and is a
+  `check-all` gate. `scripts/soak-runs.py` passes G1 at the mechanism level:
+  100 sequential + 96 concurrent runs completed, 0 left running, 5 checkpointed
+  orphans became `interrupted`. Tests: 41 audit + 4 vault + 1 budget + soak.
+  No `jdds.db` write.
+- **feat(runtime): terminal fencing, SSE resume and hard budgets.** Terminal
+  `completed/failed/cancelled` writes now go through `fenced_update_run`, which
+  requires this process to still own the live lease epoch; a stale worker can no
+  longer finalize another owner's run. The SSE endpoint accepts `after` /
+  `Last-Event-ID` and emits `id: <seq>` frames (the front door forwards both),
+  so a reconnect resumes instead of replaying from zero. `eclipse-agent` gets a
+  hard `maxToolCalls=48` (the audit saw 46–81-call loops). Evaluation adds a
+  `delivery` dimension and `release_ready()`, which blocks release on an
+  unmeasured/failed delivery, safety, task-success or provenance dimension even
+  when the weighted mean is high. Tests: lease/effect/resume/graph (22),
+  evaluation gate (4). No `jdds.db` change.
+- **chore(repo): version the intended `main` ruleset as `.github/ruleset.json`.**
+  The rules `repository-guards.md` already prescribed (restrict deletions, block
+  force pushes, PR-gated merges, strict required check
+  `typecheck · lint · unit · python · evals`) now exist as an importable file
+  instead of prose only. No runtime behaviour changes: it is not applied on the
+  Free plan (`403`) and does not affect the hooks. Updated
+  `docs/repository-guards.md` to describe the import step and drop the now-false
+  "nothing about it lives in git".
+- **feat(runtime): at-most-once effect ledger at the tool seam.**
+  New `python/harness/run_effects.py` (`RunEffect`). An effectful call (a
+  declared tool `effect`, or a non-read permission) is marked `started` BEFORE
+  dispatch and `done` after. On resume, `started` without `done` means the
+  external outcome is unknown: the tool is **not** called again, the row becomes
+  `unknown`, and the model is told to reconcile (broker terminal / git status /
+  file hash). Read-only tools stay freely retryable. Tests:
+  `test_run_effects.py` (confirmed → done; started-without-result → zero
+  re-execution). Graph/resume/lease/recovery suites: 58 passed. Terminal writes
+  still do not assert the lease epoch. No `jdds.db` change.
+- **feat(runtime): durable run leases, environment ownership and heartbeat.**
+  New `python/harness/run_lease.py`: `RunLease` + `RuntimeInstance` tables,
+  atomic `BEGIN IMMEDIATE` claims, monotonic fencing epochs, a daemon heartbeat
+  thread with its own SQLite connection, and per-process runtime identity.
+  `service.run` / `run_background` claim the run before executing (a duplicate
+  submission gets `RUN_LEASE_CONFLICT`, never a second execution); boot
+  registers the runtime and passes its environment to recovery. Recovery now
+  skips any run with a live lease and any run owned by another environment, so a
+  second process can no longer orphan a live run. Epoch is issued but terminal
+  writes are not yet fenced; the effect ledger remains open. Tests:
+  `test_run_lease.py` + recovery/resume/watchdog/parity (25 passed). No
+  `jdds.db` change.
+- **feat(runtime): recoverable runs and partial answers.** Added the front-door
+  `POST /api/harness/runs/[id]/resume` route + `resumeRunInRuntime` client
+  (operator-gated, requires the original RunRequest payload; 409 on terminal,
+  400 without a request). The stall watchdog now reconstructs the last assistant
+  message from `RunMessage` and writes it as `output` with `error.partial` and a
+  `run.partial` event, so a stalled run no longer discards produced text.
+  Documented the `finance_series` price/return contract in
+  `docs/harness/financial-analysis-engine.md`. Tests: 5 watchdog + 11 chat-route;
+  `tsc` clean. No `jdds.db` change.
 - **fix(finance): explicit price/return input contract for `finance_series`.**
   The series calculators difference their observations (they expect levels), so
   a returns input was differenced twice and, after the synthetic path, dropped
@@ -123,6 +167,38 @@
   an unconditional pass. Report added:
   `docs/quant-research/agent-evaluation-2026-11-11.md`. No source change —
   evaluation artifact only; no `jdds.db` change.
+- **feat(eval): C8 conformance gate — retry faults, golden trace, contracts.**
+  `python -m harness.evaluation.conformance` (npm `gate:conformance`) runs an
+  offline five-class gate: 429/500/disconnect retries, no-retry 400/cancel,
+  expired-deadline refusal, duplicate-effect idempotence, a golden
+  `run → step → tool/LLM` trace, and contract checks for the hook vocabulary,
+  portable tool manifest, release report and plugin SDK version.
+  `docs/harness/conformance.json` is authoritative: a missing or undeclared case
+  fails. Wired into `check-all.js` and CI; tests
+  `test_c8_conformance.py`. Docs: `docs/harness/conformance.md`,
+  `docs/harness/agent-evaluation.md`, ADR-H357. Remaining C8: external adapters,
+  finance QA, real-agent offline tier, generated scorecard, comparability.
+- **feat(harness): C7 observability that bites — step spans, SLO v2, release
+  gate, dashboard.** The graph emits `step.started|completed`; the projector
+  builds `eclipse.run → eclipse.step → eclipse.llm/eclipse.tool.*` with children
+  parented to the step. `observability/failures.py` is a closed taxonomy
+  (provider/timeout/transient/validation/tool/budget/policy/sandbox/persistence/
+  cancel/internal) labelling spans, errors and `eclipse_failures_total`. Run and
+  step cost are attributed (`eclipse_run_cost_usd`, `eclipse_step_cost_usd`);
+  process CPU/memory/threads and worker utilization are sampled honestly.
+  `slo.py` gains `ratio|percentile|rate` kinds and five objectives: terminal
+  correctness, p95 latency, resume p95, orphan rate and cost per task.
+  `observability/probe.py` runs a deterministic workload through the shipped
+  projector; `gate.py` + `docs/harness/slo-budgets.json` + `slo-baseline.json`
+  make `npm run gate:slo` fail CI on a breach or committed regression (wired into
+  `check-all.js` and the workflow). `GET /observability/release-report` exposes
+  the gate input and `/observability/dashboard` renders one escaped card per SLO.
+  Tests: `test_c7_{spans,slo_gate,dashboard_api,usage}.py`; the `ops` scorecard
+  dimension is now measured. Docs updated: `docs/harness/observability.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H356),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/scorecard.json`,
+  `docs/harness/scorecard.md`, `docs/CHANGELOG.md`.
 - **feat(harness): C6 completed — AppContainer, Ed25519 publisher signatures,
   computer-executor guard.** `security/appcontainer.py` adds the opt-in Windows
   native boundary (`BLACK_ECLIPSE_WINDOWS_APPCONTAINER=1`): a package SID, zero
@@ -2721,342 +2797,3 @@
   and code-eval suites pass again. Size budget re-pinned. Docs updated:
   `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
 
-## 2026-11-05
-- **feat(chat): composer "Choices" mode — ask with selectable options up front.**
-  New `src/lib/agent/choices-mode.ts` + `src/components/chat/choices-mode-control.tsx`
-  put an Auto/Choices/Off pill beside Quant in the composer; the value flows as
-  `ChatOptions.choicesMode` through both chat routes and `run-service` into
-  `input.context.choicesMode`. On the runtime side, `python/harness/choices_mode.py`
-  appends a short `runtime_context` block ONLY for `"on"` (and only when `clarify`
-  is on the run's surface), telling the model to call `clarify` once with 2–4
-  concrete options before an ambiguous turn; the existing question card already
-  renders those as clickable buttons and resumes the run in place. `off`/`auto`
-  add nothing, so the base prompt's act-don't-ask guidance stands — this is
-  presentation guidance, never a capability grant. The block is wired in
-  `graph.py` next to the trading/quant context. Tests: TS `choices-mode` (5),
-  `run-service` (2 new), chat-route (1 new), Python `test_choices_mode.py` (6);
-  `graph.py` size ratchet re-pinned 2452→2457. Docs updated:
-  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-- **feat(harness): quant tool surface + derived quant outcome (Phase 2).**
-  `apply_quant_surface` narrows a `standard`/`deep` turn to the data, compute,
-  portfolio/broker-read, synthesis and artifact tools (engine names imported
-  from `QUANT_TOOLS`/`STATS_TOOLS`/`FACTOR_TOOLS`/`ML_TOOLS`/`RESEARCH_DATA_TOOLS`),
-  with trade precedence first and a remove-only guarantee; lookups and tiny
-  surfaces are untouched. `apply_intent_surfaces` replaces the trade-only call in
-  `graph.py` and still keeps `graph.py` at its size ratchet. `evaluate_quant_outcome`
-  derives a read-only completeness record (artifact names, missing computation,
-  validation, OOS and cost evidence) and `run_outcome.build_outcome_envelope`
-  exposes it as `quant` on `GET /runs/{id}/outcome`. Tests: surface narrowing,
-  trade precedence, never-widen, light/standard/deep outcome cases and the
-  envelope integration (`test_quant_intent.py`, `test_quant_outcome.py`,
-  existing run-outcome/surface suites). Size budget re-pinned. Docs updated:
-  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-- **feat(harness): quant-intent benchmark + composer Auto/Quant/Off toggle.** New
-  `python/harness/quant_intent_benchmark.py` (`quant-intent-v1`, 53 labelled cases)
-  measures tier + kind accuracy and separately counts false-positive non-quant
-  turns and trade-precedence violations; runnable with
-  `python -m harness.quant_intent_benchmark`. New
-  `src/lib/agent/quant-mode.ts` + `src/components/chat/quant-mode-control.tsx`
-  put an Auto/Quant/Off pill in the composer; `ChatOptions.quantMode` flows through
-  both chat routes and `run-service` as `input.context.quantMode` (`on`/`off`
-  forwarded, `auto` omitted). The Python classifier already honours it. Tests:
-  `test_quant_intent_benchmark.py` (2), `test_quant_intent.py` (38), the TS
-  `quant-mode` suite (4), `run-service` and the chat route. Size budget re-pinned
-  for the benchmark. Docs updated: `docs/harness/architecture.md`,
-  `docs/CHANGELOG.md`.
-- **feat(harness): deterministic quant protocol (Phase 1, observe-only).** New
-  `python/harness/quant_intent.py` classifies a turn as `light` / `standard` /
-  `deep` quantitative work (forecast, strategy, model, factor, financial model,
-  risk) and renders a per-run protocol into `runtime_context`: frame → data →
-  compute → validate → artifact → caveat, with a model-synthesis ladder and model
-  contract at `deep`. Plain quotes, news, filings and concept explanations stay
-  `none`; a trade/close/modify turn returns `none` so `trading_intent.py` keeps
-  execution. The classifier is wired in `graph.py` next to the trading directive,
-  emits a `quant.plan` event, and grants nothing (no surface narrowing yet). The
-  presentation planner learns quant vocabulary. Auto/Quant/Off is read from
-  `input.context.quantMode`; the composer toggle is a later slice. Tests:
-  `python/tests/test_quant_intent.py` (38 passed) plus the existing response-mode
-  and trading-intent suites (93 passed). `graph.py` stays at its size ratchet;
-  the new module's ~579 lines are a deliberate size-budget re-pin.
-  Docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-- **feat(code): per-file review and review notes (Phase 22 / S5 slice 2).** The
-  promotion preview now accepts `include`: `promotion.filter_preview` keeps only
-  the files the reviewer ticked and RECOMPUTES the digest over that set, so the
-  single-use approval is bound to exactly what will be written. The preview and
-  apply routes take the same `include`, and the promote card renders a checkbox
-  per file (re-previewing on every toggle; at least one file stays selected).
-  A new "Request changes" panel records an optional `file:line` and a note, then
-  opens a new chat turn with `/eclipsesdk <goal>` plus the notes through the
-  shell's `navigateTo` prompt param. Honest limits: per-HUNK accept is not
-  supported (file granularity only), and the note starts a NEW chat turn in a
-  new working copy rather than editing the same one in place. Tests
-  `python/tests/test_promotion_filter.py` (4 passed). Size budget re-pinned
-  (total, `code`, `routers`; `en.ts` 1305 -> 1312).
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S5 slice 2),
-  `docs/harness/roadmap/README.md`.
-- **feat(chat): per-chat project folder (Phase 23).** Each conversation can now be
-  bound to one APPROVED workspace root, OpenCode-style, instead of the whole app
-  sharing the single global selection. A **project chip** beside the session bar
-  shows the current folder and opens a picker (approved folders + "Open folder…" +
-  "Use Eclipse repo"). The binding is stored per chat as
-  `.black-eclipse/sessions/<chatId>/project.json`, and the run routes forward an
-  approved **root id** (never a path) as `RunRequest.workspaceRootId`; the runtime
-  resolves it through `TrustedRootStore` and binds that run's workspace. An
-  unknown/revoked id yields NO workspace (honest refusal), never a silent
-  fallback; `direct` mode follows the per-run folder exactly like the global
-  selection. New: `src/components/chat/project-chip.tsx`,
-  `src/components/workspace/folder-picker.tsx` (extracted from the editor),
-  `src/app/api/chat/session/project/route.ts`, `project.json` helpers in
-  `src/lib/chat/session-store.ts`, `set_trusted_root_lookup` in
-  `python/harness/code/workspace.py`. Tests: `python/tests/test_workspace_per_chat.py`,
-  `src/lib/chat/session-project.test.ts`, plus run-service cases. Docs updated:
-  `docs/NAVIGATION.md`.
-- **feat(code): the self-build acceptance eval (Phase 22 / S6, final slice).** New
-  `python/harness/code/selfbuild_eval.py`: six acceptance fixtures, one per
-  shipped self-build capability (project memory, build session, maintenance door,
-  land pipeline, Builder surface, scorecard). Each fixture names the exact files
-  and contract strings that must exist after a candidate change, so it grades a
-  worktree deterministically. Commands are OFF by default (a release run passes
-  `--commands`) and a skipped command is reported as skipped, never a pass. The
-  human diff grade is `UNKNOWN` - the eval never invents a quality number. The
-  repository passes 6/6 today as a regression check. Tests
-  `python/tests/test_selfbuild_eval.py` (4 passed). Size budget re-pinned to the
-  measured tree (total, `code`). This completes S6; S5 slice 2 (per-hunk review,
-  line comments, dedicated Builder tab) remains.
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S6),
-  `docs/harness/roadmap/README.md`.
-- **feat(models): a coding model for build runs (Phase 22 / S6, slice 2).** The
-  LLM config gains an optional `codingModel` (same provider/key/URL): chat turns
-  the deterministic classifier recognises as code, forced `/eclipsesdk` turns,
-  and Code tasks now resolve that model; every other turn keeps the chat model.
-  The Settings > AI surface gains a "Coding model (optional)" field, and the
-  value round-trips through the settings API. The self-build scorecard also
-  breaks results down by `provider/model` (`byModel`). `planner`/`editor`/
-  `reviewer` multi-role routing is folded into this one build model on purpose:
-  one run still uses one model, and no second router was added. Tests
-  `python/tests/test_scorecard.py` (4 passed), `tsc` clean. Size budget re-pinned
-  (total, `code`; `en.ts` 1302 -> 1305). Repo eval remains.
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S6),
-  `docs/harness/roadmap/README.md`.
-- **feat(code): the self-build scorecard (Phase 22 / S6, slice 1).** New
-  `python/harness/code/scorecard.py` derives the honest numbers from the ONE run
-  lineage: builds (`session.created`), checks run, first-pass checks, landed
-  (`land.promoted`), rolled back (`land.rolled_back`), average steps, tokens and
-  median time-to-first-change. A dimension with no data is `UNKNOWN`, never `0`;
-  cost and human edits are named as unmeasured. `promote_apply` now records
-  `land.promoted`, and rollback records `land.rolled_back` when the caller names
-  the run (the chat and Code rollback paths pass it). `GET /code/scorecard`
-  exposes it; the Code screen shows a compact strip. Tests
-  `python/tests/test_scorecard.py` (4 passed). Size budget re-pinned to the
-  measured tree (total, `code`, `routers`; `en.ts` 1297 -> 1302).
-  Model roles (`planner`/`editor`/`reviewer`) and the repo eval remain.
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S6 slice 1),
-  `docs/harness/roadmap/README.md`.
-- **feat(code): the Builder surface, slice 1 (Phase 22 / S5).** The Code screen
-  now derives ONE honest state from recorded facts (`session.derive_phase`:
-  planning / editing / checking / ready / blocked / stopped) plus the single next
-  action, and exposes the latest `land.verified` result on the session view. The
-  landing gate is real in the Code screen: `PromoteChange` is disabled until a
-  FULL check pass, with a plain-language hint. The diff viewer splits a unified
-  diff into per-file, collapsible sections (`src/lib/code/diff-sections.ts`), so a
-  multi-file change is reviewable file by file. Tests: `test_build_session.py`
-  (11 passed), `diff-sections.test.ts`. Size budget re-pinned to the measured
-  tree (total, `code`; `en.ts` 1285 -> 1297).
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S5 slice 1),
-  `docs/harness/roadmap/README.md`.
-- **feat(code): the landing pipeline (Phase 22 / S4).** New
-  `python/harness/code/land.py`: an ordered, data-driven check plan (typecheck,
-  tests, size, secret scan, the change-log obligation, and a build when
-  `src/**` changed), with `.black-eclipse/land.json` as a project override and
-  the exit code as the judge. A check that cannot run is an `error`, never a
-  pass; the first required failure stops the pipeline and the rest are reported
-  as `skipped`. `GET /code/tasks/{id}/land` is the read-only plan;
-  `POST /code/tasks/{id}/land/verify` runs it (`full=false` skips the long suite)
-  and records a `land.verified` checkpoint. The checks run against the project on
-  disk (the disposable copy has no installed dependencies), so the Code-screen
-  `LandChecks` panel sits after the change is applied and offers quick/full runs
-  with per-check output, plus the `code.land.*` i18n keys. Tests
-  `python/tests/test_land.py` (8 passed). Size
-  budget re-pinned to the measured tree (total, `code`, `routers`; `en.ts`
-  1272 -> 1285).
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S4 shipped),
-  `docs/harness/roadmap/README.md`.
-- **feat(code): the self-build boundary and offline maintenance mode (Phase 22 / S3).**
-  `selfhost.plan_landing` turns the existing classifier into ordered steps:
-  `python/harness/**` restarts only the builder, `src/**` builds only the target,
-  and an authority file exits through maintenance - never a live hot-swap. New
-  `python/harness/code/maintenance.py` is the one authority door: it refuses a
-  non-authority change, refuses a dirty tree unless explicitly allowed, stops the
-  builder, applies, runs the gate, restarts, health-checks, and rolls back on any
-  failure after the apply. Every side effect is injected, so the order is tested
-  without a live process. `npm run self:maintenance -- plan|execute` is the thin
-  operator runner (`scripts/self-maintenance.js`), and `plan` is read-only. Tests
-  `python/tests/test_maintenance.py` (11 passed). Size budget re-pinned to the
-  measured tree (total, `code`; no ratcheted-file growth).
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S3 shipped),
-  `docs/harness/roadmap/README.md`.
-- **feat(code): durable build sessions with a budget ladder (Phase 22 / S2).**
-  New `python/harness/code/session.py`: a session is a lens over the existing
-  run lineage, not a second store. It records the goal, the acceptance list and
-  the budget as one `session.created` checkpoint, and derives progress/resume
-  from the checkpoints the task lifecycle already writes. The budget is a
-  profile NAME (`small` 24 steps / 10 min, `standard` 80 / 45 min, `deep` 240 /
-  3 h), never a raw number from the caller. `RunRequest` gains additive
-  `maxSteps` / `runTimeoutMs`; `graph.requested_budget` applies them as a floor
-  and clamps to the runtime's hard caps, so a deep session can run long without
-  widening the autonomy floor or the tool surface. `POST /code/tasks` accepts
-  `budgetProfile` + `acceptance` and returns the session block; `GET
-  /code/tasks/{id}` carries it too. The front door validates the profile and the
-  `/code` command gains `--budget`. The Code task detail now shows the session
-  (goal, budget, acceptance, finished state) through `getCodeSession` and
-  `TaskDetail`, with four `code.session.*` i18n keys. Tests
-  `python/tests/test_build_session.py` (9 passed). Size budget re-pinned to the
-  measured tree (`.`, `code`, `routers`, total; `graph.py` 2406 -> 2434;
-  `en.ts` 1268 -> 1272).
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S2 shipped).
-- **feat(code): load the project's own rules into a code turn (Phase 22 / S1).**
-  New `python/harness/code/project_memory.py`: a bounded, deterministic loader for
-  `AGENTS.md`, `.eclipse/instructions.md`, `CLAUDE.md` and the top-level map in
-  `docs/NAVIGATION.md`. It walks from the workspace root to the git root (so this
-  app finds the repository's `AGENTS.md` one level above `Black-Eclipse-site/`),
-  redacts secret-shaped spans, truncates at a line boundary, and memoises by
-  `(path, mtime, size)`. The rendered block is injected into the first code turn
-  by `graph_context._repo_map_context`, and a new read-only `project_rules` tool
-  lets the agent re-read it on demand. The rules are **context, never
-  permission** - no rule can change the allowlist or the autonomy floor.
-  `CHAT_CODE_TOOLS` and `CODE_AGENT_TOOLS` gain the tool; the task code-agent
-  prompt says so. The chat prompt is unchanged - the injected block already
-  carries the "context, never permission" rule - so the ECLIPSE prompt-size
-  ratchet and the read-only navigator prompt both stay put. The published tool
-  registry is regenerated (`docs/harness/tool-registry.json`, 1020 tools). Tests
-  `python/tests/test_project_memory.py` (12 pass, 1 symlink skip), plus the
-  updated exact-surface pin in `python/tests/test_chat_code_profile.py`. The harness size budget is re-pinned
-  to the measured tree (`scripts/size-budget.json`; the `code/tools.py` ratchet
-  moves 1268 -> 1270) because `python/harness/code` was at its ceiling.
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md` (S1 shipped),
-  `docs/harness/roadmap/README.md`, `docs/harness/tool-registry.json`;
-  `docs/CHANGELOG.md`.
-- **docs(harness): add the Phase 22 self-hosting plan.** The gap analysis for
-  using Eclipse to build Eclipse, grounded in the merged tree: no project-rule
-  loader (nothing reads `AGENTS.md` under `python/harness/`), a 24-step / 600s
-  chat code budget, the builder and target sharing one process, authority files
-  refused live with no maintenance path, landing that does not run the repo gate,
-  all-or-nothing review, no coding model policy, no self-build metrics, and a
-  finance-first default surface. Six workstreams in three waves, each with a
-  contract, file list, UX and acceptance gates. S1 (project memory) shipped
-  2026-11-05; the other five are not started.
-  Docs updated: `docs/harness/roadmap/phase-22-self-hosting.md`,
-  `docs/harness/roadmap/README.md`.
-- **fix(chat): quiet the evidence cards under an answer.** Three changes to the
-  metadata area, all presentation-only (the runtime's provenance and fail-closed
-  rules are untouched). (1) The "Proof it works" card no longer prints a
-  `0 check(s)` header when no check was recorded, and it opens by default when a
-  check failed or a claim is unsupported, so the evidence is visible instead of
-  hidden behind a click. (2) A speculative capability offer (`gap` /
-  `needs_source`, the "Build it" card) no longer renders in the transcript; a
-  card describing a real capability — including an unverified one — still does.
-  (3) "Sources consulted" now opens on the numbered source list by default, with
-  calculations/limitations/run detail nested after it. Covered by
-  `code-verification-panel.test.tsx`, `research-evidence-panel.test.tsx` and
-  `capability-types.test.ts`. Docs updated: `docs/interactive-response-engine.md`.
-- **fix(chat): only Sources stays under an answer (follow-up).** User direction:
-  remove the other evidence cards entirely. The chat transcript no longer renders
-  the "Proof it works" ledger (it remains on the Code screen) or the generated
-  capability card (it remains in Capability Studio); the code headline keeps only
-  the intent line and the promote-change action. `research-evidence-panel.tsx` is
-  now the only provenance block under a normal answer, and it opens on Sources by
-  default. No runtime/provenance logic changed — presentation only. Tests updated:
-  `chat-capability-panel.test.ts` now asserts both cards are absent from the
-  transcript. Docs updated: `docs/interactive-response-engine.md`.
-- **fix(chat): drop the empty computed-result card.** A result with no
-  provenance record (the "This number has no record of where it came from…"
-  UNAVAILABLE state) or with nothing to show (no outputs, artifact, figure or
-  recipe) no longer renders a card at all; the fail-closed refusal still happens
-  at the runtime boundary. A computed result with provenance and data is
-  unchanged. Covered by new empty-state cases in
-  `computed-result-panel.test.ts`. Docs updated: `docs/interactive-response-engine.md`.
-- **fix(chat): keep the Sources panel collapsed and align table columns.** Two
-  follow-ups from the browser review. (1) "Sources consulted" no longer opens by
-  default; the header summary stays visible and the body (Sources first) is
-  behind the toggle. (2) Tables now use ONE alignment per column shared by the
-  header and every body cell — the Markdown path previously right-aligned each
-  numeric cell individually, leaving the header on the opposite side and mixed
-  columns flipping; `data-table-block.tsx` also reverses the header row on a
-  right-aligned column so the always-present sort icon does not push the label
-  away from the numbers. Covered by new `markdown-table.test.tsx`, an updated
-  `research-evidence-panel.test.tsx`, and a header-alignment case in
-  `render.test.tsx`. Docs updated: `docs/interactive-response-engine.md`,
-  `docs/chat-ui-audit.md`.
-- **style(chat): give the response action row room to breathe.** The export row
-  (JSON / Read aloud / MD / PDF / Save / Open in Canvas) sat flush against the
-  header above and the content below. It now has a little top margin and a
-  clear bottom gap, with wrap row-gap, so it reads as its own strip.
-  Presentation-only; no doc change beyond this note.
-- **style(canvas): the inline Canvas dock opens as one surface card.** Replaced
-  the thin `Eclipse response · REPORT · Save to edit` toolbar with the rounded
-  card from the review: a rounded icon tile plus a surface label (`Writing` for a
-  prose answer, otherwise `Code` / `Report` / `Web page` / `Image`), with Save to
-  edit and Close on the right and the document title as the card tooltip.
-  Presentation-only. Docs updated: `docs/canvas.md`.
-- **style(graph-studio): simplify canvas nodes to a borderless solid surface.**
-  The node card now uses a solid `#0E0E0E` fill with no outer border and a soft
-  lift instead of the heavy 2px black bezel and translucent gradient. The header
-  gets roomier top/bottom padding so the icon no longer crowds the card edge,
-  and the icon sits in a solid neutral rounded tile (`#1A1A1C` dark / `#F2F2F4`
-  light). Ports, inline fields, run/test states and hover actions are unchanged.
-  Presentation-only; no contract change.
-- **fix(graph-studio): tidy layout respects node heights; wires are curved and neutral.**
-  `autoLayout` now accepts the nodes' measured React Flow heights and stacks each
-  layer by the real card height (240px fallback when unmeasured), with a 96px
-  column gap — so "Tidy up" no longer piles tall nodes on top of each other. The
-  canvas measures on tidy and passes the map through the store. Wires switched
-  from straight to bezier paths, and idle/selected wires render neutral (brighter
-  on hover) with the theme accent reserved for a running workflow; success and
-  failure keep their status colors. Added `layout.test.ts`. No doc change —
-  interaction/presentation fix only.
-- **fix(news): high-level stories join the feed and notify the header.** The News
-  tab no longer opens with a separate High Alert band. Those stories are ranked
-  into the main feed with `sort=importance` (default, one-time migration for a
-  saved `newest` preference) so the first rows are the most critical, and the
-  existing cards carry the CRITICAL/HIGH ALERT/BREAKING badges. Added the pure
-  `src/lib/notifications/news-diff.ts` + root-mounted
-  `src/lib/notifications/news-watcher.tsx`, which polls `/api/news/alerts`, seeds
-  the current set silently, then raises a `news`-tab ledger entry (header bell +
-  sidebar badge + toast/cue) for each newly seen critical/high story and each
-  high-impact release within 90 minutes. Removed the now-unused
-  `news-high-alerts.tsx`; the card preferences moved to
-  `src/lib/news/card-settings.ts` to keep the screen inside the size budget
-  (re-pinned 1486→1446). Tests: `news-diff.test.ts`. Docs updated:
-  `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
-- **fix(notifications): the header ledger is not a news backfill.** The news
-  watcher was seeding the current high-alert set into the ledger on load, which
-  made the header look like a news-only feed and pushed the operator's
-  price-alert/task/agent entries down (or out of the 100-item ring over time).
-  The first poll now only seeds the seen set — no ledger write — so news behaves
-  exactly like the task/bot/price watchers: it records events that happen after
-  the app opens. The notification panel also always renders every kind filter
-  (Alerts/Tasks/Approvals/Agent/Bots, count 0 included) so each producer lane is
-  discoverable. Tests updated: `news-diff.test.ts`. Docs updated:
-  `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
-- **feat(alerts): durable alert archive + a filterable History tab.** Every
-  notification raised in the app is now mirrored from the header ledger into a
-  new `AppNotification` table through `POST /api/notifications` (idempotent on
-  the producer's stable id; the local ledger backfills once on hydrate). New
-  `GET /api/alerts/history` unions that archive with the price engine's
-  `PriceAlertEvent` log (deduped by id, newest-first) and supports `q`,
-  `kind`, `tab` and `24h/7d/30d/all` ranges. Alerts › History now shows all
-  sources (news/price/tasks/approvals/agent/bots) with a search box, source and
-  range filters, and plays the alert cue once when a genuinely new archived row
-  arrives. `prisma/schema.prisma` gains `AppNotification` (additive; `db push`
-  applies it, so `jdds.db` is not committed). Tests:
-  `api/alerts/history/route.test.ts`, `api/notifications/route.test.ts`. Docs
-  updated: `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
