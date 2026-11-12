@@ -148,6 +148,7 @@
         "python/tests/test_c7_slo_gate.py",
         "python/tests/test_c7_dashboard_api.py",
         "python/tests/test_c7_usage.py",
+        "python/tests/test_c8_conformance.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],

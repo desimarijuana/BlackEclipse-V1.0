@@ -95,6 +95,8 @@ jobs:
           node scripts/size-budget.js
       - name: SLO release gate
         run: node scripts/slo-gate.js
+      - name: Conformance gate
+        run: node scripts/conformance-gate.js
       - name: Tests (Vitest + Python)
         run: npm test
 

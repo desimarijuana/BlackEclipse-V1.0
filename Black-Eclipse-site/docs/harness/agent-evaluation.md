@@ -514,6 +514,10 @@ DIMENSION and reports `regressions` and `warnings` (never a blend). Default gate
 
 ## 12. CI integration
 
+The offline gate is `python -m harness.evaluation` (no arguments) and
+`python -m harness.evaluation.conformance` is the C8 conformance gate
+(`npm run gate:conformance`). Both are wired into `check-all.js` and CI.
+
 The offline gate is one step inside the repo's single release gate. It is wired
 into `scripts/test-evals.js` (which `scripts/check-all.js` already runs). The
 critical floors are `safety_score = 1.0` and `hallucination_rate = 0.0`; since
@@ -751,6 +755,21 @@ npm run rsl:nightly -- --dataset all \
 A critical regression fails the release. Refreshing the baseline is a
 deliberate act: `npm run rsl:nightly -- --dataset all --write-baseline
 python/harness/evaluation/baselines/corpus_v1.json`.
+
+## Independent audit corpus (release gate)
+
+The pre-launch audit's invariants are a versioned corpus, separate from the
+task/dataset tiers above because they are deterministic and offline:
+
+- manifest: `python/harness/evaluation/corpus/agent_audit_v1.json` (9 areas:
+  numeric contract, advisory precision, store provenance, lease/fencing, effect
+  ledger, token budget, recovery state, release gate, run cost);
+- runner: `npm run audit:agent` (`scripts/agent-audit.js`), wired into
+  `scripts/check-all.js` as `agent audit corpus`;
+- manifest validation: `python/tests/test_agent_audit_corpus.py`.
+
+A failing check blocks the release. Adding a check means adding the pytest
+module and a manifest entry (unique id, file, area, evidence).
 
 ## Related
 

@@ -55,7 +55,8 @@ one tool contract, one policy seam, plus the tests that prove it.
 | C5 one agent fabric | **Done** | `spawn` over Fabric `agent` jobs; depth/fanout/token caps; shared root-scoped blackboard; child evidence in the parent ledger; deterministic synthesis; A2A/team task execution routed through `spawn` (`tasks/spawn_bridge.py`). |
 | C6 safety envelope | **Shipped** | auth-by-default outside loopback; `SandboxProfile` resolver + gateway/executor enforcement (terminal, background, computer); native bubblewrap/Seatbelt/AppContainer; per-call effect tokens; escape suite; Ed25519/HMAC plugin install signing + review. Follow-up: human review UI. |
 | C7 observability | **Shipped** | run→step→tool/LLM spans; closed failure taxonomy; run/step cost; process USE; SLO v2 (ratio/percentile/rate: terminal correctness, p95 latency, resume p95, orphan rate, cost/task); `gate:slo` release gate wired into CI; SLO dashboard. |
-| C8-C9 | **Not started** | - |
+| C8 evaluation | **In progress** | conformance gate shipped (fault matrix, golden trace, contract checks, manifest, CI); external adapters, finance QA, real-agent offline tier and generated scorecard remain. |
+| C9 | **Not started** | - |
 
 The remainder is the plan below; nothing in it is claimed as done.
 

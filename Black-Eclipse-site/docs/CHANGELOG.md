@@ -1,6 +1,17 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(eval): C8 conformance gate — retry faults, golden trace, contracts.**
+  `python -m harness.evaluation.conformance` (npm `gate:conformance`) runs an
+  offline five-class gate: 429/500/disconnect retries, no-retry 400/cancel,
+  expired-deadline refusal, duplicate-effect idempotence, a golden
+  `run → step → tool/LLM` trace, and contract checks for the hook vocabulary,
+  portable tool manifest, release report and plugin SDK version.
+  `docs/harness/conformance.json` is authoritative: a missing or undeclared case
+  fails. Wired into `check-all.js` and CI; tests
+  `test_c8_conformance.py`. Docs: `docs/harness/conformance.md`,
+  `docs/harness/agent-evaluation.md`, ADR-H357. Remaining C8: external adapters,
+  finance QA, real-agent offline tier, generated scorecard, comparability.
 - **feat(harness): C7 observability that bites — step spans, SLO v2, release
   gate, dashboard.** The graph emits `step.started|completed`; the projector
   builds `eclipse.run → eclipse.step → eclipse.llm/eclipse.tool.*` with children

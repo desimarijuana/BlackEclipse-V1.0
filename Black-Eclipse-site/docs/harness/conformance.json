@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "description": "C8 conformance suite. Every id must be produced by harness.evaluation.conformance.cases; a missing or undeclared case fails the gate.",
+  "cases": [
+    {"id": "fault.retry_429", "kind": "fault", "invariant": "a 429 is retried within the policy and can succeed"},
+    {"id": "fault.retry_500", "kind": "fault", "invariant": "a 500 is retried within the policy and can succeed"},
+    {"id": "fault.retry_disconnect", "kind": "fault", "invariant": "a connection failure is retried"},
+    {"id": "fault.no_retry_400", "kind": "fault", "invariant": "a non-retryable 400 is attempted once"},
+    {"id": "fault.no_retry_cancel", "kind": "fault", "invariant": "cancellation is never retried"},
+    {"id": "fault.deadline_blocks_retry", "kind": "fault", "invariant": "an expired run deadline refuses a retry"},
+    {"id": "fault.duplicate_effect", "kind": "fault", "invariant": "a duplicate effect begin is idempotent and finish records done"},
+    {"id": "golden.run_step_tool", "kind": "golden", "invariant": "the exported trace is run -> step -> tool/LLM with one terminal state"},
+    {"id": "contract.event_vocabulary", "kind": "contract", "invariant": "the hook vocabulary is closed and includes the step hooks"},
+    {"id": "contract.tool_manifest", "kind": "contract", "invariant": "the portable tool manifest is versioned, digested and honest"},
+    {"id": "contract.slo_report", "kind": "contract", "invariant": "the release report carries runs/latency/cost/slos"},
+    {"id": "contract.plugin_sdk", "kind": "contract", "invariant": "the plugin SDK declares a version"}
+  ]
+}

@@ -11530,3 +11530,26 @@ there are no samples. The `ops` scorecard dimension moves from `unmeasured` to
 `measured` because `gate:slo` is runnable. The dashboard is server-rendered HTML
 (operator-gated), not a second front-end stack. Budgets and baselines are data in
 `docs/harness/`, reviewed like code.
+
+## ADR-H357 - Conformance is a manifest plus real invariants
+
+**Decision.** C8 starts with one offline conformance gate
+(`python -m harness.evaluation.conformance` / `npm run gate:conformance`) built
+from three classes: a fault matrix (retry/429/500/disconnect/400/cancel/deadline/
+duplicate-effect), a golden `run → step → tool/LLM` trace, and contract checks
+(closed hook vocabulary, versioned/digested tool manifest, release-report schema,
+plugin SDK version). `docs/harness/conformance.json` is authoritative: a case
+that disappears or an undeclared case fails the gate.
+
+**Why.** The evaluation system had many tests but no single runnable artifact
+that named the harness invariants and failed a release when one regressed. A
+manifest prevents silent skips; a golden trace protects the C7 span contract; the
+contract checks protect the packaging/API promises C9 will publish.
+
+**Consequences.** Adding a case requires a real invariant and a manifest entry;
+"skip" is never a pass. The fault matrix currently covers the retry/deadline/
+cancel/duplicate-effect primitives — the full kill-at-every-state process matrix
+and the external adapters remain C8 follow-ups. The gate is offline and runs in
+CI before the test suite, so a core-loop regression fails fast. It reuses the ONE
+retry policy, effect ledger and observability projector; there is no second
+harness.
