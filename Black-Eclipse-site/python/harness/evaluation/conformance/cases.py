@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from ...observability.config import ObservabilityConfig
@@ -157,6 +162,84 @@ def fault_duplicate_effect() -> CaseResult:
         store.close()
 
 
+# ── process-level kill matrix ────────────────────────────────────────────────
+_PYTHON_DIR = Path(__file__).resolve().parents[3]
+_WORKER = Path(__file__).resolve().parent / "crash_worker.py"
+
+
+def _crash_matrix(mode: str) -> CaseResult:
+    from ...persistence import AgentMemoryStore
+    from ...run_effects import RunEffects
+
+    directory = Path(tempfile.mkdtemp(prefix=f"be-crash-{mode}-"))
+    db_path = directory / "agent-memory.db"
+    effect_log = directory / "effects.log"
+    launcher = (
+        f"import sys, runpy; sys.path.insert(0, {str(_PYTHON_DIR)!r}); "
+        f"sys.argv = [{str(_WORKER)!r}, {str(db_path)!r}, {str(effect_log)!r}, {mode!r}]; "
+        f"runpy.run_path({str(_WORKER)!r}, run_name='__main__')"
+    )
+    crashed = subprocess.run([sys.executable, "-c", launcher], capture_output=True,
+                             text=True, timeout=60)
+    store = AgentMemoryStore(str(db_path))
+    try:
+        effects = RunEffects(store)
+        prior = effects.state("crash_run", 1, "c1")
+        executed = False
+        final = prior
+        if prior == "started":
+            effects.mark_unknown("crash_run", 1, "c1")
+            final = "unknown"
+        elif prior == "done":
+            final = "done"
+        else:
+            effects.begin("crash_run", 1, "c1", "order_submit", "external_action")
+            with open(effect_log, "a", encoding="utf-8") as handle:
+                handle.write("effect\n")
+            effects.finish("crash_run", 1, "c1", ok=True)
+            final = "done"
+            executed = True
+    finally:
+        store.close()
+    effects_count = len(effect_log.read_text(encoding="utf-8").splitlines()) if effect_log.exists() else 0
+
+    expected = {
+        "before_begin": {"prior": None, "final": "done", "executed": True, "count": 1},
+        "after_begin": {"prior": "started", "final": "unknown", "executed": False, "count": 0},
+        "after_effect": {"prior": "started", "final": "unknown", "executed": False, "count": 1},
+        "after_finish": {"prior": "done", "final": "done", "executed": False, "count": 1},
+    }[mode]
+    ok = (
+        crashed.returncode == (0 if mode == "after_finish" else 9)
+        and prior == expected["prior"]
+        and final == expected["final"]
+        and executed is expected["executed"]
+        and effects_count == expected["count"]
+    )
+    return CaseResult(
+        f"fault.crash_{mode}", "fault", ok,
+        f"kill {mode}: prior={prior!r} final={final!r} executed={executed} effects={effects_count}",
+        {"mode": mode, "returncode": crashed.returncode, "prior": prior,
+         "final": final, "executed": executed, "effects": effects_count},
+    )
+
+
+def fault_crash_before_begin() -> CaseResult:
+    return _crash_matrix("before_begin")
+
+
+def fault_crash_after_begin() -> CaseResult:
+    return _crash_matrix("after_begin")
+
+
+def fault_crash_after_effect() -> CaseResult:
+    return _crash_matrix("after_effect")
+
+
+def fault_crash_after_finish() -> CaseResult:
+    return _crash_matrix("after_finish")
+
+
 # ── golden trace ─────────────────────────────────────────────────────────────
 def _golden_hub() -> ObservabilityHub:
     return ObservabilityHub(
@@ -268,6 +351,10 @@ CASES: tuple[Callable[[], CaseResult], ...] = (
     fault_no_retry_cancel,
     fault_deadline_blocks_retry,
     fault_duplicate_effect,
+    fault_crash_before_begin,
+    fault_crash_after_begin,
+    fault_crash_after_effect,
+    fault_crash_after_finish,
     golden_run_step_tool,
     contract_event_vocabulary,
     contract_tool_manifest,

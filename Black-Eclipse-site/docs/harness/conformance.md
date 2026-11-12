@@ -33,6 +33,10 @@ declared case is missing, `2` bad invocation/interpreter.
 | `fault.no_retry_cancel` | cancellation is never retried |
 | `fault.deadline_blocks_retry` | an expired run deadline refuses a retry |
 | `fault.duplicate_effect` | a duplicate `begin` is idempotent; `finish` records done |
+| `fault.crash_before_begin` | crash before begin: resume executes exactly once |
+| `fault.crash_after_begin` | crash after begin: resume refuses (unknown, zero effects) |
+| `fault.crash_after_effect` | crash after the effect: resume refuses (exactly one effect) |
+| `fault.crash_after_finish` | crash after finish: resume does not re-execute |
 | `golden.run_step_tool` | the trace is `run → step → tool/LLM` with one terminal state |
 | `contract.event_vocabulary` | hooks are closed and include `onStepStart/End` |
 | `contract.tool_manifest` | manifest version, digest, and permission/effect honesty |
@@ -46,8 +50,9 @@ manifest; never leave a silent skip.
 
 ## Boundaries
 
-- The fault matrix covers retry/deadline/cancel/duplicate-effect primitives, not
-  a full kill-at-every-state process matrix yet (C8 follow-up).
+- The fault matrix covers retry/deadline/cancel/duplicate-effect plus a
+  process-level kill matrix at each durable window (before begin, after begin,
+  after the effect, after finish).
 - Golden traces compare structure/terminal state, not byte-identical timing.
 - External benchmarks (SWE-bench Lite, GAIA, tau-bench, FinanceBench) run through
   `npm run gate:external` on committed two-task fixtures; the real benchmark data

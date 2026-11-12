@@ -28,6 +28,11 @@
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
+- **feat(eval): process-level kill matrix in the conformance gate.** Four new
+  cases spawn a separate worker and kill it before `begin`, after `begin`, after
+  the external effect, and after `finish`; the parent resumes and asserts
+  at-most-once semantics (0/0/1/1 effects, states None/unknown/unknown/done).
+  Conformance is now 16/16. Docs: `conformance.md`, roadmap. no other doc change.
 - **chore(release): v0.4.0 release bundle + `--quick` conformance fix.**
   `npm run release:bundle` writes `docs/harness/releases/v0.4.0/report.json`
   and `RELEASE.md` from the generated scorecard, tool registry, conformance

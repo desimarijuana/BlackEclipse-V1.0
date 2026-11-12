@@ -1,4 +1,4 @@
-"""C8.1: the conformance suite is a runnable gate with a verified manifest."""
+﻿"""C8.1: the conformance suite is a runnable gate with a verified manifest."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def test_the_suite_passes_and_every_case_is_declared():
     declared = {case["id"] for case in load_manifest()["cases"]}
     produced = {case.id for case in suite.cases}
     assert produced == declared
-    assert len(produced) == 12
+    assert len(produced) == 16
 
 
 def test_quick_mode_skips_without_reporting_a_missing_case():
@@ -82,7 +82,7 @@ def test_contract_cases_pass():
 def test_the_manifest_file_is_versioned():
     manifest = load_manifest(MANIFEST)
     assert manifest["version"] == 1
-    assert len(manifest["cases"]) >= 12
+    assert len(manifest["cases"]) >= 16
 
 
 def test_the_cli_returns_zero_and_writes_json(tmp_path, capsys):
@@ -90,5 +90,5 @@ def test_the_cli_returns_zero_and_writes_json(tmp_path, capsys):
     assert main(["--json", str(out)]) == 0
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["ok"] is True
-    assert payload["total"] == 12
+    assert payload["total"] == 16
     assert "conformance: PASS" in capsys.readouterr().out
