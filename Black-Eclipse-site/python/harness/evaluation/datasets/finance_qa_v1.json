@@ -21,7 +21,7 @@
         {"name": "financial", "config": {"metric": "net_margin", "inputs": {"revenue": 1000, "net_income": 120}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "The net margin is 12.0% (120 / 1000)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "The net margin is 12.0% (120 / 1000)."}]}
     },
     {
       "id": "finance_qa.gross_margin.001",
@@ -36,7 +36,7 @@
         {"name": "financial", "config": {"metric": "gross_margin", "inputs": {"revenue": 1000, "gross_profit": 400}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "Gross margin is 40.0% (400 / 1000)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "Gross margin is 40.0% (400 / 1000)."}]}
     },
     {
       "id": "finance_qa.eps.001",
@@ -51,7 +51,7 @@
         {"name": "financial", "config": {"metric": "eps", "inputs": {"net_income": 600, "shares": 200}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "EPS is 3.0 (600 / 200)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "EPS is 3.0 (600 / 200)."}]}
     },
     {
       "id": "finance_qa.pe.001",
@@ -66,7 +66,7 @@
         {"name": "financial", "config": {"metric": "pe", "inputs": {"price": 50, "eps": 2}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "The P/E ratio is 25.0 (50 / 2)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "The P/E ratio is 25.0 (50 / 2)."}]}
     },
     {
       "id": "finance_qa.cagr.001",
@@ -81,7 +81,7 @@
         {"name": "financial", "config": {"metric": "cagr", "inputs": {"begin": 100, "end": 121, "years": 2}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "CAGR is 10.0%."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "CAGR is 10.0%."}]}
     },
     {
       "id": "finance_qa.percentage_change.001",
@@ -96,7 +96,7 @@
         {"name": "financial", "config": {"metric": "percentage_change", "inputs": {"old": 80, "new": 100}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "The percentage change is 25.0% ((100 - 80) / 80)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "The percentage change is 25.0% ((100 - 80) / 80)."}]}
     },
     {
       "id": "finance_qa.max_drawdown.001",
@@ -111,7 +111,7 @@
         {"name": "financial", "config": {"metric": "max_drawdown", "inputs": {"equity": [100, 120, 90, 110]}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "The maximum drawdown is -25.0% (from 120 to 90)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "The maximum drawdown is -25.0% (from 120 to 90)."}]}
     },
     {
       "id": "finance_qa.position_size.001",
@@ -126,7 +126,7 @@
         {"name": "financial", "config": {"metric": "position_size", "inputs": {"account": 10000, "risk": 0.01, "entry": 100, "stop": 95}, "tolerance": 0.01}},
         {"name": "exact"}
       ],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "Position size is 20 shares (100 risk / 5 per share)."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracle": "recomputed by evaluation/graders/financial.py", "agent_script": [{"type": "final", "content": "Position size is 20 shares (100 risk / 5 per share)."}]}
     },
     {
       "id": "finance_qa.unavailable.001",
@@ -138,7 +138,7 @@
       "input": {"prompt": "What was Apple's exact total revenue in fiscal 2031?"},
       "expected_output": {"contains": "not available"},
       "graders": [{"name": "exact"}],
-      "metadata": {"tier": 0, "suites": ["finance_qa"], "agent_script": [{"type": "final", "content": "That figure is not available; fiscal 2031 has not been reported."}]}
+      "metadata": {"tier": 0, "suites": ["finance_qa"], "oracleExempt": true, "oracleReason": "authored honesty fixture; the expected answer is an explicit unavailable, not a recomputable number", "agent_script": [{"type": "final", "content": "That figure is not available; fiscal 2031 has not been reported."}]}
     }
   ]
 }

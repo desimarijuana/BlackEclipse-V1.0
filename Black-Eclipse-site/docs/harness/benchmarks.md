@@ -17,18 +17,18 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1794456105113`
-- dataset: `eclipse-benchmark` @ `1` (checksum `65e2b04e8020274fd870c2ebf7a7e448`)
+- run: `evalrun-1794502740168`
+- dataset: `eclipse-benchmark` @ `1` (checksum `ea086f46b491f84fdd3b7a87220d5533`)
 - tier: 0
-- agent version: `0.1.0`
-- git commit: `4d7b5b685b2173080fa6ff744848417929c0df29`
+- agent version: `0.4.0`
+- git commit: `fbe3788612776317ed5fd7e6524ba054ba557d88`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
 
 | dimension | value |
 |---|---|
-| task_success | 0.9969 |
+| task_success | 0.9970 |
 | tool_accuracy | 0.9712 |
 | research_accuracy | UNKNOWN |
 | citation_accuracy | 0.0000 |
@@ -47,7 +47,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1209 |
+| latency | 0.0988 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -60,7 +60,7 @@ A deterministic script replaces the model, so this measures the
 | citations | 0/1 | 1 | 0.0% |
 | coding | 4/4 | 0 | 100.0% |
 | core | 4/4 | 0 | 100.0% |
-| finance | 270/270 | 0 | 100.0% |
+| finance | 279/279 | 0 | 100.0% |
 | long_horizon | 2/2 | 0 | 100.0% |
 | memory | 2/2 | 0 | 100.0% |
 | parallel | 3/3 | 0 | 100.0% |

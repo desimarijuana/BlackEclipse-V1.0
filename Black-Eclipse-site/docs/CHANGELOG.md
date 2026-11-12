@@ -28,6 +28,13 @@
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
+- **fix(eval): the finance QA corpus joins the audited built-in corpus.** The
+  nine `finance_qa_v1` tasks now carry an explicit oracle (the financial grader
+  recomputation), except the unavailable-figure honesty task, which is a
+  documented oracle exemption. Regenerated the committed corpus manifest
+  (347 tasks, oracle coverage 0.781), the published benchmarks (agent 0.4.0) and
+  the provenance counts (validation 253). no doc change - generated artifacts
+  and test pins.
 - **feat(release): C9 core — versioned API, wheel, ACP, core architecture.**
   `harness.__version__`, `harness.public.HARNESS_API_VERSION`,
   `package.json` and `pyproject.toml` are aligned at 0.4.0 and checked by

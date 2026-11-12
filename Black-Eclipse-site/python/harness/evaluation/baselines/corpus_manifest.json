@@ -2,10 +2,10 @@
   "bySplit": {
     "held_out": 6,
     "optimization": 88,
-    "validation": 244
+    "validation": 253
   },
   "canaryCount": 0,
-  "datasetCount": 14,
+  "datasetCount": 15,
   "datasets": [
     {
       "bySplit": {
@@ -53,6 +53,22 @@
       "reviewed": true,
       "reviewer": "eclipse-eval",
       "taskCount": 16,
+      "version": "1.0.0"
+    },
+    {
+      "bySplit": {
+        "validation": 9
+      },
+      "canaryCount": 0,
+      "checksum": "70b39afd7c9beb9013214fd7ac34c7a3",
+      "liveOnly": 0,
+      "missingContamination": [],
+      "name": "eclipse-finance-qa",
+      "oracleCount": 8,
+      "oracleExemptCount": 1,
+      "reviewed": true,
+      "reviewer": "eclipse-eval",
+      "taskCount": 9,
       "version": "1.0.0"
     },
     {
@@ -241,9 +257,9 @@
   ],
   "liveOnly": 12,
   "manifestVersion": "1.0.0",
-  "oracleCount": 263,
-  "oracleCoverage": 0.778107,
-  "oracleExemptCount": 75,
-  "recordedAt": "2026-11-10T03:31:37.729Z",
-  "taskCount": 338
+  "oracleCount": 271,
+  "oracleCoverage": 0.78098,
+  "oracleExemptCount": 76,
+  "recordedAt": "2026-11-12T17:00:02.245Z",
+  "taskCount": 347
 }

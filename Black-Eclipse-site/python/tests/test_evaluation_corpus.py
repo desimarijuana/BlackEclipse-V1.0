@@ -107,7 +107,7 @@ def test_strict_audit_passes_once_exemptions_and_oracles_are_recorded():
     assert report["errors"] == []
     manifest = build_manifest()
     assert manifest["oracleCount"] >= 250
-    assert manifest["oracleExemptCount"] == 75
+    assert manifest["oracleExemptCount"] == 76
     assert manifest["oracleCount"] + manifest["oracleExemptCount"] <= manifest["taskCount"]
 
 
