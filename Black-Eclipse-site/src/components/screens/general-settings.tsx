@@ -32,6 +32,7 @@ import {
 } from "@/lib/updates/prefs";
 import type { UpdateStatus } from "@/lib/updates/types";
 import { useWindowGlass } from "@/lib/desktop/window-glass";
+import { useTaskbarBadgeEnabled } from "@/lib/desktop/taskbar";
 import { Field, Panel, SubSection, Toggle } from "./settings-ui";
 
 export interface GeneralAppPreferences {
@@ -62,6 +63,7 @@ export function GeneralSettingsPanel({
   const [general, setGeneral] = useState<GeneralPrefs>(DEFAULT_GENERAL_PREFS);
   useEffect(() => { setGeneral(loadGeneralPrefs()); }, []);
   const windowGlass = useWindowGlass();
+  const taskbarBadge = useTaskbarBadgeEnabled();
   const updateGeneral = (patch: Partial<GeneralPrefs>) => {
     setGeneral((g) => {
       const next = { ...g, ...patch };
@@ -214,18 +216,35 @@ export function GeneralSettingsPanel({
 
       {/* Desktop-only: the native shell applies acrylic behind a transparent
           window; this switch controls the app-side translucency. */}
-      {windowGlass.available && (
+      {(windowGlass.available || taskbarBadge.available) && (
         <SubSection icon={Monitor} title="Window">
           <Panel className="p-5 md:p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Glass window</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Translucent, blurred window over your desktop. The left sidebar stays solid.
-                </p>
+            {windowGlass.available && (
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Glass window</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Translucent, blurred window over your desktop. The left sidebar stays solid.
+                  </p>
+                </div>
+                <Toggle checked={windowGlass.enabled} onChange={windowGlass.setEnabled} />
               </div>
-              <Toggle checked={windowGlass.enabled} onChange={windowGlass.setEnabled} />
-            </div>
+            )}
+            {windowGlass.available && taskbarBadge.available && (
+              <div className="my-4 h-px bg-white/10 dark:bg-white/5" />
+            )}
+            {taskbarBadge.available && (
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Taskbar activity</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    A red dot when something arrives while you are elsewhere, and a progress bar
+                    while Eclipse is working. Closing the window keeps Eclipse in the taskbar.
+                  </p>
+                </div>
+                <Toggle checked={taskbarBadge.enabled} onChange={taskbarBadge.setEnabled} />
+              </div>
+            )}
           </Panel>
         </SubSection>
       )}

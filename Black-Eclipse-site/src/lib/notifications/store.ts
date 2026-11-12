@@ -18,6 +18,7 @@ import { create } from 'zustand';
 import type { AppTab } from '@/lib/app-tabs';
 import type { SoundName } from '@/lib/sounds';
 import { APP_TABS } from '@/lib/search/deep-link';
+import { isViewerFocused } from './focus';
 import { persistNotificationRemote, persistNotificationsRemote } from './remote';
 
 export type NotificationKind = 'alert' | 'task' | 'approval' | 'agent' | 'bot';
@@ -204,8 +205,10 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
       body: input.body ?? '',
       url: sanitizeNotificationUrl(input.url),
       at: Date.now(),
-      // Visible tab: it is already in front of the operator — no badge.
-      read: input.tab === activeTab,
+      // Visible tab AND a visible window: an item that arrives while the app is
+      // in the background is still something the operator has not seen, even on
+      // the tab they left open. It is marked read when they come back.
+      read: input.tab === activeTab && isViewerFocused(),
     };
     const next = [item, ...items].slice(0, MAX_NOTIFICATIONS);
     persist(next);

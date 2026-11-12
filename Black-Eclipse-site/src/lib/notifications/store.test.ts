@@ -62,6 +62,35 @@ describe('useNotificationsStore', () => {
     expect(useNotificationsStore.getState().items[0].read).toBe(true);
   });
 
+  it('keeps an arrival unread when the window is in the background', () => {
+    // The biggest case for the badge: alt-tab away mid-answer, Chat stays the
+    // selected tab, the reply lands. It has NOT been seen.
+    const g = globalThis as { document?: unknown };
+    const original = g.document;
+    g.document = { visibilityState: 'visible', hasFocus: () => false };
+    try {
+      useNotificationsStore.setState({ activeTab: 'chat' });
+      useNotificationsStore.getState().push({ id: 'bg', tab: 'chat', title: 'Reply ready' });
+      expect(useNotificationsStore.getState().items[0].read).toBe(false);
+      expect(totalUnread(useNotificationsStore.getState().items)).toBe(1);
+    } finally {
+      g.document = original;
+    }
+  });
+
+  it('keeps an arrival unread when the document is hidden', () => {
+    const g = globalThis as { document?: unknown };
+    const original = g.document;
+    g.document = { visibilityState: 'hidden', hasFocus: () => true };
+    try {
+      useNotificationsStore.setState({ activeTab: 'alerts' });
+      useNotificationsStore.getState().push({ id: 'hidden', tab: 'alerts', title: 'Alert' });
+      expect(useNotificationsStore.getState().items[0].read).toBe(false);
+    } finally {
+      g.document = original;
+    }
+  });
+
   it('markTabRead clears exactly that tab', () => {
     const store = useNotificationsStore.getState();
     store.push({ id: 'a', tab: 'alerts', title: 'Alert' });

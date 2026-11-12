@@ -32,6 +32,8 @@ import {
   startProvisionalDelegation,
 } from './delegation-reducer';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
+import { beginDesktopActivity } from '@/lib/desktop/activity';
+import { isViewerFocused } from '@/lib/notifications/focus';
 import { useNotificationsStore } from '@/lib/notifications/store';
 import { getUiFocus } from '@/lib/ui-engineering/ui-focus';
 
@@ -90,14 +92,19 @@ export interface UseAgentRun {
 }
 
 /**
- * A reply that finishes while the operator is on another tab is a background
- * task: raise the loud completion alarm + badge on the ChatBot tab through the
- * shared notification channel. Watching the ChatBot stays quiet — the host
- * surfaces play their own soft `message` cue there.
+ * A reply that finishes while the operator is on another tab or another
+ * application is a background task: raise the loud completion alarm + badge on
+ * the ChatBot tab through the shared notification channel. Watching the ChatBot
+ * in a focused window stays quiet — the host surfaces play their own soft
+ * `message` cue there.
+ *
+ * The window check matters: an operator who alt-tabs away mid-answer leaves the
+ * Chat tab selected, and that is the most common case this signal exists for.
  */
 function announceCompletedRun(text: string, runId: string | null): void {
   if (typeof window === 'undefined') return;
-  if (useNotificationsStore.getState().activeTab === 'chat') return;
+  const watchingChat = useNotificationsStore.getState().activeTab === 'chat';
+  if (watchingChat && isViewerFocused()) return;
   const body = text.trim();
   if (!body) return;
   window.dispatchEvent(
@@ -162,6 +169,15 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     // cause a state update (and Markdown re-parse) per character.
     if (rafRef.current == null) rafRef.current = requestAnimationFrame(emit);
   }, []);
+
+  // Taskbar progress: the shell shows an indeterminate bar while a stream is
+  // doing work. Approvals and clarifications pause the run on a human gate —
+  // showing "working" there would claim progress that is not happening.
+  const streaming = active && turn.status !== 'awaiting_approval';
+  useEffect(() => {
+    if (!streaming) return;
+    return beginDesktopActivity();
+  }, [streaming]);
 
   // Reload reattach: a run that was still executing when the page went away is
   // polled to completion. A terminal run is left alone — its answer is already

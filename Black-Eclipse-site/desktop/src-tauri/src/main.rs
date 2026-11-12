@@ -18,7 +18,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -223,6 +223,13 @@ struct AppState {
     /// fills the whole monitor (taskbar included) for a frameless window, so the
     /// shell emulates maximize by filling the monitor's WORK AREA instead.
     maximized: AtomicBool,
+    /// Last unread total the page asked the taskbar to show. Held here so the
+    /// badge survives a hide/show cycle: Windows destroys the taskbar button
+    /// when the window hides (keep-warm) and does not restore its overlay.
+    taskbar_unread: AtomicI64,
+    /// Whether a stream was working when the page last spoke. Re-applied on
+    /// focus for the same reason as the badge.
+    taskbar_working: AtomicBool,
 }
 
 fn log_line(line: &str) {
@@ -1020,6 +1027,157 @@ fn desktop_notify(app: AppHandle, title: String, body: String) {
     notify_native(&app, &title, &body);
 }
 
+// ── Taskbar presence ───────────────────────────────────────────────────────
+//
+// The page owns the state (it knows the unread count and the preference); Rust
+// translates one `be-taskbar` event into the affordances a taskbar button has:
+// an overlay badge on the icon (`SetOverlayIcon`) and a one-shot attention
+// flash (`FlashWindowEx`) when the operator is elsewhere.
+//
+// The overlay is drawn, not decoded: one dot does not justify the PNG decoder
+// dependency, and nothing from the page crosses the IPC bridge.
+//
+// Focus deliberately does NOT clear the badge. The page re-emits on focus, and
+// a Rust-side clear would race that emit and win often enough to leave a stale
+// badge on a page that still considers the item unread. `markTabRead` in the
+// notification ledger is the single place unread goes down.
+
+/// A filled dot with a darker rim, drawn here instead of shipped as a PNG.
+/// Rasterising one 32px asset avoids pulling Tauri's `image-png` decoder into
+/// the shell, and supersampling makes it crisp at any taskbar scale.
+#[cfg(target_os = "windows")]
+fn overlay_unread_image() -> tauri::image::Image<'static> {
+    const SIZE: u32 = 32;
+    const SAMPLES: u32 = 4;
+    const DOT: [f32; 3] = [239.0, 68.0, 68.0]; // red-500
+    const RIM: [f32; 3] = [127.0, 29.0, 29.0]; // red-800
+
+    let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
+    let center = (SIZE as f32 - 1.0) / 2.0;
+    let outer = 11.0_f32;
+    let inner = 9.0_f32;
+    let samples = (SAMPLES * SAMPLES) as f32;
+
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let (mut covered, mut dot, mut rim) = (0.0_f32, 0.0_f32, 0.0_f32);
+            for sy in 0..SAMPLES {
+                for sx in 0..SAMPLES {
+                    let px = x as f32 + (sx as f32 + 0.5) / SAMPLES as f32;
+                    let py = y as f32 + (sy as f32 + 0.5) / SAMPLES as f32;
+                    let dist = ((px - center).powi(2) + (py - center).powi(2)).sqrt();
+                    if dist <= outer {
+                        covered += 1.0;
+                        if dist <= inner {
+                            dot += 1.0;
+                        } else {
+                            rim += 1.0;
+                        }
+                    }
+                }
+            }
+            if covered <= 0.0 {
+                continue;
+            }
+            let idx = ((y * SIZE + x) * 4) as usize;
+            rgba[idx] = ((dot * DOT[0] + rim * RIM[0]) / covered) as u8;
+            rgba[idx + 1] = ((dot * DOT[1] + rim * RIM[1]) / covered) as u8;
+            rgba[idx + 2] = ((dot * DOT[2] + rim * RIM[2]) / covered) as u8;
+            rgba[idx + 3] = (covered / samples * 255.0).round() as u8;
+        }
+    }
+    tauri::image::Image::new_owned(rgba, SIZE, SIZE)
+}
+
+/// `count == 0` removes the badge. On Windows it is a dot, so only zero/non-zero
+/// matters; macOS and Linux show the number itself where the DE supports it.
+fn set_taskbar_badge(app: &AppHandle, count: i64) {
+    let count = count.max(0);
+    app.state::<AppState>()
+        .taskbar_unread
+        .store(count, Ordering::SeqCst);
+
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        let icon = if count > 0 {
+            Some(overlay_unread_image())
+        } else {
+            None
+        };
+        if let Err(err) = win.set_overlay_icon(icon) {
+            log_line(&format!("[taskbar] overlay failed: {err}"));
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Err(err) = win.set_badge_count(if count > 0 { Some(count) } else { None }) {
+            log_line(&format!("[taskbar] badge failed: {err}"));
+        }
+    }
+}
+
+/// Indeterminate taskbar progress while a stream is doing work. `None` clears
+/// it. Windows treats this as the green sweeping bar on the button, which is the
+/// same cue ChatGPT and Teams use for "thinking"; Linux/macOS apply it app-wide
+/// where the launcher supports it.
+fn set_taskbar_progress(app: &AppHandle, working: bool) {
+    app.state::<AppState>()
+        .taskbar_working
+        .store(working, Ordering::SeqCst);
+
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let state = tauri::window::ProgressBarState {
+        status: if working {
+            Some(tauri::window::ProgressBarStatus::Indeterminate)
+        } else {
+            Some(tauri::window::ProgressBarStatus::None)
+        },
+        progress: None,
+    };
+    if let Err(err) = win.set_progress_bar(state) {
+        log_line(&format!("[taskbar] progress failed: {err}"));
+    }
+}
+
+/// Ask for attention once. `Critical` keeps flashing until the window is
+/// focused; `Focused(true)` clears it. A hidden (keep-warm) window has no
+/// taskbar button, so there is nothing to flash.
+fn flash_taskbar(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    if !win.is_visible().unwrap_or(true) || win.is_focused().unwrap_or(false) {
+        return;
+    }
+    if let Err(err) = win.request_user_attention(Some(tauri::UserAttentionType::Critical)) {
+        log_line(&format!("[taskbar] attention request failed: {err}"));
+    }
+}
+
+/// Re-assert the badge/progress and stop any flash after the window regains
+/// focus. Windows drops both when it recreates the taskbar button.
+fn on_window_focused(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.request_user_attention(None);
+    }
+    let state = app.state::<AppState>();
+    let count = state.taskbar_unread.load(Ordering::SeqCst);
+    let working = state.taskbar_working.load(Ordering::SeqCst);
+    if count > 0 {
+        set_taskbar_badge(app, count);
+    }
+    if working {
+        set_taskbar_progress(app, true);
+    }
+}
+
 #[tauri::command]
 fn desktop_toggle_fullscreen(app: AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -1329,6 +1487,8 @@ fn main() {
             owns_server: AtomicBool::new(false),
             quitting: AtomicBool::new(false),
             maximized: AtomicBool::new(prefs.maximized),
+            taskbar_unread: AtomicI64::new(0),
+            taskbar_working: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             desktop_notify,
@@ -1356,10 +1516,14 @@ fn main() {
                         .unwrap_or(false);
                     let quitting = state.quitting.load(Ordering::SeqCst);
                     if keep_warm && !quitting {
-                        // Keep the server warm so reopening is instant.
+                        // Keep the server warm so reopening is instant. Minimize,
+                        // not hide: a hidden window has no taskbar button, which
+                        // would remove the badge, the progress bar and the flash —
+                        // exactly the affordances a background app needs. This is
+                        // also what the reference apps do.
                         api.prevent_close();
-                        log_line("[shell] window hidden (keep-warm)");
-                        let _ = win_for_events.hide();
+                        log_line("[shell] window minimized (keep-warm)");
+                        let _ = win_for_events.minimize();
                     } else {
                         let _ = win_for_events.hide();
                         let state = app_for_events.state::<AppState>();
@@ -1371,6 +1535,7 @@ fn main() {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
                     persist_bounds(&app_for_events);
                 }
+                WindowEvent::Focused(true) => on_window_focused(&app_for_events),
                 _ => {}
             });
 
@@ -1379,7 +1544,7 @@ fn main() {
             let keep_item = CheckMenuItem::with_id(
                 &handle,
                 "keep_warm",
-                "Keep running when the window closes",
+                "Keep running when the window closes (minimize)",
                 true,
                 prefs.keep_warm,
                 None::<&str>,
@@ -1447,6 +1612,38 @@ fn main() {
                 }
             });
 
+            // --- taskbar badge / attention ---------------------------------------
+            // One channel, two OS affordances. The page decides; Rust renders.
+            let taskbar_app = handle.clone();
+            handle.listen("be-taskbar", move |event| {
+                let value = match serde_json::from_str::<serde_json::Value>(event.payload()) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        log_line(&format!("[taskbar] bad payload: {err}"));
+                        return;
+                    }
+                };
+                let state = value.get("state").and_then(|v| v.as_str()).unwrap_or("idle");
+                let count = value.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+                let flash = value
+                    .get("flash")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                // Unknown states are treated as idle: a future state from a newer
+                // page must never leave a stale badge behind.
+                let unread = state == "unread" && count > 0;
+                let working = value.get("working").and_then(|v| v.as_bool()).unwrap_or(false);
+                set_taskbar_badge(&taskbar_app, if unread { count } else { 0 });
+                set_taskbar_progress(&taskbar_app, working);
+                if unread && flash {
+                    flash_taskbar(&taskbar_app);
+                }
+                log_line(&format!(
+                    "[taskbar] state={state} count={} flash={flash} working={working}",
+                    if unread { count } else { 0 }
+                ));
+            });
+
             let window_app = handle.clone();
             handle.listen("be-window", move |event| {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(event.payload()) {
@@ -1491,4 +1688,39 @@ fn main() {
             kill_tree(&state);
         }
     });
+}
+
+/// The badge is pure geometry, so it can be checked without a window or a
+/// taskbar. Shape regressions here would otherwise only show up by eye.
+#[cfg(all(test, target_os = "windows"))]
+mod taskbar_icon_tests {
+    use super::overlay_unread_image;
+
+    fn pixel(img: &tauri::image::Image<'_>, x: u32, y: u32) -> (u8, u8, u8, u8) {
+        let i = ((y * 32 + x) * 4) as usize;
+        let rgba = img.rgba();
+        (rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])
+    }
+
+    #[test]
+    fn badge_is_a_centered_disc_with_a_darker_rim_on_transparency() {
+        let img = overlay_unread_image();
+        assert_eq!((img.width(), img.height()), (32, 32));
+
+        let centre = pixel(&img, 16, 16);
+        assert_eq!(centre.3, 255, "centre must be fully opaque");
+        assert!(
+            centre.0 > 200 && centre.1 < 100 && centre.2 < 100,
+            "centre must be the app red, got {centre:?}"
+        );
+
+        assert_eq!(pixel(&img, 0, 0).3, 0, "corner must stay transparent");
+        assert_eq!(pixel(&img, 31, 31).3, 0, "corner must stay transparent");
+        assert_eq!(pixel(&img, 0, 16).3, 0, "left edge must stay clear of the disc");
+
+        // 9.5px above centre: inside the outer radius, outside the inner one.
+        let rim = pixel(&img, 16, 6);
+        assert!(rim.3 > 0, "rim must be drawn, not a hole");
+        assert!(rim.0 < centre.0, "rim must be darker than the dot");
+    }
 }

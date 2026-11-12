@@ -598,5 +598,45 @@ Two current violations of this direction, both app-level rather than shell-level
    correct for now; the long-term answer is automatic restore from the rolling
    backup with a one-line notice.
 
+---
+
+## 20. Taskbar presence (M1 + M2 shipped)
+
+Status: **implemented 2026-11-12.** Contract and rationale:
+`desktop/README.md` → "Taskbar presence".
+
+Shipped:
+
+1. **Unread badge + attention flash (M1).** Red overlay dot (`SetOverlayIcon`)
+   and one `FlashWindowEx` per new arrival while unfocused; macOS/Linux use
+   `set_badge_count`. Driven by the notification ledger through the `be-taskbar`
+   core event.
+2. **Keep-warm now minimizes** (`CloseRequested` → `prevent_close()` +
+   `minimize()`). A hidden window has no taskbar button, so hiding removed the
+   badge, the bar and the flash — the one place the reference behaviour did not
+   hold. The server stays warm either way; the tray and the taskbar both reopen
+   the same window.
+3. **Working state.** `set_progress_bar(Indeterminate)` while at least one agent
+   stream is doing work, cleared when the last settles. The count lives outside
+   React (`src/lib/desktop/activity.ts`) because several run surfaces can be
+   mounted at once. Approvals and clarifications stop the bar: the run is blocked
+   on a human gate, and "working" there would be a lie. `working` is a separate
+   field, not a `state` variant, so a background reply can land while another run
+   is still streaming (dot + bar together).
+4. **"Unread" means "not seen".** The ledger now consults
+   `src/lib/notifications/focus.ts` (`visibilityState` + `hasFocus`), so a reply
+   that lands while the app is in the background stays unread even on the Chat
+   tab — the alt-tab-away case that motivated the whole feature. Returning to
+   the window marks the visible tab read. The completion alert in
+   `use-agent-run.ts` uses the same rule; before this, alt-tabbing away mid-answer
+   produced no badge at all.
+5. **Preference.** Settings › Window › "Taskbar activity" (`be_taskbar_badge_v1`,
+   default ON in the shell) governs the dot, the flash and the bar together.
+
+Open: **Linux.** `set_badge_count` needs a libunity-capable launcher (GNOME
+works, others silently do nothing) and the attention hint has no portable
+equivalent. Documented as a gap rather than faked; Windows is the shipped target
+and macOS uses the native badge + attention APIs.
+
 
 

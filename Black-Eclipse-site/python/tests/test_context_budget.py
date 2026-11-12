@@ -178,6 +178,10 @@ async def test_run_keeps_more_history_on_a_large_declared_window(monkeypatch):
     history = [m for m in captured["messages"] if m.type in ("human", "ai") and m.content.startswith("x")]
     assert len(history) == 40
     # The additive result blob reports the budget honestly. The 40 x 100 chars
-    # (4000 chars) fit the 32k window, so nothing was dropped and the blob is
-    # correctly ABSENT (old clients unaffected).
-    assert result.context is None
+    # (4000 chars) fit the 32k window, so nothing was dropped and no budget blob
+    # is present. `context` itself is no longer guaranteed to be None: the flag
+    # snapshot (`flags` / `flagsHash`) is attached to every run result
+    # independently of history budgeting, so assert on the budget keys only.
+    blob = result.context or {}
+    assert "keptTurns" not in blob
+    assert "droppedTurns" not in blob

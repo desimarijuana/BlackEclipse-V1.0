@@ -16,6 +16,7 @@ import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
 import { ChannelActivityWatcher } from "@/lib/notifications/channel-watcher";
 import { NewsAlertWatcher } from "@/lib/notifications/news-watcher";
 import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
+import { DesktopTaskbarBadge } from "@/lib/notifications/desktop-taskbar-badge";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { DesktopSession } from "@/components/layout/desktop-session";
 import { OfflineReady } from "@/components/layout/offline-ready";
@@ -90,6 +91,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <ChannelActivityWatcher />
         <NewsAlertWatcher />
         <BrowserTabIndicator />
+        <DesktopTaskbarBadge />
         <UpdateBanner />
         <DesktopSession />
         <OfflineReady />

@@ -1,6 +1,115 @@
 # Change Log
 
 ## 2026-11-12
+- **feat(harness): W1 live model gateway.** Adds `model_runtime/gateway.py`
+  (candidate plan + stream), `model_runtime/credential_pool.py` (per-provider
+  key rotation/cooldown), traced invocation in `ModelRuntime.invoke`
+  (per-attempt `ModelRequest` + `model.attempt.*`), a first-token watchdog in
+  `model_stream.py`, mode-aware `step.py` (`on`/`shadow`/`off`), per-run
+  credential pool + fallback builder + token remainder in `graph.py`, and
+  attempt-based cost in `run_cost.py`. Same-provider/keyless fallback is on by
+  default; cross-provider fallback requires opt-in plus a declared-quality
+  guard (`HARNESS_MODEL_FALLBACK_ALLOW_DEGRADED` to override). Default
+  `HARNESS_MODEL_GATEWAY=on`. Opt-in live test:
+  `test_model_gateway_live.py` (`HARNESS_LIVE_MODEL_TEST=1`).
+  Tests: `test_model_gateway.py`, extended `test_model_runtime.py`,
+  `test_step_retry.py`, `test_graph.py`, `test_run_cost.py`. Baseline:
+  `docs/harness/baselines/w1-0a7ec906-2026-11-12.*` (74/74 terminal; offline,
+  SLO, audit, conformance, tsc PASS; live NOT MEASURED). No prompt/tool/schema/
+  financial semantics changed.
+- **test(harness): the context-budget assertion now targets the budget keys, not
+  the whole blob.** `test_run_keeps_more_history_on_a_large_declared_window`
+  asserted `result.context is None`, but every run result also carries the
+  `flags`/`flagsHash` snapshot (flag registry), so the test failed on a committed
+  tree even though no history was dropped. It now asserts that `keptTurns` /
+  `droppedTurns` are absent — the contract the test actually describes.
+  `python/tests/test_context_budget.py` (10 passed). Test-only; no app code,
+  contract or runtime changed. `no doc change — stale assertion fix only`.
+- **docs(roadmap): complete W1 model gateway plan.** Adds
+  `docs/harness/roadmap/w1-model-gateway-plan.md`: live-path diagram, gateway
+  contracts, candidate planning, retry/fallback matrix, credential pool,
+  first-token watchdog, per-attempt accounting/cost/budget, observability
+  events, slices W1.1–W1.6, fault matrix, rollout/rollback and exit criteria.
+  Planning only — no production code changed. Docs:
+  `docs/harness/roadmap/w1-model-gateway-plan.md`, `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
+- **feat(harness): W0 flag registry, run snapshot and baseline collector.**
+  Adds `harness/config/flags.py` (typed W1–W7 flags, parsing/clamping/strict
+  mode), `harness/run_flags.py` (`run.flags` event + `HarnessRun.context.flags`
+  / `flagsHash`), `graph.execute_run` recording once per run/resume, boot strict
+  validation (`HARNESS_FLAG_STRICT`), and
+  `harness/evaluation/w0_baseline.py` + `scripts/w0-baseline.js` (read-only
+  runtime metrics with honest UNKNOWN), `harness/evaluation/w0_soak.py` +
+  `scripts/w0-soak.js` (50 sequential + 24 concurrent lifecycle soak), and the
+  first committed baseline `docs/harness/baselines/w0-0a7ec906-2026-11-12.*`
+  (74/74 terminal; offline/SLO/audit/conformance/tsc PASS; live NOT MEASURED).
+  The context-blob helpers moved to
+  `history.py` to keep `graph.py` at its size pin. Tests: `test_flags.py`,
+  `test_run_flags.py`, `test_w0_baseline.py`; `test_graph.py` event order
+  updated. No prompt, tool, schema or model behaviour changed. Docs:
+  `docs/harness/roadmap/w0-*`, `docs/NAVIGATION.md`.
+- **feat(desktop): taskbar presence completes — minimize, progress, and "unread
+  means unseen".** Keep-warm now minimizes instead of hiding, so the taskbar
+  button (and its badge/flash) survives closing the window. An indeterminate
+  progress bar runs while an agent stream is doing work (approvals and
+  clarifications pause it, because the run is blocked on the operator); the
+  working count lives outside React in `src/lib/desktop/activity.ts` so several
+  mounted run surfaces share one bar. The ledger now treats an item as unread
+  when it arrives while the window is in the background — via the new shared
+  `src/lib/notifications/focus.ts` — so alt-tabbing away mid-answer badges the
+  Chat tab; returning marks the visible tab read. The completion alert in
+  `use-agent-run.ts` uses the same rule (previously it stayed silent whenever
+  Chat was selected, even unfocused). Settings › Window gains a "Taskbar
+  activity" toggle (`be_taskbar_badge_v1`, default ON). The `be-taskbar` payload
+  keeps `state`/`count`/`flash` and adds `working`, so an older shell degrades to
+  the badge-only behaviour. Tests: `taskbar.test.ts` (11), `activity.test.ts`
+  (5), two background cases in `notifications/store.test.ts`. Docs:
+  `desktop/README.md`, `docs/desktop-app-plan.md` §20, `docs/CHANGELOG.md`.
+- **docs(roadmap): W0 baseline and guardrails plan.** Adds
+  `docs/harness/roadmap/w0-baseline-and-guardrails-plan.md`: metric dictionary
+  with source tables, baseline artifact schema, isolated measurement protocol
+  (offline/live/soak/gates), typed flag registry, kill-switch suite, "no second
+  seam" review gate, day-by-day schedule and exit criteria. Planning only — no
+  production code changed. Docs: `docs/harness/roadmap/w0-baseline-and-guardrails-plan.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/NAVIGATION.md`.
+- **docs(roadmap): detailed Hermes-inspired harness improvement plan.** Adds
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`: eight workstreams
+  (model gateway, context economics, tool execution, autonomy, learning loop,
+  run-kernel integrity/safety, delegation/file checkpoints, observability),
+  with slice-level interfaces, feature flags, file seams, tests, rollout,
+  risks, a 12-week schedule and first-10-days checklist. Planning only — no
+  production code changed. Docs: `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/NAVIGATION.md`, `docs/research/hermes-vs-eclipse/IMPLEMENTATION-ROADMAP.md`.
+- **feat(desktop): the taskbar now carries the unread signal and an attention
+  flash.** Windows draws a red overlay dot on the taskbar icon (`SetOverlayIcon`,
+  rasterized in Rust so the shell needs no `image-png` feature) and issues one
+  `FlashWindowEx` when a new item arrives while the window is unfocused;
+  macOS/Linux use `set_badge_count`. Driven by the existing notification ledger
+  through a new `be-taskbar` core event
+  (`src/lib/desktop/taskbar.ts`, `src/lib/notifications/desktop-taskbar-badge.tsx`,
+  mounted in `src/app/layout.tsx`): the page owns the state, the flash is
+  edge-triggered, and the last count is kept in Rust and re-asserted after
+  hide/show. Scope is M1 — keep-warm still hides the window, so there is no
+  taskbar button to badge until the M2 decision (minimize instead of hide).
+  Tests: `src/lib/desktop/taskbar.test.ts` (9) plus a Rust unit test for the
+  badge geometry. Docs: `desktop/README.md`
+  ("Taskbar presence"), `docs/desktop-app-plan.md` §20, `docs/CHANGELOG.md`.
+- **docs(research): Hermes-vs-Eclipse architectural comparison.** Adds
+  `docs/research/hermes-vs-eclipse/` (six files: executive summary, 25-subsystem
+  comparison with source evidence, adoption analysis with MIT licensing review,
+  target architecture with Mermaid flows, prioritized P0–P3 roadmap with
+  acceptance/tests/regressions, and a feature-gap matrix). Read-only
+  investigation: no production code, schema, runtime or setup changed. Hermes
+  evidence is from `NousResearch/hermes-agent` @ `72c8803`; no official
+  `hermes-code` repository exists. Docs: `docs/research/hermes-vs-eclipse/*`,
+  `docs/NAVIGATION.md`.
+- **docs(media): refine the harness launch script to a 30-second use-case cut.**
+  Reworked `media/blackeclipse-launch/SCRIPT.md` around one market-research
+  request and added clearer beats for mode selection, bot roles and limits,
+  tool/source events, skills, Graph Studio, charts, and run inspection. No app
+  code, data contract, or runtime changed. No doc change — content asset only;
+  it lives outside the Next.js app and adds no runtime or setup surface.
 - **docs(media): add the BlackEclipse harness launch-video script.** Added
   `media/blackeclipse-launch/SCRIPT.md` with a 45-second HyperFrames shot list
   covering bot modes, bounded agent presets, observable runs, skills, Graph
