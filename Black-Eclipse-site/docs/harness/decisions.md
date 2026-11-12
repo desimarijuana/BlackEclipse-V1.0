@@ -11422,3 +11422,36 @@ same `planId` continues the first non-verified step; a killed step stays
 `running` and is never falsely verified. `GET /runs/{id}/outcome` exposes the
 goal and evidence blocks. This does not replace the existing code/finance/
 research gates; it runs after them and adds the cross-domain ledger.
+
+## ADR-H354 - One spawn primitive; the blackboard is scoped to the root run
+
+**Decision.** `spawn` is the one child primitive. It submits a normal Fabric
+`agent` job with `parentRunId`, a clamped budget, `maxSteps` and
+`runTimeoutMs`; the Fabric owns lease, retry, timeout and cancellation. A child
+returns a `ChildOutcome` with output, claims, handles, artifacts and usage; its
+evidence is copied into the parent's `EvidenceLedger` with a `child:<runId>`
+verifier. Up to four children run together and return a deterministic synthesis
+(dedupe by claim text, conflict when values/evidence differ, provenance on every
+item). `board_write`/`board_read`/`board_search` share one bounded blackboard per
+ROOT run, found by walking `parentRunId`; unrelated trees are isolated.
+
+**Why.** Delegation called `execute_run` directly, so a child did not get the
+Fabric's execution semantics, and the parent received prose plus a summary to
+merge. There was no shared workspace and no budget tree. One primitive makes the
+child addressable, cancellable and evidence-bearing without inventing another
+scheduler.
+
+**Consequences.** Depth is capped at 2, fanout at 8, and total child token
+allocation at 120k per spawn call; a refusal is typed (`DEPTH_EXCEEDED`,
+`CHILD_LIMIT`, `BUDGET_EXCEEDED`), never a silent truncation. The batch reports
+the budget tree as `allocated = used + returned` (unused allocation is returned,
+not silently spent). A child inherits the parent's user/workspace/session but
+never an operator grant or the parent's autonomy. The blackboard is
+one board per root run, capped at 200 entries / 200k chars; an over-full board
+refuses the write. Synthesis is deterministic: a conflict is surfaced, never
+merged into a single answer. `a2a`/`team` keep their planned task rows and dependencies, but their execution
+attempt is now routed through `spawn` at the task-executor seam
+(`tasks/spawn_bridge.py`): when the Fabric is available, an A2A/team task runs as
+a Fabric `agent` job and its `ChildOutcome` is mapped back to the task outcome;
+without a Fabric it falls back to the inline executor. `delegate` remains the
+legacy entry point for the old path.

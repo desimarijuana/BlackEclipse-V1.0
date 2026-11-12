@@ -168,6 +168,11 @@ async def _run_agent(service: Any, ctx: WorkerContext, *, default_agent: str = "
         callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
         callbackToken=os.environ.get("HARNESS_CALLBACK_TOKEN") or os.environ.get("CRON_SECRET"),
         parentRunId=payload.get("parentRunId"),
+        userId=payload.get("userId"),
+        workspaceId=payload.get("workspaceId"),
+        sessionId=payload.get("sessionId"),
+        maxSteps=payload.get("maxSteps"),
+        runTimeoutMs=payload.get("runTimeoutMs"),
     )
     result = await runner(request)
     dumped = result.model_dump() if hasattr(result, "model_dump") else dict(result)

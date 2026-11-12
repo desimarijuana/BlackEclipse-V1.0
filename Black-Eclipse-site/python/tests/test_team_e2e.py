@@ -22,6 +22,7 @@ from harness import graph as graph_module
 from harness.a2a.bootstrap import install_a2a_layer
 from harness.persistence import AgentMemoryStore
 from harness.schemas import ModelSettings, RunInput, RunRequest
+from harness.run_lineage import RunLineage
 from harness.service import AgenticService
 from harness.tasks.model import PlanStatus, TaskStatus
 from harness.team.bootstrap import install_team_layer
@@ -122,6 +123,44 @@ async def test_team_runs_through_the_real_runtime(service):
     final = await service.team.finalize(run.id)
     assert final["status"] == "COMPLETED"
     assert service.team.get_run(run.id).status is TeamRunStatus.COMPLETED
+
+
+class _SpawnFabric:
+    """A Fabric that records the spawn job and completes a real child run."""
+
+    def __init__(self, store) -> None:
+        self.store = store
+        self.calls: list[dict] = []
+
+    async def submit(self, job_type, payload, **kwargs):  # noqa: ANN001, ANN201
+        index = len(self.calls) + 1
+        run_id = f"spawn_child_{index}"
+        self.calls.append({"jobType": job_type, "payload": payload, **kwargs})
+        self.store.create_run(
+            run_id, str(payload.get("agentId") or "eclipse-agent"),
+            {"query": str(payload.get("query") or "")},
+        )
+        RunLineage(self.store).set_run_parent(run_id, str(payload.get("parentRunId") or ""))
+        return {
+            "status": "SUCCEEDED", "jobId": f"job_{index}", "output": "Done.",
+            "outcome": {"metrics": {"runId": run_id, "totalTokens": 10}},
+        }
+
+
+@pytest.mark.asyncio
+async def test_team_tasks_execute_through_the_spawn_primitive(service):
+    fabric = _SpawnFabric(service.store)
+    service.fabric = fabric
+
+    run = await service.team.run(_team())
+    await _drain(service)
+
+    assert fabric.calls, "team tasks never reached the spawn primitive"
+    assert all(call["jobType"] == "agent" for call in fabric.calls)
+    assert all(call["payload"]["parentRunId"] for call in fabric.calls)
+    assert service.tasks.get_plan(run.plan_id).status is PlanStatus.COMPLETED
+    for tid in run.subtask_task_ids.values():
+        assert service.tasks.get_task(tid).status is TaskStatus.COMPLETED
 
 
 @pytest.mark.asyncio

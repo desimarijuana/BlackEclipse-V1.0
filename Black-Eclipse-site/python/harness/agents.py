@@ -351,6 +351,8 @@ ECLIPSE_AGENT = AgentConfig(
         "tool_invoke",
         "read_tool_output",
         "tool_code",
+        # C5: one spawn primitive + shared blackboard.
+        "spawn", "board_write", "board_read", "board_search",
         # Phase-2 unified retrieval tools
         "market_get_quote",
         "market_get_ohlcv",
@@ -937,6 +939,8 @@ CODE_AGENT_TOOLS = [
     "tool_invoke",
     "read_tool_output",
     "tool_code",
+    # C5: one spawn primitive + shared blackboard.
+    "spawn", "board_write", "board_read", "board_search",
 ]
 
 CODE_AGENT = AgentConfig(

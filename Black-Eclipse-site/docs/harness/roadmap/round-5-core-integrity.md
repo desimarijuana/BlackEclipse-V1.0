@@ -1,6 +1,6 @@
 ---
 title: Round 5 - Core Integrity (a world-class general harness)
-status: In progress (C0–C4 shipped 2026-11-11; C5–C9 open)
+status: In progress (C0–C5 shipped 2026-11-11; C6–C9 open)
 last-verified: 2026-11-11
 depends_on: rounds 1-4, docs/harness/architecture.md, docs/harness/execution-fabric.md
 ---
@@ -52,7 +52,8 @@ one tool contract, one policy seam, plus the tests that prove it.
 | C2 one execution plane | **Done** | foreground registration + cancel/SSE parity + `HARNESS_MAX_CONCURRENT_RUNS`; `execution_plane.py` vocabulary; `migrations.py` ledger; `RunMessage` checkpoint cursor; Fabric `task` worker + scheduler submission; `execution_log.py` canonical log across run/fabric/graph/task/orchestration; `RunScope`/`RunSpec` replace the 45-kwarg `build_graph`. |
 | C3 context/tool economics | **Done** | measured model-window budgeting + provider usage (pre-existing); always-on deterministic compaction (pre-existing); artifact handles + `read_tool_output` pager; `tool_search`/`tool_invoke`; opt-in `HARNESS_LAZY_TOOLS`; sandboxed read-only `tool_code` (`HARNESS_CODE_MODE=1`). |
 | C4 plan/verify/evidence | **Done** | goal/plan/step view; `EvidenceClaim`/`Handle` ledger; verifier registry (finance/citation/code/artifact); answer seam; bounded evidence replan; plan cursor in checkpoint; outcome blocks. |
-| C5–C9 | **Not started** | — |
+| C5 one agent fabric | **Done** | `spawn` over Fabric `agent` jobs; depth/fanout/token caps; shared root-scoped blackboard; child evidence in the parent ledger; deterministic synthesis; A2A/team task execution routed through `spawn` (`tasks/spawn_bridge.py`). |
+| C6–C9 | **Not started** | — |
 
 The remainder is the plan below; nothing in it is claimed as done.
 
@@ -322,6 +323,15 @@ are covered by tests.
 
 **Acceptance.** 8-child fanout with exact budget accounting; no operator
 inheritance; conflicting child claims surface as a conflict, never a merge.
+
+**Shipped (core).** `harness/spawn/`: `SpawnSpec`/`ChildOutcome`, Fabric `agent`
+jobs with `parentRunId` + budget (`maxSteps`/`runTimeoutMs`), depth 2 / fanout 8
+/ 120k total token caps with `allocated = used + returned` reconciliation,
+`BoardStore` (one board per root run, 200 entries /
+200k chars), child evidence copied into the parent ledger, deterministic
+synthesis + conflicts, `spawn`/`board_*` tools and `spawn.*` events. A2A/team
+task execution routes through `spawn` (`tasks/spawn_bridge.py`) when the Fabric
+is available, with an inline fallback; `delegate` remains the legacy entry point.
 
 ### C6 - Safety envelope (P0, 12-15 days)
 

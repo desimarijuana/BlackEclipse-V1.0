@@ -316,10 +316,12 @@ class AgenticService:
             from .tool_outputs import register_tool_output_tools  # noqa: PLC0415
             from .tool_surface import register_tool_surface_tools  # noqa: PLC0415
             from .code_mode import register_code_mode_tool  # noqa: PLC0415
+            from .spawn.tools import register_spawn_tools  # noqa: PLC0415
 
             register_tool_output_tools(self.registry)
             register_tool_surface_tools(self.registry)
             register_code_mode_tool(self.registry)
+            register_spawn_tools(self.registry)
         except Exception:  # noqa: BLE001 - a collision must not block boot
             log.warning("tool output/surface tools unavailable", exc_info=True)
         # The Code Execution & Verification Layer: the orchestrator, runtime

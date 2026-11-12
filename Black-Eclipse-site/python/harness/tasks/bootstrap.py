@@ -508,6 +508,14 @@ def install_task_layer(service: Any) -> bool:
         store = TaskStore(service.store)
         manager = TaskManager(store, publisher=_bus_publisher(service))
         executor = build_task_executor(service, manager)
+        # C5.6: an A2A/team delegation executes as a Fabric `agent` job via
+        # `spawn`; ordinary tasks keep the existing executor.
+        try:
+            from .spawn_bridge import wrap_task_executor  # noqa: PLC0415
+
+            executor = wrap_task_executor(service, executor)
+        except Exception:  # noqa: BLE001 - the bridge must not block task install
+            log.warning("spawn task bridge unavailable", exc_info=True)
         scheduler = TaskScheduler(
             manager, executor=executor,
             max_in_flight=int(os.environ.get("HARNESS_TASK_MAX_IN_FLIGHT", "2")),

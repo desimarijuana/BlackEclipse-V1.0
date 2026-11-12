@@ -402,7 +402,8 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1915->1928 (2026-11-11, Round 5 / C3): the output-pager,
     # discovery and confined-code tools are registered on the ONE registry.
     # May only shrink.
-    "service.py": 1928,
+    # Re-pinned 1928->1930 (2026-11-11, Round 5 / C5): spawn/board tools.
+    "service.py": 1930,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

@@ -122,10 +122,13 @@
         "python/tests/test_c4_replan.py",
         "python/tests/test_c4_resume.py",
         "python/tests/test_c4_outcome.py",
+        "python/tests/test_c5_spawn.py",
+        "python/tests/test_c5_blackboard.py",
+        "python/tests/test_c5_task_spawn_bridge.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
-      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode) and C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor) shipped. Sandbox profiles, external evals, SLOs and release (C5-C9) remain."
+      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor) and C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn) shipped. Sandbox profiles, external evals, SLOs and release (C6-C9) remain."
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
-  "digest": "d1f9a7cc2801c975",
+  "digest": "78715f10432d7047",
   "manifestVersion": "1",
-  "toolCount": 1086,
+  "toolCount": 1090,
   "tools": [
     {
       "deprecated": false,
@@ -1185,6 +1185,84 @@
       "permission": "read",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the shared spawn blackboard for this root run.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "board_read",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Search the shared spawn blackboard.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "board_search",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Write a bounded fact/artifact/decision/note to the shared spawn blackboard.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "handles": {
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "board_write",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {
@@ -30740,6 +30818,42 @@
         "type": "object"
       },
       "name": "source_stats",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Spawn one child agent (or up to 8 with `children`) as a Fabric job. Give a self-contained objective; returns the child's output, claims and handles. Use it for independent research or verification. A multi-child call also returns a deterministic synthesis (dedupe + conflicts). Children cannot exceed depth 2 or the token/time budget.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "background": {
+            "type": "boolean"
+          },
+          "budget": {
+            "type": "object"
+          },
+          "children": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "model": {
+            "type": "object"
+          },
+          "objective": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "spawn",
       "permission": "read",
       "replacement": null,
       "risk": "low",

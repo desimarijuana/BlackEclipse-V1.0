@@ -662,6 +662,21 @@ an unsandboxed fallback. Containment is process/resource/network/env plus a fres
 temp cwd, not a filesystem jail; the operator flag is for a single-user install,
 and multi-tenant use waits for C6's filesystem profiles.
 
+**There is one way to spawn a child (Round 5 / C5, ADR-H354).** The `spawn`
+tool submits a normal Fabric `agent` job (`parentRunId`, `maxSteps`,
+`runTimeoutMs`, depth/budget caps), so the Fabric owns lease, timeout, retry and
+cancellation. A child returns a `ChildOutcome` with claims + handles; its
+`EvidenceClaim`s are copied into the parent ledger with a `child:<runId>`
+verifier. `spawn` with up to 8 `children` runs them and returns a **deterministic
+synthesis** (dedupe, conflict detection, provenance) — no model merge.
+`board_write`/`board_read`/`board_search` provide one bounded blackboard per ROOT
+run, reached by walking `parentRunId`; a child cannot read another tree. Budgets
+are a tree: per-child caps plus a 120k total allocation, 8-child and depth-2
+limits; the batch reports `allocated = used + returned`, and a child never
+inherits an operator grant or the parent's autonomy. A2A/team keep their planned task rows, but their execution attempt goes
+through `spawn` (`tasks/spawn_bridge.py`) when the Fabric is available; without
+it, the inline executor is the fallback.
+
 **A run can be a goal step with its own evidence (Round 5 / C4, ADR-H353).**
 A request may carry `input.context.c4Plan` — an objective + acceptance + ordered
 steps, or a `planId` to continue an existing plan. `harness/goals/` stores the

@@ -423,6 +423,26 @@
   `docs/harness/roadmap/round-5-core-integrity.md`,
   `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
   `docs/CHANGELOG.md`.
+- **feat(harness): C5 one agent fabric — spawn, blackboard, deterministic
+  synthesis.** The `spawn` tool submits a normal Fabric `agent` job with
+  `parentRunId`, a clamped budget (`maxSteps`/`runTimeoutMs`), depth 2, fanout 8
+  and a 120k total child-token allocation reconciled as
+  `allocated = used + returned`; no operator/autonomy inheritance; refusals are typed
+  (`DEPTH_EXCEEDED`/`CHILD_LIMIT`/`BUDGET_EXCEEDED`). A child returns a typed
+  `ChildOutcome` (output, claims, handles, usage); its evidence is copied into
+  the parent ledger with a `child:<runId>` verifier. `board_write`/`board_read`/
+  `board_search` share one bounded blackboard per ROOT run (200 entries / 200k
+  chars), reached by walking `parentRunId`; unrelated trees are isolated.
+  Multi-child spawns return deterministic synthesis (dedupe, conflict,
+  provenance), never a model merge. New tests: `test_c5_spawn.py`,
+  `test_c5_blackboard.py`. A2A/team keep their planned task rows, but their
+  execution attempt is routed through `spawn` (`tasks/spawn_bridge.py`) when the
+  Fabric is available, with an inline fallback; `delegate` is the legacy entry
+  point. Docs updated:
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H354),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/harness/tool-registry.json`, `docs/CHANGELOG.md`.
 - **fix(charts): 3D marks are discoverable and draw from a flat `z` grid; an
   unsupported mark is named, not silently drawn as a line.** The live
   `response_block_schema` digest (and the injected prompt digest) now includes
