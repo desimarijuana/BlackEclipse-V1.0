@@ -59,6 +59,10 @@ def run_conformance(
     wanted = {str(item) for item in only if item}
     manifest = load_manifest(manifest_path)
     declared = [str(case.get("id")) for case in manifest.get("cases") or [] if case.get("id")]
+    if quick:
+        # Quick mode intentionally omits the slow contract check; it must not be
+        # reported as a MISSING case (the manifest is still complete).
+        declared = [case_id for case_id in declared if case_id != "contract.tool_manifest"]
     selected = [
         factory for factory in factories
         if not wanted or getattr(factory, "__name__", "") in wanted

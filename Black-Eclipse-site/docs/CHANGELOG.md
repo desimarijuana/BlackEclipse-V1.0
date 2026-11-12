@@ -28,6 +28,13 @@
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
+- **chore(release): v0.4.0 release bundle + `--quick` conformance fix.**
+  `npm run release:bundle` writes `docs/harness/releases/v0.4.0/report.json`
+  and `RELEASE.md` from the generated scorecard, tool registry, conformance
+  result, SLO probe and wheel sha256 — no hand-typed release numbers. Quick
+  conformance no longer reports its intentionally skipped contract check as a
+  missing case. no doc change - release artifacts are generated; the release
+  runbook already documents the operator tag/PyPI step.
 - **fix(eval): the finance QA corpus joins the audited built-in corpus.** The
   nine `finance_qa_v1` tasks now carry an explicit oracle (the financial grader
   recomputation), except the unavailable-figure honesty task, which is a

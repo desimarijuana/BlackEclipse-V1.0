@@ -32,6 +32,13 @@ def test_the_suite_passes_and_every_case_is_declared():
     assert len(produced) == 12
 
 
+def test_quick_mode_skips_without_reporting_a_missing_case():
+    suite = run_conformance(quick=True)
+    assert suite.ok, suite.to_dict()
+    assert suite.missing == []
+    assert all(case.id != "contract.tool_manifest" for case in suite.cases)
+
+
 def test_a_missing_declared_case_fails_the_gate(tmp_path):
     path = tmp_path / "conformance.json"
     path.write_text(json.dumps({"version": 1, "cases": [

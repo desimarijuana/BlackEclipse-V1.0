@@ -66,6 +66,7 @@
     "gate:conformance": "node scripts/conformance-gate.js",
     "gate:external": "node scripts/external-gate.js",
     "release:check": "node scripts/release-check.js",
+    "release:bundle": "node scripts/release-bundle.js",
     "package:python": "node scripts/package-python.js",
     "check:secrets": "node scripts/scan-secrets.js",
     "self:maintenance": "node scripts/self-maintenance.js",

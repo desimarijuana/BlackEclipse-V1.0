@@ -1,0 +1,148 @@
+{
+  "version": "0.4.0",
+  "commit": "777786311d8aa81cd1437097cd5bdeb9eec15568",
+  "generatedAt": "2026-11-12T17:28:17.929Z",
+  "wheel": {
+    "name": "black_eclipse_harness-0.4.0-py3-none-any.whl",
+    "sha256": "6add31c40a6e89299098aa2f0a49d063b25abeddb17594e263517c9cf57ec40d"
+  },
+  "tools": {
+    "count": 1091,
+    "digest": "b1048f03f32b6208"
+  },
+  "scorecard": [
+    {
+      "id": "loop",
+      "status": "measured",
+      "metric": {
+        "value": 1,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "context",
+      "status": "measured",
+      "metric": {
+        "value": 0,
+        "unit": "tokens/task",
+        "direction": "lower",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "aci",
+      "status": "measured",
+      "metric": {
+        "value": 0.97124,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "safety",
+      "status": "measured",
+      "metric": {
+        "value": 1,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "ext",
+      "status": "measured",
+      "metric": {
+        "value": 0,
+        "unit": "rate",
+        "direction": "lower",
+        "source": "deterministic routing benchmark",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "eval",
+      "status": "measured",
+      "metric": {
+        "value": 0.997015,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "python -m harness.evaluation",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "ops",
+      "status": "measured",
+      "metric": {
+        "value": 1,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "GET /observability/release-report (or C7 probe)",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    },
+    {
+      "id": "core_integrity",
+      "status": "measured",
+      "metric": {
+        "value": 1,
+        "unit": "ratio",
+        "direction": "higher",
+        "source": "npm run gate:conformance",
+        "runId": "evalrun-1794500350279",
+        "generatedAt": "2026-11-12T16:21:40Z"
+      }
+    }
+  ],
+  "conformance": {
+    "ok": true,
+    "passed": 12,
+    "total": 12
+  },
+  "slo": {
+    "runs": {
+      "active": 0,
+      "cancelled": 0,
+      "completed": 39,
+      "created": 40,
+      "failed": 1,
+      "orphaned": 0,
+      "terminal": 40
+    },
+    "latency": {
+      "p50": 1405,
+      "p95": 1885,
+      "p99": 1885,
+      "samples": 40
+    },
+    "resume": {
+      "p95": 1405,
+      "samples": 8
+    },
+    "cost": {
+      "perTaskP50": 0.0007,
+      "perTaskP95": 0.0007,
+      "samples": 39,
+      "totalUsd": 0.0273,
+      "unpricedRuns": 0
+    },
+    "failures": {
+      "timeout": 1,
+      "validation": 1
+    }
+  }
+}
