@@ -165,6 +165,10 @@ class AgentConfig(BaseModel):
     # is ENFORCED in the graph, not merely advertised in metadata/prompts. None
     # means unbounded (ordinary chat agents). Enforced per call in `tools_node`.
     maxToolCalls: Optional[int] = Field(default=None, ge=0, le=200)  # noqa: N815
+    # The cumulative prompt+completion token budget for this run. When reached,
+    # the graph stops binding tools and forces a final answer from the evidence
+    # already gathered (never a silent extra loop). None = unbounded.
+    maxTokens: Optional[int] = Field(default=None, ge=1_000, le=50_000_000)  # noqa: N815
     # Narrow opt-in: when True, the run's effective allowlist is expanded to also
     # include the MCP tools CURRENTLY registered, selected and namespaced in the
     # registry (`mcp_*`). Default False, so a custom/skill agent keeps its exact

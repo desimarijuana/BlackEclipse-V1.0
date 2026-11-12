@@ -78,6 +78,26 @@ Every risk metric is a `CalculationResult` with `formula`, `inputs`,
 `observationCount`, `frequency`, `annualization`, `assumptions`, `warnings`,
 `detail` and a content-sensitive `calculationId`.
 
+### The price/return input contract
+
+`finance_series` takes `input: "prices" | "returns" | "auto"`. The calculators
+operate on a **level** path, so the adapter resolves the kind exactly once:
+
+- `prices` — observations are price/equity levels; they are passed through.
+- `returns` — observations are periodic decimal returns (`0.02` = +2%); they are
+  compounded once with a synthetic anchor level, so the calculators recover the
+  n supplied returns (not n−1). A return ≤ −100% is refused.
+- `auto` — returns only when the series has a negative value and every value is
+  within `[-1, 1]`; otherwise levels. The inference is recorded in
+  `assumptions`; callers that know the kind should pass it.
+
+Output units are explicit: `%` for period change, CAGR, volatility, drawdown,
+VaR/CVaR and alpha; a ratio (no unit) for Sharpe, Sortino, beta and correlation.
+Historical VaR/CVaR use a **nearest-rank** tail (`ceil(alpha·n − ε)`), so n=20 at
+95% selects the single worst return. A returns series passed as `prices` is
+differenced twice and every risk metric is wrong; the contract (and the tool
+schema) exists to make that impossible.
+
 ### Fundamentals (`finance_facts/metrics.py`)
 
 `pe_ratio`, `forward_pe`, `peg_ratio`, `pb_ratio`, `ps_ratio`, `ev_ebitda`,

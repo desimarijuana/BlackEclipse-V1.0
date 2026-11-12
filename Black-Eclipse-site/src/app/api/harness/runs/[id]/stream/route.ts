@@ -25,8 +25,16 @@ export async function GET(
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${HARNESS_PY_URL}/runs/${encodeURIComponent(id)}/stream`, {
-      headers: { Accept: "text/event-stream" },
+    const incoming = new URL(request.url);
+    const after = incoming.searchParams.get("after");
+    const lastEventId = request.headers.get("last-event-id");
+    const upstreamUrl = new URL(`${HARNESS_PY_URL}/runs/${encodeURIComponent(id)}/stream`);
+    if (after) upstreamUrl.searchParams.set("after", after);
+    upstream = await fetch(upstreamUrl, {
+      headers: {
+        Accept: "text/event-stream",
+        ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
+      },
       signal: request.signal,
     });
   } catch {

@@ -430,6 +430,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     registry = scope.registry
     data_bridge = scope.data_bridge
     store = scope.store
+    from .run_effects import RunEffects  # noqa: PLC0415
+
+    effects = RunEffects(store)
     bus = scope.bus
     cancel_event = scope.cancel_event
     retrieval_cache = scope.retrieval_cache
@@ -753,7 +756,10 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         # the exact failure that made the agent "unable to answer". The same
         # applies once a hard tool-call budget is spent.
         budget_spent = max_tool_calls is not None and state.get("tool_calls", 0) >= max_tool_calls
-        finalizing = step >= max_steps or budget_spent
+        token_budget = getattr(agent, "maxTokens", None)
+        tokens_spent = int(state.get("prompt_tokens", 0)) + int(state.get("completion_tokens", 0))
+        token_budget_spent = token_budget is not None and tokens_spent >= int(token_budget)
+        finalizing = step >= max_steps or budget_spent or token_budget_spent
         active_model = model if finalizing else model_with_tools
         # A local model often ignores an empty tool list and keeps emitting tool
         # calls from the conversation's momentum (observed hallucinating a
@@ -899,6 +905,11 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                         f"Reached the {max_tool_calls}-tool-call limit without a final answer."
                     )
                     code = "TOOL_BUDGET_EXCEEDED"
+                elif token_budget_spent:
+                    message = (
+                        f"Reached the {token_budget}-token budget without a final answer."
+                    )
+                    code = "TOKEN_BUDGET_EXCEEDED"
                 else:
                     message = f"Reached the maximum of {max_steps} steps without a final answer."
                     code = "MAX_STEPS_EXCEEDED"
@@ -1067,9 +1078,47 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 else:
                     from .recovery.hotpath import run_tool_with_recovery  # noqa: PLC0415
 
-                    result = await run_tool_with_recovery(
-                        registry, name, call_id, args, ctx, allowed, tool_timeout_ms, request,
+                    # At-most-once guard: an effectful call is marked BEFORE it
+                    # runs. If a previous attempt started it and never recorded a
+                    # result, the outcome is unknown — do not run it again.
+                    tool_def = registry.get(name)
+                    effect_kind = getattr(tool_def, "effect", None) if tool_def is not None else None
+                    effectful = bool(effect_kind) or (
+                        tool_def is not None
+                        and str(getattr(tool_def, "permission", "read")) != "read"
                     )
+                    prior_effect = (
+                        effects.state(request.runId, step_index, call_id)
+                        if effectful and effects is not None else None
+                    )
+                    if prior_effect == "started":
+                        from .tools import ToolResult  # noqa: PLC0415
+
+                        result = ToolResult(
+                            tool_call_id=call_id, name=name, ok=False,
+                            text=(
+                                f"{name!r} was started by a previous attempt but its outcome "
+                                "was never recorded. It was NOT run again. Reconcile the "
+                                "external state (broker terminal / git status / file hash) "
+                                "before retrying."
+                            ),
+                        )
+                        if effects is not None:
+                            effects.mark_unknown(request.runId, step_index, call_id)
+                    else:
+                        if effectful and effects is not None:
+                            effects.begin(
+                                request.runId, step_index, call_id, name,
+                                str(effect_kind) if effect_kind else None,
+                            )
+                        effect_started = effectful
+                        result = await run_tool_with_recovery(
+                            registry, name, call_id, args, ctx, allowed, tool_timeout_ms, request,
+                        )
+                        if effect_started and effects is not None:
+                            effects.finish(
+                                request.runId, step_index, call_id, ok=result.ok,
+                            )
                 result_text = result.text
                 # C4: every handle this result carries belongs to the current
                 # plan step. No plan => no-op.
@@ -1377,6 +1426,7 @@ async def execute_run(
     except Exception:  # noqa: BLE001 - plan wiring must never break a run
         plan_runtime = None
     lineage = RunLineage(store)
+    from .run_lease import fenced_update_run  # noqa: PLC0415
     # Capability gaps: one durable record per offerable dead end. Recording is
     # fail-open; this never changes a tool decision.
     from .gaps.runtime import GapRuntime  # noqa: PLC0415
@@ -1460,7 +1510,7 @@ async def execute_run(
         try:
             research = await _maybe_research(request, data_bridge, store, emitter, retrieval_cache, cancel_event)
         except asyncio.CancelledError:
-            store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
+            fenced_update_run(store, request.runId, status="cancelled", finishedAt=now_iso())
             await emitter.emit("run.cancelled", {"reason": "cancelled"})
             return _result(request.runId, "cancelled", store, None)
     if research is not None:
@@ -1884,12 +1934,12 @@ async def execute_run(
                 registry=registry, invoke=_invoke_with_history,
             )
     except asyncio.CancelledError:
-        store.update_run(request.runId, status="cancelled", finishedAt=now_iso())
+        fenced_update_run(store, request.runId, status="cancelled", finishedAt=now_iso())
         await emitter.emit("run.cancelled", {"reason": "cancelled"})
         return _result(request.runId, "cancelled", store, None)
     except Exception as exc:  # noqa: BLE001
         error = HarnessError(code="INTERNAL_ERROR", message=str(exc))
-        store.update_run(request.runId, status="failed", error=error.model_dump(), finishedAt=now_iso())
+        fenced_update_run(store, request.runId, status="failed", error=error.model_dump(), finishedAt=now_iso())
         await emitter.emit("run.failed", {"error": error.model_dump()})
         return RunResult(runId=request.runId, status="failed", error=error, toolCalls=0, toolErrors=0, modelSteps=0)
 
@@ -1918,13 +1968,13 @@ async def execute_run(
                 window, retried=retry_budget is not None,
             )
             err["message"] = message
-            store.update_run(
-                request.runId, status="failed", error=err, finishedAt=now_iso(),
+            fenced_update_run(
+                store, request.runId, status="failed", error=err, finishedAt=now_iso(),
                 context=context_blob,
             )
             await emitter.emit("run.failed", {"error": err})
         else:
-            store.update_run(request.runId, status="failed", error=err, finishedAt=now_iso())
+            fenced_update_run(store, request.runId, status="failed", error=err, finishedAt=now_iso())
         await _post_run_analysis(request.runId, store, memory_service, skill_registry)
         result = _result(request.runId, "failed", store, err)
         result.context = context_blob
@@ -2062,8 +2112,8 @@ async def execute_run(
     # reject an answer; it never grants a tool, a permission or an effect.
     guardrail_violation = _guardrail_failure(agent, output, store, request.runId)
     if guardrail_violation is not None:
-        store.update_run(
-            request.runId, status="failed", error=guardrail_violation,
+        fenced_update_run(
+            store, request.runId, status="failed", error=guardrail_violation,
             finishedAt=now_iso(),
         )
         try:
@@ -2080,8 +2130,8 @@ async def execute_run(
         tool_calls=int(final_state.get("tool_calls") or 0),
         need=gap_need, task_id=str(getattr(request, "taskId", "") or ""),
     )
-    store.update_run(
-        request.runId, status="completed", output=output, finishedAt=now_iso(),
+    fenced_update_run(
+        store, request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,
         **( {"research": research_blob} if research_blob else {} ),
         **( {"vision": vision_blob} if vision_blob else {} ),
@@ -2261,7 +2311,8 @@ async def _finish_research(
         "stopReasonText": research.get("stopReasonText"),
         "blockedComparisons": research.get("blockedComparisons"),
     }
-    store.update_run(
+    fenced_update_run(
+        store,
         request.runId,
         status="completed",
         output=output,

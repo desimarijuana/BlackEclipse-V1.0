@@ -12,7 +12,14 @@
 // sharing the streaming logic.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAgentProvider, ChatRequestError } from './registry';
+import {
+  getAgentProvider,
+  ChatRequestError,
+  forgetActiveRun,
+  getRunSnapshot,
+  loadActiveRun,
+  recoverRun,
+} from './registry';
 import type { ChatMessage } from './types';
 import type { HarnessUiEvent } from './events';
 import type { AssistantTurn, PendingApproval, PendingClarification } from './response-model';
@@ -53,6 +60,11 @@ export interface UseAgentRunOptions {
    * onto its message store.
    */
   onTurn?: (turn: AssistantTurn) => void;
+  /**
+   * The conversation id. When present, a reload reattaches to a run that is
+   * still executing instead of leaving it silently orphaned in the UI.
+   */
+  chatId?: string;
 }
 
 export interface UseAgentRun {
@@ -150,6 +162,58 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     // cause a state update (and Markdown re-parse) per character.
     if (rafRef.current == null) rafRef.current = requestAnimationFrame(emit);
   }, []);
+
+  // Reload reattach: a run that was still executing when the page went away is
+  // polled to completion. A terminal run is left alone — its answer is already
+  // in the persisted transcript, so reattaching would duplicate it.
+  useEffect(() => {
+    const chatId = options.chatId;
+    if (!chatId) return;
+    const record = loadActiveRun(chatId);
+    if (!record || Date.now() - record.at > 10 * 60_000) return;
+    let disposed = false;
+    void (async () => {
+      const snapshot = await getRunSnapshot(record.runId).catch(() => null);
+      const status = typeof snapshot?.status === 'string' ? snapshot.status : '';
+      if (!status || status === 'completed' || status === 'failed' || status === 'cancelled') {
+        forgetActiveRun(record.runId);
+        return;
+      }
+      if (status === 'interrupted') return; // the run panel owns recovery
+      if (disposed) return;
+      activeRef.current = true;
+      setActive(true);
+      setRunId(record.runId);
+      turnRef.current.status = 'streaming';
+      publish(true);
+      try {
+        const output = await recoverRun(record.runId);
+        if (disposed) return;
+        turnRef.current.finalText = output;
+        turnRef.current.status = 'completed';
+      } catch (err) {
+        if (disposed) return;
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          turnRef.current.status = 'cancelled';
+        } else {
+          turnRef.current.status = 'error';
+          turnRef.current.error = {
+            message: err instanceof Error ? err.message : String(err),
+          };
+        }
+      } finally {
+        if (!disposed) {
+          turnRef.current.done = true;
+          activeRef.current = false;
+          setActive(false);
+          publish(true);
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, [options.chatId, publish]);
 
   const applyEvent = useCallback(
     (event: HarnessUiEvent) => {

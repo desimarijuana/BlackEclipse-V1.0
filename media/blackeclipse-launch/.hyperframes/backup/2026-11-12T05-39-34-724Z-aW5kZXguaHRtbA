@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-variables="[
+    {&quot;id&quot;:&quot;tagline&quot;,&quot;type&quot;:&quot;string&quot;,&quot;label&quot;:&quot;Reveal tagline&quot;,&quot;default&quot;:&quot;Every market. One terminal.&quot;},
+    {&quot;id&quot;:&quot;claim&quot;,&quot;type&quot;:&quot;string&quot;,&quot;label&quot;:&quot;End-card claim&quot;,&quot;default&quot;:&quot;Open source. Self-hosted.&quot;},
+    {&quot;id&quot;:&quot;cta&quot;,&quot;type&quot;:&quot;string&quot;,&quot;label&quot;:&quot;Install command&quot;,&quot;default&quot;:&quot;npm install && npm run dev&quot;}
+  ]">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <link rel="preload" as="image" href="assets/ui/market-discover.png">
+    <link rel="preload" as="image" href="assets/ui/agent.png">
+    <link rel="preload" as="image" href="assets/ui/LOGO-WORDMARK.svg">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --ground: #050607;
+        --ink: #f4f5f2;
+        --muted: #8b918d;
+        --brand: #b4ff42;
+        --bearish: #ff3e3e;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--ground);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: var(--ground);
+        font-family: Inter, sans-serif;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-j7pz" id="root" data-composition-id="main" data-start="0" data-duration="30" data-width="1920" data-height="1080">
+      <div data-hf-id="hf-o5x5" id="scene-map" data-composition-id="map-open" data-composition-src="compositions/map-open.html" data-start="0" data-duration="7.5" data-track-index="0" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+
+      <div data-hf-id="hf-86jc" id="scene-reveal" data-composition-id="reveal" data-composition-src="compositions/reveal.html" data-start="7.5" data-duration="2.7" data-track-index="1" data-track-kind="graphics" data-variable-values="{&quot;tagline&quot;:&quot;Every market. One terminal.&quot;}" data-width="1920" data-height="1080"></div>
+
+      
+
+      <div data-hf-id="hf-d0y8" id="scene-discover" data-composition-id="discover" data-composition-src="compositions/discover.html" data-start="10.2" data-duration="6.8" data-track-index="3" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+
+      <div data-hf-id="hf-2h40" id="scene-payoff" data-composition-id="payoff" data-composition-src="compositions/payoff.html" data-start="21.4" data-duration="5.2" data-track-index="4" data-track-kind="graphics" data-width="1920" data-height="1080"></div>
+
+      <div data-hf-id="hf-l439" id="scene-end" data-composition-id="endcard" data-composition-src="compositions/endcard.html" data-start="26.6" data-duration="3.4" data-track-index="5" data-track-kind="graphics" data-variable-values="{&quot;claim&quot;:&quot;Open source. Self-hosted.&quot;,&quot;cta&quot;:&quot;npm install && npm run dev&quot;}" data-width="1920" data-height="1080"></div>
+
+      <img data-hf-id="hf-g7c5" src="assets/ui/market-discover.png" alt="" aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; opacity: 0; pointer-events: none">
+      <img data-hf-id="hf-u760" src="assets/ui/agent.png" alt="" aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; opacity: 0; pointer-events: none">
+
+      <audio data-hf-id="hf-cfim" id="sfx-open" class="clip" data-start="0" data-duration="2.116" data-track-index="10" data-volume="0.45" src="assets/sfx/impact-bass-1.mp3"></audio>
+      <audio data-hf-id="hf-pcod" id="sfx-amd" class="clip" data-start="0.62" data-duration="0.72" data-track-index="11" data-volume="0.5" src="assets/sfx/pop.mp3"></audio>
+      <audio data-hf-id="hf-kbiw" id="sfx-reveal" class="clip" data-start="7.42" data-duration="2.6" data-track-index="12" data-volume="0.32" src="assets/sfx/whoosh-cinematic.mp3"></audio>
+      <audio data-hf-id="hf-duwg" id="sfx-discover" class="clip" data-start="10.12" data-duration="0.575" data-track-index="13" data-volume="0.34" src="assets/sfx/whoosh-short.mp3"></audio>
+      <audio data-hf-id="hf-o7kc" id="sfx-card" class="clip" data-start="11.28" data-duration="0.72" data-track-index="14" data-volume="0.36" src="assets/sfx/pop.mp3"></audio>
+      <audio data-hf-id="hf-ql0w" id="sfx-agent" class="clip" data-start="16.92" data-duration="0.575" data-track-index="15" data-volume="0.34" src="assets/sfx/whoosh-short.mp3"></audio>
+      <audio data-hf-id="hf-3oah" id="sfx-riser" class="clip" data-start="17.92" data-duration="4.3" data-track-index="16" data-volume="0.26" src="assets/sfx/riser.mp3"></audio>
+      <audio data-hf-id="hf-47qb" id="sfx-payoff" class="clip" data-start="21.36" data-duration="2.116" data-track-index="17" data-volume="0.42" src="assets/sfx/impact-bass-1.mp3"></audio>
+      <audio data-hf-id="hf-l5m4" id="sfx-end" class="clip" data-start="26.52" data-duration="3.48" data-track-index="18" data-volume="0.28" src="assets/sfx/whoosh-cinematic.mp3"></audio>
+      <audio data-hf-id="hf-bon2" id="sfx-mark" class="clip" data-start="27.36" data-duration="2.592" data-track-index="19" data-volume="0.4" src="assets/sfx/impact-bass-2.mp3"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

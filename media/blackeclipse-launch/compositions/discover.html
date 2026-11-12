@@ -1,0 +1,192 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      color: #f4f5f2;
+      font-family: Inter, sans-serif;
+      overflow: hidden;
+    }
+    #stage {
+      position: absolute;
+      inset: 0;
+      clip-path: inset(100% 0 0 0);
+    }
+    #screen {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      object-fit: cover;
+      display: block;
+    }
+    #dim {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      opacity: 0;
+    }
+    #spot {
+      position: absolute;
+      left: 292px;
+      top: 786px;
+      width: 1596px;
+      height: 128px;
+      border: 1.5px solid rgba(180, 255, 66, 0.85);
+      border-radius: 12px;
+      opacity: 0;
+    }
+    #earn {
+      position: absolute;
+      left: 1228px;
+      top: 286px;
+      width: 649px;
+      height: 455px;
+      border: 1.5px solid rgba(180, 255, 66, 0.8);
+      border-radius: 12px;
+      opacity: 0;
+    }
+    #card {
+      position: absolute;
+      left: 295px;
+      top: 790px;
+      width: 245px;
+      height: 115px;
+      box-sizing: border-box;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      background: #0b0c0d;
+      transform-origin: top left;
+      opacity: 0;
+      box-shadow: 0 26px 70px rgba(0, 0, 0, 0.55);
+    }
+    #card .lbl {
+      font-size: 9.5px;
+      font-weight: 500;
+      color: #9aa09b;
+      letter-spacing: 0.01em;
+    }
+    #card .tk {
+      position: absolute;
+      right: 11px;
+      top: 10px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 7.5px;
+      letter-spacing: 0.04em;
+      color: #b4ff42;
+      background: #18200f;
+      border: 1px solid rgba(180, 255, 66, 0.16);
+      border-radius: 3px;
+      padding: 2px 4px;
+    }
+    #card .px {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 23px;
+      font-weight: 500;
+      letter-spacing: -0.04em;
+      color: #f4f5f2;
+      margin-top: 8px;
+      line-height: 1;
+    }
+    #card .chg {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: #b4ff42;
+      margin-top: 5px;
+      letter-spacing: -0.02em;
+    }
+    .copy {
+      position: absolute;
+      left: 200px;
+      color: #f4f5f2;
+    }
+    #copy-markets { top: 372px; }
+    #copy-markets .kicker,
+    #copy-earn .kicker {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 17px;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: #8b918d;
+      margin-bottom: 14px;
+    }
+    #copy-markets .big {
+      font-size: 70px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1.06;
+    }
+    #copy-markets .big .num { color: #b4ff42; }
+    #copy-earn { top: 476px; width: 860px; }
+    #copy-earn .big {
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.06;
+    }
+    #copy-earn .sub {
+      margin-top: 14px;
+      font-size: 20px;
+      color: #a7ada8;
+      line-height: 1.4;
+    }
+  </style>
+
+  <div id="root" data-composition-id="discover" data-width="1920" data-height="1080">
+    <div id="stage">
+      <img id="screen" src="assets/ui/market-discover.png" alt="BlackEclipse Market Discover screen" decoding="sync" fetchpriority="high" />
+      <div id="dim"></div>
+      <div id="spot"></div>
+      <div id="earn"></div>
+
+      <div id="card" data-layout-ignore>
+        <div class="lbl">S&amp;P 500</div>
+        <div class="tk">^GSPC</div>
+        <div class="px">$ 7,619.38</div>
+        <div class="chg">&#8599; +1.309%</div>
+      </div>
+
+      <div class="copy clip" id="copy-markets" data-start="1.75" data-duration="2.1">
+        <div class="kicker" data-layout-ignore>Reading the whole tape</div>
+        <div class="big"><span class="num">28</span> markets.<br /><span class="num">56,516</span> instruments.</div>
+      </div>
+
+      <div class="copy clip" id="copy-earn" data-start="4.62" data-duration="2.05">
+        <div class="kicker" data-layout-ignore>November 2026 · US session</div>
+        <div class="big">161 earnings<br />reports today.</div>
+        <div class="sub" data-layout-ignore>Market Discover · earnings calendar</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#stage", { clipPath: "inset(100% 0 0 0)" }, {
+      clipPath: "inset(0% 0 0 0)", duration: 0.38, ease: "power3.inOut",
+    }, 0);
+
+    tl.fromTo("#card", { opacity: 0 }, { opacity: 1, duration: 0.04 }, 0.78);
+    tl.fromTo("#card", { x: 0, y: 0, scale: 1 }, {
+      x: 745, y: -410, scale: 2.122, duration: 0.72, ease: "power3.inOut",
+    }, 1.0);
+    tl.to("#card", { x: 0, y: 0, scale: 1, duration: 0.55, ease: "power3.inOut" }, 3.9);
+
+    tl.fromTo("#dim", { opacity: 0 }, { opacity: 0.72, duration: 0.32, ease: "power2.out" }, 0.78);
+    tl.fromTo("#spot", { opacity: 0 }, { opacity: 1, duration: 0.28, ease: "power2.out" }, 0.8);
+    tl.to("#spot", { opacity: 0, duration: 0.3, ease: "power2.in" }, 3.95);
+
+    tl.fromTo("#copy-markets", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.38, ease: "power3.out",
+    }, 1.75);
+
+    tl.fromTo("#earn", { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power2.out" }, 4.55);
+    tl.fromTo("#copy-earn", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.42, ease: "power3.out",
+    }, 4.62);
+
+    window.__timelines["discover"] = tl;
+  </script>
+</template>

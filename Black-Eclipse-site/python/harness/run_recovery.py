@@ -20,7 +20,8 @@ from __future__ import annotations
 import json
 import os
 import socket
-from typing import Any
+import time
+from typing import Any, Optional
 
 from .persistence import new_id, now_iso
 
@@ -53,7 +54,20 @@ def _has_checkpoint(db: Any, run_id: str) -> bool:
     return row is not None
 
 
-def fail_orphaned_runs(store: Any, reason: str) -> int:
+def _lease_is_live(db: Any, run_id: str) -> bool:
+    """Whether a live runtime currently owns this run (do not touch it)."""
+    try:
+        row = db.execute(
+            "SELECT expiresAtMs FROM RunLease WHERE runId = ?", (run_id,)
+        ).fetchone()
+    except Exception:  # noqa: BLE001 - no lease table means no live owner
+        return False
+    return bool(row and int(row["expiresAtMs"]) >= int(time.time() * 1000))
+
+
+def fail_orphaned_runs(
+    store: Any, reason: str, *, environment: Optional[str] = None
+) -> int:
     """Reconcile non-terminal runs left behind by a previous process.
 
     A run paused on an operator approval is `failed` with `RUN_INTERRUPTED`: the
@@ -63,15 +77,26 @@ def fail_orphaned_runs(store: Any, reason: str) -> int:
     to recover). The update is conditional, so a run that a live worker has
     already advanced is never overwritten.
 
+    A run with a **live lease** is skipped entirely: another runtime is executing
+    it. When `environment` is supplied, a run explicitly owned by a different
+    environment is also skipped.
+
     Idempotent (a second pass finds nothing) and safe to call on every boot.
     """
     db = store._db  # noqa: SLF001 - the one shared connection
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(HarnessRun)").fetchall()}
+    select_env = "environment" if "environment" in columns else "NULL AS environment"
     rows = db.execute(
-        "SELECT id FROM HarnessRun WHERE status IN ('created', 'running')"
+        f"SELECT id, {select_env} FROM HarnessRun WHERE status IN ('created', 'running')"
     ).fetchall()
     reconciled = 0
     for row in rows:
         run_id = row["id"]
+        if _lease_is_live(db, run_id):
+            continue  # a live runtime owns it; never orphan it
+        run_environment = row["environment"] if "environment" in row.keys() else None
+        if environment and run_environment and run_environment != environment:
+            continue  # another environment's run; not ours to reconcile
         now = now_iso()
         if _last_event_type(db, run_id) in APPROVAL_WAIT_EVENTS:
             status, code, message, event_type = (
@@ -139,12 +164,14 @@ def _runtime_port_is_free() -> bool:
         probe.close()
 
 
-def reconcile_orphaned_runs(store: Any, reason: str) -> dict[str, Any]:
-    """Fail runs left by a dead process — but only when this process owns the
-    runtime port. Returns a small report; never raises."""
+def reconcile_orphaned_runs(
+    store: Any, reason: str, *, environment: Optional[str] = None
+) -> dict[str, Any]:
+    """Fail/recover runs left by a dead process — but only when this process owns
+    the runtime port. Returns a small report; never raises."""
     if not _runtime_port_is_free():
         return {"failed": 0, "skipped": "another runtime is already serving this port"}
-    return {"failed": fail_orphaned_runs(store, reason)}
+    return {"failed": fail_orphaned_runs(store, reason, environment=environment)}
 
 
 __all__ = ["fail_orphaned_runs", "reconcile_orphaned_runs"]

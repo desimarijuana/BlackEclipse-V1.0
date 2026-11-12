@@ -43,6 +43,7 @@ export {
   getRunExplanationFromRuntime,
   getRunReceiptFromRuntime,
   cancelRunInRuntime,
+  resumeRunInRuntime,
   HarnessRuntimeUnavailable,
 } from "./clients/python-client";
 export {

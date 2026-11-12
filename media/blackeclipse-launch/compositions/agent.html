@@ -1,0 +1,96 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      color: #f4f5f2;
+      font-family: Inter, sans-serif;
+      overflow: hidden;
+    }
+    #stage {
+      position: absolute;
+      inset: 0;
+    }
+    #cam {
+      position: absolute;
+      inset: 0;
+      transform-origin: 50% 54%;
+    }
+    #screen {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      object-fit: cover;
+      display: block;
+    }
+    #dim {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      opacity: 0.18;
+    }
+    .copy {
+      position: absolute;
+      left: 560px;
+      top: 148px;
+      width: 1180px;
+      font-size: 64px;
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.04;
+      color: #f4f5f2;
+    }
+    .copy .accent { color: #b4ff42; }
+    #rule {
+      position: absolute;
+      left: 528px;
+      top: 168px;
+      width: 2px;
+      height: 76px;
+      background: #b4ff42;
+      transform-origin: top center;
+      transform: scaleY(0);
+    }
+    #hint {
+      position: absolute;
+      left: 562px;
+      top: 246px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 18px;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #8b918d;
+      clip-path: inset(0 100% 0 0);
+    }
+  </style>
+
+  <div id="root" data-composition-id="agent" data-width="1920" data-height="1080">
+    <div id="stage">
+      <div id="cam">
+        <img id="screen" src="assets/ui/agent.png" alt="BlackEclipse Eclipse Agent screen" decoding="sync" fetchpriority="high" />
+        <div id="dim"></div>
+      </div>
+
+      <div id="rule"></div>
+      <div class="copy clip" id="copy-ask" data-start="0.95" data-duration="1.9">Ask in plain English.</div>
+      <div class="copy clip" id="copy-src" data-start="2.87" data-duration="1.98">Answers with <span class="accent">sources</span>.</div>
+
+    </div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#rule", { scaleY: 0 }, { scaleY: 1, duration: 0.32, ease: "power3.out" }, 0.81);
+    tl.fromTo("#copy-ask", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power3.out",
+    }, 0.95);
+    tl.fromTo("#copy-src", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power3.out",
+    }, 2.87);
+
+    window.__timelines["agent"] = tl;
+  </script>
+</template>

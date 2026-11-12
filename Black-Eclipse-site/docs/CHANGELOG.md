@@ -1,6 +1,13 @@
 # Change Log
 
 ## 2026-11-12
+- **docs(media): add the BlackEclipse harness launch-video script.** Added
+  `media/blackeclipse-launch/SCRIPT.md` with a 45-second HyperFrames shot list
+  covering bot modes, bounded agent presets, observable runs, skills, Graph
+  Studio, charts, and observability, plus a real-UI capture checklist and
+  anti-fabrication rules. No app code, data contract, or runtime changed.
+  No doc change — content asset only; it lives outside the Next.js app and adds
+  no runtime or setup surface.
 - **feat(legal): the risk position is now visible where users act.** Bumped the
   risk notice to `2026-11-12` and made the copy carry one consistent position:
   Eclipse is self-directed research and order-entry software; the user owns the
@@ -14,6 +21,35 @@
   now returns `acceptedAt` for the current version. Tests:
   `src/lib/legal/disclosure.test.ts` (4). Docs: `docs/legal/README.md`,
   `docs/CHANGELOG.md`.
+- **docs(mobile): standalone Tauri 2 Bot Mode architecture package.** Adds
+  `docs/mobile/` (12 files) for a separate iOS/Android app with no Node, Python,
+  Next server, JDdS or host pairing: repository-aware reuse audit of the bot
+  stores/transport/UI, a Rust-owned durable run/event/approval runtime, SQLite +
+  FTS5 data model, iOS/Android compatibility and physical-device PoC checklist,
+  honest best-effort scheduling limits, Rig-vs-custom dependency evaluation,
+  phased roadmap (0–8), testing strategy, and decisions D1–D14 with a risk
+  register and open questions. No production code, schema, runtime or setup
+  changed; the planned roots are repository-root `mobile/` and
+  `packages/agent-contracts/`. Docs updated: `docs/mobile/*`,
+  `docs/NAVIGATION.md`.
+- **docs(media): branded Round 5 harness report and LinkedIn post.** New
+  `media/blackeclipse-harness-report/` with a three-page A4 branded report
+  (`report.html` + rendered `report.pdf`), a 1080x1350 social card (`card.html`
+  + `card.png`), the ready-to-post copy (`linkedin-post.md`) and a README. The
+  report explains the C2/C4/C6/C7/C8 core-integrity work with a run-lifecycle
+  diagram, failure-mode matrix, seam snippets, benchmark/SLO/category charts and
+  the 2026-11-12 SLO probe (40/40 runs terminal, 0 orphans, 1.885 s p95,
+  $0.0007/task, 5/5 SLOs) plus 12/12 conformance cases, keeping the open items
+  (partial scorecard dimensions, C8 adapters, C9 packaging) visible. No app
+  code, data contract or runtime changed. No doc change - content asset only,
+  outside the Next.js app and adding no runtime or setup surface.
+- **feat(media): BlackEclipse 30 s launch film (HyperFrames).** New
+  `media/blackeclipse-launch/` project — six scenes at 1920×1080/30 fps, 30.0 s,
+  built from real captures of the running app plus the vault's own values
+  (AMD +8.00%, S&P 500 7,619.38, 28 markets, 56,516 instruments, 161 earnings
+  reports) — with the rendered `out/blackeclipse-launch.mp4`. No app code or data
+  contract changed. No doc change — content asset only; the project lives outside
+  the Next.js app and adds no runtime or setup surface.
 - **fix(chat): Eclipse Agent composer is neutral grey again.** The
   `.glass-composer` fill used the near-black `--card-rgb` tint, so the input
   bubble read as black over the dark conversation surface. It now uses a

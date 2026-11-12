@@ -567,22 +567,28 @@ async def history_compact(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.get("/runs/{run_id}/stream")
-async def stream_run(run_id: str) -> StreamingResponse:
+async def stream_run(run_id: str, request: Request, after: int = 0) -> StreamingResponse:
     """Server-Sent Events for one run: live status + token deltas.
 
-    Emits `event: <type>` frames. Token deltas arrive as transient event types
-    (e.g. `model.delta`) and are NOT persisted. If the run already finished,
-    the persisted trace is replayed first so a late subscriber still sees it.
-    A keep-alive comment every 15s prevents proxy timeouts.
+    Emits `id: <seq>` and `event: <type>` frames. A reconnect can pass `after`
+    (or `Last-Event-ID`) to resume exactly after the last event it saw; without
+    it the full persisted trace is replayed first. Token deltas arrive as
+    transient event types (e.g. `model.delta`) and are NOT persisted.
     """
+    try:
+        last_id = int(request.headers.get("last-event-id") or 0)
+    except (TypeError, ValueError):
+        last_id = 0
+    since = max(int(after or 0), last_id)
     queue = service.bus.open_stream(run_id)
 
     async def _frames() -> AsyncIterator[str]:
         try:
-            # Replay what already happened (a client may connect after the run
-            # started, or after it ended).
             for event in service.list_events(run_id):
-                yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                seq = int(event.get("seq") or 0)
+                if seq and seq <= since:
+                    continue
+                yield f"id: {seq}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
             if not service.get_run(run_id) or service.is_active(run_id):
                 while True:
                     try:
@@ -592,7 +598,9 @@ async def stream_run(run_id: str) -> StreamingResponse:
                         continue
                     if event is None:
                         break
-                    yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                    seq = int(event.get("seq") or 0)
+                    prefix = f"id: {seq}\n" if seq else ""
+                    yield f"{prefix}event: {event['type']}\ndata: {json.dumps(event)}\n\n"
             yield "event: stream.end\ndata: {}\n\n"
         finally:
             service.bus.close_stream(run_id, queue)

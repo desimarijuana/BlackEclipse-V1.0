@@ -1,0 +1,115 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      color: #f4f5f2;
+      font-family: Inter, sans-serif;
+      overflow: hidden;
+    }
+    .ambient {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(780px 520px at 50% 40%, rgba(180, 255, 66, 0.055), transparent 70%);
+    }
+    #lockup {
+      position: absolute;
+      left: 680px;
+      top: 338px;
+      width: 560px;
+      clip-path: inset(0 100% 0 0);
+    }
+    #lockup img {
+      display: block;
+      width: 560px;
+      height: auto;
+    }
+    #claim {
+      position: absolute;
+      left: 0;
+      top: 566px;
+      width: 1920px;
+      text-align: center;
+      font-size: 38px;
+      font-weight: 500;
+      letter-spacing: -0.015em;
+      color: #d7dbd7;
+      clip-path: inset(0 100% 0 0);
+    }
+    #cta {
+      position: absolute;
+      left: 600px;
+      top: 654px;
+      width: 720px;
+      height: 70px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 24px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 10px;
+      background: #0a0c0b;
+      clip-path: inset(0 100% 0 0);
+    }
+    #cta .prompt {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 28px;
+      color: #b4ff42;
+    }
+    #cta .cmd {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+      color: #f4f5f2;
+      white-space: nowrap;
+    }
+    #micro {
+      position: absolute;
+      left: 0;
+      top: 768px;
+      width: 1920px;
+      text-align: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 18px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #7d837f;
+      clip-path: inset(0 100% 0 0);
+    }
+  </style>
+
+  <div id="root" data-composition-id="endcard" data-width="1920" data-height="1080">
+    <div class="ambient"></div>
+    <div id="lockup">
+      <img src="assets/ui/LOGO-WORDMARK.svg" alt="BlackEclipse" />
+    </div>
+    <div id="claim" data-var-text="claim">Open source. Self-hosted.</div>
+    <div id="cta">
+      <span class="prompt">$</span>
+      <span class="cmd" data-var-text="cta">npm install &amp;&amp; npm run dev</span>
+    </div>
+    <div id="micro" data-layout-ignore>MIT licensed · 28 markets · 56,516 instruments</div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#lockup", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.62, ease: "power3.inOut",
+    }, 0.08);
+    tl.fromTo("#lockup img", { scale: 1.07 }, { scale: 1, duration: 0.64, ease: "expo.out" }, 0.08);
+
+    tl.fromTo("#claim", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power3.out",
+    }, 0.88);
+    tl.fromTo("#cta", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power3.out",
+    }, 1.1);
+    tl.fromTo("#micro", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.38, ease: "power3.out",
+    }, 1.36);
+
+    window.__timelines["endcard"] = tl;
+  </script>
+</template>

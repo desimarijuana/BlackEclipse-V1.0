@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>BlackEclipse — Harness card</title>
+<style>
+  @font-face {
+    font-family: "Inter";
+    src: url("assets/inter-latin.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: block;
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("assets/jetbrains-mono-latin.woff2") format("woff2");
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: block;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ground: #050607;
+    --ink: #f4f5f2;
+    --muted: #8b918d;
+    --dim: #636966;
+    --accent: #b4ff42;
+    --rule: rgba(255,255,255,0.10);
+    --rule-strong: rgba(255,255,255,0.18);
+  }
+  html, body { background: var(--ground); }
+  body {
+    width: 1080px;
+    height: 1350px;
+    overflow: hidden;
+    position: relative;
+    color: var(--ink);
+    font-family: "Inter", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 66px 72px 54px;
+    display: flex;
+    flex-direction: column;
+  }
+  body::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(760px 520px at 84% -6%, rgba(180,255,66,0.10), transparent 66%),
+      radial-gradient(620px 480px at -10% 108%, rgba(180,255,66,0.045), transparent 70%);
+    pointer-events: none;
+  }
+  .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+  .top img { height: 25px; width: auto; display: block; }
+  .top .meta {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .eyebrow {
+    margin-top: 48px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    position: relative;
+  }
+  .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .eyebrow .sep { color: var(--dim); }
+  h1 {
+    margin-top: 26px;
+    font-size: 88px;
+    line-height: 0.98;
+    letter-spacing: -0.045em;
+    font-weight: 600;
+    position: relative;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .deck {
+    margin-top: 26px;
+    font-size: 21px;
+    line-height: 1.45;
+    color: #c4c9c5;
+    letter-spacing: -0.01em;
+    max-width: 850px;
+    position: relative;
+  }
+  .rows {
+    margin-top: 40px;
+    border-top: 1px solid var(--rule-strong);
+    position: relative;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 54px 1fr auto;
+    gap: 16px;
+    align-items: start;
+    padding: 19px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .row .n {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: var(--accent);
+    padding-top: 3px;
+  }
+  .row h3 { font-size: 25px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; }
+  .row p { margin-top: 5px; font-size: 16px; line-height: 1.4; color: #9ea49f; max-width: 690px; }
+  .row .tag {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+    padding-top: 5px;
+  }
+  .minichart {
+    margin-top: auto;
+    padding: 24px 0 22px;
+    position: relative;
+  }
+  .minichart .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .minichart .head b { color: var(--accent); font-weight: 400; }
+  .minichart .mbar {
+    display: grid;
+    grid-template-columns: 150px 1fr 52px;
+    gap: 12px;
+    align-items: center;
+    margin-top: 9px;
+  }
+  .minichart .mbar .ml {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: #a9afab;
+  }
+  .minichart .mbar .mt {
+    height: 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .minichart .mbar .mf { height: 100%; background: var(--accent); }
+  .minichart .mbar .mf.dim { background: #6e8f3a; }
+  .minichart .mbar .mv {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--ink);
+    text-align: right;
+  }
+  .minichart .cap {
+    margin-top: 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .stats {
+    margin-top: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 22px;
+    position: relative;
+  }
+  .stat { padding-right: 18px; }
+  .stat + .stat { border-left: 1px solid var(--rule); padding-left: 24px; }
+  .stat .v {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 40px;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    color: var(--ink);
+  }
+  .stat .v.a { color: var(--accent); }
+  .stat .k {
+    margin-top: 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .foot {
+    margin-top: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    color: var(--dim);
+    position: relative;
+  }
+  .foot .cmd { color: var(--muted); }
+  .foot .cmd b { color: var(--accent); font-weight: 400; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <img src="assets/LOGO-WORDMARK.svg" alt="BlackEclipse" />
+    <div class="meta">Harness report · 12 Nov 2026</div>
+  </div>
+
+  <div class="eyebrow">
+    <span class="dot"></span><span>Round 5</span>
+    <span class="sep">·</span><span>Core integrity</span>
+    <span class="sep">·</span><span>Shipped</span>
+  </div>
+
+  <h1>The run can't lie,<br />lose, or <em>duplicate itself.</em></h1>
+
+  <p class="deck">
+    Seven harness changes under Eclipse's finance research agent — so an answer is
+    either proven, resumed, or honestly declined.
+  </p>
+
+  <div class="rows">
+    <div class="row">
+      <div class="n">01</div>
+      <div>
+        <h3>One durable execution plane</h3>
+        <p>Leases, fencing epochs and fenced terminal writes. A stale worker can't finish another owner's run.</p>
+      </div>
+      <div class="tag">C2</div>
+    </div>
+    <div class="row">
+      <div class="n">02</div>
+      <div>
+        <h3>At-most-once side effects</h3>
+        <p>An effectful call that started but never finished is reconciled on resume — never silently re-executed.</p>
+      </div>
+      <div class="tag">C2</div>
+    </div>
+    <div class="row">
+      <div class="n">03</div>
+      <div>
+        <h3>Claims carry evidence</h3>
+        <p>Goals, an evidence ledger and verifiers for code, finance, citation and artifacts. No handle, no claim.</p>
+      </div>
+      <div class="tag">C4</div>
+    </div>
+    <div class="row">
+      <div class="n">04</div>
+      <div>
+        <h3>Safety and signal that bite</h3>
+        <p>Capability tokens per effect, sandbox profiles that refuse, run → step spans and five SLOs with error budgets.</p>
+      </div>
+      <div class="tag">C6 · C7</div>
+    </div>
+  </div>
+
+  <div class="minichart">
+    <div class="head"><span>Offline harness floor</span><b>pass rate</b></div>
+    <div class="mbar"><div class="ml">task_success</div><div class="mt"><div class="mf" style="width:99.69%"></div></div><div class="mv">99.69</div></div>
+    <div class="mbar"><div class="ml">tool_accuracy</div><div class="mt"><div class="mf" style="width:97.12%"></div></div><div class="mv">97.12</div></div>
+    <div class="mbar"><div class="ml">planning_quality</div><div class="mt"><div class="mf dim" style="width:89.37%"></div></div><div class="mv">89.37</div></div>
+    <div class="cap">Scripted model · measures the harness, not the model</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="v a">40/40</div><div class="k">runs reached a terminal state</div></div>
+    <div class="stat"><div class="v">0</div><div class="k">orphaned runs</div></div>
+    <div class="stat"><div class="v">5/5</div><div class="k">SLOs in budget</div></div>
+    <div class="stat"><div class="v">12</div><div class="k">conformance cases gating release</div></div>
+  </div>
+
+  <div class="foot">
+    <span class="cmd"><b>$</b> npm install &amp;&amp; npm run dev</span>
+    <span>Open source · Self-hosted · MIT</span>
+  </div>
+</body>
+</html>

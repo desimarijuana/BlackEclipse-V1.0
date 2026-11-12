@@ -1,0 +1,3825 @@
+{
+  "ok": false,
+  "strict": false,
+  "browserSkipped": false,
+  "lint": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 3,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "clip_ends_past_root_duration",
+        "severity": "warning",
+        "message": "<audio id=\"sfx-end\"> runs from 26.52s to 32.06s, past the root composition's data-duration of 30s, so it is cut off in previews, posters and renders.",
+        "selector": "#sfx-end",
+        "dataAttributes": {},
+        "sourceFile": "C:\\Users\\MSI\\Documents\\Default Project\\black eclipse\\media\\blackeclipse-launch\\index.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Extend the root data-duration to 32.06, or make <audio id=\"sfx-end\"> end at or before 30s."
+      },
+      {
+        "code": "composition_heavy_overlay_count_high",
+        "severity": "warning",
+        "message": "This composition has 27 elements carrying \"heavy overlay\" CSS (filter:blur, radial-gradient, or clip-path). Field signal: a composition with ~40 such elements (including opacity:0 / visibility:hidden ones) captures solid-black for the first ~half of the render, recovering near the end. Reproduces identically via drawElement, forced screenshot capture, and snapshot, so the capture layer itself is the offender (not encoder/mux). Independent of duration. Presence alone matters; only display:none elements are excluded here.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {},
+        "sourceFile": "C:\\Users\\MSI\\Documents\\Default Project\\black eclipse\\media\\blackeclipse-launch\\compositions\\map-open.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Split this sub-composition further into per-transition mini-compositions and concat the pieces (FFmpeg or the runtime's slideshow) so each capture only sees a small subset of heavy overlays at once. Even hidden overlays (opacity:0 / visibility:hidden) contribute: either remove truly unused ones from the source or scope them into their own per-transition sub-composition. If an overlay is genuinely inert for the whole clip, use display:none so it never enters the render tree. Field ref ts=1784040753 (#hyperframes-cli-feedback)."
+      },
+      {
+        "code": "composition_heavy_overlay_count_high",
+        "severity": "warning",
+        "message": "This composition has 28 elements carrying \"heavy overlay\" CSS (filter:blur, radial-gradient, or clip-path). Field signal: a composition with ~40 such elements (including opacity:0 / visibility:hidden ones) captures solid-black for the first ~half of the render, recovering near the end. Reproduces identically via drawElement, forced screenshot capture, and snapshot, so the capture layer itself is the offender (not encoder/mux). Independent of duration. Presence alone matters; only display:none elements are excluded here.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {},
+        "sourceFile": "C:\\Users\\MSI\\Documents\\Default Project\\black eclipse\\media\\blackeclipse-launch\\compositions\\payoff.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0,
+        "fixHint": "Split this sub-composition further into per-transition mini-compositions and concat the pieces (FFmpeg or the runtime's slideshow) so each capture only sees a small subset of heavy overlays at once. Even hidden overlays (opacity:0 / visibility:hidden) contribute: either remove truly unused ones from the source or scope them into their own per-transition sub-composition. If an overlay is genuinely inert for the whole clip, use display:none so it never enters the render tree. Field ref ts=1784040753 (#hyperframes-cli-feedback)."
+      }
+    ],
+    "filesScanned": 7
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "layout": {
+    "ok": false,
+    "errorCount": 79,
+    "warningCount": 0,
+    "infoCount": 1,
+    "findings": [
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 526.14,
+          "top": 617.35,
+          "right": 570,
+          "bottom": 638.92,
+          "width": 43.86,
+          "height": 21.57
+        },
+        "containerSelector": "div.vignette",
+        "text": "AMD",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 526.14,
+          "y": 617.35,
+          "width": 43.86,
+          "height": 21.57
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 522.6,
+          "top": 637.46,
+          "right": 573.53,
+          "bottom": 655.95,
+          "width": 50.93,
+          "height": 18.49
+        },
+        "containerSelector": "div.vignette",
+        "text": "+8.00%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 522.6,
+          "y": 637.46,
+          "width": 50.93,
+          "height": 18.49
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 518.37,
+          "top": 655.08,
+          "right": 577.77,
+          "bottom": 668.44,
+          "width": 59.4,
+          "height": 13.35
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 19.97B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 518.37,
+          "y": 655.08,
+          "width": 59.4,
+          "height": 13.35
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1049.7,
+          "top": 611.59,
+          "right": 1114.72,
+          "bottom": 638.29,
+          "width": 65.02,
+          "height": 26.71
+        },
+        "containerSelector": "div.vignette",
+        "text": "NVDA",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1049.7,
+          "y": 611.59,
+          "width": 65.02,
+          "height": 26.71
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1051.39,
+          "top": 636.53,
+          "right": 1113.04,
+          "bottom": 659.13,
+          "width": 61.65,
+          "height": 22.6
+        },
+        "containerSelector": "div.vignette",
+        "text": "+3.62%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1051.39,
+          "y": 636.53,
+          "width": 61.65,
+          "height": 22.6
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1046.25,
+          "top": 657.41,
+          "right": 1118.17,
+          "bottom": 673.84,
+          "width": 71.92,
+          "height": 16.44
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 38.52B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1046.25,
+          "y": 657.41,
+          "width": 71.92,
+          "height": 16.44
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 903.15,
+          "top": 361.25,
+          "right": 932.59,
+          "bottom": 381.8,
+          "width": 29.44,
+          "height": 20.54
+        },
+        "containerSelector": "div.vignette",
+        "text": "MU",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 903.15,
+          "y": 361.25,
+          "width": 29.44,
+          "height": 20.54
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 889.09,
+          "top": 380.79,
+          "right": 946.65,
+          "bottom": 399.28,
+          "width": 57.56,
+          "height": 18.49
+        },
+        "containerSelector": "div.vignette",
+        "text": "+12.35%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 889.09,
+          "y": 380.79,
+          "width": 57.56,
+          "height": 18.49
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 889.09,
+          "top": 397.91,
+          "right": 946.65,
+          "bottom": 411.27,
+          "width": 57.56,
+          "height": 13.35
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 23.87B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 889.09,
+          "y": 397.91,
+          "width": 57.56,
+          "height": 13.35
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1288.91,
+          "top": 222.26,
+          "right": 1327.48,
+          "bottom": 238.7,
+          "width": 38.57,
+          "height": 16.44
+        },
+        "containerSelector": "div.vignette",
+        "text": "SNDK",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1288.91,
+          "y": 222.26,
+          "width": 38.57,
+          "height": 16.44
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1286.33,
+          "top": 238.65,
+          "right": 1330.08,
+          "bottom": 252,
+          "width": 43.75,
+          "height": 13.35
+        },
+        "containerSelector": "div.vignette",
+        "text": "+15.29%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1286.33,
+          "y": 238.65,
+          "width": 43.75,
+          "height": 13.35
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1284.37,
+          "top": 252.18,
+          "right": 1332.04,
+          "bottom": 262.45,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 13.13B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1284.37,
+          "y": 252.18,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1371.17,
+          "top": 447.91,
+          "right": 1409.58,
+          "bottom": 464.34,
+          "width": 38.41,
+          "height": 16.44
+        },
+        "containerSelector": "div.vignette",
+        "text": "SPCX",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1371.17,
+          "y": 447.91,
+          "width": 38.41,
+          "height": 16.44
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1371.07,
+          "top": 463.64,
+          "right": 1409.69,
+          "bottom": 478.02,
+          "width": 38.62,
+          "height": 14.38
+        },
+        "containerSelector": "div.vignette",
+        "text": "-1.17%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1371.07,
+          "y": 463.64,
+          "width": 38.62,
+          "height": 14.38
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1366.55,
+          "top": 478.5,
+          "right": 1414.21,
+          "bottom": 488.77,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 13.32B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1366.55,
+          "y": 478.5,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 717.48,
+          "top": 254.7,
+          "right": 748.46,
+          "bottom": 269.08,
+          "width": 30.98,
+          "height": 14.38
+        },
+        "containerSelector": "div.vignette",
+        "text": "SOXL",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 717.48,
+          "y": 254.7,
+          "width": 30.98,
+          "height": 14.38
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 716.33,
+          "top": 268.15,
+          "right": 749.62,
+          "bottom": 280.47,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "-1.09%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 716.33,
+          "y": 268.15,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 709.14,
+          "top": 281.39,
+          "right": 756.81,
+          "bottom": 291.66,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 10.60B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 709.14,
+          "y": 281.39,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 767.35,
+          "top": 480.49,
+          "right": 801.3,
+          "bottom": 494.87,
+          "width": 33.95,
+          "height": 14.38
+        },
+        "containerSelector": "div.vignette",
+        "text": "MSFT",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 767.35,
+          "y": 480.49,
+          "width": 33.95,
+          "height": 14.38
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 767.69,
+          "top": 494.33,
+          "right": 800.98,
+          "bottom": 506.65,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "-2.55%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 767.69,
+          "y": 494.33,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 760.5,
+          "top": 507.57,
+          "right": 808.17,
+          "bottom": 517.84,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 10.14B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 760.5,
+          "y": 507.57,
+          "width": 47.67,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 800.94,
+          "top": 708.06,
+          "right": 829.35,
+          "bottom": 720.39,
+          "width": 28.41,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "TSLA",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 800.94,
+          "y": 708.06,
+          "width": 28.41,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 798.5,
+          "top": 719.73,
+          "right": 831.79,
+          "bottom": 732.06,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+3.06%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 798.5,
+          "y": 719.73,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 793.69,
+          "top": 732.97,
+          "right": 836.59,
+          "bottom": 743.24,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 8.07B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 793.69,
+          "y": 732.97,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(9) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1034.53,
+          "top": 163.74,
+          "right": 1068.27,
+          "bottom": 176.07,
+          "width": 33.74,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "CRWV",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1034.53,
+          "y": 163.74,
+          "width": 33.74,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(9) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1031.98,
+          "top": 175.22,
+          "right": 1070.82,
+          "bottom": 187.55,
+          "width": 38.84,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+22.47%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1031.98,
+          "y": 175.22,
+          "width": 38.84,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(9) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1029.94,
+          "top": 188.46,
+          "right": 1072.85,
+          "bottom": 198.73,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 8.03B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1029.94,
+          "y": 188.46,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(10) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1210.68,
+          "top": 543.81,
+          "right": 1241.36,
+          "bottom": 556.13,
+          "width": 30.67,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "AVGO",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1210.68,
+          "y": 543.81,
+          "width": 30.67,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(10) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1209.38,
+          "top": 555.28,
+          "right": 1242.67,
+          "bottom": 567.61,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+4.66%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1209.38,
+          "y": 555.28,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(10) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1204.57,
+          "top": 568.52,
+          "right": 1247.47,
+          "bottom": 578.8,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 7.56B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1204.57,
+          "y": 568.52,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(11) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 995.89,
+          "top": 821.15,
+          "right": 1024.74,
+          "bottom": 833.48,
+          "width": 28.86,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "AAPL",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 995.89,
+          "y": 821.15,
+          "width": 28.86,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(11) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 993.67,
+          "top": 832.63,
+          "right": 1026.96,
+          "bottom": 844.95,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+1.86%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 993.67,
+          "y": 832.63,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(11) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 988.86,
+          "top": 845.87,
+          "right": 1031.76,
+          "bottom": 856.14,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 7.42B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 988.86,
+          "y": 845.87,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(12) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1281.77,
+          "top": 677.44,
+          "right": 1314.08,
+          "bottom": 689.77,
+          "width": 32.31,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "AMZN",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1281.77,
+          "y": 677.44,
+          "width": 32.31,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(12) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1281.29,
+          "top": 688.74,
+          "right": 1314.58,
+          "bottom": 701.07,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "-1.58%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1281.29,
+          "y": 688.74,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(12) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1276.47,
+          "top": 701.98,
+          "right": 1319.37,
+          "bottom": 712.25,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 7.10B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1276.47,
+          "y": 701.98,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(13) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1365.18,
+          "top": 821.25,
+          "right": 1395.02,
+          "bottom": 833.57,
+          "width": 29.84,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "META",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1365.18,
+          "y": 821.25,
+          "width": 29.84,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(13) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1363.46,
+          "top": 832.55,
+          "right": 1396.75,
+          "bottom": 844.87,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "-0.93%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1363.46,
+          "y": 832.55,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(13) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1358.65,
+          "top": 845.79,
+          "right": 1401.55,
+          "bottom": 856.06,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 6.82B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1358.65,
+          "y": 845.79,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(14) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 946.32,
+          "top": 584.99,
+          "right": 971.59,
+          "bottom": 597.32,
+          "width": 25.26,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "INTC",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 946.32,
+          "y": 584.99,
+          "width": 25.26,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(14) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 942.31,
+          "top": 596.29,
+          "right": 975.6,
+          "bottom": 608.62,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+7.78%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 942.31,
+          "y": 596.29,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(14) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 937.5,
+          "top": 609.53,
+          "right": 980.4,
+          "bottom": 619.8,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 6.57B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 937.5,
+          "y": 609.53,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(15) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 669.9,
+          "top": 584.99,
+          "right": 693.33,
+          "bottom": 597.32,
+          "width": 23.43,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "IWM",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 669.9,
+          "y": 584.99,
+          "width": 23.43,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(15) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 664.97,
+          "top": 596.29,
+          "right": 698.26,
+          "bottom": 608.62,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "-0.68%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 664.97,
+          "y": 596.29,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(15) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 660.15,
+          "top": 609.53,
+          "right": 703.05,
+          "bottom": 619.8,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 6.00B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 660.15,
+          "y": 609.53,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(16) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1457.71,
+          "top": 626.08,
+          "right": 1487.4,
+          "bottom": 638.41,
+          "width": 29.69,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "SOXX",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1457.71,
+          "y": 626.08,
+          "width": 29.69,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(16) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1455.91,
+          "top": 637.38,
+          "right": 1489.2,
+          "bottom": 649.71,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "-0.12%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1455.91,
+          "y": 637.38,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(16) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1451.1,
+          "top": 650.62,
+          "right": 1494,
+          "bottom": 660.89,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 5.32B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1451.1,
+          "y": 650.62,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(17) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1114.78,
+          "top": 379.55,
+          "right": 1152.36,
+          "bottom": 391.88,
+          "width": 37.57,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "GOOGL",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1114.78,
+          "y": 379.55,
+          "width": 37.57,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(17) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1116.94,
+          "top": 390.85,
+          "right": 1150.22,
+          "bottom": 403.18,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+2.34%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1116.94,
+          "y": 390.85,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(17) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1112.12,
+          "top": 404.09,
+          "right": 1155.02,
+          "bottom": 414.36,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 5.21B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1112.12,
+          "y": 404.09,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(18) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1437.66,
+          "top": 307.65,
+          "right": 1466.36,
+          "bottom": 319.97,
+          "width": 28.7,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "SOXS",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1437.66,
+          "y": 307.65,
+          "width": 28.7,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(18) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1435.37,
+          "top": 318.95,
+          "right": 1468.66,
+          "bottom": 331.27,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+1.11%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1435.37,
+          "y": 318.95,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(18) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1430.55,
+          "top": 332.19,
+          "right": 1473.45,
+          "bottom": 342.46,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 5.07B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1430.55,
+          "y": 332.19,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(19) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 813.09,
+          "top": 122.75,
+          "right": 837.75,
+          "bottom": 135.08,
+          "width": 24.65,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "NBIS",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 813.09,
+          "y": 122.75,
+          "width": 24.65,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(19) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 806,
+          "top": 134.05,
+          "right": 844.84,
+          "bottom": 146.38,
+          "width": 38.84,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+16.59%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 806,
+          "y": 134.05,
+          "width": 38.84,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(19) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 803.96,
+          "top": 147.29,
+          "right": 846.86,
+          "bottom": 157.56,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 4.61B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 803.96,
+          "y": 147.29,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(20) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1183.49,
+          "top": 112.48,
+          "right": 1206.91,
+          "bottom": 124.81,
+          "width": 23.42,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "TSM",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1183.49,
+          "y": 112.48,
+          "width": 23.42,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(20) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1178.57,
+          "top": 123.78,
+          "right": 1211.86,
+          "bottom": 136.11,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "containerSelector": "div.vignette",
+        "text": "+4.32%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1178.57,
+          "y": 123.78,
+          "width": 33.29,
+          "height": 12.33
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(20) > span:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1173.75,
+          "top": 137.02,
+          "right": 1216.65,
+          "bottom": 147.29,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 4.56B",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1173.75,
+          "y": 137.02,
+          "width": 42.9,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(21) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 678.37,
+          "top": 786.77,
+          "right": 705.38,
+          "bottom": 798.07,
+          "width": 27.01,
+          "height": 11.3
+        },
+        "containerSelector": "div.vignette",
+        "text": "MRVL",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 678.37,
+          "y": 786.77,
+          "width": 27.01,
+          "height": 11.3
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(21) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 677.09,
+          "top": 798.07,
+          "right": 706.68,
+          "bottom": 808.34,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "+9.73%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 677.09,
+          "y": 798.07,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(22) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1502.71,
+          "top": 755.96,
+          "right": 1524.57,
+          "bottom": 767.26,
+          "width": 21.86,
+          "height": 11.3
+        },
+        "containerSelector": "div.vignette",
+        "text": "SMH",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1502.71,
+          "y": 755.96,
+          "width": 21.86,
+          "height": 11.3
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(22) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1498.85,
+          "top": 767.26,
+          "right": 1528.44,
+          "bottom": 777.53,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "-0.81%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1498.85,
+          "y": 767.26,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(23) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 913.89,
+          "top": 221.81,
+          "right": 942.39,
+          "bottom": 233.11,
+          "width": 28.5,
+          "height": 11.3
+        },
+        "containerSelector": "div.vignette",
+        "text": "GOOG",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 913.89,
+          "y": 221.81,
+          "width": 28.5,
+          "height": 11.3
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(23) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 913.34,
+          "top": 233.11,
+          "right": 942.94,
+          "bottom": 243.38,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "+2.25%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 913.34,
+          "y": 233.11,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(24) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1254.29,
+          "top": 139.64,
+          "right": 1279.92,
+          "bottom": 150.94,
+          "width": 25.63,
+          "height": 11.3
+        },
+        "containerSelector": "div.vignette",
+        "text": "ORCL",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1254.29,
+          "y": 139.64,
+          "width": 25.63,
+          "height": 11.3
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(24) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1252.32,
+          "top": 150.94,
+          "right": 1281.91,
+          "bottom": 161.21,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "+9.19%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1252.32,
+          "y": 150.94,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(25) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 644.42,
+          "top": 406.71,
+          "right": 657.17,
+          "bottom": 418.01,
+          "width": 12.74,
+          "height": 11.3
+        },
+        "containerSelector": "div.vignette",
+        "text": "GE",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 644.42,
+          "y": 406.71,
+          "width": 12.74,
+          "height": 11.3
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(25) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 636,
+          "top": 418.01,
+          "right": 665.59,
+          "bottom": 428.28,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "containerSelector": "div.vignette",
+        "text": "+1.38%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 636,
+          "y": 418.01,
+          "width": 29.6,
+          "height": 10.27
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(4)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 220,
+          "top": 62,
+          "right": 493.61,
+          "bottom": 87,
+          "width": 273.61,
+          "height": 25
+        },
+        "containerSelector": "div.vignette",
+        "text": "US market · 16:00 ET",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.1,
+          "end": 7.5
+        },
+        "dataAttributes": {
+          "data-start": "0.1",
+          "data-duration": "7.4"
+        },
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 220,
+          "y": 62,
+          "width": 273.61,
+          "height": 25
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(5)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1487.44,
+          "top": 62,
+          "right": 1720,
+          "bottom": 87,
+          "width": 232.56,
+          "height": 25
+        },
+        "containerSelector": "div.vignette",
+        "text": "28 markets · live",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.1,
+          "end": 7.5
+        },
+        "dataAttributes": {
+          "data-start": "0.1",
+          "data-duration": "7.4"
+        },
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1487.44,
+          "y": 62,
+          "width": 232.56,
+          "height": 25
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#amd-readout > div:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 430,
+          "top": 770,
+          "right": 625.84,
+          "bottom": 791,
+          "width": 195.84,
+          "height": 21
+        },
+        "containerSelector": "div.vignette",
+        "text": "24 h traded value",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.55,
+          "end": 2.4000000000000004
+        },
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 430,
+          "y": 770,
+          "width": 195.84,
+          "height": 21
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 1.667,
+        "occurrences": 1,
+        "heldMs": 0,
+        "times": [
+          1.667
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#amd-readout > div:nth-of-type(2) > span:nth-of-type(1)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 430,
+          "top": 797,
+          "right": 517.8,
+          "bottom": 843,
+          "width": 87.8,
+          "height": 46
+        },
+        "containerSelector": "div.vignette",
+        "text": "AMD",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.55,
+          "end": 2.4000000000000004
+        },
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 430,
+          "y": 797,
+          "width": 87.8,
+          "height": 46
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 1.667,
+        "occurrences": 1,
+        "heldMs": 0,
+        "times": [
+          1.667
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#amd-readout > div:nth-of-type(2) > span:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 531.8,
+          "top": 803,
+          "right": 639.8,
+          "bottom": 843,
+          "width": 108,
+          "height": 40
+        },
+        "containerSelector": "div.vignette",
+        "text": "+8.00%",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.55,
+          "end": 2.4000000000000004
+        },
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 531.8,
+          "y": 803,
+          "width": 108,
+          "height": 40
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 1.667,
+        "occurrences": 1,
+        "heldMs": 0,
+        "times": [
+          1.667
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#amd-readout > div:nth-of-type(3)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 430,
+          "top": 851,
+          "right": 634,
+          "bottom": 873,
+          "width": 204,
+          "height": 22
+        },
+        "containerSelector": "div.vignette",
+        "text": "USD 19.97B · $556.43",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.55,
+          "end": 2.4000000000000004
+        },
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 430,
+          "y": 851,
+          "width": 204,
+          "height": 22
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 1.667,
+        "occurrences": 1,
+        "heldMs": 0,
+        "times": [
+          1.667
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 1.667,
+        "selector": "#source",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 1403.19,
+          "top": 1022,
+          "right": 1720,
+          "bottom": 1042,
+          "width": 316.81,
+          "height": 20
+        },
+        "containerSelector": "div.vignette",
+        "text": "Sized by 24 h traded value · JDDS",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 0.4,
+          "end": 7.5
+        },
+        "dataAttributes": {
+          "data-start": "0.4",
+          "data-duration": "7.1"
+        },
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1403.19,
+          "y": 1022,
+          "width": 316.81,
+          "height": 20
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 5,
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(10)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 200,
+          "top": 888,
+          "right": 684.8,
+          "bottom": 965,
+          "width": 484.8,
+          "height": 77
+        },
+        "containerSelector": "div.vignette",
+        "text": "The reason isn’t.",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 1,
+        "lifetime": {
+          "start": 4.6,
+          "end": 7.05
+        },
+        "dataAttributes": {
+          "data-start": "4.6",
+          "data-duration": "2.45"
+        },
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 200,
+          "y": 888,
+          "width": 484.8,
+          "height": 77
+        },
+        "firstSeen": 5,
+        "lastSeen": 5,
+        "occurrences": 1,
+        "heldMs": 0,
+        "times": [
+          5
+        ]
+      },
+      {
+        "code": "text_occluded",
+        "severity": "error",
+        "time": 11.667,
+        "selector": "#copy-markets > div:nth-of-type(2)",
+        "message": "Text is hidden beneath an opaque element.",
+        "rect": {
+          "left": 284.06,
+          "top": 402,
+          "right": 828.77,
+          "bottom": 561.19,
+          "width": 544.7,
+          "height": 159.19
+        },
+        "containerSelector": "#scene-discover > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1)",
+        "text": "markets. instruments.",
+        "fixHint": "Give the text its own zone, raise its stacking order above the covering element, or mark intentional layering with data-layout-allow-occlusion.",
+        "coveredFraction": 0.22,
+        "lifetime": {
+          "start": 11.549999999999999,
+          "end": 14.149999999999999
+        },
+        "dataAttributes": {},
+        "sourceFile": "compositions/discover.html",
+        "bbox": {
+          "x": 284.06,
+          "y": 402,
+          "width": 544.7,
+          "height": 159.19
+        },
+        "firstSeen": 11.667,
+        "lastSeen": 11.667,
+        "occurrences": 1,
+        "heldMs": 0,
+        "times": [
+          11.667
+        ]
+      },
+      {
+        "code": "canvas_covered",
+        "severity": "info",
+        "time": 1.667,
+        "selector": "#scene-map > div:nth-of-type(1)",
+        "message": "An opaque element covers the canvas above every other visible clip, so the frame shows only it.",
+        "rect": {
+          "left": 0,
+          "top": 0,
+          "right": 1920,
+          "bottom": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "fixHint": "Move the full-frame element below the content (earlier in the DOM or a lower z-index / track), or mark a deliberate full-frame card with data-layout-allow-occlusion.",
+        "dataAttributes": {
+          "data-hf-inner-root": "true",
+          "data-hf-authored-id": "root",
+          "data-width": "1920",
+          "data-height": "1080"
+        },
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "firstSeen": 1.667,
+        "lastSeen": 5,
+        "occurrences": 2,
+        "heldMs": 0,
+        "times": [
+          1.667,
+          5
+        ]
+      }
+    ],
+    "duration": 30,
+    "samples": [
+      1.667,
+      5,
+      8.333,
+      11.667,
+      15,
+      18.333,
+      21.667,
+      25,
+      28.333
+    ],
+    "transitionSamples": [],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 85,
+    "truncated": true
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": false,
+    "samples": 0
+  },
+  "contrast": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 2,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 3.44:1; WCAG AA requires 4.5:1.",
+        "text": "Sized by 24 h traded value · JDDS",
+        "fg": "rgb(95,101,97)",
+        "bg": "rgb(3,4,5)",
+        "ratio": 3.44,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(114,119,116)",
+        "large": false,
+        "selector": "#source",
+        "dataAttributes": {
+          "data-start": "0.4",
+          "data-duration": "7.1"
+        },
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1403.1875,
+          "y": 1022,
+          "width": 316.8125,
+          "height": 20
+        },
+        "time": 1.667,
+        "times": [
+          1.667
+        ]
+      },
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 4.31:1; WCAG AA requires 4.5:1.",
+        "text": "MIT licensed · v0.3.4 · 28 markets",
+        "fg": "rgb(111,117,113)",
+        "bg": "rgb(5,6,7)",
+        "ratio": 4.31,
+        "requiredRatio": 4.5,
+        "suggestedColor": "rgb(115,121,117)",
+        "large": false,
+        "selector": "#micro",
+        "dataAttributes": {},
+        "sourceFile": "compositions/endcard.html",
+        "bbox": {
+          "x": 0,
+          "y": 768,
+          "width": 1920,
+          "height": 21
+        },
+        "time": 28.333,
+        "times": [
+          28.333
+        ]
+      }
+    ],
+    "enabled": true,
+    "samples": [
+      1.667,
+      8.333,
+      15,
+      21.667,
+      28.333
+    ],
+    "checked": 119,
+    "passed": 117
+  },
+  "craft": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 5,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "first_frame_empty",
+        "severity": "warning",
+        "message": "Frame 0 is covered by #scene-map > div:nth-of-type(1): an opaque element over the canvas hides every other clip, and the first frame is the thumbnail on social players. Move it below the content; see canvas_covered.",
+        "selector": "[data-composition-id]",
+        "dataAttributes": {},
+        "sourceFile": "index.html",
+        "bbox": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "time": 0
+      },
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and 73 text elements stay under it for 0.5 s or more, the smallest \"USD 13.13B\" at 8 px: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "USD 13.13B",
+        "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(3)",
+        "dataAttributes": {},
+        "sourceFile": "compositions/map-open.html",
+        "bbox": {
+          "x": 1286.54,
+          "y": 250.32,
+          "width": 48.03,
+          "height": 10.35
+        },
+        "time": 0,
+        "times": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.25,
+          0.25,
+          0.5
+        ],
+        "fontPx": 8,
+        "floorPx": 28,
+        "seconds": 7.5,
+        "elements": [
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(3)",
+            "text": "USD 13.13B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(3)",
+            "text": "USD 13.32B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(3)",
+            "text": "USD 10.60B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(3)",
+            "text": "USD 10.14B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(3)",
+            "text": "USD 8.07B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(9) > span:nth-of-type(3)",
+            "text": "USD 8.03B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(10) > span:nth-of-type(3)",
+            "text": "USD 7.56B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(11) > span:nth-of-type(3)",
+            "text": "USD 7.42B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(12) > span:nth-of-type(3)",
+            "text": "USD 7.10B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(13) > span:nth-of-type(3)",
+            "text": "USD 6.82B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(14) > span:nth-of-type(3)",
+            "text": "USD 6.57B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(15) > span:nth-of-type(3)",
+            "text": "USD 6.00B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(16) > span:nth-of-type(3)",
+            "text": "USD 5.32B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(17) > span:nth-of-type(3)",
+            "text": "USD 5.21B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(18) > span:nth-of-type(3)",
+            "text": "USD 5.07B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(19) > span:nth-of-type(3)",
+            "text": "USD 4.61B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(20) > span:nth-of-type(3)",
+            "text": "USD 4.56B",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(21) > span:nth-of-type(2)",
+            "text": "+9.73%",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(22) > span:nth-of-type(2)",
+            "text": "-0.81%",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(23) > span:nth-of-type(2)",
+            "text": "+2.25%",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(24) > span:nth-of-type(2)",
+            "text": "+9.19%",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(25) > span:nth-of-type(2)",
+            "text": "+1.38%",
+            "fontPx": 8,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(2)",
+            "text": "-1.09%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(2)",
+            "text": "-2.55%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(2)",
+            "text": "+3.06%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(9) > span:nth-of-type(2)",
+            "text": "+22.47%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(10) > span:nth-of-type(2)",
+            "text": "+4.66%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(11) > span:nth-of-type(2)",
+            "text": "+1.86%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(12) > span:nth-of-type(2)",
+            "text": "-1.58%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(13) > span:nth-of-type(2)",
+            "text": "-0.93%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(14) > span:nth-of-type(2)",
+            "text": "+7.78%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(15) > span:nth-of-type(2)",
+            "text": "-0.68%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(16) > span:nth-of-type(2)",
+            "text": "-0.12%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(17) > span:nth-of-type(2)",
+            "text": "+2.34%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(18) > span:nth-of-type(2)",
+            "text": "+1.11%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(19) > span:nth-of-type(2)",
+            "text": "+16.59%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(20) > span:nth-of-type(2)",
+            "text": "+4.32%",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(21) > span:nth-of-type(1)",
+            "text": "MRVL",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(22) > span:nth-of-type(1)",
+            "text": "SMH",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(23) > span:nth-of-type(1)",
+            "text": "GOOG",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(24) > span:nth-of-type(1)",
+            "text": "ORCL",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(25) > span:nth-of-type(1)",
+            "text": "GE",
+            "fontPx": 9.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(3)",
+            "text": "USD 23.87B",
+            "fontPx": 9.67,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(3)",
+            "text": "USD 19.97B",
+            "fontPx": 9.98,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(12) > span:nth-of-type(1)",
+            "text": "AMZN",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(13) > span:nth-of-type(1)",
+            "text": "META",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(14) > span:nth-of-type(1)",
+            "text": "INTC",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(15) > span:nth-of-type(1)",
+            "text": "IWM",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(16) > span:nth-of-type(1)",
+            "text": "SOXX",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(17) > span:nth-of-type(1)",
+            "text": "GOOGL",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(18) > span:nth-of-type(1)",
+            "text": "SOXS",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(19) > span:nth-of-type(1)",
+            "text": "NBIS",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(20) > span:nth-of-type(1)",
+            "text": "TSM",
+            "fontPx": 10.01,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(2)",
+            "text": "+15.29%",
+            "fontPx": 10.16,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(9) > span:nth-of-type(1)",
+            "text": "CRWV",
+            "fontPx": 10.18,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(10) > span:nth-of-type(1)",
+            "text": "AVGO",
+            "fontPx": 10.18,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(11) > span:nth-of-type(1)",
+            "text": "AAPL",
+            "fontPx": 10.18,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(8) > span:nth-of-type(1)",
+            "text": "TSLA",
+            "fontPx": 10.37,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(2)",
+            "text": "-1.17%",
+            "fontPx": 10.45,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(6) > span:nth-of-type(1)",
+            "text": "SOXL",
+            "fontPx": 11.11,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(7) > span:nth-of-type(1)",
+            "text": "MSFT",
+            "fontPx": 11.48,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(3)",
+            "text": "USD 38.52B",
+            "fontPx": 12.08,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(4) > span:nth-of-type(1)",
+            "text": "SNDK",
+            "fontPx": 12.96,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(5) > span:nth-of-type(1)",
+            "text": "SPCX",
+            "fontPx": 13.33,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(2)",
+            "text": "+12.35%",
+            "fontPx": 13.35,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(2)",
+            "text": "+8.00%",
+            "fontPx": 13.78,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#source",
+            "text": "Sized by 24 h traded value · JDDS",
+            "fontPx": 15,
+            "time": 0.5,
+            "seconds": 7
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(2)",
+            "text": "+3.62%",
+            "fontPx": 16.69,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > span:nth-of-type(1)",
+            "text": "MU",
+            "fontPx": 17.03,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1)",
+            "text": "AMD",
+            "fontPx": 17.59,
+            "time": 0,
+            "seconds": 7.5
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(4)",
+            "text": "US market · 16:00 ET",
+            "fontPx": 19,
+            "time": 0.25,
+            "seconds": 7.25
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(5)",
+            "text": "28 markets · live",
+            "fontPx": 19,
+            "time": 0.25,
+            "seconds": 7.25
+          },
+          {
+            "selector": "#scene-map > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > span:nth-of-type(1)",
+            "text": "NVDA",
+            "fontPx": 21.29,
+            "time": 0,
+            "seconds": 7.5
+          }
+        ]
+      },
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and 7 text elements stay under it for 0.5 s or more, the smallest \"^GSPC\" at 8 px: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "^GSPC",
+        "selector": "div.tk",
+        "dataAttributes": {},
+        "sourceFile": "compositions/discover.html",
+        "bbox": {
+          "x": 499,
+          "y": 804,
+          "width": 24,
+          "height": 10
+        },
+        "time": 11,
+        "times": [
+          11,
+          11,
+          11,
+          11.625,
+          14.5,
+          14.875,
+          14.875
+        ],
+        "fontPx": 7.5,
+        "floorPx": 28,
+        "seconds": 6,
+        "elements": [
+          {
+            "selector": "div.tk",
+            "text": "^GSPC",
+            "fontPx": 7.5,
+            "time": 11,
+            "seconds": 6
+          },
+          {
+            "selector": "div.lbl",
+            "text": "S&P 500",
+            "fontPx": 9.5,
+            "time": 11,
+            "seconds": 6
+          },
+          {
+            "selector": "div.chg",
+            "text": "↗ +1.309%",
+            "fontPx": 11,
+            "time": 11,
+            "seconds": 6
+          },
+          {
+            "selector": "#copy-markets > div:nth-of-type(1)",
+            "text": "Reading the whole tape",
+            "fontPx": 17,
+            "time": 11.625,
+            "seconds": 2.625
+          },
+          {
+            "selector": "#copy-earn > div:nth-of-type(1)",
+            "text": "November 2026 · US session",
+            "fontPx": 17,
+            "time": 14.875,
+            "seconds": 2.125
+          },
+          {
+            "selector": "#copy-earn > div:nth-of-type(3)",
+            "text": "Market Discover · earnings calendar",
+            "fontPx": 20,
+            "time": 14.875,
+            "seconds": 2.125
+          },
+          {
+            "selector": "div.px",
+            "text": "$ 7,619.38",
+            "fontPx": 23,
+            "time": 14.5,
+            "seconds": 2.5
+          }
+        ]
+      },
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and \"one desk · every market\" renders at 18 px for 1.75 s: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "one desk · every market",
+        "selector": "#hint",
+        "dataAttributes": {},
+        "sourceFile": "compositions/agent.html",
+        "bbox": {
+          "x": 562,
+          "y": 246,
+          "width": 38.03,
+          "height": 23
+        },
+        "time": 17.75,
+        "times": [
+          17.75
+        ],
+        "fontPx": 18,
+        "floorPx": 28,
+        "seconds": 1.75,
+        "elements": [
+          {
+            "selector": "#hint",
+            "text": "one desk · every market",
+            "fontPx": 18,
+            "time": 17.75,
+            "seconds": 1.75
+          }
+        ]
+      },
+      {
+        "code": "text_below_floor",
+        "severity": "warning",
+        "message": "Type floor is 28 px (2.6% of the 1080 px short side, what a phone can read) and 3 text elements stay under it for 0.5 s or more, the smallest \"MIT licensed · v0.3.4 · 28 markets\" at 16 px: set reading text to at least 28 px, or put data-layout-ignore on text that is texture rather than reading; see references/look.md.",
+        "text": "MIT licensed · v0.3.4 · 28 markets",
+        "selector": "#micro",
+        "dataAttributes": {},
+        "sourceFile": "compositions/endcard.html",
+        "bbox": {
+          "x": 769.59,
+          "y": 768,
+          "width": 380.82,
+          "height": 21
+        },
+        "time": 28.25,
+        "times": [
+          27.875,
+          27.875,
+          28.25
+        ],
+        "fontPx": 16,
+        "floorPx": 28,
+        "seconds": 1.75,
+        "elements": [
+          {
+            "selector": "#micro",
+            "text": "MIT licensed · v0.3.4 · 28 markets",
+            "fontPx": 16,
+            "time": 28.25,
+            "seconds": 1.75
+          },
+          {
+            "selector": "span.prompt",
+            "text": "$",
+            "fontPx": 21,
+            "time": 27.875,
+            "seconds": 2.125
+          },
+          {
+            "selector": "span.cmd",
+            "text": "npm install && npm run dev",
+            "fontPx": 21,
+            "time": 27.875,
+            "seconds": 2.125
+          }
+        ]
+      }
+    ],
+    "enabled": true,
+    "step": 0.125,
+    "samples": 239
+  },
+  "audio": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "hdr": {
+    "autoPromotion": null,
+    "inspection": "available"
+  },
+  "snapshots": {
+    "enabled": false,
+    "files": [],
+    "times": [],
+    "findingFiles": []
+  }
+}

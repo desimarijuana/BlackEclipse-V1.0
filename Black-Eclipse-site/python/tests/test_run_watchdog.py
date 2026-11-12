@@ -127,6 +127,29 @@ def test_sweep_fails_a_stalled_run_once_and_leaves_terminal_runs_alone(store):
     assert sweep_stalled_runs(service) == []
 
 
+def test_sweep_preserves_the_last_assistant_text_as_a_partial_answer(store):
+    from langchain_core.messages import AIMessage
+
+    from harness.run_lineage import RunLineage
+
+    store.create_run("run_partial", "eclipse-agent", {"query": "x"})
+    store.update_run("run_partial", status="running")
+    store.append_event("run_partial", "model.requested", 1, {"step": 1})
+    RunLineage(store).save_messages("run_partial", [AIMessage(content="Here is what I found so far: 42.")])
+    _age_run(store, "run_partial", 600)
+
+    service = _StubService(store)
+    assert sweep_stalled_runs(service) == ["run_partial"]
+
+    run = store.get_run("run_partial")
+    assert run["status"] == "failed"
+    assert run["output"] == "Here is what I found so far: 42."
+    assert run["error"]["partial"] is True
+    assert run["error"]["partialChars"] == len("Here is what I found so far: 42.")
+    types = [e["type"] for e in store.list_events("run_partial")]
+    assert "run.partial" in types
+
+
 def test_sweep_never_raises_on_a_broken_store():
     class _Broken:
         class store:  # noqa: N801 - minimal stub

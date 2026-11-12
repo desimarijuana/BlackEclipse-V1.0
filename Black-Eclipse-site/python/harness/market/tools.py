@@ -674,6 +674,61 @@ def _bar_row(bar: Any) -> dict[str, Any]:
             ("timestamp", "open", "high", "low", "close", "volume", "vwap")}
 
 
+async def data_inventory(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Store-exact inventory: JDdS and the provider cache are labelled separately."""
+    from .series_store import get_series_store
+    from .vault import jdds_inventory, resolve_series
+
+    requested = str(args.get("store") or "all").strip().lower()
+    symbol = str(args.get("symbol") or "").strip().upper()
+    interval = str(args.get("interval") or "1d")
+    store = getattr(ctx, "market_series_store", None) or get_series_store()
+
+    if symbol and requested in ("all", "resolved"):
+        result = resolve_series(symbol, interval, series_store=store)
+        if not result.get("records"):
+            return (f"No store holds {symbol} {interval}.", result)
+        lines = [
+            f"{r['store']}: {r.get('barCount')} bars, {r.get('start')} -> {r.get('end')} "
+            f"(quality={r.get('quality', {}).get('status')})"
+            for r in result["records"]
+        ]
+        return ("\n".join(lines), result)
+
+    payload: dict[str, Any] = {"status": "ok", "symbol": symbol or None, "interval": interval}
+    lines: list[str] = []
+    if requested in ("all", "jdds"):
+        jdds = jdds_inventory(symbol=symbol or None, interval=interval)
+        payload["jdds"] = jdds
+        if jdds.get("status") == "ok":
+            counts = jdds.get("counts") or {}
+            lines.append(
+                f"jdds: {jdds.get('symbols')} symbols with {interval} candles "
+                f"(candles={counts.get('candles')}, prices={counts.get('prices')}, "
+                f"assets={counts.get('assets')}) [store=jdds]"
+            )
+        else:
+            lines.append(f"jdds: UNAVAILABLE ({jdds.get('reason')}) [store=jdds]")
+    if requested in ("all", "history_cache"):
+        if store is None:
+            payload["history_cache"] = {"status": "unavailable"}
+            lines.append("history_cache: UNAVAILABLE (no series store in this runtime)")
+        else:
+            try:
+                rows = (
+                    [store.coverage(symbol, interval)] if symbol else store.list_series(limit=200)
+                )
+                payload["history_cache"] = {"status": "ok", "store": "history_cache", "series": rows}
+                total = sum(int(r.get("barCount") or r.get("n") or 0) for r in rows)
+                lines.append(
+                    f"history_cache: {len(rows)} series, {total} bars [store=history_cache]"
+                )
+            except Exception as exc:  # noqa: BLE001
+                payload["history_cache"] = {"status": "unavailable", "reason": str(exc)}
+                lines.append(f"history_cache: UNAVAILABLE ({exc})")
+    return ("\n".join(lines), payload)
+
+
 async def history_catalog(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     """What history this machine already holds."""
     from .series_store import get_series_store
@@ -739,6 +794,19 @@ def register_market_tools(registry: Any) -> None:
             "maxSymbols": {"type": "integer"}},
             "required": ["symbols"]},
         300_000,
+    )
+    _def(
+        "data_inventory",
+        "Store-exact inventory: JDdS (`jdds.db`) versus the provider cache "
+        "(`history_cache`). Reports which store holds what, with counts and "
+        "coverage, and never merges them. With a symbol, resolves the series "
+        "across stores and marks a count disagreement as a conflict. Read-only.",
+        data_inventory,
+        {"type": "object", "properties": {
+            "store": {"type": "string", "enum": ["all", "jdds", "history_cache", "resolved"]},
+            "symbol": {"type": "string"},
+            "interval": {"type": "string"}}, "required": []},
+        20_000,
     )
     _def(
         "history_catalog",

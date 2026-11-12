@@ -1,0 +1,62 @@
+{
+  "id": "agent-audit",
+  "version": 1,
+  "description": "Independent pre-launch audit corpus: release-blocking numeric, provenance, run-lifecycle, effect, budget and answer-trust invariants. Each check is a pytest module; the corpus is run by scripts/agent-audit.js and wired into scripts/check-all.js.",
+  "source": "docs/quant-research/agent-evaluation-2026-11-11.md",
+  "checks": [
+    {
+      "id": "A1-numeric-contract",
+      "area": "financial-correctness",
+      "test": "python/tests/test_finance_series_contract.py",
+      "evidence": "price/return input contract; Sharpe 1.7225, Sortino 3.6708, VaR 3.0"
+    },
+    {
+      "id": "A2-advisory-precision",
+      "area": "answer-trust",
+      "test": "python/tests/test_advisory_precision_audit.py",
+      "evidence": "metric/ML prose produces no advice; ticker/weight claims still fire"
+    },
+    {
+      "id": "A3-store-provenance",
+      "area": "provenance",
+      "test": "python/tests/test_market_vault.py",
+      "evidence": "JDdS and history_cache labelled separately; conflicts surfaced"
+    },
+    {
+      "id": "A4-lease-fencing",
+      "area": "run-reliability",
+      "test": "python/tests/test_run_lease.py",
+      "evidence": "one live owner; stale writes fenced; live leases never orphaned"
+    },
+    {
+      "id": "A5-effect-ledger",
+      "area": "run-reliability",
+      "test": "python/tests/test_run_effects.py",
+      "evidence": "an unconfirmed effect is not re-executed on resume"
+    },
+    {
+      "id": "A6-token-budget",
+      "area": "budgets",
+      "test": "python/tests/test_run_budget.py",
+      "evidence": "budget exhaustion forces a tool-free final answer"
+    },
+    {
+      "id": "A7-recovery-state",
+      "area": "failure-handling",
+      "test": "python/tests/test_run_recovery.py",
+      "evidence": "checkpointed orphans become interrupted; terminal runs untouched"
+    },
+    {
+      "id": "A8-release-gate",
+      "area": "assurance",
+      "test": "python/tests/test_evaluation_delivery_gate.py",
+      "evidence": "delivery/safety/task-success/provenance cannot be averaged away"
+    },
+    {
+      "id": "A9-run-cost",
+      "area": "cost",
+      "test": "python/tests/test_run_cost.py",
+      "evidence": "known model priced exactly; unknown model is unknown, never zero"
+    }
+  ]
+}

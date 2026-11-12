@@ -1,0 +1,75 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      color: #f4f5f2;
+      font-family: Inter, sans-serif;
+      overflow: hidden;
+    }
+    .ambient {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(760px 420px at 50% 42%, rgba(180, 255, 66, 0.06), transparent 70%);
+    }
+    #rule {
+      position: absolute;
+      left: 580px;
+      top: 366px;
+      width: 72px;
+      height: 2px;
+      background: #b4ff42;
+      transform-origin: left center;
+    }
+    #lockup {
+      position: absolute;
+      left: 580px;
+      top: 404px;
+      width: 760px;
+      clip-path: inset(0 100% 0 0);
+    }
+    #lockup img {
+      display: block;
+      width: 760px;
+      height: auto;
+    }
+    #tagline {
+      position: absolute;
+      left: 0;
+      top: 664px;
+      width: 1920px;
+      text-align: center;
+      font-size: 38px;
+      font-weight: 500;
+      letter-spacing: -0.015em;
+      color: #cfd4cf;
+      clip-path: inset(0 100% 0 0);
+    }
+    #tagline .accent { color: #b4ff42; }
+  </style>
+
+  <div id="root" data-composition-id="reveal" data-width="1920" data-height="1080">
+    <div class="ambient"></div>
+    <div id="rule"></div>
+    <div id="lockup">
+      <img src="assets/ui/LOGO-WORDMARK.svg" alt="BlackEclipse" />
+    </div>
+    <div id="tagline" data-var-text="tagline">Every market. One terminal.</div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#rule", { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "power3.out" }, 0);
+    tl.fromTo("#lockup", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.62, ease: "power3.inOut",
+    }, 0.02);
+    tl.fromTo("#lockup img", { scale: 1.055 }, { scale: 1, duration: 0.62, ease: "expo.out" }, 0.02);
+    tl.fromTo("#tagline", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.46, ease: "power3.out",
+    }, 0.64);
+
+    window.__timelines["reveal"] = tl;
+  </script>
+</template>

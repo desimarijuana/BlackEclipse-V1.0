@@ -1217,10 +1217,23 @@ class AgenticService:
         # process that is about to fail its port bind does NOT reconcile (and
         # orphan) the runs a live runtime is executing â€” see `run_recovery`.
         try:
+            from .run_lease import RunLeaseManager  # noqa: PLC0415
             from .run_recovery import reconcile_orphaned_runs  # noqa: PLC0415
 
+            lease_manager = RunLeaseManager(self.store)
+            self.run_lease = lease_manager
+            conflicts = lease_manager.register_runtime()
+            if conflicts:
+                log.warning(
+                    "runtime identity: another live runtime shares this database: %s",
+                    ", ".join(conflicts),
+                )
+            result["runtimeId"] = lease_manager.runtime_id
+            result["runtimeConflicts"] = conflicts
             result["orphanedRuns"] = reconcile_orphaned_runs(
-                self.store, "the agent runtime restarted while this run was in flight"
+                self.store,
+                "the agent runtime restarted while this run was in flight",
+                environment=lease_manager.environment,
             )
         except Exception:  # noqa: BLE001 - reconciliation must never block boot
             log.warning("orphaned run reconciliation failed", exc_info=True)
@@ -1437,10 +1450,26 @@ class AgenticService:
         # passed here.
         async def _execute() -> RunResult:
             try:
-                return await execute_run(
-                    request, self.registry, bridge, self.store, self.bus,
-                    **self._run_kwargs(),
-                )
+                # One live owner per run. A duplicate submission with the same
+                # runId must not execute a second time.
+                from .run_lease import RunLeaseGuard  # noqa: PLC0415
+
+                with RunLeaseGuard(self.store, request.runId) as lease:
+                    if not lease.owned:
+                        self.store.update_run(
+                            request.runId, status="failed",
+                            error={"code": "RUN_LEASE_CONFLICT",
+                                   "message": "another live runtime owns this run"},
+                            finishedAt=now_iso(),
+                        )
+                        await RunEmitter(request.runId, self.store, self.bus).emit(
+                            "run.failed", {"code": "RUN_LEASE_CONFLICT"},
+                        )
+                        return RunResult(runId=request.runId, status="failed")
+                    return await execute_run(
+                        request, self.registry, bridge, self.store, self.bus,
+                        **self._run_kwargs(),
+                    )
             finally:
                 # Close live SSE consumers whatever the terminal status, exactly
                 # like the background path does.
@@ -1882,13 +1911,27 @@ class AgenticService:
 
         async def _task() -> None:
             try:
-                result = await _with_run_slot(
-                    getattr(self, "_run_slots", None),
-                    lambda: execute_run(
-                        request, self.registry, bridge, self.store, self.bus,
-                        **self._run_kwargs(),
-                    ),
-                )
+                from .run_lease import RunLeaseGuard  # noqa: PLC0415
+
+                with RunLeaseGuard(self.store, request.runId) as lease:
+                    if not lease.owned:
+                        self.store.update_run(
+                            request.runId, status="failed",
+                            error={"code": "RUN_LEASE_CONFLICT",
+                                   "message": "another live runtime owns this run"},
+                            finishedAt=now_iso(),
+                        )
+                        await RunEmitter(request.runId, self.store, self.bus).emit(
+                            "run.failed", {"code": "RUN_LEASE_CONFLICT"},
+                        )
+                        return
+                    result = await _with_run_slot(
+                        getattr(self, "_run_slots", None),
+                        lambda: execute_run(
+                            request, self.registry, bridge, self.store, self.bus,
+                            **self._run_kwargs(),
+                        ),
+                    )
                 await self._schedule_review(request.runId, result.status)
             finally:
                 # Signal live SSE consumers that the run is over, whatever the
@@ -1915,10 +1958,17 @@ class AgenticService:
         return task is not None and not task.done()
 
     def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
-        return self.store.get_run(run_id)
+        run = self.store.get_run(run_id)
+        if run is None:
+            return None
+        from .run_cost import with_cost  # noqa: PLC0415
+
+        return with_cost(run)
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
-        return self.store.list_runs(limit)
+        from .run_cost import with_cost  # noqa: PLC0415
+
+        return [with_cost(run) for run in self.store.list_runs(limit)]
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:
         return self.store.list_events(run_id)

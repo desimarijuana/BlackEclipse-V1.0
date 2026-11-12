@@ -232,7 +232,10 @@ export function ChatDock({
   // reports the AssistantTurn; the sink maps it onto this dock's own message
   // store. `turnSinkRef` is rebound per send so it targets the live turn.
   const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
-  const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
+  const agentRun = useAgentRun({
+    onTurn: (turn) => turnSinkRef.current?.(turn),
+    chatId: dockSessionId,
+  });
   useEffect(() => { setBusy(agentRun.active); }, [agentRun.active]);
 
   // The same real, persisted model picker the full ChatBot composer uses. The

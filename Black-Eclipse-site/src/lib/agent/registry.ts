@@ -8,6 +8,116 @@ import { getActiveProjectId } from '@/lib/projects/project-client';
 
 export { unwrapEventPayload } from './events';
 
+// ── Active-run recovery ──────────────────────────────────────────────────────
+// A dropped SSE connection must not start a SECOND run. We remember the run id
+// the server started, and on a stream failure poll the run's durable status
+// until it terminates, then return its output. The record also survives a
+// reload for the run panel / a future conversation-level reattach.
+const ACTIVE_RUN_KEY = 'eclipse.activeRun.v1';
+
+interface ActiveRunRecord {
+  runId: string;
+  chatId?: string;
+  at: number;
+}
+
+function storage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberActiveRun(runId: string, chatId?: string): void {
+  try {
+    const value: ActiveRunRecord = { runId, chatId, at: Date.now() };
+    storage()?.setItem(ACTIVE_RUN_KEY, JSON.stringify(value));
+  } catch {
+    // sessionStorage can be unavailable/blocked; recovery is best-effort.
+  }
+}
+
+export function forgetActiveRun(runId?: string): void {
+  try {
+    if (!runId) {
+      storage()?.removeItem(ACTIVE_RUN_KEY);
+      return;
+    }
+    const current = loadActiveRun();
+    if (!current || current.runId === runId) storage()?.removeItem(ACTIVE_RUN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function loadActiveRun(chatId?: string): ActiveRunRecord | null {
+  try {
+    const raw = storage()?.getItem(ACTIVE_RUN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ActiveRunRecord;
+    if (!parsed || typeof parsed.runId !== 'string') return null;
+    if (chatId && parsed.chatId && parsed.chatId !== chatId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function getRunSnapshot(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown> | null> {
+  const res = await fetch(`/api/harness/runs/${encodeURIComponent(runId)}`, {
+    cache: 'no-store',
+    signal,
+  });
+  if (!res.ok) return null;
+  const body = (await res.json()) as { run?: Record<string, unknown> } & Record<string, unknown>;
+  return (body.run ?? body) as Record<string, unknown>;
+}
+
+/**
+ * Poll a run to a terminal state and return its answer. Used after a stream
+ * drop: the run keeps executing in the runtime, so reconnecting must never
+ * submit the prompt again.
+ */
+export async function recoverRun(runId: string, signal?: AbortSignal): Promise<string> {  const deadline = Date.now() + 10 * 60_000;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const res = await fetch(`/api/harness/runs/${encodeURIComponent(runId)}`, {
+      cache: 'no-store',
+      signal,
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { run?: Record<string, unknown> } & Record<string, unknown>;
+      const run = (body.run ?? body) as Record<string, unknown>;
+      const status = typeof run.status === 'string' ? run.status : '';
+      if (status === 'completed') {
+        forgetActiveRun(runId);
+        return typeof run.output === 'string' ? run.output : '';
+      }
+      if (status === 'failed' || status === 'cancelled') {
+        forgetActiveRun(runId);
+        const error = run.error as { message?: unknown } | undefined;
+        throw new Error(
+          typeof error?.message === 'string'
+            ? error.message
+            : `run ${status}`,
+        );
+      }
+      if (status === 'interrupted') {
+        // Do not silently re-run an interrupted effect. The run panel has the
+        // explicit resume path; the chat reports the honest state.
+        throw new Error('run was interrupted by a restart; resume it from the run panel');
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  throw new Error('run is still executing; reconnect from the run panel');
+}
+
+
 /**
  * Registry of agent providers (client-safe: no server imports).
  *
@@ -193,6 +303,7 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
   let assembled = '';
   let finalText: string | null = null;
   let streamError: string | null = null;
+  let streamRunId: string | undefined;
 
   const parse = createSseParser((event, data) => {
     // Feed the Agent Workspace observability layer from the same stream. This is
@@ -207,6 +318,14 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
     // them (onStatus/onDelta). `unwrapEventPayload` gives the same payload the
     // old code read when calling `statusFromEvent`.
     const payload = unwrapEventPayload(data);
+    const runId =
+      (typeof data.runId === 'string' ? data.runId : undefined) ??
+      (typeof payload.runId === 'string' ? payload.runId : undefined);
+    if (runId && runId !== streamRunId) {
+      streamRunId = runId;
+      options?.onRunId?.(runId);
+      rememberActiveRun(runId, options?.chatId);
+    }
     const status = statusFromEvent(event, payload);
     if (status) options?.onStatus?.(status);
 
@@ -228,12 +347,19 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
       parse(decoder.decode(value, { stream: true }));
     }
   } catch (err) {
-    // An aborted fetch is a user cancellation, not a failure — surface it the
-    // same way so the UI can mark the turn `cancelled`.
     if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (streamRunId) {
+      try {
+        return await recoverRun(streamRunId, options?.signal);
+      } catch (recoverErr) {
+        if (options?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        throw recoverErr instanceof Error ? recoverErr : err;
+      }
+    }
     throw err;
   }
 
+  if (streamRunId) forgetActiveRun(streamRunId);
   // Prefer the authoritative final text; fall back to the assembled deltas.
   if (finalText) return finalText;
   if (assembled) return assembled;

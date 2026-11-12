@@ -71,9 +71,24 @@ After the upgrade, the ruleset to create on `main`:
 | Bypass list | empty |
 
 Then `main` can only move forward through a green PR, and the `main`-rewrite
-recovery branches (`backup/main-wip-*`) stop being a recurring need. Creating the
-ruleset is a single API call — this is a settings change, not a repository
-change, so nothing about it lives in git.
+recovery branches (`backup/main-wip-*`) stop being a recurring need.
+
+The intended ruleset is versioned at `.github/ruleset.json` so the exact
+configuration is reviewable and reproducible instead of living only in the
+GitHub UI. Import it with **Settings → Rules → Rulesets → New ruleset → Import a
+ruleset**, or apply it with one API call:
+
+```sh
+curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/desimarijuana/BlackEclipse-V1.0/rulesets \
+  -d @.github/ruleset.json
+```
+
+Importing is still a manual, one-time step: the file does not apply itself, and
+it has no effect on the Free plan (the API answers `403`). Creating the ruleset
+changes repository settings, not tracked content, so re-running the import after
+editing the file is how the settings stay in sync with git.
 
 Keep `git push` direct-to-`main` until the ruleset exists; the pre-push guard
 allows fast-forwards, so the current workflow keeps working.

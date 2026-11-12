@@ -250,6 +250,36 @@ HOT PATH is covered too (`recovery/hotpath.py`, R3-03): a read-only tool failure
 may retry once inside the budget, and every other failure returns the engine's
 decision to the model as a route directive.
 
+## Run leases and restart recovery
+
+`python/harness/run_lease.py` makes run ownership durable. A run is executed only
+by the runtime that holds a live lease:
+
+- **Tables** — `RunLease(runId, environment, runtimeId, epoch, expiresAtMs)` and
+  `RuntimeInstance(runtimeId, environment, port, dbPath, pid, …)` in
+  `agent-memory.db`.
+- **Atomic claim** — `BEGIN IMMEDIATE` + a conditional `UPDATE` (or `INSERT` when
+  absent). A live lease cannot be stolen; every successful claim increments
+  `epoch` (the fencing token).
+- **Heartbeat** — a daemon thread with its own SQLite connection extends the
+  60 s lease every 10 s. The agent event loop may be blocked by a synchronous
+  tool; the lease must not stall with it.
+- **Recovery** — `fail_orphaned_runs` skips any run with a live lease and any run
+  owned by another `environment`. A restart marks a checkpointed run
+  `interrupted` (resumable) and only a run with nothing to resume `failed`.
+- **Duplicate submission** — a second runtime cannot claim the same `runId`; the
+  caller gets `RUN_LEASE_CONFLICT` instead of a second execution.
+- **Effect ledger** — `python/harness/run_effects.py` marks an effectful tool call
+  `started` BEFORE dispatch and `done` after the result. If a resume finds
+  `started` with no `done`, the outcome is `unknown`: the tool is **not** called
+  again and the model is told to reconcile the external state. Read-only tools
+  are not tracked (retrying them is safe).
+
+**Not yet:** the effect ledger covers the tool seam, not a full outbox with
+operator reconciliation, and there is no client-side auto-attach on top of the
+SSE replay. The guarantee is "one live owner per run + fenced terminal writes +
+at-most-once effectful calls after a crash", not "exactly-once external effects".
+
 **Cannot yet (noted, not hidden):** auto-acquire a *missing* capability (the plan is
 approval-flagged; the install/build rungs are not wired); auto-promote a skill
 without an operator; delegate diagnosis to sub-agents; stream live in the console;

@@ -90,6 +90,43 @@ def find_stalled(
     return stalled
 
 
+def _last_assistant_text(db: Any, run_id: str) -> Optional[str]:
+    """The most recent assistant text, reconstructed from the durable message log.
+
+    A stalled run has already produced text that the caller never received; the
+    watchdog must not discard it. LangChain message payloads carry either a
+    string content or a list of content blocks.
+    """
+    try:
+        rows = db.execute(
+            "SELECT payload FROM RunMessage WHERE runId=? ORDER BY seq DESC LIMIT 40",
+            (run_id,),
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - no table means no partial
+        return None
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict) or payload.get("type") not in ("ai", "AIMessage"):
+            continue
+        content = (payload.get("data") or {}).get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+            text = "\n".join(parts).strip()
+            if text:
+                return text
+    return None
+
+
 def sweep_stalled_runs(service: Any, now_epoch: Optional[float] = None) -> list[str]:
     """Fail every currently stalled run; returns the run ids. Never raises."""
     try:
@@ -102,14 +139,20 @@ def sweep_stalled_runs(service: Any, now_epoch: Optional[float] = None) -> list[
     for run_id in stalled:
         try:
             now = now_iso()
-            error = json.dumps({
+            partial = _last_assistant_text(db, run_id)
+            error_payload = {
                 "code": "RUN_STALLED",
                 "message": "no progress within this run's model budget; marked failed so the stream closes",
-            })
+            }
+            if partial:
+                error_payload["partial"] = True
+                error_payload["partialChars"] = len(partial)
+            error = json.dumps(error_payload)
             cur = db.execute(
-                "UPDATE HarnessRun SET status = 'failed', error = ?, updatedAt = ?, finishedAt = ? "
+                "UPDATE HarnessRun SET status = 'failed', output = COALESCE(output, ?), "
+                "error = ?, updatedAt = ?, finishedAt = ? "
                 "WHERE id = ? AND status IN ('created', 'running')",
-                (error, now, now, run_id),
+                (partial, error, now, now, run_id),
             )
             if not cur.rowcount:
                 continue  # finished between the scan and the update
@@ -120,6 +163,12 @@ def sweep_stalled_runs(service: Any, now_epoch: Optional[float] = None) -> list[
                 "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, 'run.failed', ?, ?, ?)",
                 (new_id("evt"), run_id, max_seq + 1, now, error),
             )
+            if partial:
+                db.execute(
+                    "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, 'run.partial', ?, ?, ?)",
+                    (new_id("evt"), run_id, max_seq + 2, now,
+                     json.dumps({"chars": len(partial), "reason": "stalled"})),
+                )
             db.commit()
             service.bus.end_stream(run_id)
             service.cancel(run_id)  # cooperative; the hard deadlines do the rest

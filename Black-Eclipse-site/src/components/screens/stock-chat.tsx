@@ -324,7 +324,7 @@ function StockChatContent() {
   const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
   // Prevents a duplicate submit landing before React re-renders `agentBusy`.
   const runInFlightRef = useRef(false);
-  const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn) });
+  const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn), chatId: activeConversationId ?? undefined });
   const chatModel = useChatModel(); // the composer's real, persisted model choice
   const reasoningEffort = useReasoningEffort(); // per-question "model intelligence"
   useEffect(() => { setAgentBusy(agentRun.active); }, [agentRun.active]);

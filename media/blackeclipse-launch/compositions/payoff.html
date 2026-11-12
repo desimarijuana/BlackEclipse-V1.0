@@ -1,0 +1,260 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      background: #050607;
+      color: #f4f5f2;
+      font-family: Inter, sans-serif;
+      overflow: hidden;
+    }
+    #stage {
+      position: absolute;
+      inset: 0;
+      clip-path: circle(0% at 50% 50%);
+    }
+    .ambient {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(1000px 620px at 58% 24%, rgba(180, 255, 66, 0.08), transparent 68%),
+        radial-gradient(700px 500px at 22% 86%, rgba(180, 255, 66, 0.03), transparent 70%);
+    }
+    #cam {
+      position: absolute;
+      inset: 0;
+      transform-origin: 560px 640px;
+    }
+    #field { position: absolute; inset: 0; }
+    .bubble {
+      position: absolute;
+      left: calc((var(--x) - var(--r)) * 1px);
+      top: calc((var(--y) - var(--r)) * 1px);
+      width: calc(var(--r) * 2px);
+      height: calc(var(--r) * 2px);
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      background: rgba(180, 255, 66, 0.1);
+      border: 1px solid rgba(180, 255, 66, 0.5);
+      box-shadow: inset 0 0 30px rgba(180, 255, 66, 0.05);
+      text-align: center;
+    }
+    .bubble.neg {
+      background: rgba(255, 62, 62, 0.09);
+      border-color: rgba(255, 62, 62, 0.55);
+      box-shadow: inset 0 0 30px rgba(255, 62, 62, 0.05);
+    }
+    .sym {
+      font-weight: 700;
+      font-size: max(10px, calc(var(--r) * 0.185px));
+      line-height: 1;
+      color: #f4f5f2;
+    }
+    .chg {
+      font-family: "JetBrains Mono", monospace;
+      font-size: max(9px, calc(var(--r) * 0.145px));
+      line-height: 1.1;
+      color: #b4ff42;
+    }
+    .neg .chg { color: #ff5a5a; }
+    .val {
+      font-family: "JetBrains Mono", monospace;
+      font-size: max(8px, calc(var(--r) * 0.105px));
+      line-height: 1.1;
+      color: #9aa09b;
+    }
+    .tiny .val { display: none; }
+
+    #amd-ring {
+      position: absolute;
+      left: 449px;
+      top: 529px;
+      width: 222px;
+      height: 222px;
+      border-radius: 50%;
+      border: 2px solid #b4ff42;
+      opacity: 0;
+    }
+    .hud {
+      position: absolute;
+      top: 62px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 19px;
+      letter-spacing: 0.12em;
+      color: #8b918d;
+      text-transform: uppercase;
+    }
+    #hud-left { left: 200px; }
+    #hud-right { right: 200px; }
+    .hud .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #b4ff42;
+      margin-right: 12px;
+      vertical-align: 1px;
+    }
+    #readout {
+      position: absolute;
+      left: 200px;
+      top: 700px;
+      width: 660px;
+    }
+    #readout .tick {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 17px;
+      letter-spacing: 0.12em;
+      color: #8b918d;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    #readout .row { display: flex; align-items: baseline; gap: 18px; }
+    #readout .big {
+      font-size: 66px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+    #readout .pct {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 44px;
+      color: #b4ff42;
+      letter-spacing: -0.02em;
+    }
+    #readout .sub {
+      margin-top: 10px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 18px;
+      color: #8b918d;
+    }
+    .copy {
+      position: absolute;
+      left: 200px;
+      top: 910px;
+      font-size: 58px;
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1;
+      color: #f4f5f2;
+      white-space: nowrap;
+    }
+    #iris {
+      position: absolute;
+      left: 560px;
+      top: 640px;
+      width: 12px;
+      height: 12px;
+      margin-left: -6px;
+      margin-top: -6px;
+      border-radius: 50%;
+      background: #050607;
+      transform: scale(0);
+    }
+    #vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 46%, transparent 52%, rgba(0, 0, 0, 0.6) 100%);
+      pointer-events: none;
+    }
+  </style>
+
+  <div id="root" data-composition-id="payoff" data-width="1920" data-height="1080">
+    <div id="stage">
+      <div class="ambient"></div>
+      <div id="vignette"></div>
+      <div id="cam">
+        <div id="field" data-layout-ignore>
+          <div class="bubble" id="b-amd" style="--x: 560; --y: 640; --r: 95">
+            <span class="sym">AMD</span><span class="chg">+8.00%</span><span class="val">USD 19.97B</span>
+          </div>
+          <div class="bubble" style="--x: 1080; --y: 640; --r: 115"><span class="sym">NVDA</span><span class="chg">+3.62%</span><span class="val">USD 38.52B</span></div>
+          <div class="bubble" style="--x: 920; --y: 390; --r: 92"><span class="sym">MU</span><span class="chg">+12.35%</span><span class="val">USD 23.87B</span></div>
+          <div class="bubble" style="--x: 1300; --y: 250; --r: 70"><span class="sym">SNDK</span><span class="chg">+15.29%</span><span class="val">USD 13.13B</span></div>
+          <div class="bubble neg" style="--x: 1380; --y: 470; --r: 78"><span class="sym">QQQ</span><span class="chg">-0.68%</span><span class="val">USD 22.93B</span></div>
+          <div class="bubble neg" style="--x: 740; --y: 280; --r: 60"><span class="sym">SOXL</span><span class="chg">-1.09%</span><span class="val">USD 10.60B</span></div>
+          <div class="bubble neg" style="--x: 790; --y: 500; --r: 62"><span class="sym">MSFT</span><span class="chg">-2.55%</span><span class="val">USD 10.14B</span></div>
+          <div class="bubble" style="--x: 820; --y: 720; --r: 56"><span class="sym">TSLA</span><span class="chg">+3.06%</span><span class="val">USD 8.07B</span></div>
+          <div class="bubble" style="--x: 1050; --y: 190; --r: 55"><span class="sym">CRWV</span><span class="chg">+22.47%</span><span class="val">USD 8.03B</span></div>
+          <div class="bubble" style="--x: 1220; --y: 560; --r: 55"><span class="sym">AVGO</span><span class="chg">+4.66%</span><span class="val">USD 7.56B</span></div>
+          <div class="bubble" style="--x: 1010; --y: 830; --r: 55"><span class="sym">AAPL</span><span class="chg">+1.86%</span><span class="val">USD 7.42B</span></div>
+          <div class="bubble neg" style="--x: 1290; --y: 690; --r: 54"><span class="sym">AMZN</span><span class="chg">-1.58%</span><span class="val">USD 7.10B</span></div>
+          <div class="bubble neg" style="--x: 1370; --y: 830; --r: 53"><span class="sym">META</span><span class="chg">-0.93%</span><span class="val">USD 6.82B</span></div>
+          <div class="bubble" style="--x: 960; --y: 600; --r: 52"><span class="sym">INTC</span><span class="chg">+7.78%</span><span class="val">USD 6.57B</span></div>
+          <div class="bubble neg" style="--x: 690; --y: 600; --r: 50"><span class="sym">IWM</span><span class="chg">-0.68%</span><span class="val">USD 6.00B</span></div>
+          <div class="bubble neg" style="--x: 1460; --y: 640; --r: 47"><span class="sym">SOXX</span><span class="chg">-0.12%</span><span class="val">USD 5.32B</span></div>
+          <div class="bubble" style="--x: 1130; --y: 400; --r: 47"><span class="sym">GOOGL</span><span class="chg">+2.34%</span><span class="val">USD 5.21B</span></div>
+          <div class="bubble" style="--x: 1440; --y: 330; --r: 45"><span class="sym">SOXS</span><span class="chg">+1.11%</span><span class="val">USD 5.07B</span></div>
+          <div class="bubble" style="--x: 830; --y: 150; --r: 43"><span class="sym">NBIS</span><span class="chg">+16.59%</span><span class="val">USD 4.61B</span></div>
+          <div class="bubble" style="--x: 1190; --y: 140; --r: 44"><span class="sym">TSM</span><span class="chg">+4.32%</span><span class="val">USD 4.56B</span></div>
+          <div class="bubble tiny" style="--x: 700; --y: 790; --r: 40"><span class="sym">MRVL</span><span class="chg">+9.73%</span></div>
+          <div class="bubble tiny neg" style="--x: 1500; --y: 760; --r: 42"><span class="sym">SMH</span><span class="chg">-0.81%</span></div>
+          <div class="bubble tiny" style="--x: 930; --y: 240; --r: 38"><span class="sym">GOOG</span><span class="chg">+2.25%</span></div>
+          <div class="bubble tiny" style="--x: 1260; --y: 160; --r: 36"><span class="sym">ORCL</span><span class="chg">+9.19%</span></div>
+          <div class="bubble tiny" style="--x: 660; --y: 420; --r: 38"><span class="sym">GE</span><span class="chg">+1.38%</span></div>
+        </div>
+        <div id="amd-ring"></div>
+      </div>
+
+      <div class="hud clip" id="hud-left" data-start="0.1" data-duration="4.7" data-layout-ignore>
+        <span class="dot"></span>US market · 16:00 ET
+      </div>
+
+
+      <div id="readout" class="clip" data-start="0.2" data-duration="4.6" data-layout-ignore>
+        <div class="tick">AMD · Nasdaq · 24 h</div>
+        <div class="row"><span class="big">$556.43</span><span class="pct">+8.00%</span></div>
+        <div class="sub">USD 19.97B traded</div>
+      </div>
+
+      <div class="copy clip" id="copy-1" data-start="2.5" data-duration="1.1">Find the move.</div>
+      <div class="copy clip" id="copy-2" data-start="3.6" data-duration="1.35">Find the reason.</div>
+
+      <div id="iris"></div>
+    </div>
+  </div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true });
+
+    tl.fromTo("#stage", { clipPath: "circle(0% at 50% 50%)" }, {
+      clipPath: "circle(75% at 50% 50%)", duration: 0.46, ease: "power2.out",
+    }, 0);
+
+    tl.fromTo("#cam", { x: 400, y: -100, scale: 1.6 }, {
+      x: 0, y: 0, scale: 1, duration: 2.2, ease: "power3.inOut",
+    }, 1.9);
+
+    tl.fromTo("#field .bubble:not(#b-amd)", { opacity: 0.2 }, {
+      opacity: 1, duration: 1.9, ease: "power2.out",
+    }, 0.15);
+
+    tl.fromTo("#b-amd", { scale: 1 }, {
+      scale: 1.07, duration: 0.36, yoyo: true, repeat: 1, ease: "sine.inOut",
+    }, 0.25);
+
+    tl.fromTo("#amd-ring", { scale: 0.9, opacity: 0 }, {
+      scale: 1.3, opacity: 0.95, duration: 0.4, ease: "power2.out",
+    }, 0.2);
+    tl.to("#amd-ring", { opacity: 0, duration: 0.6, ease: "power2.in" }, 0.7);
+
+    tl.fromTo("#readout", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power3.out",
+    }, 0.2);
+
+    tl.fromTo("#copy-1", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.34, ease: "power3.out",
+    }, 2.5);
+    tl.fromTo("#copy-2", { clipPath: "inset(0 100% 0 0)" }, {
+      clipPath: "inset(0 0% 0 0)", duration: 0.34, ease: "power3.out",
+    }, 3.6);
+
+    tl.fromTo("#iris", { scale: 0 }, { scale: 250, duration: 0.4, ease: "power2.in" }, 4.78);
+
+    window.__timelines["payoff"] = tl;
+  </script>
+</template>

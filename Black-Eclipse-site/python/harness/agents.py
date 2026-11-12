@@ -378,6 +378,7 @@ ECLIPSE_AGENT = AgentConfig(
         # vault: what bars this machine already holds, and how to bundle more.
         # Served from the durable cache, so it works offline.
         "history_catalog",
+        "data_inventory",
         "backfill_history",
         "get_volume",
         "get_orderbook",
@@ -645,6 +646,11 @@ ECLIPSE_AGENT = AgentConfig(
         "response_block_schema", "response_style_guide", "response_validate",
     ],
     maxSteps=8,
+    # A hard ceiling on tool calls, enforced in the graph. The audit saw
+    # 46–81-call loops on single questions; 48 leaves room for deep research
+    # while stopping runaway exploration. Operator skills may declare their own
+    # (higher) budget; ordinary chat uses this one.
+    maxToolCalls=48,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is
     # authoritative; this only bounds a tool that declares more. It is a distinct
     # budget from `runTimeoutMs` (the whole model turn). 30s lets the declared

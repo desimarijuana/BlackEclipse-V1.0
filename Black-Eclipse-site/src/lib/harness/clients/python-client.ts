@@ -245,4 +245,24 @@ export async function cancelRunInRuntime(runId: string): Promise<boolean> {
   return Boolean(body.cancelled);
 }
 
+/**
+ * Resume a checkpointed run after a runtime restart. The caller supplies the
+ * original RunRequest-shaped payload (input + agent + model settings); the run
+ * id in the path is authoritative. `background=true` returns 202 immediately
+ * and the run continues; the client follows the existing stream.
+ */
+export async function resumeRunInRuntime(
+  runId: string,
+  payload: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(
+    `/runs/${encodeURIComponent(runId)}/resume?background=true`,
+    {
+      method: "POST",
+      body: JSON.stringify({ ...payload, runId }),
+      timeoutMs: 30_000,
+    }
+  );
+}
+
 export type { HarnessErrorJson };
