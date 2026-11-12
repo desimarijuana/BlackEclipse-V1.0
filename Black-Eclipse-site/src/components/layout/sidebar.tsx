@@ -231,21 +231,22 @@ export function Sidebar({
       }`}>
         <div className="flex items-center gap-2.5 overflow-hidden">
           {isCollapsed ? (
-            /* Collapsed — show only the favicon in its place. */
+            /* Collapsed — the brand mark swaps for the expand chevron on
+               hover, so the whole header reads as one "open the sidebar"
+               affordance instead of a tiny corner button. */
             <div className="relative flex items-center justify-center shrink-0" style={logoBox}>
-              {/* The brand mark stays visible at all times. It used to fade to
-                  zero the moment the pointer entered ANYWHERE in the sidebar,
-                  which read as the logo randomly disappearing. Expand is now a
-                  small corner affordance that appears on hover without hiding
-                  the mark. */}
-              <img src={markSrc} alt={appName} className="h-6 w-6 object-contain" />
+              <img
+                src={markSrc}
+                alt={appName}
+                className="h-6 w-6 object-contain transition-all duration-200 group-hover/sidebar:opacity-0 group-hover/sidebar:scale-75"
+              />
               <button
                 onClick={() => setDesktopCollapsed(false)}
                 aria-label="Expand Sidebar"
                 title="Expand Sidebar"
-                className="absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full border border-border/40 bg-card text-muted-foreground opacity-0 shadow transition-opacity duration-150 hover:bg-accent hover:text-foreground cursor-pointer group-hover/sidebar:opacity-100"
+                className="absolute inset-0 flex items-center justify-center rounded-xl border border-border/40 bg-card text-muted-foreground hover:text-foreground cursor-pointer shadow opacity-0 scale-75 group-hover/sidebar:opacity-100 group-hover/sidebar:scale-100 transition-all duration-200 hover:bg-accent"
               >
-                <ChevronRight size={11} />
+                <ChevronRight size={15} />
               </button>
             </div>
           ) : (
