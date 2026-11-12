@@ -151,7 +151,7 @@ class LocalSandbox(ExecutionSandbox):
         if not spec.argv:
             return SandboxResult(None, "", "empty command", self.name, 0.0, refused=True,
                                  reason="empty command")
-        env = build_env(spec.secret_env)
+        env = build_env({**dict(spec.env or {}), **dict(spec.secret_env or {})})
         run_spec = RunSpec(
             argv=list(spec.argv),
             cwd=Path(spec.cwd or os.getcwd()),
@@ -291,16 +291,49 @@ _DEFAULT: Optional[ExecutionSandbox] = None
 _LOCK = threading.RLock()
 
 
+def _backends() -> list[ExecutionSandbox]:
+    """Installed backends, strongest first. Native is imported lazily (cycle)."""
+    candidates: list[ExecutionSandbox] = [DockerSandbox()]
+    try:
+        from .native import NativeSandbox  # noqa: PLC0415
+
+        candidates.append(NativeSandbox())
+    except Exception:  # noqa: BLE001 - a broken native probe must not hide Docker
+        pass
+    try:
+        from .appcontainer import WindowsAppContainerSandbox  # noqa: PLC0415
+
+        candidates.append(WindowsAppContainerSandbox())
+    except Exception:  # noqa: BLE001 - non-Windows simply has no AppContainer
+        pass
+    candidates.append(LocalSandbox())
+    return candidates
+
+
 def select_sandbox(prefer: Optional[str] = None) -> ExecutionSandbox:
     """Pick the best available backend; never return an unbounded one.
 
-    Preference: an explicit `prefer`, then Docker (strongest), then Local, then
-    Unavailable.
+    Preference: an explicit `prefer`, then Docker (strongest), then the native
+    OS primitive (bubblewrap / seatbelt), then Local, then Unavailable.
     """
     global _DEFAULT
     with _LOCK:
         if prefer:
             candidate = {"docker": DockerSandbox(), "local": LocalSandbox()}.get(prefer)
+            if prefer == "native":
+                try:
+                    from .native import NativeSandbox  # noqa: PLC0415
+
+                    candidate = NativeSandbox()
+                except Exception:  # noqa: BLE001
+                    candidate = None
+            elif prefer == "appcontainer":
+                try:
+                    from .appcontainer import WindowsAppContainerSandbox  # noqa: PLC0415
+
+                    candidate = WindowsAppContainerSandbox()
+                except Exception:  # noqa: BLE001
+                    candidate = None
             if candidate is not None and candidate.available():
                 return candidate
             return UnavailableSandbox()
@@ -309,7 +342,7 @@ def select_sandbox(prefer: Optional[str] = None) -> ExecutionSandbox:
         # fails closed rather than silently re-detecting a weaker backend.
         if _DEFAULT is not None:
             return _DEFAULT
-        for backend in (DockerSandbox(), LocalSandbox()):
+        for backend in _backends():
             if backend.available():
                 _DEFAULT = backend
                 return backend

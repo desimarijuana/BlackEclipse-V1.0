@@ -125,10 +125,18 @@
         "python/tests/test_c5_spawn.py",
         "python/tests/test_c5_blackboard.py",
         "python/tests/test_c5_task_spawn_bridge.py",
+        "python/tests/test_c6_auth.py",
+        "python/tests/test_c6_profiles.py",
+        "python/tests/test_c6_effect_tokens.py",
+        "python/tests/test_c6_escape.py",
+        "python/tests/test_c6_executor_profile.py",
+        "python/tests/test_c6_native.py",
+        "python/tests/test_c6_plugin_signing.py",
+        "python/tests/test_c6_appcontainer_live.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
-      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor) and C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn) shipped. Sandbox profiles, external evals, SLOs and release (C6-C9) remain."
+      "note": "C1 (retry/deadline), C2 (registry, vocabulary, ledger, cursor, Fabric task execution, ExecutionEvent log, RunScope), C3 (offload, discovery, lazy surface, sandboxed code mode), C4 (goal/plan/step, evidence ledger, verifier registry, answer seam, bounded evidence replan, plan cursor), C5 (spawn over Fabric, blackboard, child evidence, deterministic synthesis, A2A/team execution through spawn) and C6 (auth-by-default outside loopback, sandbox profiles enforced at the gateway and terminal/computer executors, native bubblewrap/Seatbelt/AppContainer backends, per-call effect tokens, escape suite, Ed25519/HMAC plugin install signature/review) shipped. A human plugin-review UI, external evals, SLOs and release remain."
     }
   ]
 }

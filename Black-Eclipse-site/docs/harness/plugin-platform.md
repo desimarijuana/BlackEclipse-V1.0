@@ -1,7 +1,7 @@
 ---
 title: Plugin Platform
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-11-11
 ---
 
 # Plugin Platform
@@ -170,6 +170,23 @@ still apply. A plugin crash cannot crash Eclipse Core; per-call timeouts and
 message-size limits bound a misbehaving child, and an optional
 `HARNESS_PLUGIN_MAX_MEMORY_MB` sets a POSIX address-space limit. Lifecycle, tools,
 commands, hooks, workers and UI all cross the boundary.
+
+## Install signature and review (C6)
+
+An install is a supply-chain decision. `plugins/signing.py` checks a `plugin.sig`
+sidecar (or an explicit signature) covering the canonical manifest
+(id/version/publisher/permissions) plus the package content digest; the sidecar
+is excluded from that digest.
+
+- **Ed25519 publisher signature** — `ed25519:<hex>`, verified against
+  `HARNESS_PLUGIN_TRUSTED_KEYS` (comma-separated 32-byte hex public keys). The
+  implementation is dependency-free RFC 8032 (`plugins/ed25519.py`).
+- **Operator HMAC** — `hmac-sha256:<hex>` with `HARNESS_PLUGIN_SIGNING_KEY`.
+- `HARNESS_PLUGIN_REQUIRE_SIGNATURE=1` refuses a missing/invalid signature; with
+  no key material it fails closed as `PLUGIN_SIGNING_UNAVAILABLE`.
+- `HARNESS_PLUGIN_REQUIRE_REVIEW=1` requires `install(..., operator=True)`.
+- Bundled/trusted packages are exempt (`verification="official"`); install and
+  update both enforce the gate and roll back on refusal.
 
 ## OAuth 2.0
 

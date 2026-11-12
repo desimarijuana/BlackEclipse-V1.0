@@ -88,6 +88,35 @@ def sandbox_requirement(action: str) -> Optional[str]:
     return None
 
 
+def profile_requirement(action: str) -> Optional[str]:
+    """The sandbox PROFILE the operator configured, and whether it is enforceable.
+
+    `BLACK_ECLIPSE_SANDBOX_PROFILE` names a promise (`read-only`,
+    `workspace-write`, `network-allowlist`, `full`). If the host cannot keep that
+    promise, the execution is refused rather than silently downgraded.
+    """
+    if action not in _EXECUTION_ACTIONS:
+        return None
+    from .profiles import configured_profile, resolve_profile
+
+    profile = configured_profile()
+    if profile is None:
+        return None
+    plan = resolve_profile(profile)
+    if not plan.enforceable:
+        return plan.reason or f"sandbox profile {profile.value!r} is not enforceable here"
+    return None
+
+
+def _attach_effect_token(
+    ctx: Any, *, run_id: str, tool: str, args: dict[str, Any], tenant: Optional[str],
+) -> None:
+    """Bind the ALLOW decision to this exact call (C6 effect tokens)."""
+    from .effect_tokens import attach_token
+
+    attach_token(ctx, run_id=run_id, tool=tool, args=args, tenant_id=tenant)
+
+
 def _environment_for(ctx: Any) -> Environment:
     """Resolve the environment from the run context, the deploy action, or the
     process default (`BLACK_ECLIPSE_ENVIRONMENT`). Default: development."""
@@ -135,6 +164,18 @@ def make_security_authorizer(
             except Exception:  # noqa: BLE001
                 pass
             return False
+        profile_refusal = profile_requirement(action)
+        if profile_refusal:
+            try:
+                active.audit_event(
+                    type="security.sandbox.profile_blocked", category="sandbox",
+                    tool=name, action=action, decision=Decision.DENY.value,
+                    result="denied", error=profile_refusal, tenant_id=tenant,
+                    session_id=(session_id or run_id),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return False
         security_context = None
         if getattr(active, "sessions", None) is not None and resolved_session:
             security_context = active.sessions.get_or_create(
@@ -173,13 +214,22 @@ def make_security_authorizer(
                 request, context=security_context, claim_approval=True,
                 defer_policy_approval=True,
             )
+            if claimed.allowed:
+                _attach_effect_token(
+                    ctx, run_id=run_id, tool=name, args=args, tenant=tenant,
+                )
             return claimed.allowed
         # ALLOW: the inner chain remains the approval authority for the tool's
-        # own semantics (single-use, digest-bound, per capability).
-        return bool(await inner(tool, args, ctx)) if inner is not None else True
+        # own semantics (single-use, digest-bound, per capability). The effect
+        # token binds this decision to the exact tool + arguments the executor
+        # is about to run.
+        approved = bool(await inner(tool, args, ctx)) if inner is not None else True
+        if approved:
+            _attach_effect_token(ctx, run_id=run_id, tool=name, args=args, tenant=tenant)
+        return approved
 
     authorize.__security_authorizer__ = True  # type: ignore[attr-defined]
     return authorize
 
 
-__all__ = ["classify_tool", "make_security_authorizer"]
+__all__ = ["classify_tool", "make_security_authorizer", "profile_requirement"]

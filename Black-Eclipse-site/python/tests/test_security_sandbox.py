@@ -85,7 +85,7 @@ def test_select_sandbox_never_returns_unbounded():
     sandbox = select_sandbox(prefer="does-not-exist")
     assert sandbox.name == "unavailable"
     chosen = select_sandbox()
-    assert chosen.name in ("docker", "local", "unavailable")
+    assert chosen.name in ("docker", "native", "appcontainer", "local", "unavailable")
 
 
 def test_sandbox_requirement_gate(monkeypatch):

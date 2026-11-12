@@ -194,6 +194,24 @@ async def _computer_use(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
             result = await core.act(action, **params)
             await _emit(ctx, "computer.action", {"action": action, "verdict": result.verdict, "dryRun": True})
             return _ok(action, _render_result(result), result.to_dict())
+        # C6: UI input injection is execution too. A configured profile this host
+        # cannot enforce is refused here, not only at the authorization seam.
+        from ..security.profiles import executor_guard  # noqa: PLC0415
+
+        profile_refusal, profile_plan = executor_guard()
+        if profile_refusal:
+            await _emit(ctx, "sandbox.profile.blocked", {
+                "action": action,
+                "profile": profile_plan.profile.value if profile_plan else None,
+                "missing": list(profile_plan.missing) if profile_plan else [],
+                "reason": profile_refusal,
+            })
+            return (
+                f"UNAVAILABLE (SANDBOX_UNAVAILABLE): {profile_refusal}",
+                {"status": "unavailable", "code": "SANDBOX_UNAVAILABLE",
+                 "reason": profile_refusal,
+                 "profile": profile_plan.profile.value if profile_plan else None},
+            )
         if action in ("click", "double_click", "right_click", "middle_click"):
             ok, refusal = await _require_permission(ctx, session, "click", action=action, tool="computer_use")
             if not ok:

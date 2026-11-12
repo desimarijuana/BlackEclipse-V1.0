@@ -11430,7 +11430,7 @@ research gates; it runs after them and adds the cross-domain ledger.
 `runTimeoutMs`; the Fabric owns lease, retry, timeout and cancellation. A child
 returns a `ChildOutcome` with output, claims, handles, artifacts and usage; its
 evidence is copied into the parent's `EvidenceLedger` with a `child:<runId>`
-verifier. Up to four children run together and return a deterministic synthesis
+verifier. Up to eight children run together and return a deterministic synthesis
 (dedupe by claim text, conflict when values/evidence differ, provenance on every
 item). `board_write`/`board_read`/`board_search` share one bounded blackboard per
 ROOT run, found by walking `parentRunId`; unrelated trees are isolated.
@@ -11455,3 +11455,50 @@ attempt is now routed through `spawn` at the task-executor seam
 a Fabric `agent` job and its `ChildOutcome` is mapped back to the task outcome;
 without a Fabric it falls back to the inline executor. `delegate` remains the
 legacy entry point for the old path.
+
+## ADR-H355 - The safety envelope is a named profile plus a per-call token
+
+**Decision.** Isolation has four named profiles — `read-only`,
+`workspace-write`, `network-allowlist`, `full` — resolved by
+`security/profiles.py`. A plan is `enforceable` only when the active backend
+reports every guarantee the profile promises; otherwise it names the missing
+guarantees and the gateway refuses an execution action when the operator
+configured that profile (`security.sandbox.profile_blocked`). `network-allowlist`
+is only enforceable through a configured egress proxy; the allowlist matcher is
+exact-or-`*.domain` and rejects suffix masquerades. Separately, the security
+authorizer mints a signed **effect token** bound to
+`(runId, tool, argument digest, tenant, expiry)` on ALLOW, and the tool executor
+verifies it immediately before the handler runs.
+
+**Why.** The audit's finding was "strong policy, weak enforcement": the
+gateway decided *whether* an action was allowed, but nothing bound that decision
+to the bytes that actually executed, and the sandbox reported guarantees without
+saying whether a given promise was achievable on this host. A profile plus a
+call-bound token closes both gaps without a second authorization path.
+
+**Consequences.** A host that cannot keep a profile is an honest refusal, never
+a silent fall to `local`. Effect tokens default to `shadow` (mint + verify, but
+record a missing token instead of blocking) while the migration lands;
+`HARNESS_EFFECT_TOKENS=enforce` makes every non-read call fail closed with
+`TOOL_FORBIDDEN` when its token is missing, expired, already used, or bound to
+different arguments. Tokens use `HARNESS_AUTH_SECRET` when set and a random
+per-process key otherwise, so zero-config local keeps working. Auth stays
+required by default for a non-loopback bind or a production build; loopback
+`npm run dev` remains zero-config. The four escape classes (path traversal, env
+exfiltration, fork bomb, raw egress) are covered by `test_c6_escape.py`. The
+terminal and background-process executors call `executor_guard()` before spawning
+(`test_c6_executor_profile.py`), and `computer_use` does the same before input
+injection, so a profile cannot be bypassed by a caller that skips the gateway.
+Native backends: `NativeSandbox` uses Linux bubblewrap and macOS Seatbelt with
+pure, tested argv/policy builders; `WindowsAppContainerSandbox` is the opt-in
+Windows primitive (package SID, zero network capabilities, workspace-only ACL)
+and refuses on any launch failure. Both are covered by `test_c6_native.py` and
+the opt-in `test_c6_appcontainer_live.py` (live filesystem-escape proof). Plugin
+installs pass a signature + review gate: `plugin.sig` is either an Ed25519
+publisher signature (trusted public keys, RFC 8032 implementation verified
+against the standard vector) or an operator HMAC, over the canonical manifest and
+package digest. `HARNESS_PLUGIN_REQUIRE_SIGNATURE=1` fails closed without key
+material and `HARNESS_PLUGIN_REQUIRE_REVIEW=1` requires the operator
+acknowledgment; install and update both roll back on refusal
+(`test_c6_plugin_signing.py`). Remaining follow-up: a human review UI (the review
+gate is the explicit operator decision, not a UI).

@@ -1,6 +1,6 @@
 ---
 title: Round 5 - Core Integrity (a world-class general harness)
-status: In progress (C0–C5 shipped 2026-11-11; C6–C9 open)
+status: In progress (C0-C6 shipped 2026-11-11; C7-C9 open)
 last-verified: 2026-11-11
 depends_on: rounds 1-4, docs/harness/architecture.md, docs/harness/execution-fabric.md
 ---
@@ -53,7 +53,8 @@ one tool contract, one policy seam, plus the tests that prove it.
 | C3 context/tool economics | **Done** | measured model-window budgeting + provider usage (pre-existing); always-on deterministic compaction (pre-existing); artifact handles + `read_tool_output` pager; `tool_search`/`tool_invoke`; opt-in `HARNESS_LAZY_TOOLS`; sandboxed read-only `tool_code` (`HARNESS_CODE_MODE=1`). |
 | C4 plan/verify/evidence | **Done** | goal/plan/step view; `EvidenceClaim`/`Handle` ledger; verifier registry (finance/citation/code/artifact); answer seam; bounded evidence replan; plan cursor in checkpoint; outcome blocks. |
 | C5 one agent fabric | **Done** | `spawn` over Fabric `agent` jobs; depth/fanout/token caps; shared root-scoped blackboard; child evidence in the parent ledger; deterministic synthesis; A2A/team task execution routed through `spawn` (`tasks/spawn_bridge.py`). |
-| C6–C9 | **Not started** | — |
+| C6 safety envelope | **Shipped** | auth-by-default outside loopback; `SandboxProfile` resolver + gateway/executor enforcement (terminal, background, computer); native bubblewrap/Seatbelt/AppContainer; per-call effect tokens; escape suite; Ed25519/HMAC plugin install signing + review. Follow-up: human review UI. |
+| C7-C9 | **Not started** | - |
 
 The remainder is the plan below; nothing in it is claimed as done.
 
@@ -350,6 +351,42 @@ is available, with an inline fallback; `delegate` remains the legacy entry point
 
 **Acceptance.** escape suite (path traversal, env exfil, fork bomb, egress)
 passes; zero effectful actions without a capability token; audit chain verifies.
+
+**Shipped (core, 2026-11-11).**
+- Auth posture: required by default for a non-loopback bind or a production
+  build; loopback `npm run dev` stays zero-config; a non-loopback request without
+  a signed `X-Harness-Identity` resolves ANONYMOUS (`test_c6_auth.py`).
+- `security/profiles.py`: `read-only | workspace-write | network-allowlist |
+  full`, with `resolve_profile()` returning `enforceable=False` + the exact
+  `missing` guarantees when the host cannot keep the promise; exact-or-wildcard
+  egress allowlist; `path_within()` traversal check; `GET /sandbox` reports each
+  profile's enforceability. A configured profile the host cannot enforce refuses
+  an execution action at the gateway (`security.sandbox.profile_blocked`).
+- `security/effect_tokens.py`: HMAC tokens bound to
+  `(runId, tool, argsDigest, tenant, expiry)`, minted by the security authorizer
+  on ALLOW and verified by the tool executor before the handler runs. Modes
+  `off | shadow (default) | enforce`; enforce mode covers missing, expired,
+  replayed, cross-run and widened-argument tokens (`test_c6_effect_tokens.py`).
+- Escape suite: `test_c6_escape.py` covers path traversal/mount scope, env
+  exfiltration, fork-bomb pid/memory bounds, and raw egress without a proxy.
+- Executor wiring: `terminal_run` (foreground), background process spawn and
+  `computer_use` call `executor_guard()` and refuse an unenforceable configured
+  profile; proven by `test_c6_executor_profile.py`.
+- Native backends: `NativeSandbox` with Linux bubblewrap (`--ro-bind`/`--bind`,
+  `--unshare-net`) and macOS Seatbelt (deny writes/network) argv/policy builders,
+  selected before Local. `WindowsAppContainerSandbox` is the opt-in Windows
+  primitive (package SID, no network capability, workspace-only ACL); the live
+  smoke proves a command runs and cannot read outside the granted workspace
+  (`test_c6_native.py`, `test_c6_appcontainer_live.py`).
+- Plugin install signing/review: `plugins/signing.py` + `plugins/ed25519.py`,
+  Ed25519 publisher keys or operator HMAC over manifest + digest, `plugin.sig`
+  excluded from the content digest, `HARNESS_PLUGIN_REQUIRE_SIGNATURE` /
+  `HARNESS_PLUGIN_REQUIRE_REVIEW`, install + update rollback on refusal
+  (`test_c6_plugin_signing.py`, RFC 8032 vector included).
+
+**Remaining for C6 (honest).**
+- The review gate is the explicit operator acknowledgment (`operator=True`), not
+  a human review UI.
 
 ### C7 - Observability that bites (P1, 5 days)
 

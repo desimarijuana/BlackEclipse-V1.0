@@ -216,7 +216,23 @@ class PluginManager:
         target = self._plugins_dir / manifest.id
         placed = self._place_package(src_dir, package, target, manifest)
         digest = checksum(target)
-        verification = "official" if trust == "trusted" or self._is_bundled(src_dir) else "checksum"
+        official = trust == "trusted" or self._is_bundled(src_dir)
+        # C6: signature + review gate (official/bundled packages are exempt).
+        from .signing import check_install  # noqa: PLC0415
+
+        gate = {
+            "verification": "official", "signed": False, "reviewed": bool(operator),
+        }
+        if not official:
+            try:
+                gate = check_install(
+                    manifest, digest, operator=operator, directory=target,
+                )
+            except Exception:
+                # A refused install leaves no package behind.
+                shutil.rmtree(target, ignore_errors=True)
+                raise
+        verification = gate["verification"] if not official else "official"
         record = PluginRecord(
             plugin_id=manifest.id, name=manifest.name, version=manifest.version,
             publisher=manifest.publisher_id, manifest=manifest.to_dict(),
@@ -351,6 +367,11 @@ class PluginManager:
                 self._apply_package(src_dir, package, target, backup, new_manifest)
                 digest = checksum(target)
                 manifest = new_manifest
+                # C6: the update path is an install too; a required signature or
+                # review that is missing rolls back via the except block below.
+                from .signing import check_install  # noqa: PLC0415
+
+                gate = check_install(manifest, digest, operator=operator, directory=target)
                 record = PluginRecord(
                     plugin_id=plugin_id, name=manifest.name, version=manifest.version,
                     publisher=manifest.publisher_id, manifest=manifest.to_dict(),
@@ -358,7 +379,8 @@ class PluginManager:
                     installation_path=str(target), sdk_version=manifest.sdk_version,
                     runtime_type=manifest.runtime.type, permissions=list(manifest.permissions),
                     dependencies=[d.model_dump() for d in manifest.dependencies],
-                    checksum=digest, verification=record.verification,
+                    checksum=digest,
+                    verification="signature" if gate["signed"] else record.verification,
                     installed_at=record.installed_at, updated_at=now_iso(),
                 )
                 self.store.upsert_plugin(record)

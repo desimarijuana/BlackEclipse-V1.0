@@ -16,6 +16,13 @@ from .capabilities import Capability, CapabilityEngine, CapabilityError
 from .classification import classify_tool, effect_tool_names
 from .config import SecurityConfig
 from .context import IsolationViolation, SessionRegistry
+from .effect_tokens import (
+    EffectTokenBroker,
+    EffectVerdict,
+    enforce_call,
+    issue_for_call,
+    token_mode,
+)
 from .floor import FloorRule, SecurityFloor, default_floor
 from .gateway import SecurityGateway
 from .identity import (
@@ -45,8 +52,15 @@ from .models import (
     Verdict,
 )
 from .network import NetworkDenied, NetworkPolicyEngine, NetworkRule
+from .native import NativeSandbox
 from .permissions import PermissionGrant, PermissionSet
 from .policy import PolicyDocument, PolicyEngine, PolicyError, PolicyRule
+from .profiles import (
+    ProfilePlan,
+    SandboxProfile,
+    describe_profiles,
+    resolve_profile,
+)
 from .risk import RiskEngine
 from .sandbox import (
     DockerSandbox,
@@ -92,6 +106,8 @@ __all__ = [
     "DockerSandbox",
     "Environment",
     "ExecutionSandbox",
+    "EffectTokenBroker",
+    "EffectVerdict",
     "FloorRule",
     "Identity",
     "IsolationViolation",
@@ -99,6 +115,7 @@ __all__ = [
     "NetworkDenied",
     "NetworkPolicyEngine",
     "NetworkRule",
+    "NativeSandbox",
     "OsKeychainProvider",
     "Permission",
     "PermissionGrant",
@@ -108,9 +125,11 @@ __all__ = [
     "PolicyError",
     "PolicyProfile",
     "PolicyRule",
+    "ProfilePlan",
     "RiskEngine",
     "RiskLevel",
     "SandboxResult",
+    "SandboxProfile",
     "SandboxSpec",
     "SandboxUnavailable",
     "SecretAccessDenied",
@@ -130,8 +149,13 @@ __all__ = [
     "classify_tool",
     "default_floor",
     "default_tenant_root",
+    "describe_profiles",
     "effect_tool_names",
+    "enforce_call",
     "get_sandbox",
+    "issue_for_call",
+    "resolve_profile",
+    "token_mode",
     "front_door_requires_auth",
     "multi_tenant_required",
     "normalize_tenant",

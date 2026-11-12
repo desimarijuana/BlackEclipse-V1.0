@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-11
 ---
 
 # Harness Architecture
@@ -661,6 +661,27 @@ timeout is bounded, and a missing isolation primitive is a named refusal — nev
 an unsandboxed fallback. Containment is process/resource/network/env plus a fresh
 temp cwd, not a filesystem jail; the operator flag is for a single-user install,
 and multi-tenant use waits for C6's filesystem profiles.
+
+**Safety is a named profile plus a per-call token (Round 5 / C6, ADR-H355).**
+`security/profiles.py` turns the isolation promise into a plan:
+`read-only | workspace-write | network-allowlist | full`. `resolve_profile`
+maps it to the active backend and reports `enforceable=False` with the exact
+missing guarantees when the host cannot keep it; nothing silently downgrades. The
+egress allowlist is exact-or-`*.domain`, and `network-allowlist` requires a
+configured egress proxy (a raw bridge is not an allowlist). The security
+authorizer mints a signed **effect token** bound to `(run, tool, args, tenant,
+expiry)` and the tool executor verifies it before the handler runs, so a widened
+or replayed call is refused. Tokens default to `shadow`; `HARNESS_EFFECT_TOKENS=
+enforce` is the gate. Auth is required by default for a non-loopback bind or a
+production build, while loopback `npm run dev` stays zero-config. The terminal
+executor and background-process spawner call `executor_guard()` themselves, so a
+configured profile is enforced below the gateway too; `computer_use` does the
+same before input injection. Native isolation comes from `bubblewrap` on Linux,
+Seatbelt on macOS and (opt-in) AppContainer on Windows; without the opt-in,
+Windows keeps Job Object process/resource isolation and refuses
+isolation-requiring profiles. Untrusted plugins already run out-of-process;
+installs now pass a signature + review gate with Ed25519 publisher keys
+(`plugin.sig`) or operator HMAC over manifest + package digest.
 
 **There is one way to spawn a child (Round 5 / C5, ADR-H354).** The `spawn`
 tool submits a normal Fabric `agent` job (`parentRunId`, `maxSteps`,

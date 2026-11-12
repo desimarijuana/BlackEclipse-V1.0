@@ -157,6 +157,29 @@ class TerminalManager:
                     message="That folder is not there.", exit_code=None,
                 ),
             )
+        # C6: the executor itself honours a configured sandbox profile. A profile
+        # this host cannot enforce is a refusal, not a silent local fallback.
+        from ..security.profiles import executor_guard  # noqa: PLC0415
+
+        profile_refusal, profile_plan = executor_guard()
+        if profile_refusal:
+            self.emit("sandbox.profile.blocked", {
+                "executionId": execution_id,
+                "profile": profile_plan.profile.value if profile_plan else None,
+                "missing": list(profile_plan.missing) if profile_plan else [],
+                "reason": profile_refusal,
+            })
+            return CommandResult(
+                execution_id=execution_id, status="unavailable", exit_code=None,
+                stdout="", stderr="", duration_ms=0, timed_out=False, truncated=False,
+                cwd=str(cwd), runtime=runtime,
+                command=redaction.redact_command(command),
+                error=CommandError(
+                    type="SANDBOX_UNAVAILABLE",
+                    category=ErrorCategory.RUNTIME_UNAVAILABLE.value,
+                    message=profile_refusal,
+                ),
+            )
         try:
             exec_runtime = self._runtime(runtime, distro=distro)
             if shell_mode:

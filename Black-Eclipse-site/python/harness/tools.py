@@ -238,6 +238,11 @@ class ToolContext:
     # manager's re-assert) does not consume a second single-use approval. Cleared
     # by the registry at the start of every tool call.
     effect_authorized_digest: Any = None
+    # C6: the effect token minted for THIS call by the security authorizer, and
+    # the reason the last verification produced. The token binds the exact
+    # run/tool/arguments; the executor verifies it before the handler runs.
+    effect_token: Any = None
+    effect_token_reason: Any = None
     # Approval-card mode: when True, a non-read tool with no matching approval
     # PAUSES the run (awaiting the operator's decision via the decide route)
     # instead of being refused outright. The decision is still the single-use,
@@ -616,6 +621,11 @@ class ToolRegistry:
                 ctx.effect_authorized_digest = None
             except Exception:  # noqa: BLE001
                 pass
+            # C6: a token from a PREVIOUS call must never authorize this one.
+            try:
+                ctx.effect_token = None
+            except Exception:  # noqa: BLE001
+                pass
             if authorizer is not None:
                 # Arity-tolerant and exception-safe (shared with the MCP manager
                 # seam): a failing authorizer must never authorize.
@@ -625,6 +635,19 @@ class ToolRegistry:
                     call_id, name, "TOOL_FORBIDDEN",
                     f"Tool {name!r} has effect {tool.effect or tool.permission!r} and is not approved for this call",
                     started,
+                )
+            # C6: the executor re-checks that the approved call is the exact call
+            # about to run. Shadow mode records; enforce mode fails closed.
+            from .security.effect_tokens import enforce_call  # noqa: PLC0415
+
+            verdict = enforce_call(ctx, name, clean)
+            if not verdict.ok:
+                return self._failure(
+                    call_id, name, "TOOL_FORBIDDEN",
+                    f"Tool {name!r} is effectful and the call is not bound to a valid "
+                    f"effect token: {verdict.reason}",
+                    started,
+                    data={"effectToken": verdict.to_dict()},
                 )
             store = getattr(ctx, "memory_store", None)
             if store is not None:

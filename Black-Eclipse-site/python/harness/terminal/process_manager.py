@@ -198,6 +198,25 @@ class ProcessManager:
                     "message": f"too many processes are already running (limit {self._limits.max_processes})",
                 },
             }
+        # C6: a configured profile the host cannot enforce refuses the spawn here
+        # too, so a caller that bypassed the gateway still cannot run unisolated.
+        from ..security.profiles import executor_guard  # noqa: PLC0415
+
+        profile_refusal, profile_plan = executor_guard()
+        if profile_refusal:
+            self._emit("sandbox.profile.blocked", {
+                "profile": profile_plan.profile.value if profile_plan else None,
+                "missing": list(profile_plan.missing) if profile_plan else [],
+                "reason": profile_refusal,
+            })
+            return {
+                "processId": None, "state": "FAILED", "runtime": runtime,
+                "error": {
+                    "type": "SANDBOX_UNAVAILABLE",
+                    "category": ErrorCategory.RUNTIME_UNAVAILABLE.value,
+                    "message": profile_refusal,
+                },
+            }
         process_id = "proc_" + uuid.uuid4().hex[:12]
         created = now_iso()
         record = _Record(

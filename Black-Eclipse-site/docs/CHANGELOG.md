@@ -1,6 +1,66 @@
 # Change Log
 
 ## 2026-11-11
+- **feat(harness): C6 completed — AppContainer, Ed25519 publisher signatures,
+  computer-executor guard.** `security/appcontainer.py` adds the opt-in Windows
+  native boundary (`BLACK_ECLIPSE_WINDOWS_APPCONTAINER=1`): a package SID, zero
+  network capabilities, a workspace-only `icacls` grant, a scrubbed environment
+  (plus the `LOCALAPPDATA` the AppContainer loader requires) and a
+  `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` launch; every failure is a
+  refusal. The live smoke proves a child runs and cannot read outside its
+  granted workspace. `plugins/ed25519.py` implements RFC 8032 verify/sign with
+  no new dependency (pinned by the standard test vector); `plugins/signing.py`
+  accepts `ed25519:` publisher signatures verified against
+  `HARNESS_PLUGIN_TRUSTED_KEYS` alongside the operator HMAC. `computer_use` now
+  calls `executor_guard()` before input injection. New tests:
+  `test_c6_appcontainer_live.py` (opt-in live), Ed25519 + unknown-key cases in
+  `test_c6_plugin_signing.py`, computer refusal in `test_c6_executor_profile.py`;
+  related suites 562 passed (2 opt-in skips), AppContainer live 2 passed. Docs
+  updated: `docs/harness/security.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H355),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/scorecard.json`, `docs/harness/scorecard.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): C6 safety envelope completed — executor enforcement, native
+  backends, plugin install signing.** `terminal_run` and background-process
+  spawn now call `executor_guard()` and refuse a configured profile the host
+  cannot keep (`sandbox.profile.blocked`), below the gateway. `NativeSandbox`
+  adds Linux bubblewrap and macOS Seatbelt with pure argv/policy builders and
+  honest Windows-unavailable reporting; selection order is Docker → Native →
+  Local. `plugins/signing.py` adds a `plugin.sig` sidecar (HMAC over canonical
+  manifest + package digest, sidecar excluded from the digest),
+  `HARNESS_PLUGIN_REQUIRE_SIGNATURE` (fails closed without a key) and
+  `HARNESS_PLUGIN_REQUIRE_REVIEW` (operator acknowledgment), enforced on install
+  and update with rollback. New tests: `test_c6_executor_profile.py`,
+  `test_c6_native.py`, `test_c6_plugin_signing.py`; related terminal/plugin/
+  security suites 420 passed. Remaining documented follow-ups: Windows
+  AppContainer, public-key publisher signatures, computer-executor guard. Docs
+  updated: `docs/harness/security.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H355),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/scorecard.json`,
+  `docs/harness/scorecard.md`, `docs/CHANGELOG.md`.
+- **feat(harness): C6 safety envelope (core) — sandbox profiles, effect tokens,
+  escape suite.** `security/profiles.py` defines `read-only | workspace-write |
+  network-allowlist | full`; `resolve_profile()` reports `enforceable=False` with
+  the exact missing guarantees instead of silently downgrading, and the gateway
+  refuses an execution action when a configured profile is unenforceable
+  (`security.sandbox.profile_blocked`). `network-allowlist` requires
+  `BLACK_ECLIPSE_EGRESS_PROXY`; the allowlist is exact-or-`*.domain` and rejects
+  suffix masquerades; `GET /sandbox` reports every profile. `security/
+  effect_tokens.py` mints an HMAC token bound to `(run, tool, argsDigest, tenant,
+  expiry)` at the authorizer ALLOW and the tool executor verifies it before the
+  handler runs (modes `off | shadow (default) | enforce`); enforce mode refuses
+  missing, expired, replayed, cross-run and widened-argument calls. New
+  `test_c6_{auth,profiles,effect_tokens,escape}.py` pin auth-by-default outside
+  loopback (loopback dev stays zero-config), the four escape classes and the
+  token gate. Remaining: executor-level profile wiring, native
+  AppContainer/bubblewrap/seatbelt backends, plugin install signing. Docs
+  updated: `docs/harness/security.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H355),
+  `docs/harness/roadmap/round-5-core-integrity.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/scorecard.json`,
+  `docs/harness/scorecard.md`, `docs/CHANGELOG.md`.
 - **feat(desktop): v0.3.4 release hardening.** Windows installer now checks for
   the WebView2 Runtime and silently installs the bundled Evergreen bootstrapper
   when missing, re-checks, and otherwise shows actionable manual instructions

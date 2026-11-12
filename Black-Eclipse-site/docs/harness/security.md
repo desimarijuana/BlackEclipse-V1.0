@@ -1,7 +1,7 @@
 ---
 title: Security — one decision path for every privileged operation
 status: Current
-last-verified: 2026-11-06
+last-verified: 2026-11-11
 ---
 
 # Security
@@ -162,6 +162,22 @@ drop a parent constraint. A valid capability bound to the exact request satisfie
 an approval (but never a floor hard-deny). Capabilities persist on
 `agent-memory.db` and are revoked when a session closes.
 
+## Effect tokens (`security/effect_tokens.py`)
+
+Authorization answers *may this happen*; an effect token answers *is this the
+exact call that was authorized*. When the security authorizer returns ALLOW it
+mints an HMAC-SHA256 token bound to `(runId, tool, argument digest, tenant,
+expiry)` and attaches it to the run context. The tool executor verifies it
+immediately before the handler runs, so a call whose arguments changed after
+approval, a token replayed from another run/tool, or an expired token is refused.
+
+Modes via `HARNESS_EFFECT_TOKENS`: `off`, `shadow` (**default** — mint/verify,
+record a missing token, never block) and `enforce` (every non-read call must
+carry a valid, single-use token; fail closed with `TOOL_FORBIDDEN` and an
+`effectToken` diagnostic). Tokens use `HARNESS_AUTH_SECRET` when configured; with
+no secret the broker uses a random per-process key, so zero-config local still
+works and the token never outlives the process that issued it.
+
 ## Secrets (`security/secrets.py`)
 
 - Referenced by identifier: `secret://<provider>/<name>`. Providers: `env`, a
@@ -194,6 +210,15 @@ Permission Engine decides *whether*; the sandbox decides *where/how*). The
   primitive (Windows Job Object / POSIX process groups) with an allowlist-only
   environment. It reports `filesystemIsolation: false` / `networkIsolation: false`
   honestly - it is not a container.
+- **`NativeSandbox`** (`security/native.py`) - the OS primitive where one exists:
+  Linux `bubblewrap` (mount namespace, `--ro-bind` / `--bind`, `--unshare-net`)
+  and macOS `sandbox-exec` Seatbelt (deny writes/network with explicit workspace
+  exceptions). On Windows it reports unavailable.
+- **`WindowsAppContainerSandbox`** (`security/appcontainer.py`) - the Windows
+  native boundary, opt-in with `BLACK_ECLIPSE_WINDOWS_APPCONTAINER=1`: a
+  `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` launch with a package SID, no
+  network capabilities, a workspace-only `icacls` grant and a scrubbed
+  environment. Any failure is a refusal, never an unrestricted run.
 
 **What actually runs today.** `terminal_run`, `shell_run` and the package /
 build handlers use the LOCAL tier: the command runs as a host process with a
@@ -209,11 +234,55 @@ For a deployment that must not run on the host, set
 setting until a container-backed executor is wired into the command tools.
 - **`UnavailableSandbox`** — fails every operation closed.
 
-`select_sandbox()` prefers Docker, then Local, then Unavailable — it never returns
-an unbounded backend. `BLACK_ECLIPSE_SANDBOX_BACKEND` forces a preference.
+`select_sandbox()` prefers Docker, then the native OS primitive (bubblewrap /
+seatbelt / AppContainer), then Local, then Unavailable — it never returns an
+unbounded backend. `BLACK_ECLIPSE_SANDBOX_BACKEND` forces a preference;
+`native` and `appcontainer` select their backend explicitly and refuse if absent.
 `BLACK_ECLIPSE_SANDBOX_REQUIRED` (`1` = any backend must exist, `docker` = Docker
 must be active) makes the gateway **refuse** an execution action when the required
 isolation is absent, audited as `security.sandbox.blocked`.
+
+### Sandbox profiles (`security/profiles.py`, C6)
+
+A **profile** is the promise a run makes; a backend is the primitive that must
+keep it. `resolve_profile()` maps one onto the other and returns
+`enforceable=False` with the exact `missing` guarantees when the host cannot keep
+the promise — never a silent downgrade:
+
+| Profile | Promise | Requires |
+|---|---|---|
+| `read-only` | workspace mounted read-only, no network, scrubbed env | process + filesystem + network + secret isolation |
+| `workspace-write` | workspace writable, no network | process + filesystem + network isolation |
+| `network-allowlist` | as above + egress only through the proxy | the three above + `BLACK_ECLIPSE_EGRESS_PROXY` |
+| `full` | no fs/network promise beyond process + resource limits | process isolation |
+
+`allowlist_permits()` is exact-or-`*.domain` and rejects a suffix masquerade
+(`api.example.com.evil.com`); `path_within()` resolves `..` before comparing.
+Set `BLACK_ECLIPSE_SANDBOX_PROFILE` and the gateway refuses an execution action
+when the system cannot enforce that profile (`security.sandbox.profile_blocked`).
+The **terminal executor itself** also calls `executor_guard()` before it spawns a
+foreground command or a background process, so a caller that bypassed the gateway
+still cannot run unisolated. `GET /sandbox` reports every profile's
+enforceability on this host.
+
+## Plugin install signing (`plugins/signing.py`, C6)
+
+A plugin install is a supply-chain event. On top of the checksum and trust level:
+
+- **`plugin.sig`** — either `ed25519:<hex>` (public-key publisher signature,
+  verified against `HARNESS_PLUGIN_TRUSTED_KEYS`, a comma-separated list of
+  32-byte hex public keys) or `hmac-sha256:<hex>` (operator/shared-secret).
+  Both cover the canonical manifest (id/version/publisher/permissions) and the
+  package digest; `plugin.sig` is excluded from that digest, so signing is a
+  stable second pass.
+- `HARNESS_PLUGIN_REQUIRE_SIGNATURE=1` makes a missing/invalid signature a
+  refusal; with no trusted Ed25519 key (and no HMAC key) the install fails
+  closed as `PLUGIN_SIGNING_UNAVAILABLE`, never downgraded to a checksum.
+- `HARNESS_PLUGIN_REQUIRE_REVIEW=1` requires the install call's `operator=True`
+  review acknowledgment (`PLUGIN_REVIEW_REQUIRED` otherwise).
+- A valid signature is recorded as `verification="signature"`; bundled/trusted
+  packages are exempt (`official`). Both install and update pass the gate; a
+  refused install removes the placed package.
 
 ## Network (`security/network.py`)
 
@@ -389,8 +458,13 @@ reload races), `test_security_network_secrets.py`, `test_security_integration.py
 `test_security_bypass_audit.py` (every effect tool is classified),
 `test_security_sandbox.py`, `test_security_audit_sink.py`,
 `test_security_secret_providers.py`, `test_security_tenancy.py` (identity +
-tenant isolation), `test_security_ratelimit.py` and `test_security_tenant_store.py`
-(per-tenant physical isolation). All passing (see `pytest -k security`).
+tenant isolation), `test_security_ratelimit.py`, `test_security_tenant_store.py`
+(per-tenant physical isolation), and the C6 suites `test_c6_auth.py`,
+`test_c6_profiles.py`, `test_c6_effect_tokens.py` and `test_c6_escape.py`
+(traversal, env exfiltration, fork bomb, raw egress), plus
+`test_c6_executor_profile.py`, `test_c6_native.py`,
+`test_c6_plugin_signing.py` (including the RFC 8032 Ed25519 vector) and the
+opt-in `test_c6_appcontainer_live.py`. All passing.
 
 ## Honest boundaries
 
@@ -409,6 +483,23 @@ tenant isolation), `test_security_ratelimit.py` and `test_security_tenant_store.
   `LocalSandbox` (process isolation only, no filesystem/network isolation) or, if no
   primitive exists, `UnavailableSandbox` (fail closed). The sandbox is an available
   boundary, not yet wired as the mandatory wrapper around every execution path.
+- **Effect tokens default to `shadow`.** The mint/verify path and the executor
+  check are live, but a missing token is recorded rather than refused until
+  `HARNESS_EFFECT_TOKENS=enforce` is set (the migration window). Enforce mode is
+  covered by tests, including argument widening after approval.
+- **Sandbox profiles are enforced at the authorization seam and by the
+  terminal/computer executors.** `terminal_run`, background processes and
+  `computer_use` refuse a configured profile the host cannot enforce. Native
+  filesystem/network isolation is available through Docker, Linux bubblewrap,
+  macOS seatbelt and (opt-in) Windows AppContainer. Without the opt-in, Windows
+  keeps process/resource isolation via the Job Object backend and refuses
+  isolation-requiring profiles unless Docker is active.
+- **Plugin isolation + install signing.** An `untrusted` Python plugin runs in a
+  separate OS process over JSON-RPC with proxied permissions, crash isolation,
+  bounded messages and timeouts; `community`/`verified` plugins run in-process
+  unless `HARNESS_PLUGIN_SANDBOX=1`. Installs support an Ed25519 publisher
+  signature or an operator HMAC, plus a mandatory review acknowledgment. The
+  review gate is an explicit operator decision, not a human review UI.
 - The OS keychain / CLI secret providers are real integrations but report
   unavailable unless the native store or the configured CLI is present.
 - Identity is now **verified at the edge** and tenant-scoped in the security plane

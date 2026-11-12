@@ -37,7 +37,18 @@ def _sandbox_state() -> dict[str, Any]:
         "packageLockDigest": package_lock_digest() or None,
         "required": sandbox_mod.isolation_required(),
         "satisfied": sandbox_mod.isolation_satisfied(),
+        "profiles": _profile_report(),
     }
+
+
+def _profile_report() -> list[dict[str, Any]]:
+    """C6: per-profile enforceability on this host (honest `missing` names)."""
+    try:
+        from ..security.profiles import describe_profiles  # noqa: PLC0415
+
+        return describe_profiles()
+    except Exception:  # noqa: BLE001 - observability must never break the route
+        return []
 
 
 @router.get("/sandbox")

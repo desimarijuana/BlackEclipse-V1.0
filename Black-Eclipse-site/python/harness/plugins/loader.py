@@ -24,7 +24,7 @@ from .manifest import PluginManifest, parse_manifest
 
 MANIFEST_FILES = ("plugin.yaml", "plugin.yml", "plugin.json")
 # Files never counted toward the plugin's content checksum (transient artifacts).
-_CHECKSUM_SKIP = {"__pycache__", ".git", ".pytest_cache", ".DS_Store", "data"}
+_CHECKSUM_SKIP = {"__pycache__", ".git", ".pytest_cache", ".DS_Store", "data", "plugin.sig"}
 
 
 class LoadError(PluginError):
