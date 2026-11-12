@@ -1,0 +1,32 @@
+[
+  {
+    "id": "financebench.gross_margin.001",
+    "version": 1,
+    "name": "FinanceBench fixture: gross margin",
+    "description": "Offline FinanceBench-style single-figure extraction/calculation.",
+    "category": "finance",
+    "difficulty": "easy",
+    "input": {"prompt": "Gross profit is 600 and revenue is 1500. What is the gross margin percent?"},
+    "expected_output": {"numeric": {"value": 40.0, "tolerance": 0.01}},
+    "graders": [
+      {"name": "financial", "config": {"metric": "gross_margin", "inputs": {"revenue": 1500, "gross_profit": 600}, "tolerance": 0.01}},
+      {"name": "exact"}
+    ],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "Gross margin is 40.0% (600 / 1500)."}]}
+  },
+  {
+    "id": "financebench.ev_ebitda.001",
+    "version": 1,
+    "name": "FinanceBench fixture: EV/EBITDA",
+    "description": "Offline FinanceBench-style ratio calculation.",
+    "category": "finance",
+    "difficulty": "easy",
+    "input": {"prompt": "Enterprise value is 900 and EBITDA is 180. What is EV/EBITDA?"},
+    "expected_output": {"numeric": {"value": 5.0, "tolerance": 0.01}},
+    "graders": [
+      {"name": "financial", "config": {"metric": "ev_ebitda", "inputs": {"ev": 900, "ebitda": 180}, "tolerance": 0.01}},
+      {"name": "exact"}
+    ],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "EV/EBITDA is 5.0 (900 / 180)."}]}
+  }
+]

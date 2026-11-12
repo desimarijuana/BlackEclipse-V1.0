@@ -49,5 +49,6 @@ manifest; never leave a silent skip.
 - The fault matrix covers retry/deadline/cancel/duplicate-effect primitives, not
   a full kill-at-every-state process matrix yet (C8 follow-up).
 - Golden traces compare structure/terminal state, not byte-identical timing.
-- External benchmarks (SWE-bench Lite, GAIA, tau-bench, FinanceBench) are C8.2,
-  not part of this offline gate.
+- External benchmarks (SWE-bench Lite, GAIA, tau-bench, FinanceBench) run through
+  `npm run gate:external` on committed two-task fixtures; the real benchmark data
+  is opt-in and never committed.

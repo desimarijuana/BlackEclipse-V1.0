@@ -15,6 +15,16 @@
   affordance only, no contract or setup impact.
 
 ## 2026-11-11
+- **feat(eval): C8.2-C8.6 — external adapters, finance QA, comparability.**
+  One `DatasetAdapter` protocol with four offline fixtures (SWE-bench Lite,
+  GAIA, tau-bench, FinanceBench), each two license-labelled, provenance-tagged
+  tasks; `npm run gate:external` passes and is wired into CI. `finance_qa_v1`
+  adds nine deterministic QA tasks (margins, EPS, P/E, CAGR, percentage change,
+  drawdown, position size, unavailable-figure honesty). `compare_release`
+  refuses to blend incomparable reports (dataset set/version/checksum/tier/grader).
+  Documented that the offline tier is already the real graph. Tests:
+  `test_c8_{external,finance_qa,compare,offline_tier}.py`; ADR-H358. Docs:
+  `agent-evaluation.md`, `conformance.md`, `decisions.md`.
 - **feat: close the audit backlog — client recovery, per-run cost, versioned
   audit corpus.** The chat client now remembers the server-started `runId`; a
   dropped stream polls the run to terminal instead of submitting a second run,

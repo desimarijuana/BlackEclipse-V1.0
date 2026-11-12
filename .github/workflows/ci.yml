@@ -97,6 +97,8 @@ jobs:
         run: node scripts/slo-gate.js
       - name: Conformance gate
         run: node scripts/conformance-gate.js
+      - name: External adapter gate
+        run: node scripts/external-gate.js
       - name: Tests (Vitest + Python)
         run: npm test
 

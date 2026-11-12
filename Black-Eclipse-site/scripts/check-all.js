@@ -51,6 +51,7 @@ run("harness size budget", "node", ["scripts/size-budget.js"]);
 // committed regression allowance.
 run("SLO release gate", "node", ["scripts/slo-gate.js"]);
 run("conformance gate", "node", ["scripts/conformance-gate.js"]);
+run("external adapter gate", "node", ["scripts/external-gate.js"]);
 run("tests (vitest + python)", "npm", ["run", "test"]);
 run("eval gates", "node", ["scripts/test-evals.js"]);
 // 10b. The independent-audit corpus: numeric contracts, provenance, leases,

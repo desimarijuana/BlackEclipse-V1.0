@@ -1,0 +1,26 @@
+[
+  {
+    "id": "taubench.order_status.001",
+    "version": 1,
+    "name": "tau-bench fixture: order lookup",
+    "description": "Offline tau-bench-style tool-use scenario; the answer must come from the tool result.",
+    "category": "tools",
+    "difficulty": "easy",
+    "input": {"prompt": "Look up order A100 and report its status."},
+    "expected_output": {"contains": "shipped"},
+    "graders": [{"name": "exact"}],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "Order A100 is shipped."}]}
+  },
+  {
+    "id": "taubench.return_policy.001",
+    "version": 1,
+    "name": "tau-bench fixture: return policy",
+    "description": "Offline tau-bench-style policy question with a bounded answer.",
+    "category": "tools",
+    "difficulty": "easy",
+    "input": {"prompt": "Can an order delivered 40 days ago be returned under the 30-day policy?"},
+    "expected_output": {"contains": "cannot"},
+    "graders": [{"name": "exact"}],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "It cannot be returned: the 30-day window has passed."}]}
+  }
+]

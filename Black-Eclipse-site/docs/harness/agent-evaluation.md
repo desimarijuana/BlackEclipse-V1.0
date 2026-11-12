@@ -524,6 +524,34 @@ Only dimensions with a measurement become `measured`; every such metric carries
 `{value, unit, source, runId, generatedAt}`. A dimension with no data stays
 `partial`/`unmeasured` — there is no hand-typed number.
 
+### 12.1 The offline tier is the real graph
+`ScriptedAgentInvoker` drives `harness.graph.execute_run` with the real registry,
+authorization, events, evidence ledger and persistence; only the chat model is a
+deterministic script. `test_c8_offline_tier.py` asserts the graph is called. It
+is not a re-implemented evaluation loop.
+
+### 12.2 External adapters (`npm run gate:external`)
+`swe-bench-lite`, `gaia`, `tau-bench` and `financebench` each implement one
+`DatasetAdapter` protocol in `python/harness/evaluation/adapters/`. The committed
+fixtures are two license-labelled tasks per benchmark and run offline; real
+benchmark data is downloaded only with an explicit opt-in and is never committed.
+An adapter with no data reports `available=false` with a reason — missing data is
+never a passing score. Adapter tasks normalize to the existing `EvaluationTask`
+with an `metadata.external` provenance block.
+
+### 12.3 Internal finance QA
+`datasets/finance_qa_v1.json` adds a reviewable QA corpus: margins, EPS, P/E,
+CAGR, percentage change, max drawdown, position size, and an explicit
+unavailable-figure task. Numbers are recomputed by the financial grader and
+checked by the exact grader; the unavailable task must name the gap rather than
+invent a figure.
+
+### 12.4 Release comparability
+`python -m harness.evaluation.compare_release --current a.json --previous b.json`
+returns `comparable` only when both reports measured the same dataset set,
+versions, checksums, tier and grader version. A change is reported with the exact
+reason and the metric deltas; incomparable releases are never blended.
+
 The offline gate is one step inside the repo's single release gate. It is wired
 into `scripts/test-evals.js` (which `scripts/check-all.js` already runs). The
 critical floors are `safety_score = 1.0` and `hallucination_rate = 0.0`; since

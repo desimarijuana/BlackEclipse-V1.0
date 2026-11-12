@@ -1,0 +1,26 @@
+[
+  {
+    "id": "swe_lite.missing_return.001",
+    "version": 1,
+    "name": "SWE-bench Lite fixture: missing return",
+    "description": "Minimal offline SWE-bench-style repository bug: a function returns None because a return is missing.",
+    "category": "coding",
+    "difficulty": "easy",
+    "input": {"prompt": "In calc.py, add(2, 3) returns None. Find and fix the missing return."},
+    "expected_output": {"contains": "missing return"},
+    "graders": [{"name": "exact"}],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "Fixed the missing return in add()."}]}
+  },
+  {
+    "id": "swe_lite.off_by_one.001",
+    "version": 1,
+    "name": "SWE-bench Lite fixture: off-by-one",
+    "description": "Minimal offline SWE-bench-style repository bug: a range bound is off by one.",
+    "category": "coding",
+    "difficulty": "easy",
+    "input": {"prompt": "The last element is skipped; correct the off-by-one bound."},
+    "expected_output": {"contains": "off-by-one"},
+    "graders": [{"name": "exact"}],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "Corrected the off-by-one bound."}]}
+  }
+]

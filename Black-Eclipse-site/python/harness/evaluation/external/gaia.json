@@ -1,0 +1,32 @@
+[
+  {
+    "id": "gaia.finance.net_margin.001",
+    "version": 1,
+    "name": "GAIA fixture: net margin",
+    "description": "Offline GAIA-style multi-step finance question with all inputs in the prompt.",
+    "category": "finance",
+    "difficulty": "easy",
+    "input": {"prompt": "Revenue is 2000 and net income is 300. What is the net margin percent?"},
+    "expected_output": {"numeric": {"value": 15.0, "tolerance": 0.01}},
+    "graders": [
+      {"name": "financial", "config": {"metric": "net_margin", "inputs": {"revenue": 2000, "net_income": 300}, "tolerance": 0.01}},
+      {"name": "exact"}
+    ],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "Net margin is 15.0% (300 / 2000)."}]}
+  },
+  {
+    "id": "gaia.finance.cagr.001",
+    "version": 1,
+    "name": "GAIA fixture: CAGR",
+    "description": "Offline GAIA-style growth question.",
+    "category": "finance",
+    "difficulty": "medium",
+    "input": {"prompt": "Revenue grew from 100 to 144 over 2 years. What is the CAGR percent?"},
+    "expected_output": {"numeric": {"value": 20.0, "tolerance": 0.01}},
+    "graders": [
+      {"name": "financial", "config": {"metric": "cagr", "inputs": {"begin": 100, "end": 144, "years": 2}, "tolerance": 0.01}},
+      {"name": "exact"}
+    ],
+    "metadata": {"tier": 0, "suites": ["external"], "split": "validation", "agent_script": [{"type": "final", "content": "CAGR is 20.0%."}]}
+  }
+]

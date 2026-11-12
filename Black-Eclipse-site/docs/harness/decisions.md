@@ -11553,3 +11553,26 @@ and the external adapters remain C8 follow-ups. The gate is offline and runs in
 CI before the test suite, so a core-loop regression fails fast. It reuses the ONE
 retry policy, effect ledger and observability projector; there is no second
 harness.
+
+## ADR-H358 - External evidence is opt-in, comparable or explicitly not
+
+**Decision.** The four external benchmark adapters (SWE-bench Lite, GAIA,
+tau-bench, FinanceBench) implement one `DatasetAdapter` protocol. Committed data
+is a two-task, license-labelled offline fixture per adapter; real benchmark data
+is downloaded only with an explicit opt-in and is never committed. An adapter
+with no data is `available=false` with a reason. Adapter tasks normalize to the
+existing `EvaluationTask` with `metadata.external` provenance. Release reports
+are compared by `compare_release`: same dataset set, version, checksum, tier and
+grader version, or the pair is reported incomparable with the exact cause.
+
+**Why.** Adding four benchmarks as four bespoke harnesses would create four
+measurement contracts and four ways to fabricate a number. A single protocol plus
+a hard comparability check keeps the claim honest: a score belongs to a named
+dataset version and tier, and a missing download is not a pass.
+
+**Consequences.** Offline CI runs the fixtures (fast, no network); live
+benchmark numbers require an operator opt-in and are published with their
+dataset/checksum/tier. The finance QA corpus (`finance_qa_v1`) is the internal
+counterpart: deterministic numbers, recomputed by the financial grader, plus an
+explicit unavailable-figure task. The offline tier is already the real graph
+(`ScriptedAgentInvoker` calls `execute_run`); only the model is scripted.

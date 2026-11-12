@@ -185,6 +185,11 @@
         "python/tests/test_c7_dashboard_api.py",
         "python/tests/test_c7_usage.py",
         "python/tests/test_c8_conformance.py",
+        "python/tests/test_c8_scorecard.py",
+        "python/tests/test_c8_external.py",
+        "python/tests/test_c8_finance_qa.py",
+        "python/tests/test_c8_compare.py",
+        "python/tests/test_c8_offline_tier.py",
         "python/tests/test_graph.py",
         "python/tests/test_tools.py"
       ],
