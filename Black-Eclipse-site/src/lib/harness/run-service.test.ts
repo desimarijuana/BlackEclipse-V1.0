@@ -9,7 +9,7 @@ const startRunBackground = vi.fn();
 const getLLMConfig = vi.fn();
 const resolveChatCodeProfile = vi.fn();
 
-vi.mock("./python-client", () => ({
+vi.mock("./clients/python-client", () => ({
   runViaRuntime: (...a: unknown[]) => runViaRuntime(...a),
   listAgentsFromRuntime: (...a: unknown[]) => listAgentsFromRuntime(...a),
   startRunBackground: (...a: unknown[]) => startRunBackground(...a),

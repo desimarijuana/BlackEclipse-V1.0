@@ -9,8 +9,8 @@ import { useT } from "@/lib/i18n/use-t";
 import {
   listEvolutionSurfaceLabCandidatesBrowser,
   queueEvolutionSurfaceLabCandidateBrowser,
-} from "@/lib/harness/evolution-browser";
-import type { EvolutionSurfaceLabCandidate } from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-browser";
+import type { EvolutionSurfaceLabCandidate } from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 
 export interface RslLabCardProps {

@@ -7,8 +7,8 @@
 
 import { useT } from '@/lib/i18n/use-t';
 import { CheckCircle2, CircleSlash, MinusCircle } from '@/lib/icons';
-import type { RuntimeModelView, RuntimeProviderView } from '@/lib/harness/model-runtime-browser';
-import { healthBucket, dynKey, type HealthRow } from '@/lib/harness/model-runtime-browser';
+import type { RuntimeModelView, RuntimeProviderView } from '@/lib/harness/clients/model-runtime-browser';
+import { healthBucket, dynKey, type HealthRow } from '@/lib/harness/clients/model-runtime-browser';
 
 interface Props {
   providers: RuntimeProviderView[];

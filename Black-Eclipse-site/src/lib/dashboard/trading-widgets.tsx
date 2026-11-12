@@ -29,7 +29,7 @@ import {
   type OrderIntent,
   type OrderPreview,
   type TradeApproval,
-} from '@/lib/harness/trading-client';
+} from '@/lib/harness/clients/trading-client';
 
 const UP = 'text-emerald-400';
 const DOWN = 'text-rose-400';

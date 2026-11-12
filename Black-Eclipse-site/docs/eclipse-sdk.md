@@ -96,6 +96,8 @@ The sidebar's fixed sections have an **app-wide** configuration: order and
 visibility. The active nav mode (`terminal`, `agentic`, `bots`, `graph`) is
 **per shell**: each browser tab/window owns its mode in `sessionStorage`, and a
 remote nav event updates the sections without overriding an open shell's mode.
+Inside the desktop shell, whose browser-style tabs share one webview, the tab
+strip stores the mode on each tab record instead (see `desktop/README.md`).
 The shared mode in JDDS `SystemConfig` under `eclipse_app_shell_nav` is the
 seed a newly opened shell starts from. `localStorage` remains the instant-paint
 cache and still owns per-browser keyboard shortcuts (they are not app-wide).

@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { downloadUrl } from '@/lib/harness/artifacts-browser';
+import { downloadUrl } from '@/lib/harness/clients/artifacts-browser';
 import { renderChart, type ChartFigureData, type RenderedChart } from '@/lib/harness/charts';
 import { PlotlyChart } from '@/components/charts/plotly-chart';
 import { chartBlockToSpec, type ChartPlan } from '@/lib/response/chart-spec';
@@ -33,7 +33,7 @@ import { chartSpecWarning } from '@/lib/response/chart-capabilities';
 import { fetchQuantFigure, hydrateChartBlock } from '@/lib/response/chart-data';
 import { registerChartArtifact, unregisterChart } from '@/lib/response/chart-registry';
 import { Code, Loader2, Maximize2, Minimize2, X } from '@/lib/icons';
-import { generateChartSource } from '@/lib/harness/notebook-client';
+import { generateChartSource } from '@/lib/harness/clients/notebook-client';
 import { useNotebook } from '@/components/chat/notebook-provider';
 import type { ChartBlock } from '@/lib/response/contract';
 import { cn } from '@/lib/utils';

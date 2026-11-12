@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Message } from '@/types/chat';
 import type { HarnessUiEvent } from '@/lib/agent/events';
 import { ChatRequestError } from '@/lib/agent/registry';
-import type { AutomationView } from '@/lib/harness/automation-client';
+import type { AutomationView } from '@/lib/harness/clients/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
 import { useBotChatStore } from '@/lib/bots/chat-store';

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { runWorkflow } from "@/lib/harness/workflows-client";
+import { runWorkflow } from "@/lib/harness/clients/workflows-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { getLLMConfig } from "@/lib/settings";
 import { runtimeBaseUrl, runtimeCallbackToken } from "@/lib/harness/runtime-auth";

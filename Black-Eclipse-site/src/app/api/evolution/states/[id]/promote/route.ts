@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { promoteEvolutionState } from "@/lib/harness/evolution-client";
+import { promoteEvolutionState } from "@/lib/harness/clients/evolution-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

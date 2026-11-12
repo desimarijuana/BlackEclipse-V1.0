@@ -6,7 +6,7 @@
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeProxyHeaders } from "@/lib/harness/runtime-identity";
-import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
+import { HarnessRuntimeUnavailable } from "@/lib/harness/clients/python-client";
 
 export interface GraphAssetMeta {
   assetId: string;

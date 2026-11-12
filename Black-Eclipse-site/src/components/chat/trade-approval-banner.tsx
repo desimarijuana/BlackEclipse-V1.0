@@ -23,7 +23,7 @@ import {
   type BrokerConnection,
   type OrderIntent,
   type TradeApproval,
-} from '@/lib/harness/trading-client';
+} from '@/lib/harness/clients/trading-client';
 
 const POLL_MS = 6000;
 const LIVE_ORDER_STATUSES = new Set(['pending', 'approved']);

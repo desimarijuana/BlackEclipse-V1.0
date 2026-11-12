@@ -699,15 +699,17 @@ async def history_catalog(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
                 {"status": "ok", "series": [], "count": 0})
     lines = []
     for row in series:
+        store = row.get("store") or "history_cache"
         if symbol:
             lines.append(f"{row.get('symbol')} {row.get('interval')}: "
                          f"{row.get('barCount')} bars, {row.get('start')} -> "
-                         f"{row.get('end')}")
+                         f"{row.get('end')} [store={store}]")
         else:
             lines.append(f"{row.get('symbol')} {row.get('interval')}: "
                          f"{row.get('barCount')} bars from {row.get('provider')}, "
-                         f"{row.get('start')} -> {row.get('end')}")
-    return ("\n".join(lines), {"status": "ok", "series": series, "count": len(series)})
+                         f"{row.get('start')} -> {row.get('end')} [store={store}]")
+    return ("\n".join(lines), {"status": "ok", "store": "history_cache",
+                               "series": series, "count": len(series)})
 
 
 def register_market_tools(registry: Any) -> None:
@@ -740,10 +742,12 @@ def register_market_tools(registry: Any) -> None:
     )
     _def(
         "history_catalog",
-        "What history this machine already holds: the durable local copy of the "
-        "market Eclipse has already paid for - which instruments, how many bars, "
-        "how fresh, and from which provider. With `symbol`, the coverage of that "
-        "one instrument. Served from the local cache; no provider is called.",
+        "What provider-cached history this machine already holds (store="
+        "history_cache): which instruments, how many bars, how fresh, and from "
+        "which provider. This is the durable copy of bars fetched from providers; "
+        "it is NOT the JDdS vault and its counts are not JDdS counts. With "
+        "`symbol`, the coverage of that one instrument. Served from the local "
+        "cache; no provider is called.",
         history_catalog,
         {"type": "object", "properties": {
             "symbol": {"type": "string"},

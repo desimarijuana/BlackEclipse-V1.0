@@ -4,7 +4,7 @@
 // versioned surface) and opening the artifact-backed editor. Shared by the dock
 // header and the chat banner so both paths behave identically.
 
-import { createCanvasArtifact } from '@/lib/harness/canvas-client';
+import { createCanvasArtifact } from '@/lib/harness/clients/canvas-client';
 import { responseToJson } from '@/lib/response/export';
 import { useCommandStore, type CanvasSource } from '@/lib/search/store';
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { createJob, listJobs, type CreateJobInput } from "@/lib/harness/jobs-client";
+import { createJob, listJobs, type CreateJobInput } from "@/lib/harness/clients/jobs-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

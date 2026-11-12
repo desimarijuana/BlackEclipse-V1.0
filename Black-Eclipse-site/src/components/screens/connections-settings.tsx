@@ -35,7 +35,7 @@ import {
   type ChannelMessageView,
   type ChannelsHealth,
   type ControlScope,
-} from "@/lib/harness/channels-browser";
+} from "@/lib/harness/clients/channels-browser";
 
 interface FieldSpec {
   key: string;

@@ -6,13 +6,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const verifyMCPServer = vi.fn();
 
-vi.mock("@/lib/harness/mcp-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/harness/mcp-client")>();
+vi.mock("@/lib/harness/clients/mcp-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/harness/clients/mcp-client")>();
   return { ...actual, verifyMCPServer: (...args: unknown[]) => verifyMCPServer(...args) };
 });
 
 import { POST } from "@/app/api/harness/mcp/servers/[id]/verify/route";
-import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
+import { HarnessRuntimeUnavailable } from "@/lib/harness/clients/python-client";
 
 function request(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("http://localhost:3000/api/harness/mcp/servers/notion/verify", {

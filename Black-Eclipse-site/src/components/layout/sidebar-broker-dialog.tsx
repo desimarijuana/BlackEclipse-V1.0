@@ -75,7 +75,7 @@ import {
   type BrokerQuote,
   type BrokerWorkingOrder,
   type LedgerOrder,
-} from "@/lib/harness/trading-client";
+} from "@/lib/harness/clients/trading-client";
 import {
   BrokerActivityPanel,
   BrokerOrdersPanel,

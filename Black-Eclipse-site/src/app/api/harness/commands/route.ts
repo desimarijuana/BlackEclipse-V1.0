@@ -8,8 +8,8 @@
 
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
-import { allCommands, isCommandAvailable, type CommandSpec } from "@/lib/harness/command-registry";
-import { loadProjectCommands } from "@/lib/harness/command-plugins";
+import { allCommands, isCommandAvailable, type CommandSpec } from "@/lib/harness/commands/command-registry";
+import { loadProjectCommands } from "@/lib/harness/commands/command-plugins";
 
 export const dynamic = "force-dynamic";
 

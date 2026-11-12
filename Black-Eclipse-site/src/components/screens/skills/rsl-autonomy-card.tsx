@@ -12,12 +12,12 @@ import {
   getEvolutionAutonomyStatusBrowser,
   listEvolutionStatesBrowser,
   setEvolutionAutonomyPausedBrowser,
-} from "@/lib/harness/evolution-browser";
+} from "@/lib/harness/clients/evolution-browser";
 import type {
   EvolutionAutonomyApplyResult,
   EvolutionAutonomyStatus,
   EvolutionHarnessState,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 
 export interface RslAutonomyCardViewProps {

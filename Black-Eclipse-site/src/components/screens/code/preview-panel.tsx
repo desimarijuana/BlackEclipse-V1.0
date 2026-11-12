@@ -16,7 +16,7 @@ import {
   stopCodePreview,
   type CodePreview,
   type PreviewTarget,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 
 export interface PreviewPanelProps {
   taskId?: string | null;

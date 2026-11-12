@@ -6,13 +6,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const getSkillExecution = vi.fn();
 const cancelSkillExecution = vi.fn();
 
-vi.mock("@/lib/harness/skills-client", () => ({
+vi.mock("@/lib/harness/clients/skills-client", () => ({
   getSkillExecution: (...a: unknown[]) => getSkillExecution(...a),
   cancelSkillExecution: (...a: unknown[]) => cancelSkillExecution(...a),
 }));
 
 import { GET, DELETE } from "@/app/api/skill-executions/[runId]/route";
-import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
+import { HarnessRuntimeUnavailable } from "@/lib/harness/clients/python-client";
 
 const params = Promise.resolve({ runId: "run_1" });
 

@@ -12,7 +12,7 @@ import type {
   ExecutionState,
   TriggerKind,
   TriggerView,
-} from '@/lib/harness/automation-client';
+} from '@/lib/harness/clients/automation-client';
 
 // ── Execution state vocabulary ───────────────────────────────────────────────
 

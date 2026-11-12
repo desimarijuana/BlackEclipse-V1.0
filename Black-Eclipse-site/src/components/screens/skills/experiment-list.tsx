@@ -9,7 +9,7 @@ import type { TranslateFn } from "@/lib/i18n/translate";
 import type {
   EvolutionExperiment,
   EvolutionLandingResult,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 
 function meta(experiment: EvolutionExperiment, key: string): unknown {

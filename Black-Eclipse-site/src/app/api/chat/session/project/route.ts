@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getWorkspaceRoots, listTrustedRoots } from "@/lib/harness/code-client";
+import { getWorkspaceRoots, listTrustedRoots } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import {
   readSessionProject,

@@ -12,7 +12,7 @@ import { CalendarDays, ChevronRight, Clock, Pause, Play, Plus } from '@/lib/icon
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotsStore } from '@/lib/bots/bots-store';
-import { pauseAutomation, resumeAutomation, type AutomationView } from '@/lib/harness/automation-browser';
+import { pauseAutomation, resumeAutomation, type AutomationView } from '@/lib/harness/clients/automation-browser';
 import { formatRelative, scheduleSummary, triggerClass } from '@/lib/bots/state';
 
 export interface ScheduledJobsPanelProps {

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Shield, Trash2, Loader2 } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
-import { listStandingGrants, revokeStandingGrant, type StandingGrant } from '@/lib/harness/grants-browser';
+import { listStandingGrants, revokeStandingGrant, type StandingGrant } from '@/lib/harness/clients/grants-browser';
 
 function kindLabel(kind: string): string {
   if (kind === 'command') return 'Command';

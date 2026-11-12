@@ -296,7 +296,7 @@ by cause (`*_NOT_FOUND` → 404, `REPAIR_*`/`INVALID_STATE` → 409,
 stable code in the detail body.
 
 The Next.js front door mirrors the established proxy pattern:
-`src/lib/harness/video-client.ts` (browser-safe fetch client, typed
+`src/lib/harness/clients/video-client.ts` (browser-safe fetch client, typed
 `VideoApiError` carrying the refusal code) → `src/app/api/video/[[...path]]/route.ts`
 (guard → runtime health → encoded upstream path; operator token + identity JWT
 forwarded). Render/preview/repair requests accept a `conversationId`: produced

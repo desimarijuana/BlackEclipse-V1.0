@@ -6,7 +6,7 @@ import {
   evaluateSkillVersion,
   isOperatorRequest,
   promoteSkillCanary,
-} from "@/lib/harness/skills-client";
+} from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

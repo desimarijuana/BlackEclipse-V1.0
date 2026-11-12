@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Command } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
-import { useCommandMemory } from '@/lib/harness/command-history';
+import { useCommandMemory } from '@/lib/harness/commands/command-history';
 import { useProjectCommands } from '@/lib/harness/use-project-commands';
-import type { CommandSpec } from '@/lib/harness/command-registry';
+import type { CommandSpec } from '@/lib/harness/commands/command-registry';
 import { buildCommandPalette, CommandPaletteBody } from './command-palette';
 
 export interface CommandPaletteDialogProps {

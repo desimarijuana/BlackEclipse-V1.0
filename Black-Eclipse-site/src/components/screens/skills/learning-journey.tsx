@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 import { GitBranch, Minimize2, RefreshCcw, X } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { learningJourney } from "@/lib/harness/skills-browser";
+import { learningJourney } from "@/lib/harness/clients/skills-browser";
 import type { JourneyNode, LearningJourney } from "@/lib/harness/skills-types";
 import { EmptyState, ErrorState, formatWhen, LoadingState, PanelHeader } from "./skill-ui";
 import { FullPageButton, KIND_COLOR, LearningGraphChart } from "./learning-graph";

@@ -28,7 +28,7 @@ Transactions ──▶ Tax lots ──▶ Positions ──▶ Valuation ──�
 - **Agent tools:** `python/harness/portfolio/tools.py` (registered on the shared
   `ToolRegistry`).
 - **HTTP:** `python/harness/routers/portfolio.py` (`/portfolio/*`, operator-gated).
-- **Front door:** `src/lib/harness/portfolio-client.ts`,
+- **Front door:** `src/lib/harness/clients/portfolio-client.ts`,
   `src/app/api/portfolio/[[...path]]/route.ts`, the engine-backed fund adapter
   `src/lib/portfolio/engine-funds.ts`, and the Funds screens
   `src/components/screens/portfolio/{index,fund-manager,fund-workspace}.tsx`.

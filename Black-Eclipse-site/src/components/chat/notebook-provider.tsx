@@ -17,7 +17,7 @@ import {
   restartNotebookKernel,
   runNotebookCell,
   saveNotebook,
-} from '@/lib/harness/notebook-client';
+} from '@/lib/harness/clients/notebook-client';
 import { NotebookPanel } from './notebook-panel';
 
 export interface ChartCellSeed {

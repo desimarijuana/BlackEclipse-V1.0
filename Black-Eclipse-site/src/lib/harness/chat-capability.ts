@@ -8,7 +8,7 @@
 // a model's opinion, and the front door's opinion, cannot grant a capability
 // (README §3.1, §3.2; ADR-H117).
 
-import { classifyCodeIntent, type CodeIntentVerdict } from "./code-client";
+import { classifyCodeIntent, type CodeIntentVerdict } from "./clients/code-client";
 
 // Re-export the client-safe view contract so an existing importer can keep using
 // this module; the panel imports the view module directly.

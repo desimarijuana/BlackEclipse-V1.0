@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sessionSearchHealth } from "@/lib/harness/eclipse-memory-client";
+import { sessionSearchHealth } from "@/lib/harness/clients/eclipse-memory-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

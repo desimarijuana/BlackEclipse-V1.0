@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BrokerAccount, BrokerFill, BrokerPosition } from '@/lib/harness/trading-client';
+import type { BrokerAccount, BrokerFill, BrokerPosition } from '@/lib/harness/clients/trading-client';
 import {
   buildDailyRealized,
   computeExposure,

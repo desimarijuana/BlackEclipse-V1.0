@@ -7,7 +7,7 @@ import {
   workspaceGraph,
   type ProviderReadiness,
   type WorkspaceGraph,
-} from "@/lib/harness/application-browser";
+} from "@/lib/harness/clients/application-browser";
 import { cn } from "@/lib/utils";
 
 /** The provider readiness + workspace graph view.

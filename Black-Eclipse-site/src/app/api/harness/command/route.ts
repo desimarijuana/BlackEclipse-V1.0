@@ -1,8 +1,8 @@
 import { guardMutation } from "@/lib/api-guard";
-import { executeCommandFromText, type CommandResult } from "@/lib/harness/command-router";
-import { buildAgentInstruction } from "@/lib/harness/command-agent";
-import { loadProjectCommands } from "@/lib/harness/command-plugins";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { executeCommandFromText, type CommandResult } from "@/lib/harness/commands/command-router";
+import { buildAgentInstruction } from "@/lib/harness/commands/command-agent";
+import { loadProjectCommands } from "@/lib/harness/commands/command-plugins";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { chatWithAgent } from "@/lib/harness/run-service";
 
 export const dynamic = "force-dynamic";

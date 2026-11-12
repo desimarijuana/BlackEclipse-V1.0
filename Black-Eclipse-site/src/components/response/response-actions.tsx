@@ -18,7 +18,7 @@ import {
   responseToJson,
   toBase64Utf8,
 } from '@/lib/response/export';
-import { registerArtifact } from '@/lib/harness/artifacts-browser';
+import { registerArtifact } from '@/lib/harness/clients/artifacts-browser';
 import { contentFromResponse } from '@/lib/canvas/content';
 import { toMarkdownProjection } from '@/lib/response/projection';
 import { TtsButton } from '@/components/chat/tts-button';

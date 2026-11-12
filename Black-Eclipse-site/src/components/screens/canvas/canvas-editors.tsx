@@ -7,7 +7,7 @@
 
 import dynamic from 'next/dynamic';
 import type { MutableRefObject } from 'react';
-import type { CanvasKind } from '@/lib/harness/canvas-client';
+import type { CanvasKind } from '@/lib/harness/clients/canvas-client';
 import { Loader2 } from '@/lib/icons';
 import type { CanvasEditorHandle, CanvasSelection } from './canvas-utils';
 import VisualEditor from './visual-editor';

@@ -17,7 +17,7 @@ import {
   listEvolutionLessonsBrowser,
   retireEvolutionLessonBrowser,
   runEvolutionRecursiveBrowser,
-} from "@/lib/harness/evolution-browser";
+} from "@/lib/harness/clients/evolution-browser";
 import type {
   EvolutionHarnessState,
   EvolutionLesson,
@@ -28,7 +28,7 @@ import type {
   EvolutionSurfaceExperimentResult,
   EvolutionSurfacePreview,
   EvolutionSurfaceSnapshot,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { SurfaceActivationCard } from "./surface-activation-card";
 
 const SAMPLE_VARIANTS = JSON.stringify(

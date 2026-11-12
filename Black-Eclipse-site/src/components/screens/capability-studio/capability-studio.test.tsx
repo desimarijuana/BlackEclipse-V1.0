@@ -14,9 +14,9 @@ import { CapabilityStudioScreen } from './capability-studio-screen';
 import { summarizeCapabilities } from './generated-section';
 import { summarizeSkills } from './skills-section';
 import { summarizeConnectors } from './integrations-section';
-import type { SkillListResult } from '@/lib/harness/skills-browser';
+import type { SkillListResult } from '@/lib/harness/clients/skills-browser';
 import type { SkillSummary } from '@/lib/harness/skills-types';
-import type { CapabilityRecord } from '@/lib/harness/capabilities-client';
+import type { CapabilityRecord } from '@/lib/harness/clients/capabilities-client';
 
 function skill(overrides: Partial<SkillSummary>): SkillSummary {
   return {

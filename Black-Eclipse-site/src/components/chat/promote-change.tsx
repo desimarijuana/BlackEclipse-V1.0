@@ -14,8 +14,8 @@ import { Check, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
-import { previewPromotion, applyPromotion, rollbackPromotion, restartHarnessRuntime, postLandingProbe } from '@/lib/harness/code-browser';
-import type { PromotionPreview, PromotionLanding } from '@/lib/harness/code-browser';
+import { previewPromotion, applyPromotion, rollbackPromotion, restartHarnessRuntime, postLandingProbe } from '@/lib/harness/clients/code-browser';
+import type { PromotionPreview, PromotionLanding } from '@/lib/harness/clients/code-browser';
 
 type Phase = 'idle' | 'loading' | 'preview' | 'applying' | 'done' | 'rolling_back' | 'rolled_back' | 'error';
 

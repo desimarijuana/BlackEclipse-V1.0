@@ -33,7 +33,7 @@ import {
 } from '@/lib/chat/session-client';
 import type { SessionFile } from '@/lib/chat/session-types';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
-import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
+import { listAutomationHistory, type ExecutionView } from '@/lib/harness/clients/automation-browser';
 import { mentionedTargets } from '@/lib/bots/mentions';
 import { forgetGroupMemory } from '@/lib/bots/purge';
 import { BotAvatar } from '@/components/bots/bot-avatar';
@@ -50,7 +50,7 @@ import { formatDateTime } from '@/lib/bots/state';
 import {
   pauseAutomation, resumeAutomation, runAutomationNow,
   type AutomationView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 
 export interface GroupChatRoomProps {
   group: BotGroup;

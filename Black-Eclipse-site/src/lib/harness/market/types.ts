@@ -9,7 +9,7 @@
 // existing SSRF-hardened outbound layer) or an existing scraper helper. No new
 // HTTP client, no new secret handling — credentials come from `resolveProviderKey`.
 
-import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
 
 /** One market-data capability request from the Python gateway. */
 export interface MarketDataRequest {

@@ -16,8 +16,8 @@ import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
 import { cn } from '@/lib/utils';
-import { createCodeTask, type CodeTask, type TaskStatus } from '@/lib/harness/code-browser';
-import { createJob } from '@/lib/harness/jobs-browser';
+import { createCodeTask, type CodeTask, type TaskStatus } from '@/lib/harness/clients/code-browser';
+import { createJob } from '@/lib/harness/clients/jobs-browser';
 
 const STATUS_KEY: Record<TaskStatus, TranslationKey> = {
   created: 'code.task.status.created',

@@ -407,6 +407,10 @@ class ToolContext:
 class DataBridge:
     """Read-only access to JDdS data via the TS harness.
 
+    This is the front-door bridge for JDdS-backed reads. It is NOT the durable
+    provider-bar cache (`market.series_store`, store=history_cache); the two
+    stores have different owners and different counts.
+
     Implementing it as a protocol-like class (rather than importing httpx here)
     keeps the registry testable with a fake, and keeps the single financial
     data path explicit.

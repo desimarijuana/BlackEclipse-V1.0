@@ -14,7 +14,7 @@
 import { getAgentProvider } from '@/lib/agent/registry';
 import type { ChatMessage } from '@/lib/agent/types';
 import type { HarnessUiEvent } from '@/lib/agent/events';
-import type { AutomationView } from '@/lib/harness/automation-client';
+import type { AutomationView } from '@/lib/harness/clients/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import { botModelPin } from '@/lib/bots/state';
 import { getGraphRun, isTerminal, startWorkflowRun } from '@/lib/graph-studio/execution-client';

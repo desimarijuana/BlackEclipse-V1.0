@@ -30,8 +30,8 @@ import { duplicateBot } from '@/lib/bots/duplicate';
 import { forgetBotLocally, forgetBotMemory } from '@/lib/bots/purge';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { executionLabel, isTerminalExecution } from '@/lib/bots/state';
-import { deleteAutomation, updateAutomation } from '@/lib/harness/automation-browser';
-import type { AutomationStatusSummaryView, AutomationView } from '@/lib/harness/automation-browser';
+import { deleteAutomation, updateAutomation } from '@/lib/harness/clients/automation-browser';
+import type { AutomationStatusSummaryView, AutomationView } from '@/lib/harness/clients/automation-browser';
 import type { BotMessage } from '@/lib/bots/chat-store';
 
 /** Most-recent activity for a bot: its last chat message, else its last run,

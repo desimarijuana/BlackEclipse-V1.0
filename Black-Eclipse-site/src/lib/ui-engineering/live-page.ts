@@ -18,7 +18,7 @@ import type {
 import type {
   WorkspaceLayout as WireLayout,
   WidgetPlacement as WirePlacement,
-} from '@/lib/harness/ui-client';
+} from '@/lib/harness/clients/ui-client';
 
 /** localStorage key under which a live page's user arrangement is cached. */
 export const LIVE_PAGE_STORAGE_PREFIX = 'be_ui_page_';

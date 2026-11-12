@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listMCPServers, upsertMCPServer } from "@/lib/harness/mcp-client";
+import { listMCPServers, upsertMCPServer } from "@/lib/harness/clients/mcp-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import type { MCPServerInput } from "@/lib/harness/mcp-types";
 

@@ -329,7 +329,7 @@ export interface AssistantTurn {
    */
   runId?: string;
   /** A typed client intent from a routed command (`navigate`/`openCanvas`). */
-  ui?: import('@/lib/harness/command-ui').CommandUiAction;
+  ui?: import('@/lib/harness/commands/command-ui').CommandUiAction;
   /**
    * The provider + model that actually served this turn (from the run record).
    * Absent until `client.final` arrives and for runs that did not report one.

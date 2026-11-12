@@ -12,7 +12,7 @@ import {
   listAutomations,
   type AutomationStatusSummaryView,
   type AutomationView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 import { isBotAutomation } from '@/lib/bots/state';
 
 /** botId → the last execution id whose output the operator has actually seen

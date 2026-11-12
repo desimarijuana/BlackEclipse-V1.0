@@ -28,7 +28,7 @@ import { summarizeRunNeeds } from '@/lib/graph-studio/run-authorization';
 import { parseRunInputText } from '@/lib/graph-studio/run-input';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
-import { listAutomations, type AutomationView } from '@/lib/harness/automation-browser';
+import { listAutomations, type AutomationView } from '@/lib/harness/clients/automation-browser';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';

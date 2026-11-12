@@ -5,7 +5,7 @@
 import {
   createAutomation,
   type AutomationView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 
 export async function duplicateBot(bot: AutomationView): Promise<AutomationView> {
   return createAutomation({

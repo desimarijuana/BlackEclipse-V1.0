@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { queueEvolutionSurfaceLabCandidateBrowser } from "@/lib/harness/evolution-browser";
+import { queueEvolutionSurfaceLabCandidateBrowser } from "@/lib/harness/clients/evolution-browser";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

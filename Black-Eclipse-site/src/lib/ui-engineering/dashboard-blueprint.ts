@@ -14,7 +14,7 @@
 
 import type { WorkspaceLayout as KernelLayout } from '@/lib/workspace/types';
 import { blueprintLayoutToKernel, kernelLayoutToWire } from '@/lib/ui-engineering/live-page';
-import { createPage, getBlueprint, resolveCurrentPage, saveLayout } from '@/lib/harness/ui-client';
+import { createPage, getBlueprint, resolveCurrentPage, saveLayout } from '@/lib/harness/clients/ui-client';
 
 const BP_KEY_PREFIX = 'be_dash_bp:';
 

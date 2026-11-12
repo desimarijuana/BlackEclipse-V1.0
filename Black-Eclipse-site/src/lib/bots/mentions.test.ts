@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AutomationView } from '@/lib/harness/automation-client';
+import type { AutomationView } from '@/lib/harness/clients/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import {
   buildMentionTargets,

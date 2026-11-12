@@ -6,7 +6,7 @@
 // fallback for older chats whose messages predate `runId`.
 
 import type { Message } from '@/types/chat';
-import { getChatSession } from '@/lib/harness/eclipse-memory-browser';
+import { getChatSession } from '@/lib/harness/clients/eclipse-memory-browser';
 import { loadRunSnapshot } from './history';
 import { useWorkspaceStore } from './store';
 

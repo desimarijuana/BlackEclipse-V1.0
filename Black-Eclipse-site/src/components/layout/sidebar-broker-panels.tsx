@@ -17,7 +17,7 @@ import type {
   BrokerWorkingOrder,
   LedgerOrder,
   OrderIntent,
-} from "@/lib/harness/trading-client";
+} from "@/lib/harness/clients/trading-client";
 
 // ── formatting ───────────────────────────────────────────────────────────────
 

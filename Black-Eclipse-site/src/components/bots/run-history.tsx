@@ -16,7 +16,7 @@ import {
   listAutomationHistory,
   resumeAutomationExecution,
   type ExecutionView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 import { formatDateTime, formatDuration, formatRelative, isTerminalExecution } from '@/lib/bots/state';
 import { runErrorHelp } from '@/lib/bots/run-error-help';
 

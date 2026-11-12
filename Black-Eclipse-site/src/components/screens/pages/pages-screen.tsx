@@ -26,7 +26,7 @@ import {
   saveLayout,
   type BlueprintSummary,
   type UiBlueprint,
-} from '@/lib/harness/ui-client';
+} from '@/lib/harness/clients/ui-client';
 import {
   blueprintLayoutToKernel,
   isDashboardMirrorPath,

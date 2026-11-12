@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJobRunArtifact } from "@/lib/harness/jobs-client";
+import { getJobRunArtifact } from "@/lib/harness/clients/jobs-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

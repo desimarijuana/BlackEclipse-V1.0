@@ -9,16 +9,16 @@ import {
   commandArgHint,
   isCommandAvailable,
   type CommandSpec,
-} from '@/lib/harness/command-registry';
+} from '@/lib/harness/commands/command-registry';
 import {
   buildCommandPalette,
   type CommandPaletteSection,
-} from '@/lib/harness/command-palette-model';
-import { useCommandMemory, toggleCommandFavorite } from '@/lib/harness/command-history';
+} from '@/lib/harness/commands/command-palette-model';
+import { useCommandMemory, toggleCommandFavorite } from '@/lib/harness/commands/command-history';
 import { useProjectCommands } from '@/lib/harness/use-project-commands';
 
 export { buildCommandPalette };
-export type { CommandPaletteModel, CommandPaletteSection } from '@/lib/harness/command-palette-model';
+export type { CommandPaletteModel, CommandPaletteSection } from '@/lib/harness/commands/command-palette-model';
 
 export interface CommandPaletteAnchor {
   left: number;

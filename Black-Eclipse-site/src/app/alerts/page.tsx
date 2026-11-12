@@ -1,6 +1,6 @@
 // Price & Condition Alerts — create/edit watches, live status, history.
 // Server shell; interactivity lives in alerts-client.tsx.
-import { AlertsClient } from "./alerts-client";
+import { AlertsClient } from "../../components/screens/alerts/alerts-client";
 import { ChatDock } from "@/components/chat/chat-dock";
 
 export const metadata = {

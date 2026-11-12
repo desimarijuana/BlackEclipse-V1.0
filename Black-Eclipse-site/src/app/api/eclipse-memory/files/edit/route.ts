@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import type { FileEditOperation } from "@/lib/harness/memory-files";
 import { applyFileEdit } from "@/lib/harness/memory-files";

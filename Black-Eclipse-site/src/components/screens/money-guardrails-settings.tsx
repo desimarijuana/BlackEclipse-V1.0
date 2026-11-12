@@ -15,7 +15,7 @@ import {
   updateMoneyGuardrailConfig,
   type MoneyGuardrailConfig,
   type MoneyGuardrailStatus,
-} from "@/lib/harness/finance-guardrails-client";
+} from "@/lib/harness/clients/finance-guardrails-client";
 
 const DECISION_TONE: Record<string, string> = {
   deny: "text-rose-300",

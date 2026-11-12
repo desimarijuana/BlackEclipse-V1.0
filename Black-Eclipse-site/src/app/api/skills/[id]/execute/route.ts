@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
-import { executeSkill, isOperatorRequest } from "@/lib/harness/skills-client";
+import { executeSkill, isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import type { ExecutionMode } from "@/lib/harness/skills-types";
 

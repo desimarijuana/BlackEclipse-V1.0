@@ -28,7 +28,7 @@ import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
 import { useContextPicker } from '@/lib/chat/use-context-picker';
 import { useProjectBinding } from '@/lib/chat/use-project-binding';
-import { searchWorkspaceFiles } from '@/lib/harness/code-browser';
+import { searchWorkspaceFiles } from '@/lib/harness/clients/code-browser';
 import type { FileRef } from '@/lib/chat/file-sources';
 import { buildUserTurn } from '@/lib/chat/paste';
 import { DEFAULT_QUOTE_PROMPT, turnTextForHarness } from '@/lib/chat/quote';
@@ -73,7 +73,7 @@ const ChartWidget = dynamic(() => import('@/components/chart/chart-widget').then
 // cold open; keeping this off the boot path is the better trade.
 const Settings = dynamic(() => import('./settings').then((m) => m.Settings), { ssr: false, loading: () => <ScreenSkeleton /> });
 import type { SectionId } from './settings';
-const AlertsScreen = dynamic(() => import('@/app/alerts/alerts-client').then((m) => m.AlertsClient), {
+const AlertsScreen = dynamic(() => import('@/components/screens/alerts/alerts-client').then((m) => m.AlertsClient), {
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
@@ -175,7 +175,7 @@ import { MarketRegimeControl } from '@/components/layout/market-regime-control';
 import { useAgentRun, ChatRequestError } from '@/lib/agent/use-agent-run';
 import { useChatModel } from '@/lib/agent/use-chat-model';
 import { useReasoningEffort } from '@/lib/agent/use-reasoning-effort';
-import { clientIsOperator } from '@/lib/harness/skills-browser';
+import { clientIsOperator } from '@/lib/harness/clients/skills-browser';
 import { turnText, type AssistantTurn } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
@@ -184,9 +184,9 @@ import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import { useForwardWheelScroll } from '@/hooks/use-forward-wheel-scroll';
 import { sound } from '@/lib/sounds';
 import { useHydrateI18n, useT } from '@/lib/i18n';
-import { useHydrateTheme, useThemeStore } from '@/lib/theme';
+import { useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
-import type { CommandUiAction } from '@/lib/harness/command-ui';
+import type { CommandUiAction } from '@/lib/harness/commands/command-ui';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
 import { canHandleKeyboardEvent } from '@/lib/keyboard';
 import { isFocusModeShortcut, isNewChatShortcut, isSettingsShortcut, isThemeShortcut } from '@/lib/shortcuts';
@@ -220,8 +220,8 @@ function ScreenSkeleton() {
 function StockChatContent() {
   // Hydrate interface language + accessibility prefs from localStorage once.
   useHydrateI18n();
-  // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
-  useHydrateTheme();
+  // The centralized theme is hydrated once at the ROOT (`ThemeHydrator` in
+  // app/layout.tsx) so standalone routes get it too — not just the shell.
   // Hydrate the app background (wallpaper; ChatBot page only).
   useHydrateBackground();
   // Hydrate the ChatBot conversation font (ChatBot page only).

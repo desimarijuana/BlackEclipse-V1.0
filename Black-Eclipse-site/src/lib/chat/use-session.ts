@@ -14,7 +14,7 @@ import {
 import { SESSION_LIMITS, type FileProvenance, type SessionFile, type SessionInfo } from './session-types';
 import { claimPastes, pastedTextName } from './paste';
 import type { FileRef, PickedFile } from './file-sources';
-import { readWorkspaceFile } from '@/lib/harness/code-browser';
+import { readWorkspaceFile } from '@/lib/harness/clients/code-browser';
 
 export interface PendingFile {
   name: string;

@@ -22,7 +22,7 @@ import { InstitutionRunDialog } from '@/components/bots/institution-run-dialog';
 import {
   deleteAutomation, runAutomationNow,
   type AutomationView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 import { duplicateBot } from '@/lib/bots/duplicate';
 import { useSeedFinancePack } from '@/lib/bots/finance-bots';
 import { forgetBotLocally, forgetBotMemory } from '@/lib/bots/purge';

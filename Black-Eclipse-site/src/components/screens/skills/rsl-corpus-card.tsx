@@ -8,11 +8,11 @@ import { useT } from "@/lib/i18n/use-t";
 import {
   getEvolutionCorpusStatusBrowser,
   getEvolutionRotationPreviewBrowser,
-} from "@/lib/harness/evolution-browser";
+} from "@/lib/harness/clients/evolution-browser";
 import type {
   EvolutionCorpusStatus,
   EvolutionRotationPreview,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 
 export function currentQuarter(now = new Date()): string {

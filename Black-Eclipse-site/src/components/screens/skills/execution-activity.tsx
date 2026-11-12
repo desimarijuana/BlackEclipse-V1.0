@@ -9,7 +9,7 @@ import { Activity, ChevronDown, ChevronRight, Loader2, RefreshCcw } from "@/lib/
 import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
-import { getSkillExecution } from "@/lib/harness/skills-browser";
+import { getSkillExecution } from "@/lib/harness/clients/skills-browser";
 import type { SkillExecutionRecord } from "@/lib/harness/skills-types";
 import { EmptyState, ErrorState, formatDuration, formatWhen, LoadingState, MetaRow, Panel, PanelHeader } from "./skill-ui";
 

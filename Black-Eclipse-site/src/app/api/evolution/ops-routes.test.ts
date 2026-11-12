@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => {
 
 const { corpus, rotation, autonomy, pause, resume, decide, apply, Unavailable } = mocks;
 
-vi.mock("@/lib/harness/evolution-client", () => ({
+vi.mock("@/lib/harness/clients/evolution-client", () => ({
   getEvolutionCorpusStatus: () => mocks.corpus(),
   getEvolutionRotationPreview: (input: unknown) => mocks.rotation(input),
   getEvolutionAutonomyStatus: () => mocks.autonomy(),

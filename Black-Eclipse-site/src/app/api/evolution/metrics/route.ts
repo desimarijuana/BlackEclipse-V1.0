@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { evolutionMetrics } from "@/lib/harness/evolution-client";
+import { evolutionMetrics } from "@/lib/harness/clients/evolution-client";
 
 export const dynamic = "force-dynamic";
 

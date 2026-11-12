@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AutomationView } from '@/lib/harness/automation-client';
+import type { AutomationView } from '@/lib/harness/clients/automation-client';
 import { getGraphRun, startWorkflowRun } from '@/lib/graph-studio/execution-client';
 import { runBotTurn, runWorkflowTurn } from './invoke';
 

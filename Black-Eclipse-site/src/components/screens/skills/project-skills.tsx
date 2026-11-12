@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import {
   projectSkillStatus, trustProjectSkill, untrustProjectSkill, approveProjectSkill,
   projectTrustHistory,
-} from "@/lib/harness/skills-browser";
+} from "@/lib/harness/clients/skills-browser";
 import type { ProjectSkillStatus, ProjectTrustApproval } from "@/lib/harness/skills-types";
 import { ErrorState, formatWhen, LoadingState, PanelHeader } from "./skill-ui";
 

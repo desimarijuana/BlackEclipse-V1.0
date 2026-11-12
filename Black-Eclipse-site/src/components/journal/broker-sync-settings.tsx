@@ -17,7 +17,7 @@ import {
   RefreshCw,
   Unplug,
 } from '@/lib/icons';
-import { listBrokerConnections, type BrokerConnection } from '@/lib/harness/trading-client';
+import { listBrokerConnections, type BrokerConnection } from '@/lib/harness/clients/trading-client';
 import { cn } from '@/lib/utils';
 
 interface BrokerLink {

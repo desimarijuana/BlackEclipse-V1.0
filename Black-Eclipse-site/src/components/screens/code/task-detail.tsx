@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
-import type { CodeSession, CodeTask } from '@/lib/harness/code-browser';
+import type { CodeSession, CodeTask } from '@/lib/harness/clients/code-browser';
 import { navigateTo } from '@/lib/sdk/navigate';
 import { CheckResults } from './check-results';
 import { DiffViewer } from './diff-viewer';

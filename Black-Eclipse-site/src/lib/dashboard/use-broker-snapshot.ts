@@ -23,7 +23,7 @@ import {
   type BrokerFill,
   type BrokerPosition,
   type BrokerWorkingOrder,
-} from '@/lib/harness/trading-client';
+} from '@/lib/harness/clients/trading-client';
 
 export interface BrokerSnapshot {
   connection: BrokerConnection | null;

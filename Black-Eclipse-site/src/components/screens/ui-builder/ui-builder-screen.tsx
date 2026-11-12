@@ -38,7 +38,7 @@ import {
   type UiBlueprint,
   type UiComponentSpec,
   type UiInstance,
-} from '@/lib/harness/ui-client';
+} from '@/lib/harness/clients/ui-client';
 
 interface LogEntry { ts: string; text: string; ok: boolean }
 

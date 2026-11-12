@@ -12,7 +12,7 @@ import {
   verifyLanding,
   type LandPlan,
   type LandResult,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 
 const STATUS_KEY = {
   passed: 'code.land.status.passed',

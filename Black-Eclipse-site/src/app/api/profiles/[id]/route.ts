@@ -4,7 +4,7 @@ import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtim
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { redactSecrets } from "@/lib/harness/errors";
 import { guardMutation } from "@/lib/api-guard";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 
 export const dynamic = "force-dynamic";
 

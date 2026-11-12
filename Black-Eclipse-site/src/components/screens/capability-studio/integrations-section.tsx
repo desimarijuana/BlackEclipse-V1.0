@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { MCPListResponse } from '@/lib/harness/mcp-types';
 
-// Client-safe: this module must never import `@/lib/harness/mcp-client`
+// Client-safe: this module must never import `@/lib/harness/clients/mcp-client`
 // (server-only — child_process/fs). The Next.js route proxies to Python.
 async function fetchMCPServers(): Promise<MCPListResponse> {
   const res = await fetch('/api/harness/mcp/servers', { cache: 'no-store' });

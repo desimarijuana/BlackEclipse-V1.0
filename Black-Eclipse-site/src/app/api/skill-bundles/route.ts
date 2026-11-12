@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listSkillBundles, saveSkillBundle, isOperatorRequest } from "@/lib/harness/skills-client";
+import { listSkillBundles, saveSkillBundle, isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import type { SkillBundle } from "@/lib/harness/skills-types";
 

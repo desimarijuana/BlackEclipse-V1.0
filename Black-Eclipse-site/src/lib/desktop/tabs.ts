@@ -8,6 +8,7 @@
 // framework-free so it can be tested without a DOM.
 
 import { APP_TABS, type AppTab } from '@/lib/app-tabs';
+import { isNavGroup, type NavGroup } from '@/lib/sidebar/config';
 
 const STORAGE_KEY = 'be_desktop_tabs_v2';
 /** Pre-instances format: an array of page ids only. Read once on upgrade. */
@@ -18,6 +19,15 @@ export interface DesktopTab {
   /** Stable tab identity; survives page changes and relaunches. */
   id: string;
   page: AppTab;
+  /**
+   * The sidebar MENU MODE this tab was last showing (Terminal / Agentic / Bots /
+   * Graph). Desktop tabs are in-page instances inside one browser shell, so the
+   * sidebar's session-scoped mode would otherwise be shared by every tab —
+   * switching to a Bots tab would drag a Command Center tab out of Terminal.
+   * The strip records the mode here on switch and restores it on return.
+   * Absent on upgraded stores; the shell then seeds it with the current mode.
+   */
+  mode?: NavGroup;
 }
 
 let seq = 0;
@@ -27,20 +37,31 @@ function newId(): string {
   return `dt_${Date.now().toString(36)}_${seq}`;
 }
 
-export function createTab(page: AppTab, id?: string): DesktopTab {
-  return { id: id ?? newId(), page };
+export function createTab(page: AppTab, id?: string, mode?: NavGroup): DesktopTab {
+  return mode ? { id: id ?? newId(), page, mode } : { id: id ?? newId(), page };
+}
+
+/** Record the sidebar mode a tab is showing, so returning to it restores that mode. */
+export function setTabMode(tabs: DesktopTab[], id: string, mode: NavGroup): DesktopTab[] {
+  const index = tabs.findIndex((tab) => tab.id === id);
+  if (index === -1 || tabs[index].mode === mode) return tabs;
+  const next = [...tabs];
+  next[index] = { ...next[index], mode };
+  return next;
 }
 
 export function isAppTab(value: unknown): value is AppTab {
   return typeof value === 'string' && TAB_SET.has(value);
 }
 
-/** Append a tab instance (duplicates of a page are allowed). */
+/** Append a tab instance (duplicates of a page are allowed). A new tab starts
+ *  in the mode the user is currently looking at. */
 export function appendTab(
   tabs: DesktopTab[],
   page: AppTab,
+  mode?: NavGroup,
 ): { tabs: DesktopTab[]; tab: DesktopTab } {
-  const tab = createTab(page);
+  const tab = createTab(page, undefined, mode);
   return { tabs: [...tabs, tab], tab };
 }
 
@@ -112,12 +133,12 @@ export function parseStoredTabs(raw: string | null): DesktopTab[] {
       // Current shape: { id, page }. Legacy shape: a bare page id.
       const candidate = typeof item === 'string' ? { id: newId(), page: item } : item;
       if (!candidate || typeof candidate !== 'object') continue;
-      const { id, page } = candidate as { id?: unknown; page?: unknown };
+      const { id, page, mode } = candidate as { id?: unknown; page?: unknown; mode?: unknown };
       if (!isAppTab(page)) continue;
       const tabId = typeof id === 'string' && id.trim() ? id : newId();
       if (seen.has(tabId)) continue;
       seen.add(tabId);
-      out.push({ id: tabId, page });
+      out.push(isNavGroup(mode) ? { id: tabId, page, mode } : { id: tabId, page });
     }
     return out;
   } catch {

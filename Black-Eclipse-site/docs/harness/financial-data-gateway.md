@@ -129,5 +129,5 @@ A provider absent from the registry is not routable.
   integration, crypto source + routing, and the gateway agent tools.
 - `python/tests/test_retrieval*.py` — the underlying layer (contract, planner,
   scenarios, health, conflicts, cache, validation).
-- `src/lib/harness/data-bridge-gateway.test.ts` — the `crypto_market_data` and
+- `src/lib/harness/data-bridge/data-bridge-gateway.test.ts` — the `crypto_market_data` and
   `provider_key_status` bridge capabilities.

@@ -7,7 +7,7 @@
 // honest AUTHENTICATION_FAILED. Kept out of `data-bridge.ts` so that file stays
 // under its size ratchet.
 
-import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
 import { resolveProviderKey } from "@/lib/provider-keys";
 
 const PROVIDERS: Record<string, { env: string; url: string; protocol: string }> = {

@@ -8,8 +8,8 @@
 import { useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslateFn } from '@/lib/i18n/translate';
-import type { CapabilityState, RuntimeModelView, RuntimeProviderView } from '@/lib/harness/model-runtime-browser';
-import { dynKey, pricingKey } from '@/lib/harness/model-runtime-browser';
+import type { CapabilityState, RuntimeModelView, RuntimeProviderView } from '@/lib/harness/clients/model-runtime-browser';
+import { dynKey, pricingKey } from '@/lib/harness/clients/model-runtime-browser';
 import { EmptyState } from './providers-pane';
 
 interface Props {

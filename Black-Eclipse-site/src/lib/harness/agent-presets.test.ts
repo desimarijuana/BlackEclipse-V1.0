@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const listAgentsFromRuntime = vi.fn();
 
-vi.mock("./python-client", () => ({
+vi.mock("./clients/python-client", () => ({
   listAgentsFromRuntime: (...a: unknown[]) => listAgentsFromRuntime(...a),
 }));
 

@@ -10,7 +10,7 @@
 // active model is always present, and a free-text entry types any id.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { discoverRuntimeModels } from "@/lib/harness/model-runtime-browser";
+import { discoverRuntimeModels } from "@/lib/harness/clients/model-runtime-browser";
 
 const STORAGE_KEY = "eclipse.chatModelChoice";
 

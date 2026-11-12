@@ -26,7 +26,7 @@ import {
   writeWorkspaceFile,
   type EditorEntry,
   type TrustedRoot,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 import { FolderPicker } from '@/components/workspace/folder-picker';
 
 export function EditorScreen() {

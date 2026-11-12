@@ -12,13 +12,13 @@ import {
   getEvolutionMetricsBrowser,
   listEvolutionExperimentsBrowser,
   prepareEvolutionLandingBrowser,
-} from "@/lib/harness/evolution-browser";
+} from "@/lib/harness/clients/evolution-browser";
 import { EVOLUTION_VERIFIED_EVENT } from "@/lib/harness/evolution-events";
 import type {
   EvolutionExperiment,
   EvolutionLandingResult,
   EvolutionMetrics,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { CandidateEvidencePanel } from "./candidate-evidence-panel";
 import { experimentCandidateId, ExperimentList } from "./experiment-list";
 import { ParetoFrontierCard } from "./pareto-frontier-card";

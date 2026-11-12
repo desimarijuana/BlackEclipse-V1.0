@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSkillExecution, cancelSkillExecution } from "@/lib/harness/skills-client";
+import { getSkillExecution, cancelSkillExecution } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { guardMutation } from "@/lib/api-guard";
 

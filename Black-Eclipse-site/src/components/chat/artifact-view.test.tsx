@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ArtifactView, entryFor, indexArtifacts } from './artifact-view';
-import type { Artifact } from '@/lib/harness/artifacts-browser';
+import type { Artifact } from '@/lib/harness/clients/artifacts-browser';
 import type { ComputedArtifact } from '@/lib/harness/analysis-types';
 
 const SHA = 'a'.repeat(64);

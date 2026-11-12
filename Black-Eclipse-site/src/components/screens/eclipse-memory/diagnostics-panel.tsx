@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import {
   acceptCompaction, detectCompaction, listCompaction, memoryRetention,
   memoryUsageReport, rejectCompaction,
-} from "@/lib/harness/eclipse-memory-browser";
+} from "@/lib/harness/clients/eclipse-memory-browser";
 import type {
   CompactionProposal, MemoryRetentionStatus, MemoryUsageReport,
 } from "@/lib/harness/eclipse-memory-types";

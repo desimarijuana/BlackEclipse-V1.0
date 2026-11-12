@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, LineChart } from "@/lib/icons";
-import { getSkillQuality } from "@/lib/harness/skills-browser";
+import { getSkillQuality } from "@/lib/harness/clients/skills-browser";
 import type { SkillQualityMetrics } from "@/lib/harness/skills-types";
 import { LoadingState, MetaRow, Panel } from "./skill-ui";
 

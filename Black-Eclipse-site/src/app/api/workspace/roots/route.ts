@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { approveTrustedRoot, getWorkspaceRoots } from "@/lib/harness/code-client";
+import { approveTrustedRoot, getWorkspaceRoots } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { corsPreflight, localCors } from "@/lib/workspace/cors";
 

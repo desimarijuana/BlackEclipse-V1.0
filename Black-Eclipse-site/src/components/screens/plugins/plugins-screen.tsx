@@ -20,7 +20,7 @@ import {
   listPlugins,
   renderPanel,
   uiPanels,
-} from '@/lib/harness/plugins-browser';
+} from '@/lib/harness/clients/plugins-browser';
 
 const STATUS_TONE: Record<string, string> = {
   RUNNING: 'text-emerald-300',

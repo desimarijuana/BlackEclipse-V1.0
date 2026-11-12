@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { en } from '@/lib/i18n/dictionaries/en';
-import { healthBucket, capabilityStateKey } from '@/lib/harness/model-runtime-browser';
+import { healthBucket, capabilityStateKey } from '@/lib/harness/clients/model-runtime-browser';
 
 // ── Model Control Center copy ────────────────────────────────────────────────
 // The screen names the finance RESULT (which model answers a task), never the

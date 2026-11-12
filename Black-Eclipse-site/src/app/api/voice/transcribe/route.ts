@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { clientKey, guardMutation, rateLimit } from '@/lib/api-guard';
-import { HarnessRuntimeUnavailable } from '@/lib/harness/python-client';
-import { transcribeWithRuntime, VoiceRuntimeError } from '@/lib/harness/transcribe-client';
+import { HarnessRuntimeUnavailable } from '@/lib/harness/clients/python-client';
+import { transcribeWithRuntime, VoiceRuntimeError } from '@/lib/harness/clients/transcribe-client';
 import { resolveVoiceProvider } from '@/lib/voice/config-server';
 
 export const dynamic = 'force-dynamic';

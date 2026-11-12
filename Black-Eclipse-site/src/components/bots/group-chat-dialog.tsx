@@ -17,7 +17,7 @@ import {
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { fileToAvatarDataUrl } from '@/lib/bots/image';
-import type { AutomationView } from '@/lib/harness/automation-browser';
+import type { AutomationView } from '@/lib/harness/clients/automation-browser';
 
 const MIN_MEMBERS = 2;
 const MAX_MEMBERS = 6;

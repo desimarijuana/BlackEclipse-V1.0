@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { TranslateFn } from "@/lib/i18n/translate";
-import type { EvolutionExperiment } from "@/lib/harness/evolution-client";
+import type { EvolutionExperiment } from "@/lib/harness/clients/evolution-client";
 import { ExperimentList } from "./experiment-list";
 import { RslControlPanel } from "./rsl-control-panel";
 import { RslOperatorPanel } from "./rsl-operator-panel";

@@ -91,7 +91,7 @@ user:  "pull the daily holdings for this fund and keep them"
 | The sandbox seam (tool set, URL literals, call budget) | `python/harness/code/execution.py` |
 | The policy noun family | `python/harness/code/policy.py` (`SCRAPER_TOOLS`) |
 | The front-door write route | `src/app/api/scraper/datasets/route.ts` |
-| The page collection (the host's fetch) | `src/lib/harness/data-bridge-collect.ts` |
+| The page collection (the host's fetch) | `src/lib/harness/data-bridge/data-bridge-collect.ts` |
 
 ## Deliberately not here
 

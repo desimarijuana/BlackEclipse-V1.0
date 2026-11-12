@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { SkillDetail as SkillDetailType, SkillVersionHistoryEntry } from "@/lib/harness/skills-types";
-import { getSkillVersionHistory, skillVersionAction } from "@/lib/harness/skills-browser";
+import { getSkillVersionHistory, skillVersionAction } from "@/lib/harness/clients/skills-browser";
 import { EvalBadge, formatDuration, formatWhen, LoadingState, MetaRow, Panel, RiskBadge, SectionTitle, StatusBadge } from "./skill-ui";
 import { SkillQualityPanel } from "./skill-quality";
 import { SkillPromotionEvidencePanel, SkillVersionComparisonPanel } from "./skill-evidence";

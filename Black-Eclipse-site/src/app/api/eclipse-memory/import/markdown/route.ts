@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { importMemory } from "@/lib/harness/eclipse-memory-client";
+import { importMemory } from "@/lib/harness/clients/eclipse-memory-client";
 import { guardMutation } from "@/lib/api-guard";
-import { isOperatorRequest } from "@/lib/harness/skills-client";
+import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { backupMemoryFiles, previewMemoryImport, toExportDocument } from "@/lib/harness/memory-files";
 

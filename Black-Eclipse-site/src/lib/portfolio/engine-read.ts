@@ -9,7 +9,7 @@
 // (`src/lib/workspace/data-source.ts`); `portfolio-client.ts` is the
 // server-only equivalent and must not be imported here.
 
-import type { PortfolioRead } from '@/lib/harness/portfolio-client';
+import type { PortfolioRead } from '@/lib/harness/clients/portfolio-client';
 
 export type PortfolioView =
   | 'summary'

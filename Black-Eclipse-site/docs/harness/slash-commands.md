@@ -16,7 +16,7 @@ command**. There are three kinds, and the distinction is the whole design:
 
 - **Profile commands** (e.g. `/eclipsesdk`) do **not** execute anything on their
   own; they force a deterministic run *profile* for the next agent turn. They are
-  parsed in TS (`src/lib/harness/commands.ts`) and the runtime still enforces the
+  parsed in TS (`src/lib/harness/commands/commands.ts`) and the runtime still enforces the
   actual grant.
 - **Routed commands** (`/skills`, `/status`, `/market`, …) are executed by the
   **shared command router** and return a rendered result immediately. They never
@@ -30,7 +30,7 @@ command**. There are three kinds, and the distinction is the whole design:
   `model3d` block with a numbered key, stages and `.glb` export; `/visual <what
   to chart>` tells it to render ONE inline data **`chart`** block, choosing from
   the full chart-type set and plotting only real values. The rewrites live in
-  `src/lib/harness/command-agent.ts`.
+  `src/lib/harness/commands/command-agent.ts`.
 
 Profile commands exist because the alternative — asking a classifier to infer "is
 this a coding request?" from prose — is fuzzy. The set of profile commands is
@@ -40,7 +40,7 @@ classifier narrowing) so the write-capable `skill_create` tool stays bound.
 ## The contract
 
 Everything starts from **one canonical registry**:
-`src/lib/harness/command-registry.ts`.
+`src/lib/harness/commands/command-registry.ts`.
 
 A `CommandSpec` describes a command declaratively: stable `id`, canonical `name`,
 `aliases`, `summary`/`description`, `category`, `tags`, `version`, lifecycle
@@ -60,7 +60,7 @@ Invariants the registry enforces:
 
 ## Parse → Resolve → Validate → Authorize → Execute → Render → Audit
 
-The router (`src/lib/harness/command-router.ts`) is the ONE execution path for
+The router (`src/lib/harness/commands/command-router.ts`) is the ONE execution path for
 every routed command.
 
 1. **Parse** — `command-parser.ts`. A real tokenizer (not `split(' ')`) that
@@ -76,7 +76,7 @@ every routed command.
    caller passed the operator gate (transport/token). This is defense in depth:
    the Python runtime re-enforces its own default-deny policy.
 5. **Execute** — dispatch on `handler.target` to a handler in
-   `src/lib/harness/command-handlers.ts` that calls the **existing** systems
+   `src/lib/harness/commands/command-handlers.ts` that calls the **existing** systems
    (skills-client, tasks-client, workflows-client, python-client, and loopback
    calls to the app's own `/api/...` front doors). The router owns no agent loop,
    task queue, or skill database. The router also enforces the declared contract:
@@ -208,11 +208,11 @@ A command can return a `ui` intent in its result:
   list/detail layout. It is independent of the draft; selection inserts
   `/name ` into the composer. Only the visible composer answers the shortcut,
   so a keep-alive tab cannot open a second dialog.
-- **Recents and pins** — `src/lib/harness/command-history.ts` stores the last
+- **Recents and pins** — `src/lib/harness/commands/command-history.ts` stores the last
   50 command names and up to 24 pins in `localStorage` (`be.command.history.v1`,
   `be.command.favorites.v1`). This is a UI convenience, never an authority; the
   server audit remains the record of what ran.
-- **Argument completion** — `src/lib/harness/command-suggest.ts` detects the
+- **Argument completion** — `src/lib/harness/commands/command-suggest.ts` detects the
   completion-bearing argument under a command and calls
   `GET /api/harness/suggest?provider=…&q=…` (skills, symbols, portfolios,
   workflows, models). `command-suggestions.tsx` renders the candidates with
@@ -297,7 +297,7 @@ The workspace readers (`/alerts`, `/news`, `/theses`, `/journal`, `/jobs`,
 existing front doors: they return only rows the API returned and never write.
 `/stop <runId>` is the one mutation in this group and uses the same cooperative
 cancellation route as the Stop button (operator-gated). They live in
-`src/lib/harness/command-handlers-workspace.ts`, so adding a new reader does not
+`src/lib/harness/commands/command-handlers-workspace.ts`, so adding a new reader does not
 grow the main dispatch file.
 
 ## Manual compaction — `/compact`
@@ -376,32 +376,32 @@ explicit command surfaces.
 
 ## Tests
 
-- `src/lib/harness/command-registry.test.ts` — resolution, aliases, conflicts,
+- `src/lib/harness/commands/command-registry.test.ts` — resolution, aliases, conflicts,
   availability, search, argument hints.
-- `src/lib/harness/command-registry.contract.test.ts` — registry↔handler
+- `src/lib/harness/commands/command-registry.contract.test.ts` — registry↔handler
   coverage, self-describing commands, risk/approval invariants, the `confirm`
   flag on high-risk commands, completion providers, deprecation/unavailability
   metadata, `/help <command>`.
-- `src/lib/harness/command-audit.test.ts` — status/risk aggregation, per-command
+- `src/lib/harness/commands/command-audit.test.ts` — status/risk aggregation, per-command
   percentiles, empty and single-row audits.
-- `src/lib/harness/command-palette-model.test.ts` — pinned → recent → category
+- `src/lib/harness/commands/command-palette-model.test.ts` — pinned → recent → category
   ordering, de-duplication, search-section behavior, flat/section agreement.
-- `src/lib/harness/command-history.test.ts` — recents de-duplication and cap,
+- `src/lib/harness/commands/command-history.test.ts` — recents de-duplication and cap,
   pin/unpin, clear-history-keeps-pins, empty-name rejection.
-- `src/lib/harness/command-suggest.test.ts` — completion argument detection,
+- `src/lib/harness/commands/command-suggest.test.ts` — completion argument detection,
   variadic token replacement, flags/prose/commands without a provider.
 - `src/app/api/harness/suggest/route.test.ts` — provider allowlist, skills/
   symbols/portfolios/workflows/models mapping, unavailable degradation.
-- `src/lib/harness/command-plugins.test.ts` — valid packs, builtin name/alias
+- `src/lib/harness/commands/command-plugins.test.ts` — valid packs, builtin name/alias
   collisions, invalid names/prompts/args, missing vs invalid JSON.
 - `src/app/api/harness/commands/route.test.ts` — builtin + project manifest,
   omitted prompt template, stable ETag/304.
-- `src/lib/harness/command-parser.test.ts` — quoting, escapes, Unicode, enum and
+- `src/lib/harness/commands/command-parser.test.ts` — quoting, escapes, Unicode, enum and
   required-arg validation, pass-through flags.
-- `src/lib/harness/command-agent.test.ts` — `/skill` rewrites into a skill-authoring
+- `src/lib/harness/commands/command-agent.test.ts` — `/skill` rewrites into a skill-authoring
   directive, `/anatomy` into a 3D-model (`model3d`) directive, and `/visual` into a
   `chart` directive; non-agent commands and prose return null.
-- `src/lib/harness/command-router.test.ts` — unknown/invalid/unavailable/denied
+- `src/lib/harness/commands/command-router.test.ts` — unknown/invalid/unavailable/denied
   paths, `/help`, `/status`, `/skills`, `/skills run`, operator gating,
   `/skill-create` requiring a real source, the workspace readers
   (`/alerts`, `/news`, `/theses`, `/journal`, `/jobs`, `/artifacts`,

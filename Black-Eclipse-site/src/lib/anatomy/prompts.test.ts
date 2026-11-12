@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAgentInstruction } from '@/lib/harness/command-agent';
+import { buildAgentInstruction } from '@/lib/harness/commands/command-agent';
 import { ANATOMY_EXAMPLE_PROMPTS } from './prompts';
 
 // Every advertised /anatomy prompt must route to the agent.anatomy directive and

@@ -52,3 +52,12 @@ def test_range_filter_and_list(store):
     assert rows[0]["close"] == 101.0
     listing = store.list_series()
     assert {s["symbol"] for s in listing} == {"AAPL", "MSFT"}
+
+
+def test_provenance_names_the_store_and_providers(store):
+    """The cache must identify itself; it is not the JDdS vault."""
+    store.save_bars("AAPL", "1d", "yahoo", True, _bars())
+    coverage = store.coverage("AAPL", "1d")
+    assert coverage["store"] == "history_cache"
+    assert coverage["providers"] == ["yahoo"]
+    assert all(row["store"] == "history_cache" for row in store.list_series())

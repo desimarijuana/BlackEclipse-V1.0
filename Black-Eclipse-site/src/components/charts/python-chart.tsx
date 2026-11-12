@@ -20,7 +20,7 @@
 // object, no callback and no per-widget rendering logic left.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { downloadUrl } from "@/lib/harness/artifacts-browser";
+import { downloadUrl } from "@/lib/harness/clients/artifacts-browser";
 import { renderChart, type ChartFigure, type ChartSpec } from "@/lib/harness/charts";
 import { cn } from "@/lib/utils";
 

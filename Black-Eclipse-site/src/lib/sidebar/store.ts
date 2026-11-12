@@ -43,6 +43,9 @@ export interface SidebarConfigStore {
   setMode: (mode: NavGroup) => void;
   /** Follow the active screen without treating it as an explicit app-wide change. */
   setModeFromNavigation: (mode: NavGroup) => void;
+  /** Restore a mode owned by this shell only (the desktop tab strip's per-tab
+   *  mode). Never touches the shared seed or the app-wide nav store. */
+  applyTabMode: (mode: NavGroup) => void;
   toggleEnabled: (id: AppTab) => void;
   setShortcut: (id: AppTab, shortcut: string) => void;
   /** Move an item from one index to another (reorder). */
@@ -238,6 +241,13 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
     suppressModeSync = true;
     writeStoredMode('session', mode);
     writeStoredMode('local', mode);
+    set({ mode });
+  },
+
+  applyTabMode: (mode) => {
+    if (get().mode === mode) return;
+    suppressModeSync = true;
+    writeStoredMode('session', mode);
     set({ mode });
   },
 

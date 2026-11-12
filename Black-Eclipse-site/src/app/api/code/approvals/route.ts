@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listCodeApprovals } from "@/lib/harness/code-client";
+import { listCodeApprovals } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

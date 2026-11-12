@@ -386,9 +386,9 @@ acceptance criteria and per-task actions (Complete / Retry / Block / Unblock /
 Cancel, mark a criterion passed). It is reachable from the Agentic sidebar menu
 (alongside ChatBot, Skills, Eclipse Memory and Artifacts). Every value comes from
 `/api/plans` + `/api/tasks` — the real store, polled every 5s; there is no mock
-data. The browser-safe client is `src/lib/harness/tasks-browser.ts` (fetch only,
+data. The browser-safe client is `src/lib/harness/clients/tasks-browser.ts` (fetch only,
 over the Next proxy routes `src/app/api/tasks/[[...path]]/route.ts` and
-`src/app/api/plans/[[...path]]/route.ts`); `src/lib/harness/tasks-client.ts` is
+`src/app/api/plans/[[...path]]/route.ts`); `src/lib/harness/clients/tasks-client.ts` is
 the server-side client that reaches the Python runtime directly.
 
 ## Security

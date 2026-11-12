@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { learnFromSource, isOperatorRequest } from "@/lib/harness/skills-client";
+import { learnFromSource, isOperatorRequest } from "@/lib/harness/clients/skills-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import type { LearnRequest } from "@/lib/harness/skills-types";
 

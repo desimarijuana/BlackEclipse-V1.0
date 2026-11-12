@@ -57,6 +57,17 @@ harness with published numbers.
 | Harness parity plan (10 workstreams, 3 waves) | [round-3-parity-plan.md](./round-3-parity-plan.md) 🟡 Draft 2026-10-20 | rounds 1–2 | a competitive coding harness |
 | Gap-closure plan (6 workstreams, 4 waves) — the last two dimensions, 9.01 → 9.50 | [round-4-gap-closure.md](./round-4-gap-closure.md) 🟡 Draft 2026-10-21 | rounds 1–3 | a published, tagged, externally measured harness |
 
+**Post-audit remediation (2026-11-11).** The independent pre-launch audit
+(`docs/quant-research/agent-evaluation-2026-11-11.md`) found strong analytic
+correctness and trading safety but weak run delivery and two defective finance
+tools. The closure programme was revised after an architecture review that
+corrected four assumptions (runs live in `agent-memory.db`, resume currently
+refuses terminal `failed` runs, `series_store` is only the provider cache, and
+the ×100 unit conversions are intentional). It is **8 workstreams, 10 release
+gates**, covering leases/fencing/effect ledger, response lifecycle, calculation
+contracts, data provenance and licensing, budgets, answer trust and assurance:
+[agent-reliability-remediation-plan.md](./agent-reliability-remediation-plan.md).
+
 Round 3 is a **plan, not a phase set** — it is one file with ten workstreams
 (W1–W10), because the work is coupled: the same files (`graph.py`,
 `agents.py`, `code/tools.py`) carry several of them, and splitting them into

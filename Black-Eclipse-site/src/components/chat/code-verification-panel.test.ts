@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claimStatusKey, coerceCodeVerification } from '@/lib/harness/code-client';
+import { claimStatusKey, coerceCodeVerification } from '@/lib/harness/clients/code-client';
 
 // The invariant this phase exists to protect: an unsupported claim can NEVER be
 // shown as verified. The panel chooses its status word through `claimStatusKey`,

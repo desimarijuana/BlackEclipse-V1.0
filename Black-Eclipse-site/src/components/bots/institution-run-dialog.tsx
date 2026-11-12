@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import type { AutomationView } from '@/lib/harness/automation-browser';
+import type { AutomationView } from '@/lib/harness/clients/automation-browser';
 import {
   getTeamResult,
   getTeamRun,
@@ -20,7 +20,7 @@ import {
   type TeamRunStatus,
   type TeamRunView,
   type TeamStatusView,
-} from '@/lib/harness/team-client';
+} from '@/lib/harness/clients/team-client';
 import { useSeedInstitutionPack } from '@/lib/bots/institution-bots';
 
 const STAGE_LABELS: Record<string, string> = {

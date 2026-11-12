@@ -23,7 +23,7 @@ import {
   rollbackEvolutionSurfaceActivationBrowser,
   setEvolutionClimbPausedBrowser,
   tickEvolutionRslBrowser,
-} from "@/lib/harness/evolution-browser";
+} from "@/lib/harness/clients/evolution-browser";
 import type {
   EvolutionCandidate,
   EvolutionDriftCandidateResult,
@@ -38,7 +38,7 @@ import type {
   EvolutionRslTickResult,
   EvolutionSurfaceActivation,
   EvolutionSurfacePreview,
-} from "@/lib/harness/evolution-client";
+} from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 import { PromoteChange } from "@/components/chat/promote-change";
 import {

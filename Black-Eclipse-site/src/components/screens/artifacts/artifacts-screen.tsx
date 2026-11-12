@@ -25,7 +25,7 @@ import {
   thumbnailUrl, updateArtifact,
   type Artifact, type ArtifactCategory, type ArtifactPreview,
   type ArtifactVersion, type ListParams,
-} from '@/lib/harness/artifacts-browser';
+} from '@/lib/harness/clients/artifacts-browser';
 
 type ViewMode = 'grid' | 'list';
 

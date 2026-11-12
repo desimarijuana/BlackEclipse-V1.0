@@ -25,7 +25,7 @@ vi.mock("@/lib/chat/session-store", () => ({
 }));
 
 import { POST } from "@/app/api/harness/chat/route";
-import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
+import { HarnessRuntimeUnavailable } from "@/lib/harness/clients/python-client";
 import { HarnessError } from "@/lib/harness/errors";
 import { MAX_QUERY_LENGTH } from "@/lib/harness/validation";
 

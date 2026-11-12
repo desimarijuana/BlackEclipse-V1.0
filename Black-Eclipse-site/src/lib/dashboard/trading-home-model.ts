@@ -3,7 +3,7 @@
 // account) or journal analytics — nothing is invented, and no synthetic
 // contract sizes are assumed. Keep this file free of React and fetch calls.
 
-import type { BrokerAccount, BrokerFill, BrokerPosition } from '@/lib/harness/trading-client';
+import type { BrokerAccount, BrokerFill, BrokerPosition } from '@/lib/harness/clients/trading-client';
 
 /** Local midnight for the given instant — the boundary for "today". */
 export function startOfLocalDay(now: number): number {

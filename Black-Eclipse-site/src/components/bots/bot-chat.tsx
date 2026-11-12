@@ -37,7 +37,7 @@ import {
   deleteSessionFile, fetchSession, uploadSessionFile,
 } from '@/lib/chat/session-client';
 import type { SessionFile } from '@/lib/chat/session-types';
-import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
+import { listAutomationHistory, type ExecutionView } from '@/lib/harness/clients/automation-browser';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
 import { BotsTextSizeMenu } from '@/components/bots/bots-text-size';
@@ -45,7 +45,7 @@ import { BreakerPill, LifecyclePill } from '@/components/bots/status-pill';
 import {
   pauseAutomation, resumeAutomation, updateAutomation,
   type AutomationView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { moodFromEvent, type GhostMood } from '@/lib/bots/ghost-mood';
 import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/chat-store';

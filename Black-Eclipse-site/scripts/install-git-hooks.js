@@ -108,9 +108,10 @@ function main() {
   }
 
   // 3. Make the hooks executable where the platform has exec bits (no-op on
-  //    Windows). Both the identity guard (pre-commit) and the CHANGELOG guard
-  //    (commit-msg) are committed in `.githooks/`.
-  for (const name of ["pre-commit", "commit-msg"]) {
+  //    Windows). The identity guard (pre-commit), the CHANGELOG guard
+  //    (commit-msg) and the protected-branch guard (pre-push) are committed in
+  //    `.githooks/`.
+  for (const name of ["pre-commit", "commit-msg", "pre-push"]) {
     const hook = path.join(HOOKS_DIR, name);
     if (fs.existsSync(hook)) {
       try {

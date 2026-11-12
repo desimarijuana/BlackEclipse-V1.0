@@ -16,6 +16,7 @@ so "P/E = 15" always traces to its numerator and denominator.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 from ..finance_facts import metrics as _metrics
@@ -68,6 +69,86 @@ def compute_ratio(
     return result.to_dict()
 
 
+_INPUT_KINDS = ("prices", "returns")
+
+
+def _normalize_series_input(
+    observations: list[dict[str, Any]], input_kind: str
+) -> tuple[list[dict[str, Any]], str]:
+    """Resolve a series' input kind and return a LEVEL path for the calculators.
+
+    Every calculator in `research.calculations` differences its observations, so
+    it expects price/equity levels. When the caller supplies RETURNS we compound
+    them once here (`P_t = P_{t-1}(1+r_t)`) and hand the calculators a level
+    path; the recovered returns are then exactly the caller's returns. A return
+    of -100% or less is rejected (it cannot be compounded).
+
+    `auto` infers returns only when the series has a negative value and every
+    value is within [-1, 1]; otherwise it is treated as levels. The inference is
+    recorded on the result; callers that know the kind should pass it explicitly.
+    """
+    kind = (input_kind or "auto").strip().lower()
+    if kind in ("level", "price", "prices"):
+        return list(observations), "prices"
+    if kind in ("return", "returns", "pct_returns"):
+        kind = "returns"
+    elif kind in ("", "auto"):
+        values = []
+        for observation in observations:
+            value = observation.get("value") if isinstance(observation, dict) else None
+            if value is None:
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                raise _calc.CalculationError("every observation needs a finite numeric `value`")
+        returns_like = bool(values) and any(v < 0 for v in values) and all(abs(v) <= 1.0 for v in values)
+        kind = "returns" if returns_like else "prices"
+    else:
+        raise _calc.CalculationError(
+            f"unknown input kind {input_kind!r}; expected 'prices', 'returns' or 'auto'"
+        )
+
+    if kind == "prices":
+        return list(observations), "prices"
+
+    level = 1.0
+    normalized: list[dict[str, Any]] = []
+    # Anchor the synthetic level path one step BEFORE the first return. The
+    # calculators difference their input, so n+1 levels yield exactly the n
+    # supplied returns (without the anchor the first return is lost and every
+    # metric is computed on n-1 observations).
+    if observations:
+        first = observations[0] if isinstance(observations[0], dict) else {}
+        anchor_date = "0000-01-01"
+        normalized.append({
+            **first,
+            "date": anchor_date,
+            "value": 1.0,
+            "syntheticAnchor": True,
+        })
+    for observation in observations:
+        if not isinstance(observation, dict):
+            raise _calc.CalculationError("every observation must be an object with {date, value}")
+        value = observation.get("value")
+        if value is None:
+            normalized.append(dict(observation))
+            continue
+        try:
+            period_return = float(value)
+        except (TypeError, ValueError):
+            raise _calc.CalculationError("every observation needs a finite numeric `value`")
+        if not math.isfinite(period_return):
+            raise _calc.CalculationError("every observation needs a finite numeric `value`")
+        if period_return <= -1.0:
+            raise _calc.CalculationError(
+                "a return of -100% or less cannot be compounded into a level path"
+            )
+        level *= 1.0 + period_return
+        normalized.append({**observation, "value": level})
+    return normalized, "returns"
+
+
 def compute_series(
     metric: str,
     observations: list[dict[str, Any]],
@@ -81,12 +162,34 @@ def compute_series(
     `research.calculations`; this adapter adds no formula of its own. Metrics that
     need a second series (beta/alpha/correlation/covariance and their rolling
     forms) require `benchmark`; matrix metrics require `options["series"]`.
+
+    `options["input"]` is `prices` or `returns` (default `auto`). The calculators
+    operate on a LEVEL path, so a returns input is compounded once here and the
+    interpretation is recorded on the result. This is the ONE place the price /
+    return distinction is resolved; no calculator differences raw input again.
     """
     if metric not in _calc.CALCULATORS and metric not in _calc.MATRIX_CALCULATORS:
         raise _calc.CalculationError(
             f"unknown series metric {metric!r}; known: {sorted(set(_calc.CALCULATORS) | set(_calc.MATRIX_CALCULATORS))}"
         )
-    opts = options or {}
+    opts = dict(options or {})
+    requested_input = str(opts.get("input") or opts.get("input_kind") or "auto").strip().lower()
+    observations, resolved_input = _normalize_series_input(observations, requested_input)
+    if benchmark is not None:
+        benchmark, _ = _normalize_series_input(benchmark, requested_input)
+    if isinstance(opts.get("series"), list):
+        opts["series"] = [
+            {
+                **item,
+                "observations": _normalize_series_input(
+                    list(item.get("observations") or []), requested_input
+                )[0],
+            }
+            if isinstance(item, dict)
+            else item
+            for item in opts["series"]
+        ]
+
 
     if metric in ("beta", "rolling_beta"):
         if not benchmark:
@@ -154,7 +257,20 @@ def compute_series(
         result = _calc.rolling_volatility(observations, **_pick(opts, ("window", "frequency", "method")))
     else:
         raise _calc.CalculationError(f"series metric {metric!r} is not wired")
-    return result.to_dict()
+    payload = result.to_dict()
+    payload["inputKind"] = resolved_input
+    assumptions = payload.get("assumptions")
+    if isinstance(assumptions, list):
+        if resolved_input == "returns":
+            assumptions.append(
+                "input interpreted as periodic RETURNS; compounded once to a level path "
+                "before the metric (so the calculator's return series is the supplied series)"
+            )
+        else:
+            assumptions.append("input interpreted as price/equity LEVELS")
+        if requested_input in ("", "auto"):
+            assumptions.append(f"input kind was inferred as {resolved_input!r}; pass options.input explicitly")
+    return payload
 
 
 def compute_wacc(inputs: dict[str, Any]) -> dict[str, Any]:

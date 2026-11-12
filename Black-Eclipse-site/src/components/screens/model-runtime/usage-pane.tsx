@@ -6,7 +6,7 @@
 // rows are shown below the summary.
 
 import { useT } from '@/lib/i18n/use-t';
-import type { RuntimeUsageView } from '@/lib/harness/model-runtime-browser';
+import type { RuntimeUsageView } from '@/lib/harness/clients/model-runtime-browser';
 import { EmptyState } from './providers-pane';
 
 export function UsagePane({ usage }: { usage: RuntimeUsageView | null }) {

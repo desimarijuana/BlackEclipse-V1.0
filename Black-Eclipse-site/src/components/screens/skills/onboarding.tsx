@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { GraduationCap, Sparkles, X } from "@/lib/icons";
-import { getOnboarding } from "@/lib/harness/skills-browser";
+import { getOnboarding } from "@/lib/harness/clients/skills-browser";
 import type { OnboardingContent } from "@/lib/harness/skills-types";
 import { LoadingState, PanelHeader } from "./skill-ui";
 

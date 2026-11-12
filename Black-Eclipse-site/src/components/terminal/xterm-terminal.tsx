@@ -10,7 +10,7 @@ import {
   resizeTerminalSession,
   sendTerminalRaw,
   streamTerminalOutput,
-} from "@/lib/harness/terminal-browser";
+} from "@/lib/harness/clients/terminal-browser";
 
 //: The backend appends a hidden sentinel line after every command to learn the
 //: shell's working directory. A real terminal must not show it, so we drop those

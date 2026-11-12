@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Download } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
-import { listArtifacts, downloadUrl, type Artifact } from '@/lib/harness/artifacts-browser';
+import { listArtifacts, downloadUrl, type Artifact } from '@/lib/harness/clients/artifacts-browser';
 import type { ComputedArtifact } from '@/lib/harness/analysis-types';
 
 // ─── Phase 15/18 artifact view ──────────────────────────────────────────────

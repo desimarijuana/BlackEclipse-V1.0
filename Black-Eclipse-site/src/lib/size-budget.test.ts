@@ -82,7 +82,7 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1411->1444 (2026-11-09) for the new entries merged into the
   // release tree; the split candidate is unchanged. Re-pinned 1444->1499 for
   // the typed-UI `/canvas` and `/open` specs. May only shrink.
-  "src/lib/harness/command-registry.ts": 1499,
+  "src/lib/harness/commands/command-registry.ts": 1499,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

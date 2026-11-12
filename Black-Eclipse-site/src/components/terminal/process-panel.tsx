@@ -8,7 +8,7 @@ import {
   restartTerminalProcess,
   stopTerminalProcess,
   type ProcessInfo,
-} from "@/lib/harness/terminal-browser";
+} from "@/lib/harness/clients/terminal-browser";
 import { cn } from "@/lib/utils";
 
 const STATE_COLOR: Record<string, string> = {

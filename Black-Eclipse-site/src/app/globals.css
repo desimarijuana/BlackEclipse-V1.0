@@ -1507,45 +1507,31 @@ html:not(.dark).theme-glass-off .sidebar-root {
 html.dark .desktop-tab-bar {
   background-color: transparent;
 }
-/* Desktop glass window. The native shell applies OS acrylic/blur behind a
- * transparent WebView; these rules paint only a scrim, so the blurred desktop
- * shows through the main page while the LEFT SIDEBAR stays opaque. The class is
- * set by `useWindowGlass` and exists only inside the desktop shell. */
+/* Desktop glass window. The native shell keeps OS acrylic/blur behind a
+ * transparent WebView, but the app's CONTENT must still paint the theme. Making
+ * every page translucent (an acrylic scrim) ignored the theme palette entirely:
+ * a white/light theme rendered as a grey page, and no page could be white.
+ *
+ * So only the WINDOW stays transparent. Body/app/landing/wallpaper/chat surface
+ * paint exactly like the browser front door — `--background`, the page pattern,
+ * the chosen wallpaper, and the chat surface — while the sidebar stays opaque
+ * (theme-tinted) and the tab strip reads as part of the page. */
 html.glass-window body {
   background-color: transparent;
   background-image: none;
 }
-html.glass-window .app-page-bg {
-  background-color: transparent;
-  background-image: none;
-}
-html.glass-window .app-page-bg::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background: rgba(6, 7, 9, 0.20);
-}
-html:not(.dark).glass-window .app-page-bg::before {
-  background: rgba(245, 245, 247, 0.46);
-}
-/* Opaque anchor: the sidebar is intentionally NOT translucent. */
 html.glass-window .sidebar-root {
   background-color: color-mix(in srgb, var(--background) 94%, #000);
   backdrop-filter: none;
 }
 html:not(.dark).glass-window .sidebar-root {
-  background-color: #f1f1f3;
+  background-color: color-mix(in srgb, var(--background) 94%, #fff);
 }
-/* The landing wallpaper / chat surface would hide the acrylic — drop them. */
-html.glass-window .app-bg-layer,
-html.glass-window .app-bg-layer::before {
-  background-color: transparent;
-  background-image: none;
-}
-html.glass-window .chat-surface-layer {
-  opacity: 0;
+/* The shipped wordmark is white artwork. On a light theme the sidebar is white
+ * too, so the logo would be invisible. Flip ONLY the shipped asset to dark ink;
+ * a user-uploaded logo does not carry this class and keeps its own colours. */
+html:not(.dark) img.brand-wordmark {
+  filter: invert(1);
 }
 html.glass-window .desktop-tab-bar {
   background-color: transparent;

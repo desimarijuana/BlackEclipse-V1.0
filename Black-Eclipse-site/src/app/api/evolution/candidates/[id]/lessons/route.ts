@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { adoptEvolutionLesson } from "@/lib/harness/evolution-client";
+import { adoptEvolutionLesson } from "@/lib/harness/clients/evolution-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
-import type { EvolutionLessonInput } from "@/lib/harness/evolution-client";
+import type { EvolutionLessonInput } from "@/lib/harness/clients/evolution-client";
 
 export const dynamic = "force-dynamic";
 

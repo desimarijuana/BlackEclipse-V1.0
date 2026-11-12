@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { proposeEvolutionCandidate } from "@/lib/harness/evolution-client";
+import { proposeEvolutionCandidate } from "@/lib/harness/clients/evolution-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
-import type { EvolutionProposeInput } from "@/lib/harness/evolution-client";
+import type { EvolutionProposeInput } from "@/lib/harness/clients/evolution-client";
 
 export const dynamic = "force-dynamic";
 

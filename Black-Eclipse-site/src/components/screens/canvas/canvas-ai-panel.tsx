@@ -7,7 +7,7 @@
 // only applies the proposal through `saveCanvasArtifact`; nothing is faked.
 
 import { AlertTriangle, Check, Loader2, PanelRight, Sparkles, Wand2, X } from '@/lib/icons';
-import type { CanvasMode, CanvasProposal } from '@/lib/harness/canvas-client';
+import type { CanvasMode, CanvasProposal } from '@/lib/harness/clients/canvas-client';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';

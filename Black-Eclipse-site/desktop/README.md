@@ -53,6 +53,26 @@ open). Keyboard: `Ctrl/Cmd+Shift+Home` moves the active tab to the first slot,
 `Ctrl/Cmd+Shift+End` to the last, and `Ctrl/Cmd+Shift+PageUp/PageDown` (or ←/→)
 one slot at a time.
 
+Tab reorder uses **pointer events**, not the HTML5 drag-and-drop API. WebView2
+replaces the page's drag handler with Tauri's file-drop handler unless the
+native window opts out, and a shell built before that opt-out cannot drag
+`draggable` elements at all — pointer events work in every shell and in the
+browser, so tabs reorder without a rebuild. Reorders animate with FLIP (tabs
+slide between slots), the insertion point is the neighbour's midpoint (stable
+under reflow), and the grab cursor appears only for the duration of a drag.
+The strip still reports the drop through the same pure `moveTab` rule.
+
+The window is nevertheless built with `.disable_drag_drop_handler()` so the
+other HTML5 drop targets (workspace widgets, chart symbol drops) work in the
+desktop webview. The shell never consumes Tauri `DragDropEvent`s, so opting out
+costs nothing.
+
+Each tab also owns its **sidebar menu mode** (Terminal / Agentic / Bots /
+Graph), persisted as `mode` on the tab record next to `page`. The sidebar's
+mode is session-scoped (one browser shell), and all desktop tabs live inside
+one shell, so the strip records the mode on switch and restores it on return —
+a Bots tab and a Command Center tab keep their own menus.
+
 Saved window bounds are clamped to the monitor's **work area** on launch
 (`clamped_bounds`), so a size saved on a different taskbar/resolution can never
 put the bottom of the frameless window under the Windows taskbar. Maximizing is
@@ -66,11 +86,15 @@ collapsed state when the Tauri bridge is present.
 
 **Glass window.** The shell builds a transparent window and applies Windows
 acrylic blur behind the WebView (`window-vibrancy`; legacy `apply_blur` fallback).
-The app sets `html.glass-window`, paints only a contrast scrim, drops the landing
-wallpaper/chat surface, and forces the left sidebar opaque. Toggle it in
-**Settings › General › Window › Glass window**; the choice persists in
-`be_window_glass_v1` + `desktop-prefs.json` and reaches Rust through the
-`be-window` event (`set-glass`). The browser front door never sets the class.
+The app sets `html.glass-window` but does **not** make page content translucent:
+pages paint the theme background (`--background`), page pattern and landing
+wallpaper exactly like the browser front door, and the left sidebar stays
+opaque. Tinting every page with the window acrylic made a white/light theme
+read as a grey page, so only the native window behind the app is glassy.
+An existing conversation keeps its normal chat surface (dark `#0a0b0b` by
+default). Toggle it in **Settings › General › Window › Glass window**; the choice
+persists in `be_window_glass_v1` + `desktop-prefs.json` and reaches Rust through
+the `be-window` event (`set-glass`). The browser front door never sets the class.
 
 Window actions prefer the **core window API**
 (`window.__TAURI__.window.getCurrentWindow()`), which needs the explicit

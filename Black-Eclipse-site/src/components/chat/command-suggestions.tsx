@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n/use-t';
 import type {
   CommandSuggestion,
   SuggestionContext,
-} from '@/lib/harness/command-suggest';
+} from '@/lib/harness/commands/command-suggest';
 import type { CommandPaletteAnchor } from './command-palette';
 
 export interface CommandSuggestionsProps {

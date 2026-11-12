@@ -33,7 +33,7 @@ import {
   updateAutomation,
   type AutomationStatusView,
   type AutomationView,
-} from '@/lib/harness/automation-browser';
+} from '@/lib/harness/clients/automation-browser';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
 import {
   buildModelConfig, buildPolicies, buildTrigger, draftFromBot, formatDateTime, formatRelative,

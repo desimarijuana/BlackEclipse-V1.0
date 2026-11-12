@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getInstitutionPreset, runInstitution } from '@/lib/harness/team-client';
+import { getInstitutionPreset, runInstitution } from '@/lib/harness/clients/team-client';
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {

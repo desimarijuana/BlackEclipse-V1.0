@@ -34,7 +34,7 @@ import {
   type EditorEntry,
   type TrustedRoot,
   type WorkspaceFileHit,
-} from '@/lib/harness/code-browser';
+} from '@/lib/harness/clients/code-browser';
 import { FolderPicker } from '@/components/workspace/folder-picker';
 import {
   breadcrumbs,

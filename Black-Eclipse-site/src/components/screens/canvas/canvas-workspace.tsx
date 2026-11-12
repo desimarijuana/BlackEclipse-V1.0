@@ -5,7 +5,7 @@
 // state (empty, loading, error, loaded) is renderable and testable in isolation.
 
 import { AlertTriangle, Loader2, Redo2, SquareCode } from '@/lib/icons';
-import type { CanvasKind } from '@/lib/harness/canvas-client';
+import type { CanvasKind } from '@/lib/harness/clients/canvas-client';
 import { CanvasAiPanel, type CanvasAiPanelProps } from './canvas-ai-panel';
 import { CanvasCenter, type CanvasCenterProps } from './canvas-center';
 import { CanvasRail, type CanvasRailProps } from './canvas-rail';

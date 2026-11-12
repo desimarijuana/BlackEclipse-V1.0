@@ -1485,7 +1485,7 @@ vault-integration limitation and the planned secret-reference resolution).
 `main.py`) exposes the catalog over the runtime API — `GET /mcp/servers`, `POST /mcp/servers`,
 `POST /mcp/servers/test`, `DELETE /mcp/servers/{id}`, `POST /mcp/reload`,
 `POST /mcp/servers/{id}/confirm` — and the TS front door proxies them at
-`/api/harness/mcp/*` (`src/lib/harness/mcp-client.ts`,
+`/api/harness/mcp/*` (`src/lib/harness/clients/mcp-client.ts`,
 `src/lib/harness/mcp-types.ts`). The Settings UI
 (`src/components/screens/mcp-settings.tsx`, section `mcp`) lets an operator
 add / test / enable / disable / remove a server, review its discovered tools and
@@ -1705,7 +1705,7 @@ dangerous/destructive/critical Git ops are never grantable. A grant is minted ON
 by an `ApprovalStore.remember_grant()` on a real pending approval (from the row's
 own `grantPattern`/`grantKind`/`grantScope` columns), via the decide routes'
 `remember` flag; `GET /grants` + `POST /grants/{id}/revoke` (`routers/grants.py`,
-fronted by `src/lib/harness/grants-client.ts` + `src/app/api/harness/grants/**`)
+fronted by `src/lib/harness/clients/grants-client.ts` + `src/app/api/harness/grants/**`)
 list and revoke them. The card offers **Allow once / Always allow `<program>` /
 Cancel**; "Always allow" appears only when the runtime marked the action
 grantable. `McpApproval` stays single-use (ADR-H92) — a grant removes asking, the
@@ -1747,7 +1747,7 @@ needs a NEW approval. Before this layer, the family fell through to the MCP
 authorizer and was refused (`TOOL_FORBIDDEN`) while advertised — the same defect
 class `_admit_runtime_tools` fixed for the execution family.
 
-**The `/eclipsesdk` chat command (`src/lib/harness/commands.ts`).** A leading
+**The `/eclipsesdk` chat command (`src/lib/harness/commands/commands.ts`).** A leading
 `/command` in a chat message is a DETERMINISTIC profile switch, parsed by the
 front door (`parseChatCommand`) and stripped before the run; the remainder is the
 instruction. `/eclipsesdk` (alias `/esdk`, case-insensitive) forces the chat code
@@ -1819,7 +1819,7 @@ front door can raise a restart/build requirement; `test_selfhost_landing.py`.
 
 | To add… | Do this |
 |---|---|
-| A chat slash command | Add a `CommandSpec` to `COMMAND_REGISTRY` in `src/lib/harness/command-registry.ts` and its handler to `src/lib/harness/command-handlers.ts`; routed commands run through the shared router, and agent-turn rewrites live in `command-agent.ts`. Profile commands also need a `ChatCommand` in `src/lib/harness/commands.ts` (forced `profile`), parsed/stripped in `startChatRun`. `command-registry.contract.test.ts` fails if the handler target is missing or a high-risk command lacks the operator gate. |
+| A chat slash command | Add a `CommandSpec` to `COMMAND_REGISTRY` in `src/lib/harness/commands/command-registry.ts` and its handler to `src/lib/harness/commands/command-handlers.ts`; routed commands run through the shared router, and agent-turn rewrites live in `command-agent.ts`. Profile commands also need a `ChatCommand` in `src/lib/harness/commands/commands.ts` (forced `profile`), parsed/stripped in `startChatRun`. `command-registry.contract.test.ts` fails if the handler target is missing or a high-risk command lacks the operator gate. |
 | An agent-authored skill / extension | No code change: the agent calls `skill_create`/`skill_update`/`skill_delete` (approval-gated). To add a new *kind* of extension tool, add a handler + `ToolDefinition` in `python/harness/skills/manage_tools.py`, gate it in `make_skill_manage_authorizer`, and add its name to `code.policy.ACQUISITION_WRITE_TOOLS`. |
 | A skill lifecycle tool (history/review/evaluate/activate/learning mode) | Add it next to the existing six in `python/harness/skills/lifecycle_tools.py`; reuse `versioning.*` / `PolicyStore.set`, gate writes in `make_skill_lifecycle_authorizer`, register it in `install_tools.register_skill_install_tools`, and add any write name to `code.policy.ACQUISITION_WRITE_TOOLS` + the agent allowlists. |
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |

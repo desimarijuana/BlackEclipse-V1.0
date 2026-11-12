@@ -128,7 +128,7 @@ is ordinary composer text, so the operator reviews it before sending.
 | Server config + key resolution | `src/lib/voice/config-server.ts` |
 | Config route (`GET` readiness/stored, `PUT` save) | `src/app/api/voice/config/route.ts` |
 | Bounded transcription front door | `src/app/api/voice/transcribe/route.ts` |
-| Runtime client | `src/lib/harness/transcribe-client.ts` |
+| Runtime client | `src/lib/harness/clients/transcribe-client.ts` |
 | Python validation + provider call | `python/harness/transcription/service.py` |
 | Python route (`/voice/transcribe`, operator-gated) | `python/harness/routers/transcription.py` |
 | Operator settings card | `src/components/screens/voice-input-settings.tsx` |

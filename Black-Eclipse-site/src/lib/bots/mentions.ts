@@ -6,9 +6,9 @@
 // read the same list so they can never disagree about who can be mentioned.
 //
 // Deliberately dependency-free (only type imports) so it is unit-testable without
-// a DOM, mirroring `lib/harness/command-registry.ts`.
+// a DOM, mirroring `lib/harness/commands/command-registry.ts`.
 
-import type { AutomationView } from '@/lib/harness/automation-client';
+import type { AutomationView } from '@/lib/harness/clients/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 
 export type MentionKind = 'bot' | 'group';

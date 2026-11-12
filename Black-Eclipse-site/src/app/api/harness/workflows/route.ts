@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { listWorkflows, saveWorkflow } from "@/lib/harness/workflows-client";
+import { listWorkflows, saveWorkflow } from "@/lib/harness/clients/workflows-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

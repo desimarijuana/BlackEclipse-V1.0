@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
-import { createMonitor, listMonitors } from "@/lib/harness/automation-client";
+import { createMonitor, listMonitors } from "@/lib/harness/clients/automation-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";

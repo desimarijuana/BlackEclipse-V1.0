@@ -23,7 +23,7 @@ import {
   HEALTH_CAPABILITY,
   DEFAULT_HEALTH_SOURCE,
 } from "@/lib/harness/health-key";
-import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
+import type { DataBridgeResult } from "@/lib/harness/data-bridge/data-bridge-types";
 
 export type { DataBridgeResult };
 

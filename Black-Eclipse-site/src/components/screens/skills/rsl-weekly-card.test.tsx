@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-vi.mock("@/lib/harness/evolution-browser", () => ({
+vi.mock("@/lib/harness/clients/evolution-browser", () => ({
   getEvolutionRslReportBrowser: vi.fn(async () => ({
     success: true,
     markdown: "# summary",

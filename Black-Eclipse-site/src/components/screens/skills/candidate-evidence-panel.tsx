@@ -6,13 +6,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
-import { evolutionCandidateEvidenceBrowser } from "@/lib/harness/evolution-browser";
+import { evolutionCandidateEvidenceBrowser } from "@/lib/harness/clients/evolution-browser";
 import {
   EVOLUTION_EVIDENCE_EVENT,
   EVOLUTION_VERIFIED_EVENT,
   type EvolutionEvidenceEventDetail,
 } from "@/lib/harness/evolution-events";
-import type { EvolutionCandidateEvidence } from "@/lib/harness/evolution-client";
+import type { EvolutionCandidateEvidence } from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
 import { ExperimentList } from "./experiment-list";
 
