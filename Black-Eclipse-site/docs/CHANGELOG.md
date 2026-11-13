@@ -1,6 +1,11 @@
 # Change Log
 
 ## 2026-11-12
+- **test(security): hardline denial without a gateway.** Adds a regression test
+  proving `make_security_authorizer` refuses a destructive command via the
+  always-on hardline even when no gateway/policy is installed, while a benign
+  command falls through to the permissive inner authorizer. docs updated:
+  `docs/CHANGELOG.md`.
 - **chore(harness): finalize W4 autonomy and land run-kernel hardening.** The
   goal judge now has a hard 120s timeout and the loop emits `goal.gate.started`
   before each deterministic gate; the gated research finisher carries the

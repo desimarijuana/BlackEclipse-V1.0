@@ -74,3 +74,24 @@ def test_command_from_args_accepts_string_and_argv():
     assert command_from_args({"argv": ["python", "-m", "pytest"]}) == "python -m pytest"
     assert command_from_args({"path": "x"}) == ""
     assert command_from_args(None) == ""
+
+
+def test_the_security_authorizer_denies_hardline_even_without_a_gateway(monkeypatch):
+    """No gateway, no policy: the hardline still refuses the call."""
+    import asyncio
+    from types import SimpleNamespace
+
+    import harness.security.bootstrap as bootstrap
+    from harness.security.integration import make_security_authorizer
+
+    monkeypatch.setattr(bootstrap, "get_gateway", lambda: None)
+
+    async def inner(tool, args, ctx=None):  # noqa: ARG001
+        return True
+
+    authorizer = make_security_authorizer(inner, run_id="r-hardline")
+    tool = SimpleNamespace(name="shell_run", permission="write", effect="external_action")
+    assert asyncio.run(authorizer(tool, {"command": "rm -rf /"}, None)) is False
+    # A benign command falls through to the permissive inner authorizer.
+    assert asyncio.run(authorizer(tool, {"command": "ls -la"}, None)) is True
+
