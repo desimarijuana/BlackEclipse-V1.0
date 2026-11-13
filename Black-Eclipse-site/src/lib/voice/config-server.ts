@@ -61,7 +61,7 @@ export async function resolveVoiceProvider(
 ): Promise<ResolvedVoiceProvider> {
   const stored = storedInput ?? (await readStoredVoiceConfig());
 
-  let provider: 'openai' | 'groq' | 'custom' | null = null;
+  let provider: 'openai' | 'groq' | 'custom' | 'local' | null = null;
   if (stored.provider === 'auto') {
     for (const candidate of AUTO_ORDER) {
       const preset = TRANSCRIBE_PRESETS[candidate];
@@ -70,8 +70,30 @@ export async function resolveVoiceProvider(
         break;
       }
     }
+    // No key anywhere: use the engine that ships with the app. This is what
+    // makes dictation plug-and-play — nothing to buy, nothing to configure.
+    if (!provider) provider = 'local';
   } else {
     provider = stored.provider;
+  }
+
+  if (provider === 'local') {
+    const preset = TRANSCRIBE_PRESETS.local;
+    const sameProvider = stored.provider === 'local';
+    return {
+      config: {
+        provider: 'local',
+        baseUrl: '',
+        model: (sameProvider ? stored.model : undefined) || preset.model,
+        // The engine ships with the Python runtime; a missing install fails at
+        // transcription time with an honest LOCAL_ENGINE_MISSING, not a silent
+        // "not configured" before the user ever tries.
+        ready: true,
+        keyConfigured: false,
+      },
+      keyEnv: null,
+      apiKey: null,
+    };
   }
 
   if (!provider) {

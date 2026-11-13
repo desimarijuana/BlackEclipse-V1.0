@@ -7,10 +7,9 @@
 // Honesty rules that shape this module:
 //   * Secure context required — the Web Notification API only exists in a
 //     secure context (`https://…`, or the loopback names `localhost`/
-//     `127.0.0.1`/`[::1]`). A plain `http://blackeclipse` hosts-file alias is
-//     NOT one, so `window.Notification` is undefined there. Run
-//     `npm run setup:tls` once to serve `https://blackeclipse` and restore it
-//     (see docs/local-hostname.md).
+//     `127.0.0.1`/`[::1]`). The desktop window loads `http://127.0.0.1:3100`,
+//     which is loopback and therefore secure, so notifications work with no TLS
+//     tooling.
 //   * Opt-in only — the preference defaults to OFF, stored in localStorage.
 //   * Permission is requested from an explicit user gesture (the Settings
 //     toggle / button); we never prompt on page load.

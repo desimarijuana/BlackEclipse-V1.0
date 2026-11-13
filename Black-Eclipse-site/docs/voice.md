@@ -130,16 +130,33 @@ that does not need the state.
   React render happens per frame.
 - **Interaction.** Pointer movement is wind (the flame bends away), a tap throws
   a flare, Esc cancels, Enter stops and transcribes. Stop is always visible.
+- **Microphone consent.** WebView2's own consent dialog is drawn in the top-left
+  corner of the window and cannot be themed or anchored. The desktop shell
+  therefore suppresses it for the media-consent UI
+  (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--use-fake-ui-for-media-stream`, set in
+  `desktop/src-tauri/src/main.rs`) and the app owns the decision: the first mic
+  press opens an **Allow / Not now** card above the button, and the choice is
+  remembered in `localStorage` key `be_voice_consent_v1`. Audio handling is
+  unchanged — this only moves where the question is asked.
 - **Browser engine.** `SpeechRecognition` exposes no stream, so a *visual-only*
   `getUserMedia` feeds the meter and `onInterim` supplies the live words. If the
   extra capture fails, the field keeps its idle smoulder and dictation is
-  unaffected.
-- **Honest limits.** Desktop (Tauri/WebView2) has no `SpeechRecognition`, so the
-  flame reacts to the voice but words appear only after transcription — never a
-  fake live transcript. Streaming Whisper is a separate, unshipped decision.
+  unaffected. That engine is **never offered inside the desktop shell**:
+  WebView2 exposes the constructor but has no speech service behind it, so a
+  session starts and then ends after a second. Recognition is also *patient* —
+  it restarts itself on an unexpected `onend`, so a breath does not finish the
+  dictation; only Stop does.
+- **Honest limits.** Desktop (Tauri/WebView2) has no usable `SpeechRecognition`,
+  so dictation there needs a transcription provider (OpenAI/Groq key, or the
+  Custom preset pointed at a local whisper.cpp server). Without one the mic says
+  so instead of pretending to listen. The flame still reacts to the voice, and
+  words appear only after transcription — never a fake live transcript.
 - **Cost.** 30 fps cap, DPR ≤ 2, particle budget by area, loop paused when the
-  tab is hidden, and no `filter: blur()`. Reduced motion / animations-off draws
-  one static ember frame and no loop.
+  tab is hidden, and no `filter: blur()`. The OS "animation effects" setting
+  (`prefers-reduced-motion`, which Windows maps from client-area animations)
+  drops the field to a calm 8 fps breathing flame instead of freezing a live
+  indicator into a still image; the app's own reduce-motion / animations-off
+  switch still draws a single static frame.
 - **Nothing new is stored.** Audio handling, caps and insertion are unchanged.
 
 Design rationale, phases and the mobile notes:

@@ -53,8 +53,6 @@ of intent, not a waiver of any third party's rights and not legal advice.
   channel secrets, provider API keys, and anything that writes them to disk, logs,
   events, memory, or a model prompt.
 - Tenant/session isolation and approval bypasses.
-- The container and deployment defaults (`Dockerfile`, `docker-compose.yml`,
-  `.dockerignore`), including secret leaks into images.
 - The committed-secret gate (`scripts/scan-secrets.js`) and ignore rules.
 
 ## Out of scope

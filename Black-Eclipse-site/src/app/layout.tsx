@@ -19,7 +19,6 @@ import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
 import { DesktopTaskbarBadge } from "@/lib/notifications/desktop-taskbar-badge";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { DesktopSession } from "@/components/layout/desktop-session";
-import { OfflineReady } from "@/components/layout/offline-ready";
 import { SoundProvider } from "@/lib/sounds";
 import { TtsProvider } from "@/lib/tts";
 import { TerminalKeybind } from "@/components/layout/terminal-keybind";
@@ -94,7 +93,6 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <DesktopTaskbarBadge />
         <UpdateBanner />
         <DesktopSession />
-        <OfflineReady />
       </body>
     </html>
   );

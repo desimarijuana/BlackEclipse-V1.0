@@ -24,6 +24,7 @@ def preview_order(
     payload: dict[str, Any],
     *,
     record_approval: bool = True,
+    run_id: str = "",
 ) -> dict[str, Any]:
     """The preview implementation; `BrokerService.preview_order` delegates here."""
     try:
@@ -115,6 +116,7 @@ def preview_order(
             preview,
             verdict,
             risk="critical" if execution_mode == "live" else "high",
+            run_id=run_id,
         )
         if str(approval.get("status")) == "denied":
             allowed = False

@@ -1,7 +1,7 @@
 // Mutation guard + rate limiter for API routes.
 //
 // BlackEclipse is an open-source, zero-config app: cloning the repo and
-// running `npm run dev` must work with no environment setup. So protection
+// launching the desktop app must work with no environment setup. So protection
 // is layered by deployment mode instead of requiring accounts:
 //
 //   1. Browser UI (same-origin POSTs)          -> always allowed.
@@ -19,12 +19,13 @@
 // would let a non-loopback deployment skip the secret requirement. Only true
 // loopback hosts are local.
 //
-// `blackeclipse` is the repo's local hostname alias (a hosts-file entry mapping
-// it to 127.0.0.1, fronted by `scripts/local-proxy.js`). It resolves to loopback
-// on the operator's machine, so it is the same local origin as `localhost` —
+// `blackeclipse` is the repo's former local hostname alias (a hosts-file entry
+// mapping it to 127.0.0.1, fronted by a reverse proxy that has since been
+// deleted). It is kept in the set because the alias still resolves to loopback
+// on machines that configured it, so it is the same local origin as `localhost` —
 // without this, requests arriving through the hostname would be judged remote
 // (blocking no-Origin programmatic calls and forcing a Secure cookie over plain
-// http). See `docs/local-hostname.md`.
+// http).
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1", "blackeclipse"]);
 
 /**

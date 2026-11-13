@@ -51,7 +51,8 @@ const ENGINE_ITEMS = [
 ];
 
 const PROVIDER_ITEMS = [
-  { value: 'auto', label: 'Automatic (first key)' },
+  { value: 'auto', label: 'Automatic (on-device, or a key)' },
+  { value: 'local', label: 'On this device (no key)' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'groq', label: 'Groq' },
   { value: 'custom', label: 'Custom endpoint' },
@@ -165,10 +166,12 @@ export function VoiceInputSettings() {
             {loading
               ? 'Checking transcription readiness…'
               : activeEngine === 'whisper'
-                ? `Whisper ready — ${server?.provider ?? 'configured'} · ${server?.model ?? ''}`
+                ? server?.provider === 'local'
+                  ? `On-device Whisper ready — ${server?.model ?? 'base.en'} (no key)`
+                  : `Whisper ready — ${server?.provider ?? 'configured'} · ${server?.model ?? ''}`
                 : activeEngine === 'browser'
                   ? 'Browser dictation — no key needed'
-                  : 'Not available — add an OpenAI/Groq key, or use a Chromium-based browser'}
+                  : 'Not available — the on-device engine is missing from the Python runtime (run npm run setup:python)'}
           </span>
           {server && activeEngine === 'whisper' && (
             <span className="rounded-full border border-border/40 px-1.5 py-px text-[9px] text-muted-foreground/80">
@@ -241,14 +244,15 @@ export function VoiceInputSettings() {
 
           <Field
             label="Transcription provider"
-            hint="Auto uses the first configured key. Custom covers a local whisper.cpp server."
+            hint="Automatic uses a configured cloud key when there is one, otherwise the on-device engine (no key, works offline after a one-time model download). Custom covers a local whisper.cpp server."
           >
             <Select items={PROVIDER_ITEMS} value={provider} onValueChange={(value) => setProvider(value as TranscribeProvider)}>
               <SelectTrigger className="h-auto w-full justify-between py-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="auto">Automatic (first key)</SelectItem>
+                <SelectItem value="auto">Automatic (on-device, or a key)</SelectItem>
+                <SelectItem value="local">On this device (no key)</SelectItem>
                 <SelectItem value="openai">OpenAI</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
                 <SelectItem value="custom">Custom endpoint</SelectItem>

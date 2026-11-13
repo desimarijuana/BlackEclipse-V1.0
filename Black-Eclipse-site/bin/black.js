@@ -1,35 +1,40 @@
 #!/usr/bin/env node
-// `black` — global CLI for the Black Eclipse site.
+// `black` — global CLI for Black Eclipse.
 //
-//   black            (or `black eclipse`)  → start the site (production, fast)
-//   black dev        → start in dev mode (hot reload)
-//   black stop       → kill whatever is running on the port
-//   black status     → is the site up? what's running?
+// The product is the NATIVE DESKTOP APP. There is no browser/website runtime:
+// the one UI is served to the Tauri window over loopback on the channel's port
+// (Stable 3100, Dev 3101). Every command here drives that app or the shells
+// around it.
+//
+//   black            → open the desktop app (Stable)
+//   black dev        → build + open the Dev channel (port 3101)
+//   black refresh    → re-pin the current build and reopen Stable
+//   black stop       → stop the channel window and the server it owns
+//   black status     → is the app up? which channel, which port?
 //   black build      → force a production rebuild
 //   black doctor     → check the environment (Node, deps, DB, Python)
 //   black desktop    → (re)install the desktop shortcut + its app icon
+//   black update     → check for a signed release and apply it safely
+//   black reset      → reset setup or wipe data
+//
+// `eclipse`, `start` and `proxy` were the retired browser front door. They no
+// longer run anything; they explain where that functionality went.
 //
 // Registered globally via `npm link` from the Black-Eclipse-site folder —
 // works in cmd, PowerShell, and Git Bash on Windows/macOS/Linux.
 
-const { execSync, spawn, spawnSync } = require("child_process");
+const { execSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { root, build, nextBin, isUp } = require("../scripts/lib/server");
+const { STABLE, DEV } = require("../scripts/lib/channels");
 const {
-  root,
-  killPort,
-  needsBuild,
-  build,
-  nextBin,
-  isUp,
-} = require("../scripts/lib/server");
-const { runLocalHost } = require("../scripts/local-host");
-const { DEV, PROD } = require("../scripts/lib/profiles");
-
-// `black` (no subcommand) controls the production server. `black dev` controls
-// the development server, which runs on its own port and data directory.
-const PORT = String(PROD.appPort);
-const DEV_PORT = String(DEV.appPort);
+  launchShell,
+  shellPathFor,
+  stopShell,
+  stopOwnedServer,
+  readOwner,
+} = require("../scripts/lib/desktop-process");
 
 function log(msg) {
   console.log(`[black] ${msg}`);
@@ -45,83 +50,63 @@ function projectRoot() {
   return root;
 }
 
+function runScript(name, args = []) {
+  const result = spawnSync(process.execPath, [path.join(__dirname, "..", "scripts", name), ...args], {
+    stdio: "inherit",
+    cwd: projectRoot(),
+  });
+  process.exit(result.status ?? 1);
+}
+
+// ─── black (default) ───────────────────────────────────────────────────────
+// Opens the channel window. The shell boots its own loopback server and owns
+// the lifecycle, so this never starts a Next server itself and never builds.
+// A second invocation focuses the existing window (Tauri single-instance).
+function openApp(channel = STABLE) {
+  const res = launchShell(channel);
+  if (res.launched) {
+    log(`${channel.label} desktop app launched (pid ${res.pid}) — ${channel.appPort}`);
+    log(`if a window was already open, it was focused instead`);
+    return;
+  }
+  log(`the ${channel.label} desktop app is not installed at:`);
+  log(`  ${res.exe}`);
+  log("");
+  log("Desktop-only product — there is no browser site to fall back to.");
+  log("  npm run desktop:installer   build the Windows installer");
+  log("  npm run desktop:refresh     re-pin this checkout and reopen Stable");
+  process.exit(1);
+}
+
 // ─── black status ──────────────────────────────────────────────────────────
 async function status() {
-  const prod = await isUp(PORT);
-  const dev = await isUp(DEV_PORT);
-  log(`production: ${prod ? `UP (HTTP ${prod}) -> http://blackeclipse` : "DOWN"} [port ${PORT}]`);
-  log(`development: ${dev ? `UP (HTTP ${dev}) -> http://127.0.0.1:${DEV_PORT}` : "DOWN"} [port ${DEV_PORT}]`);
+  for (const channel of [STABLE, DEV]) {
+    const up = await isUp(String(channel.appPort));
+    const owner = readOwner(channel);
+    const state = up ? `UP (HTTP ${up})` : "DOWN";
+    log(`${channel.label.padEnd(6)} ${state} — http://127.0.0.1:${channel.appPort}`);
+    log(`        harness ${channel.harnessPort}${owner ? ` · server pid ${owner.pid}` : ""}`);
+  }
 }
 
 // ─── black stop ────────────────────────────────────────────────────────────
-async function stop({ all = false } = {}) {
+function stop({ all = false } = {}) {
+  const channels = all ? [STABLE, DEV] : [STABLE];
   let stopped = false;
-  if (killPort(PORT)) {
-    log(`production stopped (port ${PORT} freed)`);
-    stopped = true;
+  for (const channel of channels) {
+    const pids = stopShell(channel);
+    if (pids.length) {
+      log(`${channel.label} window stopped (pid ${pids.join(", ")})`);
+      stopped = true;
+    }
+    // Only the server tree this install started — never another process that
+    // happens to hold the port.
+    if (stopOwnedServer(channel)) {
+      log(`${channel.label} server stopped (port ${channel.appPort})`);
+      stopped = true;
+    }
   }
-  if (all && killPort(DEV_PORT)) {
-    log(`development stopped (port ${DEV_PORT} freed)`);
-    stopped = true;
-  }
-  if (!stopped) log(`nothing was running on port ${all ? `${PORT}/${DEV_PORT}` : PORT}`);
-}
-
-// ─── black eclipse ─────────────────────────────────────────────────────────
-async function eclipse({ restart = false } = {}) {
-  // Opening Eclipse again (another terminal tab, a second shell, a pinned
-  // command) must NOT tear down the healthy server that is already serving the
-  // open browser tab. Restarting costs doctor + a possible multi-minute build +
-  // a cold boot, which is exactly what made a second open feel like it hung.
-  // A loaded machine can take several seconds to answer its first request
-  // (dev server still booting, background warm-up); a short probe would read
-  // that as "down" and trigger the very restart this guard exists to avoid.
-  const running = await isUp(PORT, 10_000);
-  if (running && !restart && process.env.BE_FORCE_BUILD !== "1") {
-    log(`already running (HTTP ${running}) — leaving it up: http://blackeclipse`);
-    log(`use "black eclipse --restart" (or "black build") to force a rebuild`);
-    // The app can be alive while the front door is not (its own task keeps the
-    // app up; the door is a separate process). Without a door the browser gets a
-    // refused connection, so make sure it is serving too.
-    const { ensureFrontDoor } = require("../scripts/lib/front-door");
-    const door = ensureFrontDoor();
-    if (door.started) log("front door was not running — started it (http://blackeclipse)");
-    else if (door.live) log(`front door is up (${door.live.proto}://${door.live.host})`);
-    return;
-  }
-
-  log(`starting Black Eclipse → http://blackeclipse`);
-
-  // 1. Self-heal the environment (deps, prisma client, DB, python bridge).
-  try {
-    execSync(`node "${path.join(__dirname, "..", "scripts", "doctor.js")}"`, { stdio: "inherit" });
-  } catch {
-    log("setup failed — see errors above");
-    process.exit(1);
-  }
-
-  // 2. Free the port if a stale server holds it.
-  if (killPort(PORT)) log(`freed port ${PORT}`);
-
-  // 2. Production build only when needed — unchanged source skips it. The build
-  //    lock makes this wait for a build that is already running instead of
-  //    corrupting `.next` with a second one.
-  if (needsBuild()) {
-    log("building (first run or source changed — this can take a few minutes)...");
-    const t0 = Date.now();
-    const didBuild = build();
-    log(
-      didBuild
-        ? `build done in ${((Date.now() - t0) / 1000).toFixed(0)}s`
-        : "another process already built this source — using that build"
-    );
-  } else {
-    log("build is up to date — skipping");
-  }
-
-  // 3. Foreground start of BOTH the app (loopback) and the local proxy; the
-  //    only advertised address is http://blackeclipse. Ctrl+C stops both.
-  runLocalHost({ mode: "start", port: PORT });
+  if (!stopped) log("nothing was running");
 }
 
 // ─── black doctor ──────────────────────────────────────────────────────────
@@ -197,9 +182,13 @@ async function doctor() {
     if (!check("yfinance (price bridge)", yf, `run "${py.cmd}" -m pip install yfinance scrapling`)) failures++;
   }
 
+  // Desktop shell (the product)
+  const shell = shellPathFor(STABLE);
+  check("desktop app", fs.existsSync(shell), 'run "npm run desktop:installer" to install it', shell);
+
   // Build cache
-  const built = fs.existsSync(path.join(projectRoot(), ".next", "BUILD_ID"));
-  check("production build", built, 'run "black eclipse" once to create it', "ready");
+  const built = fs.existsSync(path.join(projectRoot(), STABLE.buildDir, "BUILD_ID"));
+  check("production build", built, 'run "npm run desktop:refresh" to create it', "ready");
 
   if (failures > 0) {
     console.log(`\n[black] ${failures} issue(s) found — see the !! lines above.`);
@@ -213,9 +202,8 @@ function forceBuild() {
   process.env.BE_FORCE_BUILD = "1";
   log("forcing production rebuild...");
   const t0 = Date.now();
-  killPort(PORT);
   build();
-  log(`build done in ${((Date.now() - t0) / 1000).toFixed(0)}s — run "black eclipse" to start`);
+  log(`build done in ${((Date.now() - t0) / 1000).toFixed(0)}s — run "black refresh" to pin and reopen`);
 }
 
 // ─── reset / onboarding ────────────────────────────────────────────────────
@@ -230,101 +218,51 @@ function runReset(args) {
   process.exit(result.status ?? 1);
 }
 
-// ─── black proxy ───────────────────────────────────────────────────────────
-// The front door (`scripts/local-proxy.js`) is long-lived on purpose: it answers
-// `https://blackeclipse` with the branded offline page when the app is stopped.
-// `on` installs the per-user sign-in task and starts it now; `off` stops it and
-// removes the task; `status` reports both.
-async function proxyCommand(sub) {
-  const root = projectRoot();
-  const { installProxyTask, removeProxyTask, taskExists, TASK_NAME } = require("../scripts/lib/proxy-task");
-  const { liveProxy } = require("../scripts/lib/proxy-state");
-  const { tlsAvailable } = require("../scripts/lib/tls");
-
-  if (sub === "off" || sub === "stop") {
-    spawnSync(process.execPath, [path.join(root, "scripts", "local-proxy-stop.js")], {
-      stdio: "inherit",
-      cwd: root,
-      env: process.env,
-    });
-    const removed = removeProxyTask();
-    log(
-      removed.ok
-        ? `sign-in autostart removed — the front door will not start automatically (${TASK_NAME})`
-        : `could not remove the sign-in autostart (${removed.reason || "unknown"}); the process is stopped`
-    );
-    return;
-  }
-
-  if (sub === "status") {
-    const live = liveProxy();
-    log(
-      live
-        ? `front door: UP — ${live.proto}://${live.host || "blackeclipse"} -> ${live.target} (pid ${live.pid})`
-        : "front door: DOWN (a stopped app would show the browser's error page)"
-    );
-    const installed = taskExists();
-    log(`sign-in autostart: ${installed ? "installed" : "not installed"}${installed ? ` (${TASK_NAME})` : ""}`);
-    const app = await isUp(PORT);
-    log(`app: ${app ? `UP (HTTP ${app}) -> ${live ? `${live.proto}://${live.host}` : `http://127.0.0.1:${PORT}`}` : "DOWN"}`);
-    return;
-  }
-
-  if (sub === "on" || sub === "install") {
-    const installed = installProxyTask();
-    log(
-      installed.ok
-        ? `sign-in autostart ${installed.method === "startup" ? "added to the Startup folder" : `installed (${TASK_NAME})`}`
-        : `could not install the sign-in autostart: ${installed.reason}`
-    );
-    const live = liveProxy();
-    if (live) {
-      log(`front door already running (pid ${live.pid}) — ${live.proto}://${live.host}`);
-      return;
-    }
-    const child = spawn(process.execPath, [path.join(root, "scripts", "local-proxy.js")], {
-      cwd: root,
-      env: process.env,
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    child.unref();
-    const tls = tlsAvailable();
-    log(`front door started — ${tls ? "https" : "http"}://blackeclipse stays available when the app is stopped`);
-    return;
-  }
-
-  log(`unknown proxy command "${sub}" — use: black proxy on | off | status`);
+// ─── retired browser front door ────────────────────────────────────────────
+// These commands used to boot a Next server on 3105 behind the local proxy.
+// That lane is deleted, not merely gated: keeping a callable browser start is
+// how "the web app" kept reappearing. Say where everything went, then exit.
+function retired(command) {
+  log(`"${command}" was the browser front door — it no longer exists.`);
+  log("");
+  log("The product is the native desktop app. Use:");
+  log("  black            open the desktop app (Stable, port 3100)");
+  log("  black dev        build + open the Dev channel (port 3101)");
+  log("  black refresh    re-pin the current build and reopen Stable");
+  log("  black status     is the app up?");
   process.exit(1);
 }
 
 // ─── routing ───────────────────────────────────────────────────────────────
 async function main() {
   const [, , cmd, ...rest] = process.argv;
-  const sub = (cmd || "eclipse").toLowerCase();
+  const sub = (cmd || "app").toLowerCase();
   switch (sub) {
+    case "app":
+    case "open":
+      openApp(STABLE);
+      break;
     case "eclipse":
     case "start":
-      await eclipse({ restart: rest.includes("--restart") });
+    case "proxy":
+      retired(sub);
       break;
     case "dev":
-      runLocalHost({ mode: "dev", port: argValue("-p", DEV_PORT) });
+      runScript("desktop-dev.js");
+      break;
+    case "refresh":
+      runScript("desktop-refresh.js", rest);
       break;
     case "stop":
-      await stop({ all: rest.includes("--all") });
+      stop({ all: rest.includes("--all") });
       break;
     case "status":
       await status();
-      break;
-    case "proxy":
-      await proxyCommand((rest[0] || "status").toLowerCase());
       break;
     case "build":
       forceBuild();
       break;
     case "desktop": {
-      const { spawnSync } = require("child_process");
       const result = spawnSync(
         process.execPath,
         [path.join(__dirname, "..", "scripts", "desktop-shortcut.js")],
@@ -336,7 +274,6 @@ async function main() {
     case "update": {
       // One implementation lives in scripts/update.js so the CLI, docs and the
       // in-app notice cannot drift. It verifies the signed tag before applying.
-      const { spawnSync } = require("child_process");
       const result = spawnSync(
         process.execPath,
         [path.join(__dirname, "..", "scripts", "update.js"), ...rest],
@@ -366,15 +303,13 @@ async function main() {
       console.log(`Usage: black [command]
 
 Commands:
-  eclipse      start the production site (fast) [default]
-  dev          start the development server (hot reload)
-  stop         stop production (--all also stops development)
-               the front door stays up and serves the offline page
-  proxy        the always-on front door (http://blackeclipse):
-                 black proxy on       start it now + start it at sign-in
-                 black proxy off      stop it + remove the sign-in task
-                 black proxy status   is it up? is the app up?
-  status       check both servers
+  (none)       open the desktop app (Stable, port ${STABLE.appPort}) [default]
+  app          same as above
+  dev          build + open the Dev channel (port ${DEV.appPort})
+  refresh      re-pin the current build and reopen Stable
+  stop         stop the channel window and the server it owns
+               (--all also stops Dev)
+  status       is the app up? which channel, which port?
   build        force a production rebuild
   desktop      (re)install the desktop shortcut and its app icon
   update       check for a signed release and apply it safely
@@ -389,8 +324,9 @@ Commands:
                  black reset --setup
                  black reset --factory [--confirm=WIPE] [--no-backup]
 
-Options:
-  -p <port>    use a custom port (production ${PORT}, development ${DEV_PORT})`);
+Retired (no longer runs anything): eclipse, start, proxy
+
+The product is desktop-only. There is no browser/website runtime to start.`);
       break;
     default:
       log(`unknown command "${sub}${rest.length ? " " + rest.join(" ") : ""}" — try "black help"`);
@@ -399,6 +335,6 @@ Options:
 }
 
 main().catch((err) => {
-  console.error("[black] error:", err.message || err);
+  log(err && err.message ? err.message : String(err));
   process.exit(1);
 });

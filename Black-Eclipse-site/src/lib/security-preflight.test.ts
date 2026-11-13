@@ -1,7 +1,8 @@
 // The deploy-time checklist must accept the SAME auth vocabulary as the app
 // (`src/lib/auth/config.ts`). It previously did not: `HARNESS_AUTH=required` —
-// the documented production value and the one `docker-compose.yml` forces — was
-// read as "not on", so a correctly hardened deployment failed its own preflight.
+// the documented production value (previously forced by the deleted container) —
+// was read as "not on", so a correctly hardened deployment failed its own
+// preflight.
 
 import { spawnSync } from "node:child_process";
 import path from "node:path";

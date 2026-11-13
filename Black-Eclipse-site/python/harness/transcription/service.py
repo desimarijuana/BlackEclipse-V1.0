@@ -27,13 +27,8 @@ ALLOWED_MIME = {
 }
 
 
-class TranscriptionError(Exception):
-    """A truthful, user-facing failure class."""
-
-    def __init__(self, code: str, message: str, status: int = 400) -> None:
-        super().__init__(message)
-        self.code = code
-        self.status = status
+from .errors import TranscriptionError
+from .local import transcribe_local
 
 
 def _decode_audio(audio_base64: str) -> bytes:
@@ -96,6 +91,19 @@ async def transcribe(
         raise TranscriptionError("UNSUPPORTED_MEDIA", f"Unsupported audio type: {mime or 'unknown'}", 415)
 
     audio = _decode_audio(audio_base64)
+
+    # On-device engine: no endpoint, no key, no network. This is the default
+    # when the operator has not configured a cloud provider.
+    if (provider or "").strip().lower() == "local":
+        return await transcribe_local(
+            audio=audio,
+            extension=extension,
+            model=(model or "").strip()[:MAX_MODEL_CHARS] or "base.en",
+            language=language,
+            prompt=prompt,
+            duration_ms=duration_ms,
+        )
+
     endpoint = f"{_validate_base_url(base_url)}/audio/transcriptions"
 
     chosen_model = (model or "").strip()[:MAX_MODEL_CHARS]

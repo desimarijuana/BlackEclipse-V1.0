@@ -42,15 +42,20 @@ supervisor's readiness probe; `/health` remains the diagnostic document. The
 probe budget is 30 s, because the full document was measured at 20+ s under a
 concurrent build and used to be mistaken for a dead runtime.
 
-**The website lane is retired, not deleted.** `npm run dev`, `npm run up`,
-`npm run start`, the proxy/TLS/hosts tooling and the browser shortcut all exit
-with a "desktop-only" message unless `BE_ALLOW_WEB=1`. The code is kept for a
-future browser release. Validation is `npm test`, `npx tsc --noEmit` and a
-build — no server.
+**The browser lane is deleted, not just gated.** `npm run dev`, `up`, `start`,
+`proxy`, `setup:hostname`, `setup:tls`, `web-guard.js`, `local-host.js`,
+`local-proxy*.js`, `start-desktop.js`, `start-eclipse.vbs`, `lib/profiles.js`,
+`lib/tls.js` and the proxy/TLS/splash helpers are gone. `black` (the CLI) no
+longer defaults to a website: it opens the native app, and `black eclipse`,
+`black start` and `black proxy` print where the functionality went and exit 1.
+There is no flag to bring the browser server back. Validation is `npm test`,
+`npx tsc --noEmit` and a desktop build — no server.
 
-`scripts/lib/profiles.js` still defines the legacy web profiles for that future
-lane; the desktop no longer reads them. `scripts/local-host.js`,
-`scripts/start-desktop.js` and `scripts/local-proxy.js` are gated.
+**Nothing advertises a browser address.** `bin/black.js`, `setup:desktop` and
+the shortcut all target the installed `Black Eclipse.exe`; the shortcut
+installer fails loudly instead of creating an icon for a launcher that no longer
+exists. `scripts/lib/channels.js` keeps `webLaneAllowed()`/`refuseWebLane()` as
+a last-resort guard, but nothing in the tree calls them.
 
 ## What is shared, and what is not
 
@@ -74,8 +79,8 @@ Isolated:
   start locks live under each channel's data directory.
 
 Builds are **serialized**: `npm run build`, `desktop:build:dev`,
-`desktop:refresh`, `desktop:promote`, `black eclipse` and the desktop launcher
-all take `.next-build.lock` before running `next build`. A second build waits
+`desktop:refresh`, `desktop:promote` and the desktop launcher all take
+`.next-build.lock` before running `next build`. A second build waits
 instead of wiping the same directory underneath it. The lock lives outside
 `.next` because the build deletes that directory; it is advisory, so a raw
 `npx next build` bypasses it.
@@ -97,7 +102,11 @@ Reaching Stable requires **promotion**, never an in-place rewrite:
 | `npm run desktop:build:dev` | Build `.next-desktop-dev` only (no launch) |
 | `npm run desktop:build:dev-shell` | Build the separate Dev Tauri binary |
 | `npm run build` | Build Stable's `.next` (still the source for promotion) |
-| `npm run dev` / `npm run up` / `npm start` / `npm run proxy` | **Retired**; print a desktop-only message unless `BE_ALLOW_WEB=1` |
+| `npm run app` / `black` | Open the installed Stable desktop app |
+| `black status` / `black stop` | Channel up/down, and stop only the tree it owns |
+
+`black eclipse`, `black start` and `black proxy` are retired shells that print
+the desktop commands and exit non-zero. No npm script starts a browser server.
 
 ## Dev chunk caching, and the "module factory is not available" overlay
 
@@ -122,7 +131,8 @@ signed in. Then reload the app.
 
 ## Docker
 
-The container is a single production deployment: it runs `next start` on
-`PORT=3000` and spawns the harness inside the container
-(`src/lib/harness/python-runtime.ts`). The two-profile split is for the local
-developer machine; a container has one environment.
+**Removed (2026-11-13).** `Dockerfile`, `docker-compose.yml`,
+`docker-entrypoint.sh` and `.dockerignore` were deleted with the browser lane —
+a container running `next start` was a server deployment of a product that has no
+server. `python/Dockerfile.quantsdk` remains: it is a sandbox image for the
+Python quant SDK, not an app deployment.

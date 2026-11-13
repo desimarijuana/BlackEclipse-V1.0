@@ -63,7 +63,9 @@ export async function transcribeWithRuntime(
       ...(operatorToken ? { 'X-Harness-Operator': operatorToken } : {}),
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(120_000),
+    // The on-device provider may download its model on first use; that is a
+    // one-time cost, not a hung request.
+    signal: AbortSignal.timeout(300_000),
   });
 
   const body = (await res.json().catch(() => ({}))) as

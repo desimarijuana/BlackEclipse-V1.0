@@ -26,8 +26,9 @@ by another machine. `npm run dev` on localhost is unchanged: no login, no setup.
 | unset, local dev bind | **off** (`auto-local`) | Zero-config preserved. |
 
 `HARNESS_AUTH=off` is a **local-development escape hatch**, not a deployment
-mode. `docker-compose.yml` overrides it to `required` for the packaged stack, so
-a container never serves an unauthenticated agent even if `.env` says `off`.
+mode. (The container that used to force `required` was deleted with the browser
+lane on 2026-11-13, so nothing overrides the variable any more — the desktop app
+is loopback-only and relies on that.)
 
 When mode is **required**, a signing secret is also required:
 

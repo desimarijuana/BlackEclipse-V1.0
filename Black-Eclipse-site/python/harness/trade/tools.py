@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from .analysis import bar_summary
+from .authority import bot_version, check_live_order
 from .model import TradeRefused
 
 READ = "read"
@@ -25,6 +26,17 @@ def _service(ctx: Any) -> Any:
     if service is None:
         raise RuntimeError("broker connectivity is not available in this run")
     return service
+
+
+def _bot_from_conversation(ctx: Any) -> str:
+    """The automation id when this run IS a bot conversation (`bot-<id>`).
+
+    Bots and group rooms carry their private conversation id on the run, so an
+    order placed from a bot can be attributed without asking the model to repeat
+    an id it was never given.
+    """
+    conversation = str(getattr(ctx, "conversation_id", "") or "")
+    return conversation[4:] if conversation.startswith("bot-") else ""
 
 
 def _pick(service: Any, args: dict[str, Any]) -> str:
@@ -195,7 +207,9 @@ async def order_preview(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         return "An `intent` object is required (symbol, side, type, volume, …).", {
             "status": "INVALID_ORDER"
         }
-    result = service.preview_order(connection_id, intent)
+    result = service.preview_order(
+        connection_id, intent, run_id=str(getattr(ctx, "run_id", "") or "")
+    )
     if result.get("allowed"):
         approval = result.get("approval") or {}
         return (
@@ -269,12 +283,21 @@ async def broker_mandates(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     return "\n".join(lines), {"mandates": mandates}
 
 
-def _select_mandate(service: Any, connection_id: str, symbol: str) -> str:
-    """Resolve the one mandate that applies, without requiring an id from the user."""
+def _select_mandate(
+    service: Any, connection_id: str, symbol: str, *, bot_id: str = "",
+) -> str:
+    """Resolve the one mandate that applies, without requiring an id from the user.
+
+    When `bot_id` is given (an L2 bot run) only a mandate pinned to THAT bot is a
+    candidate. A workflow-pinned or unpinned mandate must never authorize a bot's
+    unattended order just because it covers the symbol.
+    """
     try:
         active = service.list_mandates(connection_id, active_only=True)
     except Exception:  # noqa: BLE001
         return ""
+    if bot_id:
+        active = [m for m in active if str(m.get("botId") or "") == str(bot_id)]
     if len(active) == 1:
         return str(active[0].get("id") or "")
     wanted = str(symbol or "").upper()
@@ -347,10 +370,10 @@ async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             connection_id = _pick(service, {})
         except ValueError as exc:
             return str(exc), {"status": "CONNECTION_REQUIRED"}
-    # Defence in depth: the authorizer already refuses a non-demo connection, but
-    # this handler must not depend on that wrapper being installed. Live orders
-    # have exactly one unattended home (a workflow-pinned mandate run by a Graph
-    # Studio trading node) and one manual home (the order_preview approval card).
+    # Defence in depth: the authorizer applies the same rule, but this handler must
+    # not depend on that wrapper being installed. A DEMO order is authorized by the
+    # mandate; a LIVE order additionally needs the bot's own tier (L2), the current
+    # objective version and every limit in `trade/authority.py`.
     mode = ""
     try:
         for item in service.list_connections():
@@ -359,32 +382,44 @@ async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
                 break
     except Exception:  # noqa: BLE001 - unknown mode is refused below
         mode = ""
-    if mode != "demo":
-        return (
-            "This tool submits DEMO orders only; it will not send a live order. "
-            "For a live trade call `order_preview` with the exact intent — the "
-            "operator approves that one order and types the LIVE phrase, and the "
-            "approval card submits it. There is no unattended live path here.",
-            {"status": "LIVE_ORDER_REFUSED", "mode": mode or "unknown"},
-        )
+    automation_id = _bot_from_conversation(ctx)
+    refusal = check_live_order(
+        service,
+        automation_id=automation_id,
+        connection_id=connection_id,
+        mode=mode,
+        intent=intent,
+    )
+    if refusal is not None:
+        return refusal
     if not mandate_id:
-        mandate_id = _select_mandate(service, connection_id, str(intent.get("symbol") or ""))
+        mandate_id = _select_mandate(
+            service, connection_id, str(intent.get("symbol") or ""),
+            bot_id=automation_id if mode == "live" else "",
+        )
     if not mandate_id:
         active = service.list_mandates(connection_id, active_only=True)
         return (
-            "No single active demo mandate covers this symbol. Active mandates: "
-            f"{', '.join(m['id'] for m in active) or 'none'}. For a one-off manual "
-            "trade call `order_preview` instead: the operator's approval card submits "
-            "that exact order and needs no mandate. A mandate (Settings → Broker "
-            "connection) is only for unattended orders.",
+            "No single active mandate covers this symbol"
+            + (" for this bot." if mode == "live" else ".")
+            + f" Active mandates: {', '.join(m['id'] for m in active) or 'none'}. "
+            "For a one-off manual trade call `order_preview` instead: the "
+            "operator's approval card submits that exact order and needs no "
+            "mandate. A mandate (Settings → Broker connection) is only for "
+            "unattended orders.",
             {"status": "MANDATE_REQUIRED", "mandates": active},
         )
     try:
+        version = bot_version(automation_id)
         result = service.submit_order(
             connection_id,
             intent,
             mandate_id=mandate_id,
             run_id=str(getattr(ctx, "run_id", "") or ""),
+            automation_id=automation_id,
+            automation_version=version,
+            bot_id=automation_id if mode == "live" else "",
+            bot_version=version if mode == "live" else None,
         )
     except TradeRefused as exc:
         return f"Order refused ({exc.code}): {exc.message}", {
@@ -539,16 +574,27 @@ async def position_modify(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 async def order_ledger(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     service = _service(ctx)
     connection_id = str(args.get("connectionId") or "").strip() or None
-    orders = service.ledger_orders(connection_id, limit=int(args.get("limit") or 20))
+    # A bot asking about itself: `conversation_id` is `bot-<automationId>`, so it
+    # can answer "what have I actually placed?" without being told its own id.
+    automation_id = str(args.get("automationId") or "").strip() or _bot_from_conversation(ctx)
+    orders = service.ledger_orders(
+        connection_id, limit=int(args.get("limit") or 20),
+        automation_id=automation_id or None,
+    )
     if not orders:
         return "No submitted broker orders are recorded.", {"orders": []}
     lines = [f"{len(orders)} submitted order(s), newest first:"]
     for order in orders:
         intent = order.get("intent") or {}
+        owner = ""
+        if order.get("automationId"):
+            version = order.get("automationVersion")
+            owner = f" · bot {order['automationId']}" + (f"@v{version}" if version else "")
         lines.append(
             f"- {order['id']} {intent.get('side', '?')} {intent.get('volume', '?')} "
             f"{intent.get('symbol', '?')} {order['status']}"
             + (f" ticket {order['ticket']}" if order.get("ticket") else "")
+            + owner
         )
     return "\n".join(lines), {"orders": orders}
 
@@ -652,12 +698,16 @@ def register_broker_tools(registry: Any) -> None:
     _def(
         "order_ledger",
         "Read the local ledger of orders Eclipse submitted to a broker. This is an "
-        "audit record; the broker remains the source of truth for fills.",
+        "audit record; the broker remains the source of truth for fills. Each row "
+        "names the run and, for a bot, the bot id and the version of its objective "
+        "that placed it. Pass `automationId` to see one bot's orders; a bot asking "
+        "about itself may omit it.",
         order_ledger,
         {
             "type": "object",
             "properties": {
                 "connectionId": connection_id,
+                "automationId": {"type": "string"},
                 "limit": {"type": "integer"},
             },
         },
@@ -718,17 +768,20 @@ def register_broker_tools(registry: Any) -> None:
     )
     _def(
         "order_submit",
-        "Submit ONE DEMO order under an active operator-created mandate. REQUIRED "
+        "Submit ONE order under an active operator-created mandate. REQUIRED "
         "arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, "
         "takeProfit?}. `connectionId` and `mandateId` are optional: the one saved "
         "connection and the one active mandate covering the symbol are resolved for "
         "you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. "
         "This call performs "
         "its own preview and submission; do not call order_preview first and never call "
-        "it with empty arguments. It refuses any connection that is not demo: LIVE "
-        "orders are never submitted by this tool. For a live trade call "
-        "`order_preview` and the operator confirms the approval card in chat, typing "
-        "the LIVE phrase.",
+        "it with empty arguments. "
+        "DEMO connections submit under a demo mandate. A LIVE order is only possible "
+        "from a BOT run whose definition is at tier L2 and whose live mandate is "
+        "pinned to that bot and its current objective version; every other run, and "
+        "every workflow-pinned or unpinned mandate, is refused. In an ordinary chat, "
+        "call `order_preview` instead and the operator confirms the approval card, "
+        "typing the LIVE phrase.",
         order_submit,
         {
             "type": "object",

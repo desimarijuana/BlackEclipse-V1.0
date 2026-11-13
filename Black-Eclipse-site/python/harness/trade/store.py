@@ -147,6 +147,13 @@ def _loads(value: Optional[str], fallback: Any) -> Any:
         return fallback
 
 
+def _int_or_none(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _row(row: Any) -> BrokerConnection:
     return BrokerConnection(
         id=row["id"],
@@ -192,6 +199,13 @@ class BrokerConnectionStore:
         # Phase P8: a graph order records which run/node placed it, exactly like
         # the paper fill log, so a ledger row can be traced back to a workflow.
         for name in ("runId", "nodeId"):
+            if name not in order_columns:
+                self._db.execute(f"ALTER TABLE BrokerOrder ADD COLUMN {name} TEXT")
+        # P4: which BOT (and which version of its objective) placed the order. A
+        # run id already links to the automation execution, but without this an
+        # operator must join two tables to answer "what has this bot actually
+        # done?" — and a version bump must be visible on the order it produced.
+        for name in ("automationId", "automationVersion"):
             if name not in order_columns:
                 self._db.execute(f"ALTER TABLE BrokerOrder ADD COLUMN {name} TEXT")
         self._db.commit()
@@ -382,6 +396,10 @@ class BrokerConnectionStore:
             "mandateId": row["mandateId"] if "mandateId" in row.keys() else None,
             "runId": row["runId"] if "runId" in row.keys() else None,
             "nodeId": row["nodeId"] if "nodeId" in row.keys() else None,
+            "automationId": row["automationId"] if "automationId" in row.keys() else None,
+            "automationVersion": _int_or_none(
+                row["automationVersion"] if "automationVersion" in row.keys() else None
+            ),
             "status": row["status"],
             "ticket": row["ticket"],
             "retcode": row["retcode"],
@@ -403,6 +421,8 @@ class BrokerConnectionStore:
         mandate_id: str = "",
         run_id: str = "",
         node_id: str = "",
+        automation_id: str = "",
+        automation_version: int | None = None,
         status: str = "submitting",
     ) -> dict[str, Any]:
         now = now_iso()
@@ -410,8 +430,8 @@ class BrokerConnectionStore:
         self._db.execute(
             """INSERT INTO BrokerOrder
                (id, connectionId, intent, digest, approvalId, mandateId, runId, nodeId,
-                status, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                automationId, automationVersion, status, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 order_id,
                 str(connection_id),
@@ -421,6 +441,8 @@ class BrokerConnectionStore:
                 str(mandate_id or "") or None,
                 str(run_id or "") or None,
                 str(node_id or "") or None,
+                str(automation_id or "") or None,
+                str(automation_version) if automation_version is not None else None,
                 str(status),
                 now,
                 now,
@@ -458,18 +480,22 @@ class BrokerConnectionStore:
 
     def list_orders(
         self, connection_id: Optional[str] = None, limit: int = 50,
+        automation_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit or 50), 200))
+        clauses: list[str] = []
+        params: list[Any] = []
         if connection_id:
-            rows = self._db.execute(
-                """SELECT * FROM BrokerOrder WHERE connectionId=?
-                   ORDER BY createdAt DESC LIMIT ?""",
-                (connection_id, limit),
-            ).fetchall()
-        else:
-            rows = self._db.execute(
-                "SELECT * FROM BrokerOrder ORDER BY createdAt DESC LIMIT ?", (limit,)
-            ).fetchall()
+            clauses.append("connectionId=?")
+            params.append(connection_id)
+        if automation_id:
+            clauses.append("automationId=?")
+            params.append(str(automation_id))
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        rows = self._db.execute(
+            f"SELECT * FROM BrokerOrder {where}ORDER BY createdAt DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
         return [self._order_row(row) for row in rows]
 
     # ── reconciliation: fills, positions, sync state ─────────────────────────

@@ -3,8 +3,8 @@
 //
 // Why: the packaged desktop app ships a frozen copy of the UI under
 // `<install>\app`. On launch it prefers that copy, so the desktop window can
-// drift from `npm run dev` / `npm run up` even though both are the same Next.js
-// app. On a developer machine we want exactly one UI: the repo's `.next` build.
+// drift from the build this checkout produces even though both are the same
+// Next.js app. On a developer machine we want exactly one UI: the repo's `.next`.
 //
 // This script replaces the packaged `app` with a tiny bridge:
 //   <install>\app\scripts\desktop-server.js  ->  <repo>\scripts\desktop-server.js

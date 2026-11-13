@@ -114,6 +114,12 @@ export class VoiceMeter {
       return { level: this.level, centroid: this.centroid };
     }
 
+    // A context created after an await (the native permission dialog can outlast
+    // the click's user activation) starts suspended, and a suspended analyser
+    // reports pure silence — which looks like a dead visualiser, not a dead mic.
+    // Nudge it back on every read; it is a no-op once running.
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+
     analyser.getByteTimeDomainData(this.time);
     this.level = smoothLevel(this.level, rmsToLevel(rmsFromTimeDomain(this.time)));
 

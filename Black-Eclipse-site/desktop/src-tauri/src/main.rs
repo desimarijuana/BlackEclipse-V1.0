@@ -1404,6 +1404,26 @@ fn write_bounds(state: &AppState, size: Option<tauri::PhysicalSize<u32>>, pos: O
 }
 
 fn main() {
+    // WebView2 draws its own media-consent dialog in the top-left corner of the
+    // window: it cannot be themed, moved, or anchored to the mic that asked.
+    // The app takes responsibility for that consent in the composer instead
+    // (VoiceInputButton's "Allow" card), so the native dialog is suppressed for
+    // this process. The window only ever loads our own loopback origin, and
+    // this switch affects the consent UI only — the real microphone is used.
+    #[cfg(windows)]
+    {
+        const FLAG: &str = "--use-fake-ui-for-media-stream";
+        let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        if !existing.contains(FLAG) {
+            let merged = if existing.trim().is_empty() {
+                FLAG.to_string()
+            } else {
+                format!("{} {}", existing.trim(), FLAG)
+            };
+            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", merged);
+        }
+    }
+
     let root = match resolve_root() {
         Some(r) => r,
         None => {

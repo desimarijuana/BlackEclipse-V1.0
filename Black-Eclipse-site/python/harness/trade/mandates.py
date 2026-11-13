@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS TradingMandate (
   createdAt    TEXT NOT NULL,
   lastUsedAt   TEXT,
   workflowId   TEXT,
-  workflowVersion INTEGER
+  workflowVersion INTEGER,
+  botId        TEXT,
+  botVersion   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_mandate_connection
   ON TradingMandate(connectionId, createdAt);
@@ -76,6 +78,8 @@ def _row(row: Any) -> dict[str, Any]:
         "lastUsedAt": row["lastUsedAt"],
         "workflowId": row["workflowId"] if "workflowId" in row.keys() else None,
         "workflowVersion": row["workflowVersion"] if "workflowVersion" in row.keys() else None,
+        "botId": row["botId"] if "botId" in row.keys() else None,
+        "botVersion": row["botVersion"] if "botVersion" in row.keys() else None,
     }
 
 
@@ -122,6 +126,12 @@ class TradingMandateStore:
             self._db.execute("ALTER TABLE TradingMandate ADD COLUMN workflowId TEXT")
         if "workflowVersion" not in columns:
             self._db.execute("ALTER TABLE TradingMandate ADD COLUMN workflowVersion INTEGER")
+        # P5: a live mandate may instead be pinned to a BOT and the version of its
+        # objective. Exactly one pin is required for live — a workflow or a bot.
+        if "botId" not in columns:
+            self._db.execute("ALTER TABLE TradingMandate ADD COLUMN botId TEXT")
+        if "botVersion" not in columns:
+            self._db.execute("ALTER TABLE TradingMandate ADD COLUMN botVersion INTEGER")
         self._db.commit()
 
     def create(
@@ -136,6 +146,8 @@ class TradingMandateStore:
         created_by: str = "operator",
         workflow_id: str = "",
         workflow_version: int | None = None,
+        bot_id: str = "",
+        bot_version: int | None = None,
     ) -> dict[str, Any]:
         if connection.mode not in (ConnectionMode.DEMO, ConnectionMode.LIVE):
             raise TradeRefused(
@@ -144,10 +156,13 @@ class TradingMandateStore:
                 status_code=403,
             )
         mode = connection.mode.value
-        if mode == "live" and (not workflow_id or not workflow_version):
+        workflow_pinned = bool(workflow_id and workflow_version)
+        bot_pinned = bool(bot_id and bot_version is not None)
+        if mode == "live" and not (workflow_pinned or bot_pinned):
             raise TradeRefused(
                 "MANDATE_WORKFLOW_REQUIRED",
-                "a live mandate must pin the workflow id and version it authorizes",
+                "a live mandate must pin the workflow, or the bot and objective "
+                "version, that it authorizes",
                 status_code=400,
             )
         cleaned = sorted({str(item).strip().upper() for item in symbols if str(item).strip()})
@@ -171,8 +186,9 @@ class TradingMandateStore:
         self._db.execute(
             """INSERT INTO TradingMandate
                (id, connectionId, mode, symbols, maxOrders, maxMargin, ordersUsed,
-                expiresAt, createdBy, note, createdAt, workflowId, workflowVersion)
-               VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
+                expiresAt, createdBy, note, createdAt, workflowId, workflowVersion,
+                botId, botVersion)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mandate_id,
                 connection.id,
@@ -186,6 +202,8 @@ class TradingMandateStore:
                 now,
                 workflow_id or None,
                 int(workflow_version) if workflow_version else None,
+                bot_id or None,
+                int(bot_version) if bot_version is not None else None,
             ),
         )
         self._db.commit()
@@ -258,7 +276,7 @@ class TradingMandateStore:
 
     def verify(
         self, mandate_id: str, *, connection_id: str, symbol: str, margin: float,
-        mode: str = "", workflow_id: str = "",
+        mode: str = "", workflow_id: str = "", bot_id: str = "",
     ) -> dict[str, Any]:
         row = self._db.execute(
             "SELECT * FROM TradingMandate WHERE id=?", (str(mandate_id or ""),)
@@ -274,13 +292,35 @@ class TradingMandateStore:
                 f"the mandate is for {data['mode']} execution, not {mode}",
                 status_code=409,
             )
-        pinned = str(data.get("workflowId") or "")
-        if pinned and str(workflow_id or "") != pinned:
-            raise TradeRefused(
-                "MANDATE_WORKFLOW_MISMATCH",
-                "the mandate is pinned to a different workflow",
-                status_code=409,
-            )
+        pinned_workflow = str(data.get("workflowId") or "")
+        pinned_bot = str(data.get("botId") or "")
+        if pinned_workflow:
+            if str(workflow_id or "") != pinned_workflow:
+                raise TradeRefused(
+                    "MANDATE_WORKFLOW_MISMATCH",
+                    "the mandate is pinned to a different workflow",
+                    status_code=409,
+                )
+        elif pinned_bot:
+            # A bot-pinned live mandate authorizes ONE bot at ONE objective
+            # version. Editing the objective bumps the version and invalidates
+            # the grant rather than silently re-arming it.
+            if str(bot_id or "") != pinned_bot:
+                raise TradeRefused(
+                    "MANDATE_BOT_MISMATCH",
+                    "the mandate is pinned to a different bot",
+                    status_code=409,
+                )
+        else:
+            # Every live mandate is pinned (enforced at creation). Reaching here
+            # means a demo mandate, which is authorized by scope alone.
+            if mode == "live":
+                raise TradeRefused(
+                    "MANDATE_UNPINNED",
+                    "this live mandate names no workflow or bot; recreate it from "
+                    "the thing it authorizes",
+                    status_code=409,
+                )
         if not _active(row):
             raise TradeRefused(
                 "MANDATE_INACTIVE",

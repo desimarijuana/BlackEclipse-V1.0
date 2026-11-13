@@ -1,5 +1,6 @@
-// Shared cross-platform server helpers used by both `npm run up`
-// (scripts/up.js) and the global `black` CLI (bin/black.js).
+// Shared cross-platform server helpers used by the desktop server
+// (scripts/desktop-server.js), the build wrappers and the global `black` CLI
+// (bin/black.js). The browser lane that used to share them was deleted.
 //
 // Everything here must work on Windows, macOS, and Linux with zero
 // native dependencies — pure Node.js + whatever ships with the OS.
@@ -17,8 +18,8 @@ const hashFile = path.join(nextDir, ".build-hash");
 // output (and the app then fails to start with no useful error). The file lives
 // OUTSIDE `.next` because the build deletes that directory. It is advisory: a
 // build invoked as raw `npx next build` cannot take it, but every supported
-// entry point (`npm run build`, `npm run up`, `black eclipse`, the desktop icon)
-// goes through this lock.
+// entry point (`npm run build`, `desktop:build:dev`, `desktop:refresh`,
+// `desktop:promote`, the desktop icon) goes through this lock.
 const BUILD_LOCK = path.join(root, ".next-build.lock");
 const BUILD_WAIT_MS = 45 * 60 * 1000;
 
@@ -292,10 +293,11 @@ function startDev(port) {
 /** Probe whether something answers HTTP on the port. */
 async function isUp(port, timeoutMs = 4000) {
   try {
-    // Do not follow redirects: the local-host launcher sets BE_CANONICAL_HOST,
-    // so 127.0.0.1:port answers with a 307 to the TLS hostname. Following it
-    // makes Node reject the locally-trusted certificate and report a live
-    // server as down (which then used to trigger an unnecessary restart).
+    // Do not follow redirects: a legacy browser-path server sets
+    // BE_CANONICAL_HOST, so 127.0.0.1:port could answer with a 307 to a TLS
+    // hostname. Following it makes Node reject the locally-trusted certificate
+    // and report a live server as down (which then used to trigger an
+    // unnecessary restart). The desktop channel never redirects.
     const res = await fetch(`http://127.0.0.1:${port}/`, {
       signal: AbortSignal.timeout(timeoutMs),
       redirect: "manual",

@@ -2,8 +2,8 @@
 // `npm run build` — serialized production build.
 //
 // `next build` deletes and rewrites `.next` in place. Two builds started at the
-// same time (a terminal `npm run build` plus the desktop icon, or a build plus
-// `npm run up`) corrupt each other's output, and the app then fails to start
+// same time (a terminal `npm run build` plus the desktop icon, or a Stable and a
+// Dev build) corrupt each other's output, and the app then fails to start
 // with no useful error — the "sometimes the icon just hangs" report. Every
 // supported entry point now takes `.next-build.lock` first; this wrapper means
 // the plain npm script does too.

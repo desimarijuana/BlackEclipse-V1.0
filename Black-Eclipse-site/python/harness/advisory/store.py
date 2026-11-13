@@ -153,6 +153,7 @@ class AdvisoryStore:
         portfolio_id: Optional[str] = None,
         owner_id: Optional[str] = None,
         status: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
@@ -166,6 +167,11 @@ class AdvisoryStore:
         if status:
             clauses.append("status = ?")
             values.append(status)
+        if conversation_id:
+            # A bot's private bucket is `bot-<automationId>`; this is how its own
+            # scored record is read (P5's evidence gate).
+            clauses.append("conversationId = ?")
+            values.append(str(conversation_id))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         values.append(int(limit))
         rows = self._db.execute(

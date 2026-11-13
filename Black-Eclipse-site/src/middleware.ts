@@ -16,14 +16,14 @@
 //   * `/login` and `/api/auth/**` are always allowed, so a user can authenticate.
 //
 // When `HARNESS_AUTH` resolves off (the zero-config local case) this is a no-op,
-// so `npm run dev` on localhost is unchanged.
+// so the desktop app on loopback is unchanged.
 
 import { NextResponse, type NextRequest } from "next/server";
 import { authConfig, authMisconfigured } from "@/lib/auth/config";
 import { readCookie, verifySessionToken, AUTH_COOKIE } from "@/lib/auth/token";
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/|sounds/|backgrounds/|sw.js).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/|sounds/|backgrounds/).*)"],
 };
 
 // `/api/channels/webhook/` is a PUBLIC inbound endpoint: an external provider
@@ -44,9 +44,9 @@ function isPublic(pathname: string): boolean {
 
 // A single canonical origin keeps ONE app: the same URL, the same origin-scoped
 // storage (theme, sidebar, chat cache, …) on every visit. When `BE_CANONICAL_HOST`
-// is set (the local-host launcher sets it to the `blackeclipse` hostname), a
-// request on a different host is redirected there, preserving path + query.
-// Unset by default, so `npm run dev:next` / zero-config localhost is unchanged.
+// is set, a request on a different host is redirected there, preserving path +
+// query. Nothing sets it now that the browser lane is gone (the desktop always
+// uses 127.0.0.1), so it is inert by default.
 //
 // Only PAGE navigations are redirected. `/api/*` is deliberately left alone so
 // programmatic callers that address the loopback server directly keep working —

@@ -29,10 +29,10 @@ function requestProtocol(request: Request): string {
 function secureFor(request: Request): boolean {
   // A Secure cookie is dropped by the browser over plain http, so it must never
   // be marked Secure there. Everything that is not a local host is treated as
-  // remote and cookie-protected. A local host (loopback aliases — and the
-  // `blackeclipse` hosts-file alias — fronted by scripts/local-proxy.js) is
-  // normally served over http, but is Secure when the local front door is
-  // serving HTTPS (it sets `x-forwarded-proto: https`). The host is read
+  // remote and cookie-protected. A local host (the loopback aliases, including
+  // the legacy `blackeclipse` hosts-file name) is normally served over http, but
+  // is Secure when an upstream says it terminated HTTPS (`x-forwarded-proto`).
+  // The host is read
   // Host-aware (x-forwarded-host / host), not from `request.url`, so this is
   // correct behind the proxy too.
   if (!isLocalRequest(request)) return true;

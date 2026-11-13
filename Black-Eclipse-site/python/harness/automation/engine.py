@@ -582,7 +582,12 @@ class AutomationEngine:
             output=self._bounded_output(result.output if result else None),
         )
         self._store.append_execution_event(execution_id, state, {"reason": reason, "errorClass": error_class})
-        await self._deliver(definition, execution_id, run_id_out, state, result.output if result else None)
+        pending = (getattr(result, "detail", None) or {}).get("pendingApprovals") if result else None
+        await self._deliver(
+            definition, execution_id, run_id_out, state,
+            result.output if result else None,
+            pending_approvals=pending,
+        )
         self._store.release_lock(lease, self._worker_id)
         # A one-time automation that has fired has no next run; it stays (audit).
         if definition.trigger.type == "one_time":
@@ -678,11 +683,13 @@ class AutomationEngine:
     async def _deliver(
         self, definition: AutomationDefinition, execution_id: str, run_id: Optional[str],
         state: str, output: Optional[str],
+        *, pending_approvals: Optional[list[dict[str, Any]]] = None,
     ) -> list[dict[str, Any]]:
         try:
             return await deliver_automation(
                 definition, execution_id=execution_id, run_id=run_id, state=state,
                 output=output, store=self._store, bus=self._bus,
+                pending_approvals=pending_approvals,
             )
         except Exception as exc:  # noqa: BLE001 - delivery never fails the run
             log.warning("automation delivery failed", exc_info=True)

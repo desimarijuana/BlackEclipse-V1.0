@@ -25,10 +25,6 @@ function port(value, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function isTruthy(value) {
-  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
-}
-
 // Stable keeps the historical checkout data directory (the repo root) so an
 // existing install's journals, memory and JDdS snapshot are untouched. The
 // packaged build overrides this with `%LOCALAPPDATA%\BlackEclipse\data`.
@@ -101,21 +97,18 @@ function channelEnv(channel, { dataDir, buildDir } = {}) {
   };
 }
 
-/** Is the website/browser lane allowed to start? Desktop-only by default. */
+/** Is the website/browser lane allowed to start? Desktop-only. */
 function webLaneAllowed() {
-  return isTruthy(process.env.BE_ALLOW_WEB);
+  return false;
 }
 
 /** Print the one message every retired website command shows. */
 function refuseWebLane(command) {
-  if (webLaneAllowed()) return false;
   console.log("");
   console.log(`[black-eclipse] "${command}" is disabled — the product is desktop-only.`);
   console.log("  Use:  npm run desktop:dev      (Dev window, port 3101)");
   console.log("        npm run desktop:refresh  (re-pin + reopen Stable)");
   console.log("        npm run desktop:doctor   (health check)");
-  console.log("  The web code is kept for a future browser release; set BE_ALLOW_WEB=1");
-  console.log("  only if you are deliberately working on that lane.");
   console.log("");
   return true;
 }

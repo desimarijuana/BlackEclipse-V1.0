@@ -4,7 +4,7 @@
 // client settings pane and the server resolver describe the same thing.
 
 export type VoiceEngine = 'auto' | 'whisper' | 'browser';
-export type TranscribeProvider = 'auto' | 'openai' | 'groq' | 'custom';
+export type TranscribeProvider = 'auto' | 'openai' | 'groq' | 'custom' | 'local';
 
 export interface VoiceInputPreferences {
   /** `auto` = Whisper when configured, otherwise browser dictation. */
@@ -26,7 +26,14 @@ export interface TranscribePreset {
   keyOptional?: boolean;
 }
 
-export const TRANSCRIBE_PRESETS: Record<'openai' | 'groq' | 'custom', TranscribePreset> = {
+export const TRANSCRIBE_PRESETS: Record<'openai' | 'groq' | 'custom' | 'local', TranscribePreset> = {
+  local: {
+    label: 'On this device',
+    baseUrl: '',
+    model: 'base.en',
+    keyEnv: '',
+    keyOptional: true,
+  },
   openai: {
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
@@ -60,11 +67,11 @@ export const DEFAULT_VOICE_INPUT_PREFERENCES: VoiceInputPreferences = {
 
 /** Server-resolved transcription readiness. Never contains a key. */
 export interface VoiceServerConfig {
-  /** `none` = no provider is configured. */
-  provider: 'openai' | 'groq' | 'custom' | 'none';
+  /** `none` = no usable provider (should not happen: local is always available). */
+  provider: 'openai' | 'groq' | 'custom' | 'local' | 'none';
   model: string;
   baseUrl: string;
-  /** A key (or a keyless local endpoint) is available. */
+  /** A key (or a keyless endpoint / the on-device engine) is available. */
   ready: boolean;
   keyConfigured: boolean;
 }
@@ -74,7 +81,13 @@ export function isVoiceEngine(value: unknown): value is VoiceEngine {
 }
 
 export function isTranscribeProvider(value: unknown): value is TranscribeProvider {
-  return value === 'auto' || value === 'openai' || value === 'groq' || value === 'custom';
+  return (
+    value === 'auto' ||
+    value === 'openai' ||
+    value === 'groq' ||
+    value === 'custom' ||
+    value === 'local'
+  );
 }
 
 /** Human label for the engine that will actually run. */

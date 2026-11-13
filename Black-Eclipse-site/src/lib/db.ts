@@ -15,9 +15,10 @@ const globalForPrisma = globalThis as unknown as {
 // writes its `-wal`/`-shm` sidecars next to this path, so a file symlink would
 // leave the newest transactions outside the encrypted volume.
 //
-// `BE_DB_PATH` overrides ONLY the market/journal SQLite file. The dev profile
+// `BE_DB_PATH` overrides ONLY the market/journal SQLite file. The Dev channel
 // uses it to share the checked-in JDdS snapshot while keeping its agent memory
-// isolated (see scripts/lib/profiles.js); doctor.js/db-guard.js already honour it.
+// isolated (see the data dir in scripts/lib/channels.js); doctor.js/db-guard.js
+// already honour it.
 const dataDir = process.env.BE_DATA_DIR
   ? path.resolve(process.env.BE_DATA_DIR)
   : process.cwd();

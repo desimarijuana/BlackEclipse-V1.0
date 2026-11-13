@@ -7,8 +7,6 @@
 //   2. the heat grid upscaled from a tiny offscreen bitmap,
 //   3. additive embers,
 //   4. the transcript as real DOM text (aria-live), not canvas glyphs.
-//
-// Reduced motion / animations-off gets ONE static ember frame — no loop.
 
 import { useEffect, useRef, useState } from 'react';
 import { heatAlpha, heatColor, createFireField, stepFire, type FireField } from '@/lib/voice/fire-field';
@@ -47,18 +45,23 @@ export function VoiceFireField({
   const flareRef = useRef(0);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
-  const [reduced, setReduced] = useState(false);
+  const [motion, setMotion] = useState<'full' | 'calm' | 'off'>('full');
 
+  // Two different "reduce motion" signals, deliberately treated differently:
+  //   * OS "animation effects" off → Chromium reports prefers-reduced-motion.
+  //     That must not freeze a LIVE indicator into a still image, so the field
+  //     drops to a calm 8 fps breathing flame with no sparks.
+  //   * the app's own reduce-motion / animations-off switch → the user asked
+  //     this app for no motion, so draw a single static frame.
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const sync = () => {
       const root = document.documentElement;
-      setReduced(
-        mq.matches ||
-          root.classList.contains('a11y-reduce-motion') ||
-          root.classList.contains('theme-no-anim') ||
-          root.classList.contains('motion-off'),
-      );
+      const hard =
+        root.classList.contains('a11y-reduce-motion') ||
+        root.classList.contains('theme-no-anim') ||
+        root.classList.contains('motion-off');
+      setMotion(hard ? 'off' : mq.matches ? 'calm' : 'full');
     };
     sync();
     mq.addEventListener('change', sync);
@@ -188,20 +191,20 @@ export function VoiceFireField({
     };
 
     let prevT = 0;
-    const frameMs = 1000 / 30;
+    const frameMs = motion === 'calm' ? 1000 / 8 : 1000 / 30;
     const loop = (t: number) => {
       if (disposed) return;
       if (prevT !== 0 && t - prevT < frameMs) {
         raf = requestAnimationFrame(loop);
         return;
       }
-      const dt = prevT === 0 ? 0.016 : Math.min(0.06, (t - prevT) / 1000);
+      const dt = prevT === 0 ? 0.016 : Math.min(0.2, (t - prevT) / 1000);
       prevT = t;
       if (!document.hidden) draw(dt);
       raf = requestAnimationFrame(loop);
     };
 
-    if (!reduced) {
+    if (motion !== 'off') {
       raf = requestAnimationFrame(loop);
     } else {
       // One static frame: a low, warm ember bed. No motion, no particles.
@@ -214,7 +217,7 @@ export function VoiceFireField({
       observer.disconnect();
       fieldRef.current = null;
     };
-  }, [height, meterRef, reduced]);
+  }, [height, meterRef, motion]);
 
   const text = `${transcript}${transcript && interim ? ' ' : ''}${interim}`;
 

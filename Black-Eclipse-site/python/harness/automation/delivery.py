@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -49,11 +50,14 @@ def render_run_report(
     output: Optional[str],
     *,
     limits: Optional[list[str]] = None,
+    pending_approvals: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """The text a delivered job report must carry (the unattended contract).
 
     Rules (asserted by tests, not by convention):
-      1. The FIRST line states the outcome in plain words.
+      1. The FIRST line states the outcome in plain words — and when the run left
+         an order waiting for the operator's decision, THAT is the outcome, named
+         with the exact order and the window it is actually good for.
       2. A run that hit limits names EVERY limit it hit — never a silent short
          report. (The caller passes the limits it recorded; an empty list is a
          complete run.)
@@ -61,7 +65,16 @@ def render_run_report(
          report as a success.
       4. No mechanism word reaches the text.
     """
-    lines = [OUTCOME_FIRST_LINE.get(str(state or "").strip(), _UNKNOWN_OUTCOME_LINE)]
+    pending = [p for p in (pending_approvals or []) if p.get("approvalId")]
+    if pending:
+        lines = []
+        for order in pending:
+            summary = str(order.get("summary") or "an order").strip()
+            window = _window_text(order.get("expiresAt"))
+            lines.append(f"AWAITING APPROVAL — {summary}{window}")
+            lines.append(f"Approval {order.get('approvalId')} · approve it in this bot's chat.")
+    else:
+        lines = [OUTCOME_FIRST_LINE.get(str(state or "").strip(), _UNKNOWN_OUTCOME_LINE)]
     for limit in limits or []:
         text = str(limit).strip()
         if text:
@@ -70,9 +83,31 @@ def render_run_report(
     if body:
         lines.append("")
         lines.append(body)
-    elif str(state or "").strip() == "completed":
+    elif str(state or "").strip() == "completed" and not pending:
         lines.append("It produced no result this time.")
     return "\n".join(lines) + "\n"
+
+
+def _window_text(expires_at: Any) -> str:
+    """How long the operator actually has, in plain words.
+
+    A trade approval is short-lived on purpose (a stale market order is worse than
+    no order). The report must say so instead of implying the proposal waits
+    indefinitely — the operator may be asleep when the bot runs.
+    """
+    raw = str(expires_at or "").strip()
+    if not raw:
+        return " (approve it soon — it expires quickly)"
+    try:
+        expiry = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return " (approve it soon — it expires quickly)"
+    remaining = int((expiry - datetime.now(timezone.utc)).total_seconds())
+    if remaining <= 0:
+        return " (the approval window has already closed — run the bot again)"
+    if remaining < 90:
+        return f" (good for {max(1, remaining)} seconds)"
+    return f" (good for {remaining // 60} minutes)"
 
 
 @dataclass
@@ -104,18 +139,26 @@ def _write_artifact(
     output: Optional[str],
     *,
     limits: Optional[list[str]] = None,
+    pending_approvals: Optional[list[dict[str, Any]]] = None,
 ) -> DeliveryOutcome:
     try:
         directory: Path = artifact_dir_for(run_id)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "report.md").write_text(
-            render_run_report(definition, state, output, limits=limits), encoding="utf-8"
+            render_run_report(
+                definition, state, output,
+                limits=limits, pending_approvals=pending_approvals,
+            ),
+            encoding="utf-8",
         )
         (directory / "meta.json").write_text(json.dumps({
             "automationId": definition.id,
             "automationName": definition.name,
             "automationVersion": definition.version,
             "state": state,
+            "pendingApprovals": [
+                str(p.get("approvalId")) for p in (pending_approvals or [])
+            ],
         }, indent=2), encoding="utf-8")
         return DeliveryOutcome(adapter="artifact", destination="report", ok=True)
     except Exception as exc:  # noqa: BLE001 - a write failure is reported honestly
@@ -133,6 +176,7 @@ async def deliver_automation(
     store: Any,
     bus: Any,
     limits: Optional[list[str]] = None,
+    pending_approvals: Optional[list[dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
     """Deliver to every configured target; record one outcome per target.
 
@@ -147,9 +191,16 @@ async def deliver_automation(
     message_key, message_params = _message(definition, state)
     for target in targets:
         if target.adapter == "in_app":
+            # A pending order must be findable in the bot's OWN conversation: the
+            # bot id is the thread the Bots workspace opens, and the approval ids
+            # let the composer banner (already mounted there) pick them up.
             ok = _publish(bus, "automation.delivered", {
                 "automationId": definition.id, "runId": run_id, "executionId": execution_id,
                 "status": state, "messageKey": message_key, "messageParams": message_params,
+                "botId": definition.id,
+                "approvalIds": [
+                    str(p.get("approvalId")) for p in (pending_approvals or [])
+                ],
             })
             outcomes.append(DeliveryOutcome(adapter="in_app", destination=target.destination, ok=ok,
                                             reason_code=None if ok else "NO_DESTINATION",
@@ -160,7 +211,10 @@ async def deliver_automation(
                                                 ok=False, reason_code="NO_DESTINATION",
                                                 reason="no run id to name the artifact"))
             else:
-                outcomes.append(_write_artifact(run_id, definition, state, output, limits=limits))
+                outcomes.append(_write_artifact(
+                    run_id, definition, state, output,
+                    limits=limits, pending_approvals=pending_approvals,
+                ))
         elif target.adapter == "messaging":
             if not target.destination:
                 outcomes.append(DeliveryOutcome(adapter="messaging", destination=None, ok=False,

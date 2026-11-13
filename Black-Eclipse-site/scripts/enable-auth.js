@@ -99,7 +99,7 @@ function main() {
   console.log("[auth] HARNESS_AUTH=required, HARNESS_AUTH_SECRET generated (value not printed)");
   console.log("");
   console.log("Next:");
-  console.log("  1. Restart the app (npm run dev, or npm run build && npm run start).");
+  console.log("  1. Restart the app (close the window and reopen it, or npm run desktop:refresh).");
   console.log("  2. Open the app: the first visit shows /login in SETUP mode.");
   console.log("  3. Create the operator account, then sign in.");
   console.log("");

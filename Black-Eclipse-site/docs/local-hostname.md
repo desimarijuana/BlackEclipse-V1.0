@@ -1,15 +1,16 @@
 ---
 title: Local Hostname — blackeclipse (http/https)
-status: Retired
+status: Stale
 last-verified: 2026-10-15
 ---
 
 # Local Hostname — `blackeclipse`
 
-> **Retired (2026-11-13):** the product is desktop-only. The browser lane and
-> this proxy are kept for a future web release and are disabled unless
-> `BE_ALLOW_WEB=1` (`npm run proxy` / `npm run up` / `npm start` print a
-> desktop-only message). The native app opens `127.0.0.1:3100` directly and does
+> **Retired (2026-11-13):** the product is desktop-only and the browser lane is
+> **deleted**, not gated. `scripts/local-proxy.js`, `scripts/local-host.js`,
+> `scripts/start-desktop.js`, `start-eclipse.vbs`, `scripts/lib/tls.js` and the
+> `setup:tls` / `setup:hostname` / `proxy*` scripts no longer exist, and
+> `BE_ALLOW_WEB` is gone. The native app opens `127.0.0.1:3100` directly and does
 > not need a hostname, hosts entry, proxy or TLS.
 >
 > The historical note below is kept for the retired browser lane. **Updated

@@ -1,5 +1,5 @@
 {
-  "digest": "c9f34f71e2553571",
+  "digest": "6d3567e32e729502",
   "manifestVersion": "1",
   "toolCount": 1100,
   "tools": [
@@ -1267,32 +1267,239 @@
     },
     {
       "deprecated": false,
-      "description": "Create a persistent autonomous bot (a scheduled agent) that runs in the background even after the browser closes. Set triggerType to manual, one_time, interval or cron; provide objective; optionally name, agentId, description, state.",
+      "description": "Create a persistent autonomous bot (a scheduled agent) that runs in the background even after the browser closes. Set triggerType to manual, one_time, interval or cron; provide objective; optionally name, agentId (any installed preset), description, state, workspaceRoot, autonomy, and the execution, retry, concurrency, limits, delivery and permissions blocks the Bots UI also exposes. A bot gets the SAME tool surface as an interactive turn of its agent.",
       "effect": "external_action",
       "inputSchema": {
         "properties": {
           "agentId": {
-            "enum": [
-              "eclipse-agent",
-              "code-navigator",
-              "code-agent"
-            ],
+            "description": "Any installed agent preset id (e.g. eclipse-agent, code-agent). An unknown id is refused.",
             "type": "string"
+          },
+          "autonomy": {
+            "description": "The run's autonomy profile (e.g. edit_verify). Grants nothing without a workspace.",
+            "type": "string"
+          },
+          "concurrency": {
+            "description": "Concurrency policy: maxConcurrentRuns, onConflict (skip_if_running|queue_if_running|cancel_previous).",
+            "properties": {
+              "maxConcurrentRuns": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "onConflict": {
+                "enum": [
+                  "skip_if_running",
+                  "queue_if_running",
+                  "cancel_previous"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "cron": {
             "type": "string"
           },
+          "delivery": {
+            "description": "When and how a finished run reaches the operator.",
+            "properties": {
+              "adapter": {
+                "enum": [
+                  "in_app",
+                  "artifact",
+                  "messaging"
+                ],
+                "type": "string"
+              },
+              "destination": {
+                "type": "string"
+              },
+              "onApprovalRequired": {
+                "type": "boolean"
+              },
+              "onFailure": {
+                "type": "boolean"
+              },
+              "onSuccess": {
+                "type": "boolean"
+              },
+              "onTimeout": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "description": {
             "type": "string"
           },
+          "execution": {
+            "description": "Timing policy: maxRuntimeS, timeoutS, misfire (skip|run_once|catch_up), catchUpMax.",
+            "properties": {
+              "catchUpMax": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxRuntimeS": {
+                "maximum": 86400,
+                "minimum": 5,
+                "type": "integer"
+              },
+              "misfire": {
+                "enum": [
+                  "skip",
+                  "run_once",
+                  "catch_up"
+                ],
+                "type": "string"
+              },
+              "timeoutS": {
+                "maximum": 86400,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "executionAuthority": {
+            "description": "How much this bot may do unattended. A NEW bot starts at l0; raising the tier needs the operator's approval, and l2 needs a scored track record. Limits apply in addition to the mandate's caps.",
+            "properties": {
+              "appetite": {
+                "enum": [
+                  "conservative",
+                  "normal",
+                  "aggressive"
+                ],
+                "type": "string"
+              },
+              "cooldownS": {
+                "maximum": 86400,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxMarginPerOrder": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxOpenPositions": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "requireStop": {
+                "type": "boolean"
+              },
+              "sizingMode": {
+                "enum": [
+                  "risk_based",
+                  "user_fixed"
+                ],
+                "type": "string"
+              },
+              "tier": {
+                "enum": [
+                  "l0",
+                  "l1",
+                  "l2"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "intervalSeconds": {
             "type": "integer"
+          },
+          "limits": {
+            "description": "Resource limits enforced (or honestly reported) at run end.",
+            "properties": {
+              "maxCost": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxParallelTasks": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxRetries": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxRuntimeS": {
+                "maximum": 86400,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxTokens": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxToolCalls": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
           },
           "name": {
             "type": "string"
           },
           "objective": {
             "type": "string"
+          },
+          "permissions": {
+            "description": "Effective permission policy for this bot. Deny wins.",
+            "properties": {
+              "allowed": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "approvalScope": {
+                "type": "string"
+              },
+              "denied": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "requiresApproval": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "retry": {
+            "description": "Retry policy: maxAttempts, backoff knobs.",
+            "properties": {
+              "backoffMultiplier": {
+                "minimum": 1,
+                "type": "number"
+              },
+              "initialBackoffS": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "jitter": {
+                "type": "boolean"
+              },
+              "maxAttempts": {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxBackoffS": {
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "type": "object"
           },
           "runAt": {
             "type": "string"
@@ -1316,6 +1523,10 @@
               "interval",
               "cron"
             ],
+            "type": "string"
+          },
+          "workspaceRoot": {
+            "description": "An approved workspace root. Binding one is what grants code verbs; without it the run has no code permission.",
             "type": "string"
           }
         },
@@ -1569,24 +1780,237 @@
     },
     {
       "deprecated": false,
-      "description": "Update a bot's name, objective/instructions, or schedule.",
+      "description": "Update a bot's name, objective/instructions, schedule, agent preset, workspace binding, or any of its execution/retry/concurrency/limits/delivery/permissions blocks.",
       "effect": "external_action",
       "inputSchema": {
         "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "autonomy": {
+            "type": "string"
+          },
           "botId": {
             "type": "string"
+          },
+          "concurrency": {
+            "description": "Concurrency policy: maxConcurrentRuns, onConflict (skip_if_running|queue_if_running|cancel_previous).",
+            "properties": {
+              "maxConcurrentRuns": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "onConflict": {
+                "enum": [
+                  "skip_if_running",
+                  "queue_if_running",
+                  "cancel_previous"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "cron": {
             "type": "string"
           },
+          "delivery": {
+            "description": "When and how a finished run reaches the operator.",
+            "properties": {
+              "adapter": {
+                "enum": [
+                  "in_app",
+                  "artifact",
+                  "messaging"
+                ],
+                "type": "string"
+              },
+              "destination": {
+                "type": "string"
+              },
+              "onApprovalRequired": {
+                "type": "boolean"
+              },
+              "onFailure": {
+                "type": "boolean"
+              },
+              "onSuccess": {
+                "type": "boolean"
+              },
+              "onTimeout": {
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "execution": {
+            "description": "Timing policy: maxRuntimeS, timeoutS, misfire (skip|run_once|catch_up), catchUpMax.",
+            "properties": {
+              "catchUpMax": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxRuntimeS": {
+                "maximum": 86400,
+                "minimum": 5,
+                "type": "integer"
+              },
+              "misfire": {
+                "enum": [
+                  "skip",
+                  "run_once",
+                  "catch_up"
+                ],
+                "type": "string"
+              },
+              "timeoutS": {
+                "maximum": 86400,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "executionAuthority": {
+            "description": "How much this bot may do unattended. A NEW bot starts at l0; raising the tier needs the operator's approval, and l2 needs a scored track record. Limits apply in addition to the mandate's caps.",
+            "properties": {
+              "appetite": {
+                "enum": [
+                  "conservative",
+                  "normal",
+                  "aggressive"
+                ],
+                "type": "string"
+              },
+              "cooldownS": {
+                "maximum": 86400,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxMarginPerOrder": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxOpenPositions": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "requireStop": {
+                "type": "boolean"
+              },
+              "sizingMode": {
+                "enum": [
+                  "risk_based",
+                  "user_fixed"
+                ],
+                "type": "string"
+              },
+              "tier": {
+                "enum": [
+                  "l0",
+                  "l1",
+                  "l2"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "intervalSeconds": {
             "type": "integer"
+          },
+          "limits": {
+            "description": "Resource limits enforced (or honestly reported) at run end.",
+            "properties": {
+              "maxCost": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "maxParallelTasks": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxRetries": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxRuntimeS": {
+                "maximum": 86400,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxTokens": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxToolCalls": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
           },
           "name": {
             "type": "string"
           },
           "objective": {
             "type": "string"
+          },
+          "permissions": {
+            "description": "Effective permission policy for this bot. Deny wins.",
+            "properties": {
+              "allowed": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "approvalScope": {
+                "type": "string"
+              },
+              "denied": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "requiresApproval": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "retry": {
+            "description": "Retry policy: maxAttempts, backoff knobs.",
+            "properties": {
+              "backoffMultiplier": {
+                "minimum": 1,
+                "type": "number"
+              },
+              "initialBackoffS": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "jitter": {
+                "type": "boolean"
+              },
+              "maxAttempts": {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "maxBackoffS": {
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "type": "object"
           },
           "runAt": {
             "type": "string"
@@ -1601,6 +2025,9 @@
               "interval",
               "cron"
             ],
+            "type": "string"
+          },
+          "workspaceRoot": {
             "type": "string"
           }
         },
@@ -21082,10 +21509,13 @@
     },
     {
       "deprecated": false,
-      "description": "Read the local ledger of orders Eclipse submitted to a broker. This is an audit record; the broker remains the source of truth for fills.",
+      "description": "Read the local ledger of orders Eclipse submitted to a broker. This is an audit record; the broker remains the source of truth for fills. Each row names the run and, for a bot, the bot id and the version of its objective that placed it. Pass `automationId` to see one bot's orders; a bot asking about itself may omit it.",
       "effect": null,
       "inputSchema": {
         "properties": {
+          "automationId": {
+            "type": "string"
+          },
           "connectionId": {
             "description": "Saved connection id (optional when there is exactly one).",
             "type": "string"
@@ -21183,7 +21613,7 @@
     },
     {
       "deprecated": false,
-      "description": "Submit ONE DEMO order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. It refuses any connection that is not demo: LIVE orders are never submitted by this tool. For a live trade call `order_preview` and the operator confirms the approval card in chat, typing the LIVE phrase.",
+      "description": "Submit ONE order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. DEMO connections submit under a demo mandate. A LIVE order is only possible from a BOT run whose definition is at tier L2 and whose live mandate is pinned to that bot and its current objective version; every other run, and every workflow-pinned or unpinned mandate, is refused. In an ordinary chat, call `order_preview` instead and the operator confirms the approval card, typing the LIVE phrase.",
       "effect": "trading",
       "inputSchema": {
         "properties": {

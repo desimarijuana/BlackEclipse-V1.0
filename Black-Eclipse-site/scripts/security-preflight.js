@@ -14,8 +14,9 @@ const PLACEHOLDER = "change-me-to-a-random-secret";
 function truthy(v) {
   if (v === undefined || v === null) return undefined;
   // MUST stay in step with `src/lib/auth/config.ts::truthy`: `required` is the
-  // documented production value and what docker-compose.yml forces, so treating
-  // it as "not on" made a correctly hardened deployment fail its own preflight.
+  // documented production value (the deleted container used to force it), so
+  // treating it as "not on" made a correctly hardened deployment fail its own
+  // preflight.
   const s = String(v).trim().toLowerCase();
   if (["1", "true", "yes", "on", "required", "enable", "enabled"].includes(s)) return true;
   if (["0", "false", "no", "off", "none", "disabled"].includes(s)) return false;

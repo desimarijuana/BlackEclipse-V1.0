@@ -250,7 +250,11 @@ compete:
    card, which calls `/trading/connections/{id}/orders/submit` with the
    `approvalId`. That card **does fill the order** (demo without a phrase, live
    after the typed phrase) and needs **no mandate**. The agent never sends this
-   order itself.
+   order itself. The approval row records the run that requested it
+   (`requestedByRunId`), so an unattended bot's delivery can report its own
+   pending order and the operator approves it in that bot's conversation. The
+   window is 300 seconds; a scheduled bot should run near the operator's open,
+   not hours before it.
 2. **Unattended demo mandate.** With an active operator-created demo mandate, the
    agent calls `order_submit` once with `intent`; the mandate is the authorization
    (see the mandate section). This is also the Graph Studio path.
@@ -280,8 +284,12 @@ blind retry can double the position.
 
 **A ledger row is traceable.** Beyond the digest, status and fills, `BrokerOrder`
 records `runId` and `nodeId` when a Graph Studio node submitted the order (the
-paper account's fill log already did). An operator can therefore go from a
-position back to the workflow run that opened it.
+paper account's fill log already did). A bot-submitted order additionally records
+`automationId` and `automationVersion` — the bot and the version of its objective
+at submit time — so a version bump is visible on the orders it produced, and
+`order_ledger` can be read for one bot. An operator can therefore go from a
+position back to the workflow run, or to the bot run, that opened it; the
+advisory decision behind it is a join on `runId`.
 
 **What `order_check` proves.** Volume step/min/max, stops distance, symbol trade
 mode, filling mode, pending-price side, and the margin impact. `order_check` is
@@ -332,6 +340,31 @@ arm, no approval and no mandate: an expired arm must never trap the operator in 
 live position. The only gate is mode agreement — a live connection can only act on
 a real account, and a demo connection on a demo account. Every close/modify is read
 back from the broker and returns `verified`.
+
+### Unattended live execution: the bot ladder (P5)
+
+A bot may replace the per-order card with its own authority, in tiers:
+
+| Tier | May do |
+|---|---|
+| `l0` (default) | `order_preview` only; the operator approves each live order |
+| `l1` | `order_submit` on a **demo** mandate |
+| `l2` | `order_submit` on a **live** mandate pinned to this bot |
+
+`l2` is not a switch. Raising the tier is a single-use operator approval, and `l2`
+additionally requires ≥30 scored advisory calls for that bot. At submit time
+`trade/authority.py` requires an **armed** live connection, a mandate whose
+`botId` **and** `botVersion` match the bot's current definition (an objective edit
+invalidates the grant), a stop loss when `requireStop` is on, an Eclipse-owned
+position count under the cap, a cooldown since the bot's last order, and the
+mandate margin at or below the bot's ceiling. The daily-loss brake, money
+guardrails, cooling-off and the magic-scoped kill switch still run. Every refusal
+carries a code (`BOT_TIER_INSUFFICIENT`, `BOT_VERSION_STALE`, `STOP_REQUIRED`,
+`POSITION_CAP_REACHED`, `COOLDOWN_ACTIVE`, `POSITIONS_UNAVAILABLE`, …) so "why
+didn't it trade?" is answerable.
+
+A live mandate is created through the existing trading surface with `botId` +
+`botVersion` (or a workflow pin, for Graph Studio). Exactly one pin is required.
 
 ### Chat: one-click order approval
 

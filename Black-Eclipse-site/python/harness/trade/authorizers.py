@@ -3,15 +3,19 @@
 The generic effect gate requires an approval for every non-read tool. An
 unattended mandate is a different, stronger authorization: an operator created it
 with symbols, a margin cap, an order count and an expiry. This wrapper admits
-`order_submit` only when the resolved connection is DEMO and an active mandate
-covers that connection and symbol; the handler/service still enforces the margin
-cap, policy, money guardrails and single-use order count.
+`order_submit` only when an active mandate covers that connection and symbol, and
+the connection's MODE is one this run may use:
 
-There is no agent path for live orders. A live trade goes through
+  * DEMO — any run, under a demo mandate (the rehearsal path);
+  * LIVE — only a bot run (`conversationId = bot-<id>`), where
+    `trade/authority.py` additionally requires tier L2, the current objective
+    version, the position/cooldown limits and the mandate's bot pin.
+
+There is no live path from an ordinary chat run. A manual live trade goes through
 `order_preview` → the operator's approval card → the submit route (typing the LIVE
-phrase), or through a workflow-pinned live mandate executed by a Graph Studio
-`trading.*` node — which does not pass through this authorizer. Live is refused
-here by MODE, not by a sentence in a prompt.
+phrase); a Graph Studio `trading.*` node executes its own workflow-pinned mandate
+without passing through this authorizer. Live is refused here by MODE, not by a
+sentence in a prompt.
 """
 
 from __future__ import annotations
@@ -66,19 +70,21 @@ def wrap_trade_authorizer(inner: Any) -> Any:
             connection_id = str(connections[0].get("id") or "").strip()
         if not connection_id:
             return False
-        # The mode of the resolved connection decides which mandate may authorize
-        # this call. There is NO agent path for live orders: the sanctioned live
-        # path is an operator approval card (`order_preview` → the submit route)
-        # or a workflow-pinned live mandate executed by a Graph Studio
-        # `trading.*` node. `wrap_trade_authorizer` guards the agent/bot tool
-        # surface only, so it refuses anything that is not a demo connection.
-        # An unknown/missing mode is refused too — fail closed, never guess.
+        # The connection's mode decides who may reach it. DEMO is the ordinary
+        # unattended path. LIVE is admitted ONLY from a bot run (P5), where
+        # `trade/authority.py` checks the bot's tier, the objective version and
+        # every limit; a workflow-pinned mandate still cannot be reached from
+        # chat, and an unknown mode is refused. Fail closed, never guess.
         mode = ""
         for item in connections:
             if str(item.get("id") or "") == connection_id:
                 mode = str(item.get("mode") or "")
                 break
-        if mode != "demo":
+        if mode == "live":
+            conversation = str(getattr(ctx, "conversation_id", "") or "")
+            if not conversation.startswith("bot-"):
+                return False
+        elif mode != "demo":
             return False
         if not mandate_id:
             try:

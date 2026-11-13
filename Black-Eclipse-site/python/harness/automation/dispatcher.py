@@ -273,18 +273,51 @@ class Dispatcher:
         dumped = result.model_dump() if hasattr(result, "model_dump") else dict(result)
         error = dumped.get("error")
         state = COMPLETED if dumped.get("status") == "completed" else FAILED
-        self._task_finish(task, state=state, run_id=dumped.get("runId", run_id),
+        agent_run_id = dumped.get("runId") or run_id
+        self._task_finish(task, state=state, run_id=agent_run_id,
                           error=error.get("message") if isinstance(error, dict) else None,
                           error_class=error.get("code") if isinstance(error, dict) else None)
+        # A bot that previewed an order leaves a single-use approval behind. The
+        # engine has to be able to report THAT order (and its window) instead of
+        # a generic success, so collect the rows this run asked for.
+        pending = self._pending_trade_approvals(agent_run_id)
         return DispatchResult(
             state=state,
-            run_id=dumped.get("runId", run_id),
+            run_id=agent_run_id,
             task_id=getattr(task, "id", None),
             output=dumped.get("output"),
             error=error.get("message") if isinstance(error, dict) else None,
             error_class=error.get("code") if isinstance(error, dict) else None,
             tokens=int(dumped.get("totalTokens") or 0) or None,
+            detail={"pendingApprovals": pending} if pending else {},
         )
+
+    def _pending_trade_approvals(self, run_id: str) -> list[dict[str, Any]]:
+        """Pending trade approvals requested BY this run. Best-effort, never raises.
+
+        An unavailable broker layer is not an error: a run that never touched a
+        broker simply has nothing to report.
+        """
+        if not run_id:
+            return []
+        brokers = getattr(self._service, "brokers", None)
+        if brokers is None:
+            return []
+        try:
+            rows = brokers.list_approvals(status="pending", limit=50)
+        except Exception:  # noqa: BLE001 - reporting must never fail the run
+            return []
+        wanted = str(run_id)
+        return [
+            {
+                "approvalId": row.get("id"),
+                "summary": row.get("actionSummary"),
+                "expiresAt": row.get("expiresAt"),
+                "risk": row.get("risk"),
+            }
+            for row in rows
+            if str(row.get("requestedByRunId") or "") == wanted
+        ]
 
     async def _run_team(self, definition: AutomationDefinition) -> DispatchResult:
         """Start the Institution committee and wait for its terminal decision.

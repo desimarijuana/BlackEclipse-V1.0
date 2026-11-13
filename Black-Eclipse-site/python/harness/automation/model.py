@@ -62,6 +62,11 @@ MisfirePolicy = Literal["skip", "run_once", "catch_up"]
 ConcurrencyConflict = Literal["queue_if_running", "skip_if_running", "cancel_previous"]
 DeliveryAdapter = Literal["in_app", "artifact", "messaging"]
 BreakerState = Literal["closed", "open", "half_open"]
+#: The bot autonomy ladder (§ P5). L0 proposes, L1 fills demo, L2 fills live under
+#: a bot- and version-pinned mandate.
+TradingTier = Literal["l0", "l1", "l2"]
+RiskAppetite = Literal["conservative", "normal", "aggressive"]
+SizingMode = Literal["risk_based", "user_fixed"]
 
 LIFECYCLE_STATES: tuple[str, ...] = (
     "draft", "validating", "active", "paused", "disabled", "archived",
@@ -301,6 +306,31 @@ class DeliveryPolicy(BaseModel):
         }.get(outcome, False)
 
 
+class ExecutionAuthority(BaseModel):
+    """How much a bot may do on its own (P5's ladder, enforced at submit).
+
+    `tier` is the only thing that decides whether a bot may reach a LIVE broker:
+    `l0` proposes, `l1` may fill a demo account unattended, `l2` may fill a live
+    account but only under a mandate pinned to this bot AND its current version.
+    The remaining fields are the leash. They are stored on the definition, so a
+    version bump carries the authority it was granted with.
+    """
+
+    model_config = _CAMEL
+
+    tier: TradingTier = "l0"
+    #: The band the bot may choose inside for size and frequency. Never outside.
+    appetite: RiskAppetite = "normal"
+    #: How size is decided. `risk_based` requires a stop; `user_fixed` may not be
+    #: resized by the bot.
+    sizing_mode: SizingMode = "risk_based"
+    require_stop: bool = True
+    #: Hard ceilings, enforced in addition to the mandate's own caps.
+    max_open_positions: int = Field(2, ge=1, le=50)
+    max_margin_per_order: float = Field(0.0, ge=0.0)
+    cooldown_s: int = Field(900, ge=0, le=86_400)
+
+
 class AutomationDefinition(BaseModel):
     """One durable automation definition (lifecycle + version + policy)."""
 
@@ -320,6 +350,8 @@ class AutomationDefinition(BaseModel):
     limits: ResourceLimits = Field(default_factory=ResourceLimits)
     permissions: PermissionPolicy = Field(default_factory=PermissionPolicy)
     delivery: DeliveryPolicy = Field(default_factory=DeliveryPolicy)
+    #: What this bot may execute without a human (L0/L1/L2) and its leash.
+    execution_authority: ExecutionAuthority = Field(default_factory=ExecutionAuthority)
     scope_id: Optional[str] = Field(None, max_length=200)
     tags: list[str] = Field(default_factory=list)
     created_at: str
@@ -351,6 +383,7 @@ __all__ = [
     "DeliveryPolicy",
     "DeliveryTarget",
     "EXECUTION_STATES",
+    "ExecutionAuthority",
     "ExecutionPolicy",
     "ExecutionState",
     "LIFECYCLE_STATES",
@@ -363,8 +396,11 @@ __all__ = [
     "PermissionPolicy",
     "ResourceLimits",
     "RetryPolicy",
+    "RiskAppetite",
+    "SizingMode",
     "TERMINAL_EXECUTION_STATES",
     "TRIGGER_KINDS",
+    "TradingTier",
     "Trigger",
     "TriggerKind",
 ]

@@ -296,6 +296,15 @@ catalogue and only behind the operator's master switch:
 - Unattended answer contract — `automation/delivery.py::render_run_report`: the
   FIRST line of a delivered report states the outcome in plain words, every
   limit the run hit is named, and a completed run that produced nothing says so.
+  A run that left an **order awaiting the operator's decision** reports that
+  instead of a generic success: `AWAITING APPROVAL — <order summary> (good for N
+  minutes)` plus the approval id. The rows are found by the run that requested
+  them (`McpApproval.requestedByRunId`, written by `order_preview`), never by
+  parsing the answer text. A trade approval's window is 300 seconds
+  (`APPROVAL_TTL_SECONDS`) and is stated in the report, because a stale market
+  order is worse than none — a bot meant to be approved at the open should be
+  scheduled near it. The in-app delivery event also carries `botId` and
+  `approvalIds`, so the operator approves in that bot's conversation.
 
 ## Migration
 

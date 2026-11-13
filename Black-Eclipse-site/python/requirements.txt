@@ -154,3 +154,9 @@ httpx>=0.27,<0.29
 # scales out of the box. A small, dependency-free SQLite extension that provides
 # the vec0 virtual table (cosine KNN with authorization-bucket filtering).
 sqlite-vec>=0.1.6
+
+# On-device speech-to-text (dictation without an API key).
+# The composer auto provider falls back to this when no cloud key is
+# configured; the Whisper model is downloaded once into
+# .black-eclipse/models/whisper and then works offline.
+faster-whisper>=1.0,<2

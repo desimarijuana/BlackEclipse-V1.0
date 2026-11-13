@@ -25,6 +25,7 @@ import { TtsButton } from '@/components/chat/tts-button';
 import { ParallelAgentsPanel } from '@/components/chat/parallel-agents-panel';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { ClarificationCard } from '@/components/chat/clarification-card';
+import { TradeApprovalBanner } from '@/components/chat/trade-approval-banner';
 import type { DelegationView } from '@/lib/agent/response-model';
 import type { HarnessUiEvent } from '@/lib/agent/events';
 import {
@@ -762,6 +763,12 @@ export function BotChat({
 
       {/* Composer */}
       <div ref={setComposerEl} className="border-t border-border/10 p-3">
+        {/* The SAME trade approval surface the main chat composer mounts: a
+            pending `order_preview` is the operator's half of the order contract,
+            and a bot conversation must be able to complete it in place rather
+            than sending the user to another screen. Store-driven and
+            self-polling, so a scheduled run's proposal appears here too. */}
+        <TradeApprovalBanner />
         {pendingApproval && (
           <ApprovalCard
             approval={pendingApproval}

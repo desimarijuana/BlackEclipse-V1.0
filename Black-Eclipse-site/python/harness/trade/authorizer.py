@@ -87,8 +87,14 @@ def request_approval(
     guardrail: Any,
     *,
     risk: str = "high",
+    run_id: str = "",
 ) -> dict[str, Any]:
-    """Create (or reuse) the single-use approval for this exact order."""
+    """Create (or reuse) the single-use approval for this exact order.
+
+    `run_id` binds the row to the agent run that asked for it, so an unattended
+    automation can find its OWN pending orders when it reports. Without it the
+    row is anonymous and a scheduled bot's proposal is invisible to delivery.
+    """
     if approvals is None:
         raise TradeRefused(
             "APPROVALS_UNAVAILABLE",
@@ -116,6 +122,7 @@ def request_approval(
             request_key=intent.request_key,
             digest=intent.digest,
             effect=APPROVAL_EFFECT,
+            run_id=run_id or None,
             action_summary=order_summary(connection, intent, preview),
             affected_data=affected,
             risk=risk,
@@ -209,6 +216,10 @@ def approval_view(row: dict[str, Any]) -> dict[str, Any]:
         "risk": row.get("risk"),
         "expiresAt": row.get("expiresAt"),
         "createdAt": row.get("createdAt"),
+        # The run that requested this order. A scheduled bot uses it to report
+        # its OWN pending orders; it also lets an operator trace a position to a
+        # run (P4 traceability).
+        "requestedByRunId": row.get("requestedByRunId"),
     }
     affected: dict[str, Any] = {}
     raw = row.get("affectedData")

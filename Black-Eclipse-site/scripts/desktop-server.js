@@ -22,8 +22,9 @@
 //   §4    one canonical, absolute BE_DATA_DIR passed explicitly to the child
 //   §5    bind 127.0.0.1 only — never 0.0.0.0
 //
-// The browser path (`local-host.js`, `up.js`, `start-desktop.js`, `bin/black.js`)
-// is a separate front door and is untouched.
+// The browser lane used to run a separate Next server on 3000/3105 behind a
+// local reverse proxy. It was deleted on 2026-11-13; the desktop window is the
+// only front door and loads the channel's loopback port directly.
 
 const fs = require("fs");
 const os = require("os");
@@ -414,9 +415,10 @@ async function classify(port) {
   const live = await probeLiveness(port);
   if (!live.up) return { kind: "none" };
 
-  // A browser-path server (`npm start`) answers `/` with a 307 to the TLS
-  // hostname, so it has no body to shape-check. That is normal — the plan calls
-  // it out explicitly. Identity still answers on `/api/updates` (the canonical
+  // A legacy browser-path server answers `/` with a redirect to a hostname and
+  // so has no body to shape-check. That lane is deleted, but a listener left by
+  // an old install can still hold the port, so tolerate the redirect rather than
+  // misreporting it. Identity still answers on `/api/updates` (the canonical
   // redirect never applies to API routes), so let the probe decide instead of
   // misreporting a healthy listener as a foreign application.
   const redirected = live.status >= 300 && live.status < 400;

@@ -155,37 +155,18 @@ directly. There is no saved start-screen preference (`src/lib/general-prefs.ts`
 keeps only the destructive-action confirmation; a legacy `startScreen` value in
 stored JSON is ignored).
 
-**When the app is not running (offline fallback).** A stopped app has no server
-to render anything, so a refresh would show the browser's
-`ERR_CONNECTION_REFUSED` page. Two layers make that impossible in practice:
+**When the app is not running.** The desktop shell owns its own boot screen
+(`desktop/ui/index.html`, embedded at compile time) and
+`scripts/desktop-server.js` reports progress with `@@BE:ATTEMPT` /
+`@@BE:ATTACH` / `@@BE:READY` / `@@BE:ERROR` markers, so a failed boot offers
+Retry instead of a blank window. There is **no reverse proxy and no separate
+front-door process**: the window loads `http://127.0.0.1:3100` directly, so a
+stopped server is a shell-level error panel, never a browser error page.
 
-1. **The always-on front door.** `scripts/local-proxy.js` is a long-lived
-   process (not a child of the app): launchers attach to it
-   (`scripts/lib/proxy-state.js`), it records its PID in
-   `.black-eclipse/proxy-state.json`, and a per-user sign-in autostart
-   (`scripts/lib/proxy-task.js`, `black proxy on|off`: a Task Scheduler entry, or
-   a hidden Startup-folder launcher when the policy refuses) restarts it after a
-   reboot. When the upstream Next server refuses a connection, a **navigation**
-   is answered with the branded page from `scripts/lib/proxy-offline.js`
-   (cached from `/offline`, with a built-in fallback); every other path gets a
-   plain `503`, so health probes and the page's reconnect check can never read
-   the card as "the app is up". The page's **Start BlackEclipse** button posts to
-   `/__eclipse/start`, which boots the app with `BE_NO_PROXY=1`. The desktop
-   launcher re-raises the door after its own `taskkill /T` tree stop (that kill
-   reaches every child, including the door).
-2. **The service worker** (`public/sw.js`, registered by `OfflineReady` in
-   `src/app/layout.tsx`) covers the case where the front door itself is down
-   (first launch on a fresh profile, a hard reload, cleared site data). It
-   intercepts **page navigations only** and answers a network failure — or a
-   `502` from an older front door — with the cached `/offline` document.
-
-Either path renders the same self-contained page, produced by
-`src/app/offline/route.ts` + `src/lib/offline/page.ts` with the **user's saved
-app-wide theme** (`themeCssVars`) and the inlined shipped wordmark. API calls,
-chunks, assets, POSTs and the app's own 4xx/5xx pages are never intercepted.
-The worker needs a secure context (`https://blackeclipse` or loopback); on a
-plain-http hostname it silently does not register, and the front door's card
-covers that origin instead.
+There is no offline fallback layer left to maintain: the service worker
+(`public/sw.js`), the `/offline` route and `OfflineReady` were deleted with the
+browser lane, because outside a plain browser they had nothing to protect — the
+shell owns the pre-ready state entirely.
 
 ## Layer 1 — Screens & components
 
@@ -235,10 +216,10 @@ Two mechanisms:
    (so an existing look is kept, not wiped); once the theme has been explicitly
    reset server-side, a null read clears the local override back to the shipped
    default. Edits push to the server (`PUT /api/theme`) and Reset clears it
-   (`DELETE`). The middleware additionally
-   enforces ONE canonical origin when `BE_CANONICAL_HOST` is set (see
-   `docs/local-hostname.md`), so origin-scoped storage never diverges in the first
-   place.
+   (`DELETE`). The middleware can additionally enforce ONE canonical origin when
+   `BE_CANONICAL_HOST` is set. No launcher sets it now that the browser lane is
+   gone — the desktop always loads `http://127.0.0.1:3100`, so origin-scoped
+   storage cannot diverge in the first place.
      - **Centralized theming.** `src/lib/theme/` owns one serializable
       `EclipseTheme` (branding, fonts, colors, radius, density, text/logo scale,
       glass, shadow, background, **scheme**, glow/animation). The store flattens
@@ -789,9 +770,10 @@ Two client surfaces consume the fired-alert stream:
    explicit user gesture, and is a no-op unless permission is actually granted —
    the Settings toggle reports `blocked`/`off`/`on` honestly. The API also
    requires a **secure context** (`https://…`, or the loopback names
-   `localhost`/`127.0.0.1`): on the plain-HTTP `http://blackeclipse` alias
-   `window.Notification` is undefined, so it needs the local HTTPS front door
-   (`npm run setup:tls` → `https://blackeclipse`; see `docs/local-hostname.md`).
+   `localhost`/`127.0.0.1`). The desktop window loads
+   `http://127.0.0.1:3100`, which is loopback and therefore secure, so desktop
+   notifications work without any TLS tooling (the `blackeclipse` hostname and
+   its self-signed certificate are gone with the browser lane).
    The Settings panel names this when the origin is insecure (`secureContext()`
    in `browser-notifier.ts`). There is **no service worker**, so notifications
    appear only while a BlackEclipse page is open in the browser; the UI states

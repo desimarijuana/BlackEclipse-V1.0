@@ -139,10 +139,11 @@ clean and contains this branch; `node scripts/check-adr-numbers.js` still passes
 4. **Container.** On a machine with Docker: `docker compose up -d --build`,
    confirm `GET /login` is 200 and the healthcheck goes healthy. Then verify the
    `be-data` volume owns the SQLite files and `.black-eclipse/`.
-5. **Browser tool.** Decide whether the image ships Chromium. If yes, add
-   `python -m playwright install --with-deps chromium` to the Dockerfile and
-   document the size cost; if no, confirm `BROWSER_UNINSTALLED` is the honest
-   runtime state.
+5. **Browser tool.** Decide whether the desktop payload ships Chromium. If yes,
+   bundle `python -m playwright install --with-deps chromium` into the packaging
+   step and document the size cost; if no, confirm `BROWSER_UNINSTALLED` is the
+   honest runtime state. (The container this step used to target was deleted with
+   the browser lane on 2026-11-13.)
 
 **Exit gate:** clean `npm run build` passes; non-advisory preflight passes;
 `docker compose ps` healthy; the app answers on loopback.

@@ -1,6 +1,150 @@
 # Change Log
 
 ## 2026-11-13
+- **feat(desktop): the browser lane is deleted — there is one front door.**
+  Gating was not enough: `bin/black.js` still DEFAULTED to `black eclipse`, which
+  booted the old Next site on 3105 behind the local proxy, and `setup:desktop`
+  installed an icon whose target chain (`Black Eclipse.exe` shim →
+  `start-eclipse.vbs` → `scripts/start-desktop.js`) exited silently because that
+  launcher was already behind the web guard. So the product could still be
+  started as a website, and a fresh checkout could get a dead shortcut. Fix: the
+  CLI is desktop-first (`black`/`black app` open the installed Stable window,
+  `dev`/`refresh`/`stop`/`status` drive channels, and the retired `eclipse` /
+  `start` / `proxy` explain where they went and exit 1); the shortcut points only
+  at the installed native exe and fails loudly when it is absent; `scripts/reset.js`,
+  `scripts/update.js` (browser restart removed) and `scripts/smoke-onboarding.js`
+  now read channel ports instead of the web profiles. Deleted:
+  `start-eclipse.vbs`, `scripts/{start-desktop,local-host,up,local-proxy,local-proxy-stop,kill-port,web-guard}.js`,
+  `scripts/lib/{profiles,proxy-state,proxy-task,proxy-offline,front-door,tls,desktop-splash}.js`,
+  `scripts/setup-{tls,hostname}.ps1`, `src/lib/desktop-launcher.test.ts`, and the
+  `dev`/`dev:next`/`dev:local`/`up`/`start`/`proxy*`/`setup:tls`/`tls:remove`/
+  `setup:hostname` npm scripts. `channels.js#webLaneAllowed()` now always returns
+  false and has no callers. Tests: `npm test` (4824 pass), `npx tsc --noEmit`.
+  docs updated: `docs/environments.md`, `docs/QUICKSTART.md`, `docs/NAVIGATION.md`,
+  `docs/ARCHITECTURE.md` (Layer 0), `docs/desktop-app-plan.md`,
+  `docs/local-hostname.md` (Stale), `docs/DECISIONS.md` (ADR-079 superseded),
+  `README.md`, `AGENTS.md`, `docs/CHANGELOG.md`.
+- **feat(trading): the bot execution ladder (P5) — L0/L1/L2 with a real leash.**
+  `AutomationDefinition` gains a typed, versioned `executionAuthority`
+  (`tier l0|l1|l2`, `appetite`, `sizingMode`, `requireStop`, `maxOpenPositions`,
+  `maxMarginPerOrder`, `cooldownS`). A NEW bot is always L0 (`bot_create` refuses a
+  higher tier); raising to L1/L2 is a single-use operator approval
+  (`bot_authority`), and L2 additionally requires ≥30 scored advisory calls for
+  that bot (a new `conversation_id` filter on `AdvisoryStore.list_decisions`), so
+  the request is refused before the operator is even asked. `trade/authority.py`
+  is the ONE place that answers "may this bot place a live order?": armed live
+  connection, a mandate pinned to `botId` + current `botVersion` (new columns;
+  a workflow pin and a bot pin are now alternatives, and a workflow-pinned mandate
+  cannot be borrowed), `STOP_REQUIRED`, Eclipse-owned position cap by magic
+  (`POSITION_CAP_REACHED`, fail-closed `POSITIONS_UNAVAILABLE`), `COOLDOWN_ACTIVE`,
+  and `MANDATE_ABOVE_BOT_CAP` at grant creation. `order_submit`/the authorizer now
+  admit LIVE **only** from a bot run (`conversationId = bot-<id>`), never from
+  ordinary chat. Appetite bands: conservative 0.25%/1 position/2 orders, normal
+  0.5%/2/4, aggressive 1%/3/8, with `risk_amount()` for risk-based sizing. Tests
+  `python/tests/test_bot_execution_authority.py` (18). docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P5, § 5),
+  `docs/trading.md` (§ unattended live execution), `docs/harness/tool-registry.json`
+  (regenerated), `docs/CHANGELOG.md`.
+- **fix(voice): dictation ended after a breath — and on desktop it was never
+  working at all.** WebView2 exposes `webkitSpeechRecognition` with no speech
+  service behind it, so `describeVoiceEngine` picked the browser engine, the
+  session started and ended a second later, and the composer honestly reported
+  "BROWSER DICTATION". `/api/voice/config` also returns `provider: none,
+  ready: false` on this machine, so the Whisper path was unavailable too.
+  `browser-recognition.ts` now (a) reports `browserRecognitionAvailable()` false
+  inside the Tauri shell and (b) for real browsers is patient: `continuous` plus
+  an automatic restart on an unexpected `onend` (capped at 80), `no-speech` is
+  treated as a pause rather than an error, and finals accumulate across
+  restarts. The mic also only asks for consent when an engine can actually run,
+  and the no-provider message is desktop-specific. Desktop dictation therefore
+  needs a transcription provider (OpenAI/Groq key or a local whisper.cpp Custom
+  endpoint); it no longer pretends the browser engine works there. docs updated:
+  `docs/voice.md`, `docs/CHANGELOG.md`.
+- **feat(trading): an order names the bot and the objective version that placed it
+  (P4).** `BrokerOrder` gains additive `automationId` + `automationVersion`
+  columns; `order_submit` derives the bot from the run's conversation
+  (`bot-<automationId>`) and resolves the definition's version at submit time, so
+  a later objective edit is visible on the orders the earlier one produced.
+  `order_ledger` gains an `automationId` filter (a bot asking about itself may
+  omit it) and its text names `bot <id>@v<version>`. Deliberately NOT added:
+  `executionId` on the ledger (it duplicates `automation execution.runId`, one hop
+  away, and two copies can disagree) and per-bot order metrics (the ledger makes
+  them a query). The advisory half needed no new write: `AdvisoryDecision` already
+  stores `runId` + `conversationId`, and an order stores `runId`, so the scored
+  record P5 is gated on is already reachable by joining on the run. Tests
+  `python/tests/test_trade_order_traceability.py` (6), including the legacy-DB
+  migration path. docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P4, § 5),
+  `docs/trading.md` (ledger traceability), `docs/harness/tool-registry.json`
+  (regenerated), `docs/CHANGELOG.md`.
+- **style(voice): the recording timer no longer sits in a pink bubble.** The mic
+  control's recording state was `bg-rose-500/15` with a hover fill, which read as
+  a circle drawn behind the stop square and the elapsed time. The fill is gone;
+  the stop glyph and `m:ss` stay on the composer with the rose text tone only.
+  no doc change — styling only.
+- **feat(bots): a scheduled bot reports the live order it proposed, with the real
+  window, into its own conversation (P3).** `order_preview` now passes the run id
+  through `preview_order` → `request_approval`, so the approval row carries
+  `requestedByRunId` (also exposed by `approval_view`). `Dispatcher._run_agent`
+  collects this run's pending trade approvals and hands them to delivery;
+  `render_run_report` puts them first as `AWAITING APPROVAL — <order> (good for N
+  minutes)` plus the approval id, and a completed run with a pending order is no
+  longer reported as "produced no result". The `automation.delivered` event
+  carries `botId` + `approvalIds`, and the bot composer banner (mounted in the
+  previous entry) picks them up, so approval happens in that chat. Important
+  finding recorded in code and docs: a trade approval's window is 300 seconds
+  (`APPROVAL_TTL_SECONDS`), so an overnight proposal is correctly dead by morning
+  — the report says when the window closed and to re-run, rather than implying the
+  order still waits. Tests `python/tests/test_automation_trade_report.py` (12).
+  docs updated: `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P3, § 5),
+  `docs/harness/automation-engine.md` (unattended answer contract),
+  `docs/trading.md` (manual approval path), `docs/CHANGELOG.md`.
+- **fix(bots): a trade approval is completed in the bot conversation, like every
+  other card.** The bot composer already mounted the generic `ApprovalCard` and
+  `ClarificationCard` but not `TradeApprovalBanner`, which was only in the main
+  chat composer — so a pending `order_preview` raised by a bot (or by one of its
+  scheduled runs) could not be approved where it was proposed. The banner is now
+  mounted in `bot-chat.tsx` above the composer: it is the same store-driven,
+  self-polling component, bound to the same single-use digest and the same
+  `/trading/.../orders/submit` route, so this is a mount, not a second surface.
+  The plan drops the separate bot settings/review UI entirely and records "the
+  bot conversation is the surface" as design principle 0: configuration is a chat
+  request (`bot_update`), and a proposal is an in-thread card. docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ 3.0, § P1, § P3, § 5),
+  `docs/CHANGELOG.md`.
+- **fix(voice): the field was frozen on this machine, and the mic prompt lived
+  in the top-left corner.** Two real defects on the desktop: (1) Windows
+  client-area animations are OFF, so WebView2 reported
+  `prefers-reduced-motion: reduce` and `voice-fire-field.tsx` drew exactly ONE
+  frame — the field looked dead while speaking. The OS signal now selects a calm
+  8 fps breathing flame (no sparks); only the app's own reduce-motion /
+  animations-off classes still freeze it. (2) WebView2's media consent dialog is
+  drawn top-left and cannot be themed or moved, so the shell now suppresses it
+  (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--use-fake-ui-for-media-stream` in
+  `main.rs`, merged with any existing value) and `VoiceInputButtonView` asks in
+  the composer with an Allow / Not now card, remembered in
+  `be_voice_consent_v1`. Also nudges a suspended `AudioContext` back to running
+  on each meter read (a suspended analyser reads as silence). docs updated:
+  `docs/voice.md`, `docs/CHANGELOG.md`.
+- **feat(bots): `bot_create`/`bot_update` reach the Bots UI's configuration depth,
+  and the approval channel is corrected.** An agent-created bot was narrower than
+  a UI-created one: `agentId` was a three-item enum and the tool accepted none of
+  `execution`, `retry`, `concurrency`, `limits`, `delivery`, `permissions`,
+  `workspaceRoot` or `autonomy`, even though `AutomationDefinition` models all of
+  them. `bot_create`/`bot_update` now accept every installed preset (validated
+  against `AGENT_PRESETS`; an unknown id is refused with the known list) and pass
+  those blocks through, omitting what was not supplied so stored defaults are
+  unchanged. Separately, P1's planned `approvalMode="ask"` for bot runs was
+  **wrong and is not implemented**: `pause_for_approval` is consumed inside the run
+  by the computer/browser/MCP/guardrail tools, which block until the run deadline
+  (`clarify` returns `no_interactive_user`), so setting it on a scheduled run would
+  turn "deny fast" into "hang, then fail". A bot's ask channel is the
+  execution-level `permissions.requiresApproval` (engine → execution `waiting` →
+  `POST /automations/executions/{id}/resume`) plus durable approval rows raised by
+  a tool (`order_preview`), and `permissions.requiresApproval` is now settable at
+  creation. Tests `python/tests/test_automation_bot_parity.py` (7). docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P1, § 3.3),
+  `docs/harness/tool-registry.json` (regenerated), `docs/CHANGELOG.md`.
 - **docs(trading): correction to the P0 write-up — there was no exploitable live
   path, and `create_mandate` never allowed an unpinned live mandate.**
   `TradingMandateStore.create` already required `workflowId` **and**

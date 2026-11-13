@@ -122,10 +122,12 @@ class AdvisoryService:
     # ── Reads ────────────────────────────────────────────────────────────────
     def list_decisions(
         self, *, portfolio_id: Optional[str] = None, owner_id: Optional[str] = None,
-        status: Optional[str] = None, limit: int = 100,
+        status: Optional[str] = None, conversation_id: Optional[str] = None,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
         return self.store.list_decisions(
-            portfolio_id=portfolio_id, owner_id=owner_id, status=status, limit=limit,
+            portfolio_id=portfolio_id, owner_id=owner_id, status=status,
+            conversation_id=conversation_id, limit=limit,
         )
 
     def get_decision(self, decision_id: str) -> Optional[dict[str, Any]]:

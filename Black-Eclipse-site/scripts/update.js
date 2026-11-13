@@ -5,15 +5,14 @@
 //   black update              check, then ask before applying
 //   black update --check      check only (no changes)
 //   black update --yes        apply without prompting
-//   black update --restart    also restart the browser production server (3105)
-//   black update --no-desktop skip the desktop refresh (web-only machines)
+//   black update --restart    restart the desktop app after applying
+//   black update --no-desktop skip the desktop refresh (build only)
 //   black update --channel beta
 //
 // Desktop first: after a successful build the native app is re-pinned and
-// restarted (scripts/desktop-refresh.js) BEFORE anything web-facing is
-// considered. The browser production server on 3105 is secondary and only
-// restarts when --restart is passed. The refresh is a safe no-op when the
-// desktop is not installed or is a packaged (non-bridged) install.
+// restarted (scripts/desktop-refresh.js). There is no browser server to
+// consider — the product is the desktop app. The refresh is a safe no-op when
+// the desktop is not installed or is a packaged (non-bridged) install.
 //
 // Safety order (do not reorder):
 //   1. Manifest signature verifies against config/update-signing-key.pub.
@@ -140,25 +139,6 @@ function refreshDesktop() {
   }
 }
 
-function restartProduction() {
-  try {
-    const { PROD } = require("./lib/profiles");
-    const { killPort } = require("./lib/server");
-    killPort(String(PROD.appPort));
-  } catch (err) {
-    log(`could not stop the running server automatically (${err.message}); stop it yourself`);
-    return;
-  }
-  const child = spawn(process.execPath, [path.join(ROOT, "bin", "black.js")], {
-    cwd: ROOT,
-    detached: true,
-    stdio: "ignore",
-    env: process.env,
-  });
-  child.unref();
-  log("production server restarting in the background");
-}
-
 async function main() {
   if (!CHANNELS.includes(channel)) fail(`unknown channel "${channel}" (use ${CHANNELS.join(" | ")})`);
   if (process.env.ECLIPSE_UPDATES_DISABLED === "1") fail("update checks are disabled by ECLIPSE_UPDATES_DISABLED=1");
@@ -251,11 +231,10 @@ async function main() {
     log(`updated v${current} -> v${manifest.version}`);
     if (backupDir) log(`database backup: ${backupDir}`);
     const desktopReady = refreshDesktop();
-    if (restart) restartProduction();
-    else if (desktopReady) {
-      log('browser production server (3105) left alone — run "npm run up" only if you need it');
-    } else {
-      log('start it with "black" (or "npm run up") to load the new build');
+    if (restart && !desktopReady) {
+      log('run "npm run desktop:refresh" to reopen the app on the new build');
+    } else if (!desktopReady) {
+      log('start it with "black" (opens the desktop app)');
     }
   } catch (err) {
     console.error("");

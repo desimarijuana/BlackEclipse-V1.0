@@ -167,12 +167,18 @@ place — instead of a pin check failing for the wrong reason somewhere else.
 
 ## 3. Design principles
 
+0. **The bot conversation is the surface.** No new editor, panel or review screen.
+   You configure a bot by talking to it, and you approve what it proposes in the
+   thread where it proposed it, using the same cards the main chat already
+   renders.
 1. **Authority is a record, not a sentence.** A bot's power to order is a row
    with a scope, a cap, an expiry and a revoker.
 2. **Capability ≠ authority.** Granting the tool surface is safe. Granting money
    is a separate, per-bot, inspectable decision.
-3. **Deny wins, fail closed, name the code.** Every refusal has a stable code
-   (`LIVE_GRANT_MISSING`, `BOT_MANDATE_UNPINNED`, `BOT_VERSION_STALE`, …).
+3. **Deny wins, fail closed, name the code.** A refusal carries a stable code —
+   existing ones stay (`MANDATE_WORKFLOW_REQUIRED`, `MANDATE_MODE_MISMATCH`,
+   `LIVE_NOT_ARMED`), and new paths add theirs (`LIVE_ORDER_REFUSED` today;
+   `BOT_VERSION_STALE` when P5 lands).
 4. **Exits are never blocked.** `position_close` / `position_modify` stay
    arm-free and mandate-free. An expired grant must never trap a bot in a
    position.
@@ -209,21 +215,37 @@ corrected G5 for why this was not an exploitable hole.
   refused, demo unchanged, exits still allowed on live) and
   `python/tests/test_trade_mandate_mode.py` (mode is part of coverage).
 
-### P1 — Capability parity
+### P1 — Capability parity — **contract half DONE (2026-11-13)**
 
-- `automation/dispatcher.py`: pass `approvalMode="ask"` for bot runs whose
-  definition opts in; map the run's pause onto the engine's existing `WAITING`
-  execution state so it resumes with `POST /automations/executions/{id}/resume`.
-  Verify the mapping end-to-end before exposing it — do not assume it.
-- Bot definition + dialog: `workspaceRoot` (chosen from `TrustedRoot`) and
-  `autonomy`. No workspace keeps the current fail-closed behaviour.
-- `bot_create` / `bot_update` parity: any installed `agentId` (validated against
-  `AGENT_PRESETS`), plus `execution`, `retry`, `concurrency`, `limits`,
-  `delivery`, `permissions`.
-- Bot detail: per-bot tool deny list + limits + delivery, over `PermissionPolicy`.
-- Tests: same tool names resolve for a bot run and a chat run; a `code-agent` bot
-  with no workspace still refuses code verbs; a denied tool stays denied even if
-  allowed.
+- **The approval channel is NOT `approvalMode="ask"` for a bot (verified, and my
+  first plan was wrong).** `pause_for_approval` is consumed inside the run by the
+  computer/browser/MCP/guardrail tools, which *block until the run deadline*, and
+  `clarify` returns `no_interactive_user`. Setting it on a scheduled run would
+  convert "deny fast" into "hang, then fail". A bot's real ask channel is already
+  two things: the **execution-level** `permissions.requiresApproval` (engine marks
+  the execution `waiting`, delivers a waiting notice, and
+  `POST /automations/executions/{id}/resume` continues it) and **durable approval
+  rows raised by a tool**, which is exactly what `order_preview` does. Do not set
+  `approvalMode` on bot runs; expose `permissions.requiresApproval` instead
+  (below).
+- **`bot_create` / `bot_update` parity — done.** Any installed `agentId` (validated
+  against `AGENT_PRESETS`; an unknown id is refused with the known list), plus
+  `workspaceRoot`, `autonomy`, and the `execution`, `retry`, `concurrency`,
+  `limits`, `delivery`, `permissions` blocks the UI already exposes. Blocks not
+  supplied are omitted, so stored defaults are unchanged. Because the chat agent
+  owns these tools, a bot is configured by talking to it.
+- **No new screens. The bot conversation IS the surface.** Everything a user needs
+  to do with a bot — configure it, talk to it, approve what it proposes — happens
+  in that chat, with the same cards the main chat uses. There is no editor
+  dialog, no settings panel, no separate review screen. Configuration is a chat
+  request (`bot_update`); a proposal is a card in the thread.
+- **Bot chat carries the same in-thread cards as main chat — done.**
+  `TradeApprovalBanner` is now mounted in the bot composer (it already was in the
+  main chat composer), so a pending `order_preview` is approved in the
+  conversation where the bot proposed it. The generic `ApprovalCard` and
+  `ClarificationCard` were already there.
+- Tests: `python/tests/test_automation_bot_parity.py` (every installed preset,
+  unknown refused, blocks carried, omissions preserved, update parity).
 
 ### P2 — Bot demo execution (optional rehearsal, not the deliverable)
 
@@ -239,110 +261,132 @@ work is making it explicit for a bot.
 - Tests: mandate covers the symbol; per-run cap; kill switch cancels; ledger row
   carries the automation id.
 
-### P3 — Bot live proposals with per-order approval (**the deliverable**)
+### P3 — Bot live proposals with per-order approval — **DONE (2026-11-13)**
 
 No standing authority **in this deliverable** (autonomy is P5, gated). The bot
 decides *what* to propose; the operator decides *whether* it fills.
 
-- The bot's objective is allowed to call `order_preview` on a live connection. It
-  already can (READ, never sends), so this is mostly policy text and guardrails,
-  not new plumbing.
-- **Reachability is the real work.** A scheduled run must surface its proposal
-  where the operator will see it:
-  - the run report's first line says `AWAITING APPROVAL` with the approval id and
-    the exact intent, via `render_run_report`;
-  - the in-app notification deep-links to the approval (`/trading/approvals`,
-    or the existing trade approval surface);
-  - the approval stays valid after the run ends — it is a durable row, not a
-    chat-local card. Verify the expiry window is long enough to survive an
-    overnight bot; if not, make it explicit in the report.
-- One live order per approval, bounded by the existing single-use digest. A
-  stale approval dies with the digest.
-- The bot may prepare the bracket (stop/target) and the size, but the size is
-  computed by the risk engine and stated in the approval summary, so the
-  operator approves numbers, not prose.
+- **The proposal is bound to its run, not parsed from prose.** `order_preview`
+  passes `ctx.run_id` → `preview_order(run_id=…)` → `request_approval(run_id=…)`
+  → the approval row's `requestedByRunId`. `approval_view` now exposes it.
+- **Delivery reports the order.** `Dispatcher._run_agent` collects the pending
+  trade approvals whose `requestedByRunId` is this run, hands them to the engine,
+  and `render_run_report` puts them first:
+  `AWAITING APPROVAL — BUY 0.10 EURUSD market · SL 1.0800 (good for 5 minutes)`
+  followed by the approval id. A completed run with a pending order is never
+  reported as "produced no result".
+- **The in-app delivery names the bot**: the `automation.delivered` event now
+  carries `botId` and `approvalIds`, so the workspace can take the operator to the
+  right conversation.
+- **The composer banner already picks it up** (mounted in P1, store-driven), so
+  approval happens in place — no new screen.
+- **The window is stated, not implied.** This is the important finding: a trade
+  approval's TTL is **300 seconds** (`APPROVAL_TTL_SECONDS`). A 03:00 bot's
+  proposal is dead by 03:05, and that is correct — a nine-hour-old market order is
+  worse than none. So the report says how long is left, and says so plainly when
+  the window has closed ("run the bot again") instead of implying the order still
+  waits. A bot meant to be approved in the morning should be scheduled near the
+  operator's open, not overnight; that is a schedule choice, not a bug.
+- One live order per approval, bounded by the single-use digest.
 - Kill switch, guardrails, cooling-off and the daily-loss brake are unchanged;
   they apply at submit time, after approval.
-- Optional later, only if asked: a "prepare and approve" flow that lets the
-  operator approve from the notification without opening chat.
 
-Tests: a scheduled run creates an approval and sends nothing; the report names
-it; approving later fills it; a changed intent digest cannot reuse the approval;
-a refused preview never creates an approval; a bot cannot reach `order_submit`
-on a live connection (P0 regression).
+Tests: `python/tests/test_automation_trade_report.py` (12) — pending order first
+line, seconds/minutes window, expired and missing expiry, multiple orders, plain
+contract unchanged, delivery carries `botId`/`approvalIds`, artifact report,
+dispatcher filters by run id, missing/broken broker layer tolerated.
 
-### P5 — Autonomy tiers (the "yolo" tier, gated)
+### P5 — Autonomy tiers (the "yolo" tier, gated) — **DONE (2026-11-13)**
 
-A bot's authority is a level, not a boolean. The level is a property of the
-*definition*, versioned, and shown on the bot.
+A bot's authority is a level, not a boolean. It lives on the definition as
+`executionAuthority` (`automation/model.py::ExecutionAuthority`), so it is
+versioned with the objective: an edit bumps the version and the live grant dies.
 
 | Tier | May do | Human gate |
 |---|---|---|
-| **L0** | `order_preview` only — exact intent, size, bracket | one approval per live order |
+| **L0** (default) | `order_preview` only — exact intent, size, bracket | one approval per live order |
 | **L1** | `order_submit` on a **demo** mandate | none; no money at risk |
 | **L2** | `order_submit` on a **live** mandate pinned to this bot | none until a cap trips |
 
-**The leash on L2** (every item required, all enforced in code):
+**The leash, as built** (`trade/authority.py` is the ONE place that answers
+"may this bot place a live order?"; the handler and the authorizer both call it):
 
-1. connection `mode=live`, **armed** (typed phrase, magic > 0, `maxMargin` > 0,
-   Algo Trading on, TTL ≤ 8h — `arm_connection` already enforces this);
-2. live mandate pinned to `botId` **and** the bot's current `botVersion`; an
-   objective edit bumps the version and invalidates the grant;
-3. `maxOrders` and `maxMargin` on the mandate; a per-run order cap on the bot;
-4. daily-loss brake and money guardrails unchanged (they run at submit);
-5. max open positions per bot, and a cooldown between entries;
-6. risk appetite band (`conservative | normal | aggressive`) mapping to
-   risk-per-trade, position count and orders/day. The bot may choose inside the
-   band, never outside it;
-7. kill switch covers the bot's orders by magic, and revoking the mandate stops
-   the next order immediately.
+1. a **new bot is always L0** — `bot_create` refuses a tier above it;
+2. raising to L1/L2 is a **single-use operator approval** (`bot_authority`), and
+   **L2 additionally requires ≥30 scored advisory calls** for that bot's
+   conversation — refused before the operator is even asked;
+3. connection `mode=live` and **armed** (existing `arm_connection`: magic,
+   `maxMargin`, Algo Trading, TTL ≤ 8h);
+4. live mandate pinned to `botId` **and** the bot's current `botVersion`; a stale
+   version is `BOT_VERSION_STALE`, and a workflow-pinned mandate cannot be
+   borrowed (`MANDATE_BOT_MISMATCH`);
+5. the mandate's `maxOrders`/`maxMargin` **and** the bot's own
+   `maxMarginPerOrder` ceiling — a mandate above it is refused at creation
+   (`MANDATE_ABOVE_BOT_CAP`);
+6. `requireStop` (default on) — no stop, no order (`STOP_REQUIRED`);
+7. position cap counting **only Eclipse's own** positions by magic
+   (`POSITION_CAP_REACHED`), and a cooldown between entries (`COOLDOWN_ACTIVE`);
+   an unreadable position book fails closed (`POSITIONS_UNAVAILABLE`);
+8. daily-loss brake, money guardrails, cooling-off and the magic-scoped kill
+   switch unchanged — they run at submit;
+9. appetite band (`conservative 0.25%/1 pos/2 orders`, `normal 0.5%/2/4`,
+   `aggressive 1%/3/8`) — the bot chooses inside it, never outside.
 
-**Sizing.** `sizingMode: risk_based | user_fixed` (default `risk_based`).
-`risk_based` requires a stop on every order and states the inputs it used
-(entry, invalidation, risk amount, contract size). `user_fixed` lets the bot
-decline a trade but never resize it.
-
-**Earning L2.** L0 runs first. The advisory ledger already records each
-recommendation with its method, horizon and `dueAt`, and scores the outcome. L2
-is offered only when that scored record exists for the bot — the UI states the
-window it used. A bot with no track record cannot be granted L2; a bot whose
-score degrades can be demoted to L0.
+**Sizing.** `sizingMode: risk_based | user_fixed` (default `risk_based`),
+`risk_amount(equity, appetite)` in `trade/authority.py`. `risk_based` requires a
+stop on every order; `user_fixed` lets the bot decline but never resize.
 
 **Why not "based on its mood".** A mood is not debuggable. After a loss the only
-useful question is "which rule admitted this trade?", and a risk-appetite band in
-a versioned definition can answer it. A prompt-derived feeling cannot.
+useful question is "which rule admitted this trade?", and the band answers it.
 
 **Honest limits of L2.** Guardrails bound size, exposure, rate and loss — they do
 not judge whether the trade is *good*. A stale quote, a misread symbol or a
-degraded model still passes every cap. That is exactly why the tier is gated on a
-scored record rather than granted at creation, and why the kill switch is one
-click.
+degraded model still passes every cap. That is why the tier is gated on a scored
+record and why the kill switch is one click.
 
-Tests: each precondition missing → named refusal; version bump invalidates; disarm
-blocks mid-day; cap trip stops the next order; a demoted bot cannot submit;
-`risk_based` refuses an order without a stop; `user_fixed` cannot be resized.
+**Creating the grant.** The mandate is created through the existing trading
+surface/API with `botId` + `botVersion` on an armed live connection (the mandate
+store requires a workflow OR a bot pin). No new screen: the tier change is a
+one-click approval card in the bot's chat.
 
-### P4 — Observability and reconciliation
+Tests: `python/tests/test_bot_execution_authority.py` (18) — defaults, every named
+refusal, position cap counting only Eclipse's positions, cooldown, L0/L1 refusal,
+new-bot refusal, approval gate, L2 record gate, tier lowering, mandate caps and
+version pin, risk bands.
 
-- `BrokerOrder` + execution timeline carry `automationId`, `executionId`,
-  `automationVersion` (extends the existing `runId`/`nodeId` traceability).
-- Advisory Ledger records the recommendation that produced the order, so a bot's
-  hit rate is scoreable, not asserted.
-- Metrics: orders submitted/refused per bot, refusals by code, remaining mandate
-  capacity.
+### P4 — Traceability — **core DONE (2026-11-13)**
+
+- **`BrokerOrder` carries `automationId` + `automationVersion`** (additive columns
+  with the existing `runId`/`nodeId`). `order_submit` derives the bot from the
+  run's conversation (`bot-<automationId>`) and records the objective version at
+  submit time, so a version bump is visible on the orders it produced.
+- **`order_ledger` can be read per bot** (`automationId` filter; a bot asking about
+  itself may omit it) and its text names `bot <id>@v<version>`.
+- **The advisory link already existed** and needed no new write: `AdvisoryDecision`
+  stores `runId` and `conversationId`, and an order stores `runId`, so
+  "which recommendation produced this position?" is a join on the run. What P5
+  needs from this — a per-bot scored record — is therefore readable today.
+- **Not added: `executionId` on the ledger.** It would duplicate a fact that is
+  one hop away (`automation execution.runId` → order.runId) and a bot's execution
+  is 1:1 with its run. Recording it twice invites the two copies to disagree.
+- **Not built: per-bot order metrics** (`submitted`/`refused` counts, refusal
+  codes, remaining mandate capacity). The ledger makes them a query, not a new
+  store; `GET /automations/metrics` is the place to add them when the Bots
+  dashboard needs them.
+
+Tests: `python/tests/test_trade_order_traceability.py` (6).
 
 ---
 
 ## 5. Order of work
 
-P0 is done. P1 (approval channel + capability parity) is next because P3's
-reachability depends on a scheduled run being able to surface something the
-operator can act on. P3 then makes a bot's live *proposal* reachable. P4
-(traceability) is what makes P5 grantable at all — **L2 is gated on the scored
-advisory record that P4 produces**, so P5 cannot precede it. P2 (demo rehearsal)
-supports both and can land in any order.
+**P0, P1, P3, P4 and P5 are done.** The full ladder exists: a bot proposes (L0),
+may rehearse on demo (L1), and may fill live (L2) only under a bot- and
+version-pinned mandate, behind an operator-approved tier and a scored track record,
+with position/cooldown/margin caps and the kill switch.
 
-Sequence: **P0 → P1 → P3 → P4 → P5**, with P2 opportunistic.
+Sequence: **P0 ✓ → P1 ✓ → P3 ✓ → P4 ✓ → P5 ✓**, with P2 (demo rehearsal mechanics)
+covered by L1.
 
 ---
 

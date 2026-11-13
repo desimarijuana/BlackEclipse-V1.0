@@ -6,9 +6,10 @@ last-verified: 2026-11-13
 
 # Native desktop app (Tauri shell)
 
-**Scope:** a native window around the existing application. The shipped browser
-path (`npm run dev`, `npm start`, `black eclipse`, `start-eclipse.vbs`) is not
-replaced and must keep working.
+**Scope:** a native window around the existing application. It is now the ONLY
+shipped front door. The former browser path (`npm run dev`, `npm start`,
+`black eclipse`, `start-eclipse.vbs`) was deleted on 2026-11-13, so this document
+describes the product rather than an addition to a website.
 
 **What this document is:** the locked architecture, the normative requirements for
 process ownership, data integrity, loopback security, packaging, crash behaviour,
@@ -124,8 +125,10 @@ binary with its own identifier (`com.blackeclipse.desktop.dev`, built with a
 `TAURI_CONFIG` overlay into `target-dev`), so both windows can be open at once.
 Stable changes only through `desktop:promote` (stage → validate → `current.json`
 → restart, keeping `previous.json`); `desktop:rollback` flips back. The browser
-lane (`npm run dev/up/start/proxy`, `start-eclipse.vbs`) is retired behind
-`BE_ALLOW_WEB=1`. Harness readiness uses a constant-time `/health/live` with a
+lane (`npm run dev/up/start/proxy`, `start-eclipse.vbs`) is **deleted**, together
+with `scripts/local-proxy.js`, `scripts/local-host.js`, `scripts/start-desktop.js`
+and the proxy/TLS helpers; `BE_ALLOW_WEB` no longer exists. Harness readiness uses
+a constant-time `/health/live` with a
 30 s budget, because the diagnostic `/health` measured 20+ s under a concurrent
 build and made a healthy runtime look dead.
 
@@ -504,9 +507,10 @@ is unchanged apart from `app_port()` returning the same 3100.
 **Permitted:** new `desktop/` tree, desktop-specific configuration, new package
 scripts, documentation, desktop-specific tests.
 
-**Protected, must remain untouched:** `start-eclipse.vbs`, `bin/black.js`,
-`scripts/local-host.js`, `scripts/start-desktop.js`.
-**Verified:** `git status --porcelain` for all four is empty.
+**Protected at the time (historical):** `start-eclipse.vbs`, `bin/black.js`,
+`scripts/local-host.js`, `scripts/start-desktop.js`. Superseded on 2026-11-13:
+the first, third and fourth were deleted with the browser lane, and
+`bin/black.js` was rewritten as a desktop-first CLI.
 
 **Not authorized:** schema changes, harness refactors, Python redesign, financial
 logic, agent orchestration, MT5 execution, replacing the startup workflow,

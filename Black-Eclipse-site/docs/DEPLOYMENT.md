@@ -1,17 +1,18 @@
 ---
 title: Deployment — Production Container
-status: Retired
+status: Stale
 last-verified: 2026-11-08
 ---
 
 # Deployment — Production Container
 
-> **Retired (2026-11-13):** the product is desktop-only. This container/browser
-> deployment is kept for a future web release and is not part of the daily
-> runtime. The desktop channels are documented in `docs/environments.md` and
-> `desktop/README.md`.
+> **Deleted (2026-11-13):** the product is desktop-only and the container/browser
+> deployment is **gone**. `Dockerfile`, `docker-compose.yml`,
+> `docker-entrypoint.sh` and `.dockerignore` no longer exist, so the commands and
+> tables below cannot be run. This document is kept as history only. The desktop
+> channels are documented in `docs/environments.md` and `desktop/README.md`.
 
-**Who this is for:** anyone putting BlackEclipse on a server.
+**Who this used to be for:** anyone putting BlackEclipse on a server.
 
 The app is **one process tree**: `next start` serves the front door, and the app
 spawns the Python FastAPI/LangGraph harness (uvicorn, `127.0.0.1:8765`) as a

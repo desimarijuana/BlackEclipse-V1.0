@@ -17,7 +17,7 @@ const { execFileSync } = require("child_process");
 const path = require("path");
 const reset = require("./lib/reset");
 const { killPort } = require("./lib/server");
-const { DEV, PROD } = require("./lib/profiles");
+const { STABLE, DEV } = require("./lib/channels");
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -66,9 +66,9 @@ async function confirmFactory() {
 }
 
 function stopServers() {
-  const prod = killPort(String(PROD.appPort));
+  const stable = killPort(String(STABLE.appPort));
   const dev = killPort(String(DEV.appPort));
-  log(`servers stopped: production=${prod ? "yes" : "no"}, development=${dev ? "yes" : "no"}`);
+  log(`servers stopped: stable=${stable ? "yes" : "no"}, dev=${dev ? "yes" : "no"}`);
 }
 
 async function main() {
@@ -95,7 +95,7 @@ async function main() {
       return;
     }
     log(`onboarding set to pending (${result.updated ?? result.removed} row). The next start shows setup.`);
-    log("run `black eclipse` (or `npm run dev`) to open it.");
+    log("run `black` to open the app.");
     return;
   }
 
@@ -107,7 +107,7 @@ async function main() {
       return;
     }
     log(`setup config removed (${result.removed} row(s)). Chats, portfolio and research are untouched.`);
-    log("run `black eclipse` (or `npm run dev`) to open setup.");
+    log("run `black` to open setup.");
     return;
   }
 

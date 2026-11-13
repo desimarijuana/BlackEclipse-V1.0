@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import {
   browserRecognitionAvailable,
+  isDesktopShell,
   startBrowserRecognition,
   type BrowserRecognitionHandle,
 } from '@/lib/voice/browser-recognition';
@@ -277,7 +278,9 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
         );
       } else {
         setError(
-          'Voice input is unavailable. Add an OpenAI or Groq key in Settings › AI, or use a Chromium-based browser.',
+          isDesktopShell()
+            ? 'Desktop dictation needs a transcription provider. Add an OpenAI or Groq key in Settings › AI, or point the Custom preset at a local whisper.cpp server.'
+            : 'Voice input is unavailable. Add an OpenAI or Groq key in Settings › AI, or use a Chromium-based browser.',
         );
       }
       return;

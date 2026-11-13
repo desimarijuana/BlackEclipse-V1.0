@@ -280,10 +280,24 @@ class BrokerService:
         if mode == "live":
             # The second key: an unattended live mandate can only be created on an
             # armed live connection. Execution re-checks the arm again. The pin
-            # (workflow id + version) is enforced by the mandate store itself
-            # (`MANDATE_WORKFLOW_REQUIRED`), which is the ONE place a mandate is
-            # created — this method must not re-state it with a weaker rule.
+            # (workflow, or bot + objective version) is enforced by the mandate
+            # store itself (`MANDATE_WORKFLOW_REQUIRED`), which is the ONE place a
+            # mandate is created — this method must not re-state it with a weaker
+            # rule.
             self._assert_live_armed(connection)
+        bot_id = str(payload.get("botId") or "").strip()
+        bot_version = (
+            int(payload["botVersion"]) if payload.get("botVersion") is not None else None
+        )
+        if bot_id:
+            # A bot-pinned live grant must match the bot's OWN leash: tier L2, the
+            # current objective version, and no margin above its ceiling.
+            from .authority import check_mandate_creation  # noqa: PLC0415
+
+            check_mandate_creation(
+                self, bot_id=bot_id, bot_version=bot_version,
+                max_margin=float(payload.get("maxMargin") or 0),
+            )
         mandate = self.mandates.create(
             connection=connection,
             symbols=list(payload.get("symbols") or ["*"]),
@@ -296,6 +310,8 @@ class BrokerService:
                 int(payload.get("workflowVersion"))
                 if payload.get("workflowVersion") is not None else None
             ),
+            bot_id=bot_id,
+            bot_version=bot_version,
         )
         self.connections.record_event(
             connection.id, "mandate", "created",
@@ -586,18 +602,22 @@ class BrokerService:
     def preview_order(
         self, connection_id: str, payload: dict[str, Any], *,
         record_approval: bool = True,
+        run_id: str = "",
     ) -> dict[str, Any]:
         """Validate, price-check and request a single-use approval. Sends nothing.
 
         `record_approval=False` runs the identical validation without creating an
         approval row — the dry-run path a graph uses, so previewing a workflow
-        never leaves approval cards behind. The body lives in `trade/preview.py`
-        so this service stays below the module size ceiling.
+        never leaves approval cards behind. `run_id` binds the row to the run that
+        requested it, which is how an unattended automation reports its own
+        pending orders. The body lives in `trade/preview.py` so this service stays
+        below the module size ceiling.
         """
         from .preview import preview_order  # noqa: PLC0415 - avoids an import cycle
 
         return preview_order(
-            self, connection_id, payload, record_approval=record_approval
+            self, connection_id, payload,
+            record_approval=record_approval, run_id=run_id,
         )
 
     def submit_order(
@@ -610,6 +630,10 @@ class BrokerService:
         run_id: str = "",
         workflow_id: str = "",
         node_id: str = "",
+        automation_id: str = "",
+        automation_version: int | None = None,
+        bot_id: str = "",
+        bot_version: int | None = None,
     ) -> dict[str, Any]:
         """Consume the authorization and send exactly one order. Never retries."""
         if approval_id and mandate_id:
@@ -668,7 +692,17 @@ class BrokerService:
                     margin=float(preview.get("margin") or 0),
                     mode=execution_mode,
                     workflow_id=workflow_id,
+                    bot_id=bot_id,
                 )
+                if bot_id and bot_version is not None:
+                    pinned = mandate.get("botVersion")
+                    if pinned is not None and int(pinned) != int(bot_version):
+                        raise TradeRefused(
+                            "BOT_VERSION_STALE",
+                            "this bot's objective changed since the mandate was "
+                            "granted; re-grant its live authority",
+                            status_code=409,
+                        )
 
             money_intent = money_intent_for(connection, intent, preview)
             verdict = evaluate_guardrails(self.guardrails, money_intent, record=False)
@@ -772,6 +806,8 @@ class BrokerService:
                 mandate_id=mandate_id,
                 run_id=run_id,
                 node_id=node_id,
+                automation_id=automation_id,
+                automation_version=automation_version,
             )
             self.connections.record_event(
                 connection.id, "submit", "sent",
@@ -781,6 +817,7 @@ class BrokerService:
                     "mandateId": mandate_id or None,
                     "runId": run_id or None,
                     "nodeId": node_id or None,
+                    "automationId": automation_id or None,
                 },
             )
             try:
@@ -944,8 +981,11 @@ class BrokerService:
 
     def ledger_orders(
         self, connection_id: Optional[str] = None, limit: int = 50,
+        automation_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        return self.connections.list_orders(connection_id, limit=limit)
+        return self.connections.list_orders(
+            connection_id, limit=limit, automation_id=automation_id
+        )
 
     def get_ledger_order(self, order_id: str) -> dict[str, Any]:
         order = self.connections.get_order(order_id)

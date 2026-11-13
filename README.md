@@ -15,9 +15,13 @@ and (on a demo broker) trade.
 
 ```bash
 cd Black-Eclipse-site
-npm install       # also provisions the Python agent runtime
-npm run dev       # http://localhost:3000
+npm install              # also provisions the Python agent runtime
+npm run desktop:refresh  # build + open the desktop app (port 3100)
 ```
+
+The product is the **native desktop app**; there is no website to open. On a
+packaged install, launch **Black Eclipse** from the Start menu or desktop
+shortcut instead — it starts its own loopback server.
 
 No API keys or database setup are required: first boot provisions and seeds the
 local market-data vault (`jdds.db`), and the agent runtime starts automatically.
