@@ -30,6 +30,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from ..run_binding import current_sampling_factory
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
 from .client import (
     MCPClosedError,
@@ -166,7 +167,9 @@ class MCPManager(IntrospectionMixin, OAuthFlowMixin, VerifyMixin, ExecutionMixin
         """
 
         async def run_model(prompt: str) -> str:
-            factory = getattr(self, "_sampling_model_factory", None)
+            factory = current_sampling_factory(
+                getattr(self, "_sampling_model_factory", None)
+            )
             if factory is None:
                 from .interactions import SamplingUnavailable
 

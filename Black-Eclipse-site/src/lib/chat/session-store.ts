@@ -480,29 +480,69 @@ export async function readTranscript(chatId: string): Promise<StoredTranscript |
   }
 }
 
+const TERMINAL_MESSAGE_STATUS = new Set(["completed", "error", "cancelled"]);
+
+/**
+ * Merge two copies of the same transcript. Transcripts are append-mostly, and
+ * two tabs may save different halves; union by message id instead of letting
+ * the last writer erase the other tab's turn. A terminal assistant message
+ * always beats an empty streaming placeholder with the same id.
+ */
+function mergeStoredMessages(existing: Message[], incoming: Message[]): Message[] {
+  const merged = [...existing];
+  const index = new Map(merged.map((message, i) => [message.id, i] as const));
+  for (const message of incoming) {
+    const at = index.get(message.id);
+    if (at === undefined) {
+      index.set(message.id, merged.length);
+      merged.push(message);
+      continue;
+    }
+    const current = merged[at];
+    const currentTerminal = TERMINAL_MESSAGE_STATUS.has(String(current.status ?? ""));
+    const incomingTerminal = TERMINAL_MESSAGE_STATUS.has(String(message.status ?? ""));
+    if (incomingTerminal && !currentTerminal) merged[at] = message;
+    else if (!currentTerminal || incomingTerminal) {
+      if ((message.content?.length ?? 0) >= (current.content?.length ?? 0)) merged[at] = message;
+    }
+  }
+  return merged;
+}
+
 /** Persist one conversation's transcript (creates the session dir if needed). */
 export async function writeTranscript(
   chatId: string,
   data: Omit<StoredTranscript, "updatedAt">,
 ): Promise<StoredTranscript> {
   await ensureSessionDirs(chatId);
-  const messages = Array.isArray(data.messages)
-    ? data.messages.slice(-MAX_TRANSCRIPT_MESSAGES)
-    : [];
+  const existing = await readTranscript(chatId);
+  const incoming = Array.isArray(data.messages) ? data.messages : [];
+  const messages = mergeStoredMessages(existing?.messages ?? [], incoming)
+    .slice(-MAX_TRANSCRIPT_MESSAGES);
   const stored: StoredTranscript = {
     id: chatId,
-    title: typeof data.title === "string" ? data.title : "",
+    title:
+      typeof data.title === "string" && data.title.trim()
+        ? data.title
+        : existing?.title ?? "",
     messages,
-    timestamp: typeof data.timestamp === "number" ? data.timestamp : Date.now(),
-    createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
+    timestamp: Math.max(
+      typeof data.timestamp === "number" ? data.timestamp : 0,
+      existing?.timestamp ?? 0,
+      Date.now(),
+    ),
+    createdAt:
+      typeof data.createdAt === "number"
+        ? Math.min(data.createdAt, existing?.createdAt ?? data.createdAt)
+        : existing?.createdAt ?? Date.now(),
     updatedAt: Date.now(),
-    forkedFrom: data.forkedFrom,
-    folderId: data.folderId ?? null,
-    color: data.color ?? null,
-    pinned: data.pinned === true,
-    tags: Array.isArray(data.tags) ? data.tags : [],
-    archivedAt: data.archivedAt ?? null,
-    deletedAt: data.deletedAt ?? null,
+    forkedFrom: data.forkedFrom ?? existing?.forkedFrom,
+    folderId: data.folderId ?? existing?.folderId ?? null,
+    color: data.color ?? existing?.color ?? null,
+    pinned: data.pinned === true || existing?.pinned === true,
+    tags: Array.isArray(data.tags) && data.tags.length > 0 ? data.tags : existing?.tags ?? [],
+    archivedAt: data.archivedAt ?? existing?.archivedAt ?? null,
+    deletedAt: data.deletedAt ?? existing?.deletedAt ?? null,
   };
   await fs.writeFile(transcriptPath(chatId), JSON.stringify(stored), "utf8");
   invalidateTranscriptList();

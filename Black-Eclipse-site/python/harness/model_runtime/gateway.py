@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from . import errors
-from .credential_pool import Credential, CredentialPool
+from .credential_pool import Credential, CredentialPool, get_credential_pool
 from .fallback import fallback_quality_allowed
 from .runtime import (
     ModelRuntime,
@@ -114,7 +114,10 @@ def plan_candidates(
 
     def add(provider: str, model: str, *, reason: str, info: Optional[ModelInfo],
             built: Any, credential: Any, score: Optional[float] = None) -> None:
+        credential_id = getattr(credential, "id", None)
         key = f"{provider}/{model}"
+        if credential_id:
+            key = f"{key}#{credential_id}"
         if not runtime.circuit.allow(key) or not runtime.circuit.allow(provider):
             excluded.append({"model": key, "reason": "circuit_open"})
             return
@@ -199,7 +202,7 @@ class ModelGateway:
         """Build and emit the candidate plan; no model call."""
         pool = req.credential_pool
         if pool is None:
-            pool = CredentialPool.from_settings(req.resolution.settings)
+            pool = get_credential_pool(req.resolution.settings)
         candidates, excluded = plan_candidates(
             self.runtime, req.resolution,
             primary_model=req.model, messages=req.messages,
@@ -220,7 +223,7 @@ class ModelGateway:
     async def stream(self, req: GatewayRequest) -> GatewayResult:
         pool = req.credential_pool
         if pool is None:
-            pool = CredentialPool.from_settings(req.resolution.settings)
+            pool = get_credential_pool(req.resolution.settings)
         await self.plan(req)
         counted = _CountingEmitter(req.emitter)
 
@@ -282,6 +285,8 @@ class ModelGateway:
             max_run_tokens=req.max_run_tokens,
             return_result=True,
             raise_original=True,
+            max_wait_s=min(120.0, float(req.timeout_s or 60.0)),
+            request_tokens=_estimate_request_tokens(req.messages),
         )
         if not isinstance(result, GatewayResult):
             from .errors import ErrorClass, ModelError  # noqa: PLC0415

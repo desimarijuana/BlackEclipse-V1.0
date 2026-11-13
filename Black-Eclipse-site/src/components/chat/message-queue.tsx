@@ -7,9 +7,10 @@
 // promoted to run next (which interrupts the in-flight reply first).
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronUp, ListChecks, Pencil, Play, Trash2, X } from '@/lib/icons';
+import { ChevronDown, ChevronUp, ListChecks, Pause, Pencil, Play, Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { QueuedPrompt } from '@/lib/chat/message-queue';
+import { isQueuePaused, setQueuePaused, subscribeQueueStore } from '@/lib/chat/queue-store';
 
 interface MessageQueueProps {
   items: QueuedPrompt[];
@@ -35,6 +36,15 @@ export function MessageQueue({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const editRef = useRef<HTMLTextAreaElement>(null);
+  // The panel is filtered to one chat, so the first item names the queue.
+  const chatId = items[0]?.chatId ?? null;
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    if (!chatId) return;
+    const sync = () => setPaused(isQueuePaused(chatId));
+    sync();
+    return subscribeQueueStore(sync);
+  }, [chatId]);
 
   useEffect(() => {
     if (editingId) requestAnimationFrame(() => editRef.current?.focus());
@@ -64,8 +74,23 @@ export function MessageQueue({
           Queued · {items.length}
         </span>
         <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/70">
-          {busy ? 'Runs in order after the current reply' : 'Ready to run'}
+          {paused
+            ? 'Paused — press play to resume'
+            : busy
+              ? 'Runs in order after the current reply'
+              : 'Ready to run'}
         </span>
+        {chatId && (
+          <button
+            type="button"
+            onClick={() => setQueuePaused(chatId, !paused)}
+            className="shrink-0 rounded-full p-1 text-muted-foreground/70 transition-colors hover:bg-white/10 hover:text-foreground"
+            title={paused ? 'Resume the queue' : 'Pause the queue'}
+            aria-label={paused ? 'Resume the queue' : 'Pause the queue'}
+          >
+            {paused ? <Play size={12} /> : <Pause size={12} />}
+          </button>
+        )}
         <button
           type="button"
           onClick={onClear}

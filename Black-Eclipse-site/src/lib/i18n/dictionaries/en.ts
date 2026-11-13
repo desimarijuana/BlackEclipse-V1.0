@@ -9,7 +9,6 @@
 //
 // Domain slices live beside this file and are spread in (`./analysis`) so this
 // canonical file can SHRINK as domains move out (the size ratchet's intent).
-
 import { analysis } from './analysis';
 import { notebook } from './notebook';
 import { acquire } from './acquire';
@@ -516,6 +515,7 @@ export const en = {
   'sidebar.chatHistory': 'Chat History',
   'sidebar.newChat': 'New Chat',
   'sidebar.noSessions': 'No active sessions',
+  'sidebar.running': 'Running',
   'sidebar.untitledSession': 'Untitled Session',
   'sidebar.terminal': 'Terminal',
   'sidebar.agentic': 'Agentic',

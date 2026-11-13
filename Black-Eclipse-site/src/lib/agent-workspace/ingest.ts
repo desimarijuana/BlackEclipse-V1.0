@@ -11,6 +11,7 @@
 
 import { normalizeWorkspaceEvent } from './normalize';
 import { useWorkspaceStore } from './store';
+import { shouldIngestRun } from '@/lib/agent/run-focus';
 
 /** Pull the run id out of a raw frame (envelope top level, or inner payload). */
 function frameRunId(data: Record<string, unknown>): string | undefined {
@@ -27,6 +28,10 @@ function frameRunId(data: Record<string, unknown>): string | undefined {
 export function ingestHarnessFrame(event: string, data: Record<string, unknown>): void {
   try {
     const runId = frameRunId(data);
+    // Parallel conversations share one workspace projection. Only the focused
+    // conversation's run may bind/ingest; another chat's stream must not reset
+    // the panel or merge its tool activity into this one.
+    if (!shouldIngestRun(runId)) return;
     const store = useWorkspaceStore.getState();
     if (runId) store.bindRun(runId);
     const events = normalizeWorkspaceEvent(event, data, Date.now());

@@ -567,9 +567,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         requirements=_runtime_requirements(request),
         policy_overrides=_runtime_policy_overrides(request),
     )
-    from .model_runtime.credential_pool import CredentialPool  # noqa: PLC0415
+    from .model_runtime.credential_pool import get_credential_pool  # noqa: PLC0415
 
-    credential_pool = CredentialPool.from_settings(request.modelSettings)
+    credential_pool = get_credential_pool(request.modelSettings)
     model = runtime.build(
         resolution.settings, builder=build_chat_model, adapter=resolution.adapter
     )

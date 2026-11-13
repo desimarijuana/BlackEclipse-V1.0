@@ -23,6 +23,13 @@ describe('message queue (pure list rules)', () => {
     expect(next[0].text).toBe('research NVDA');
   });
 
+  it('scopes a prompt to the conversation that queued it', () => {
+    const next = enqueuePrompt([], 'follow up', id, 1, undefined, 'chat_a');
+    expect(next[0].chatId).toBe('chat_a');
+    // A prompt with no explicit chat remains unscoped (legacy callers).
+    expect(enqueuePrompt([], 'plain', id)[0].chatId).toBeUndefined();
+  });
+
   it('rejects prompts past the cap without mutating the list', () => {
     const full = make(Array.from({ length: MAX_QUEUED_PROMPTS }, (_, i) => `p${i}`));
     expect(enqueuePrompt(full, 'one more', id)).toBe(full);

@@ -142,7 +142,19 @@ class ModelRuntime:
         self.pricing = pricing
         self.health = health or HealthManager()
         self.circuit = circuit or CircuitBreaker()
-        self.rate_limits = rate_limits or RateLimitManager()
+        if rate_limits is None:
+            # One conservative ceiling per provider/model key. Parallel chat
+            # sessions queue here instead of all hitting the provider at once.
+            # `HARNESS_MODEL_CONCURRENCY=0` restores the old unbounded mode.
+            try:
+                raw_concurrency = (os.environ.get("HARNESS_MODEL_CONCURRENCY") or "2").strip()
+                concurrency = max(0, min(64, int(raw_concurrency or "2")))
+            except (TypeError, ValueError):
+                concurrency = 2
+            rate_limits = RateLimitManager(
+                default_concurrency=concurrency or None,
+            )
+        self.rate_limits = rate_limits
         self.policy = policy or RoutingPolicy()
         self.task_profiles = task_profiles or TaskProfiles()
         self.budgets = budgets or BudgetManager()
@@ -460,6 +472,9 @@ class ModelRuntime:
         on_attempt: Optional[Callable[[Attempt], Any]] = None,
         max_run_tokens: Optional[int] = None,
         return_result: bool = False,
+        # Multi-session admission: wait for quota instead of stampeding/failing.
+        max_wait_s: Optional[float] = None,
+        request_tokens: int = 0,
     ) -> Any:
         """Invoke the primary model, with same-provider fallback and retry.
 
@@ -479,6 +494,32 @@ class ModelRuntime:
         request_id = request_id or uuid.uuid4().hex
         decision = resolution.decision
         run_provider = getattr(resolution.settings, "provider", None)
+        if max_wait_s is None:
+            try:
+                max_wait_s = float(os.environ.get("HARNESS_MODEL_COOLDOWN_WAIT_S") or "60")
+            except (TypeError, ValueError):
+                max_wait_s = 60.0
+        max_wait_s = max(0.0, float(max_wait_s))
+        # A cooling key is a shared fact. Wait for the earliest reset here so a
+        # concurrent run rotates/waits instead of firing into a known 429.
+        if credential_pool is not None and run_provider:
+            wait_s = credential_pool.seconds_until_available(run_provider)
+            if wait_s is not None and wait_s > 0:
+                if wait_s <= max_wait_s:
+                    self._emit("model.queued", {
+                        "provider": run_provider,
+                        "model": getattr(resolution.settings, "model", None),
+                        "reason": "credential_cooldown",
+                        "retryAfterMs": int(wait_s * 1000),
+                    })
+                    await asyncio.sleep(wait_s)
+                else:
+                    self._emit("model.rate_limited", {
+                        "provider": run_provider,
+                        "model": getattr(resolution.settings, "model", None),
+                        "reason": "credential_cooldown",
+                        "retryAfterMs": int(wait_s * 1000),
+                    })
         candidates: list[tuple[Any, Optional[ModelInfo], Any]] = [
             (primary_model, resolution.model, None)
         ]
@@ -489,11 +530,17 @@ class ModelRuntime:
         if credential_pool is not None and run_provider:
             primary_cred = credential_pool.acquire(run_provider)
             run_key = getattr(resolution.settings, "api_key", None)
-            if primary_cred is not None and (not run_key or run_key != primary_cred.api_key):
+            if primary_cred is None and run_key:
+                # Every key for this provider is cooling. Never fire the known
+                # cooling run key: skip the primary and let fallbacks try.
+                candidates = []
+            elif primary_cred is not None and (not run_key or run_key != primary_cred.api_key):
                 candidates[0] = (None, resolution.model, primary_cred)
             else:
                 candidates[0] = (primary_model, resolution.model, primary_cred)
             for extra in credential_pool.credentials(run_provider):
+                if extra.cooling:
+                    continue
                 if primary_cred is not None and extra.id == primary_cred.id:
                     continue
                 candidates.append((None, resolution.model, extra))
@@ -523,13 +570,25 @@ class ModelRuntime:
             # A remote provider with no credential is NOT reachable and is
             # skipped, never faked (spec A31/A45).
 
+        if not candidates:
+            raise ModelError(
+                error_class=ErrorClass.RATE_LIMIT,
+                message="all credentials for this provider are cooling",
+                provider_id=run_provider,
+                model_id=getattr(resolution.settings, "model", None),
+            )
+
         last_error: Optional[ModelError] = None
         used_attempts = trace if trace is not None else []
         for index, (model_obj, model_info, credential) in enumerate(candidates):
             provider_id = model_info.provider_id if model_info else getattr(resolution.settings, "provider", None)
             model_id = model_info.id if model_info else getattr(resolution.settings, "model", None)
-            key = f"{provider_id}/{model_id}"
             credential_id = getattr(credential, "id", None)
+            # Quota is per credential key: two keys each get a concurrency slot
+            # and an independent 429 cooldown.
+            key = f"{provider_id}/{model_id}"
+            if credential_id:
+                key = f"{key}#{credential_id}"
             if not self.circuit.allow(key) or not self.circuit.allow(provider_id or ""):
                 last_error = ModelError(
                     error_class=ErrorClass.PROVIDER_UNAVAILABLE,
@@ -538,14 +597,28 @@ class ModelRuntime:
                     model_id=model_id,
                 )
                 continue
-            if self.rate_limits.is_limited(key):
-                last_error = ModelError(
-                    error_class=ErrorClass.RATE_LIMIT,
-                    message="rate limited",
-                    provider_id=provider_id,
-                    model_id=model_id,
-                )
-                continue
+            wait_s = self.rate_limits.seconds_until_available(key)
+            if wait_s > 0:
+                if wait_s > max_wait_s:
+                    last_error = ModelError(
+                        error_class=ErrorClass.RATE_LIMIT,
+                        message="rate limited",
+                        provider_id=provider_id,
+                        model_id=model_id,
+                    )
+                    continue
+                self._emit("model.queued", {
+                    "provider": provider_id,
+                    "model": model_id,
+                    "reason": "rate_limit",
+                    "retryAfterMs": int(wait_s * 1000),
+                })
+            elif self.rate_limits.is_limited(key):
+                self._emit("model.queued", {
+                    "provider": provider_id,
+                    "model": model_id,
+                    "reason": "concurrency",
+                })
 
             candidate_model = model_obj
             if candidate_model is None:
@@ -570,7 +643,17 @@ class ModelRuntime:
                     last_error = classify_exception(exc, provider_id=provider_id, model_id=model_id)
                     continue
 
-            self.rate_limits.acquire(key)
+            try:
+                await self.rate_limits.acquire_slot(key, timeout_s=max_wait_s)
+            except asyncio.TimeoutError:
+                last_error = ModelError(
+                    error_class=ErrorClass.RATE_LIMIT,
+                    message="rate limited: admission wait exceeded",
+                    provider_id=provider_id,
+                    model_id=model_id,
+                )
+                continue
+            self.rate_limits.record_request(key, tokens=max(0, int(request_tokens or 0)))
             try:
                 for attempt in range(max(1, attempts)):
                     if max_run_tokens is not None and sum(
@@ -616,7 +699,9 @@ class ModelRuntime:
                             )
                         last_error = error
                         if error.error_class is ErrorClass.RATE_LIMIT:
-                            self.rate_limits.record_429(key)
+                            self.rate_limits.record_429(
+                                key, retry_after_s=_retry_after_seconds(exc)
+                            )
                         if trace is not None:
                             record = Attempt(
                                 provider=str(provider_id or ""),
@@ -712,7 +797,7 @@ class ModelRuntime:
                         )
                     return response
             finally:
-                self.rate_limits.release(key)
+                self.rate_limits.release_slot(key)
 
             if last_error is not None and last_error.error_class is ErrorClass.CONTEXT_OVERFLOW:
                 # Context overflow is not a provider outage: the graph's bounded

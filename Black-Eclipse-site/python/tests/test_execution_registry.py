@@ -130,6 +130,36 @@ async def test_background_run_is_registered_and_cancellable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_runs_keep_their_own_bridge(monkeypatch):
+    """Two runs in flight must see their own callback transport, not each other's."""
+    seen: dict[str, str] = {}
+
+    async def fake_execute(request, *_args, **_kwargs):
+        from harness.run_binding import current_bridge
+
+        bridge = current_bridge()
+        seen[request.runId] = bridge._base  # noqa: SLF001 - test-only introspection
+        await asyncio.sleep(0.02)  # let the other run interleave
+        assert current_bridge()._base == request.callbackBaseUrl  # noqa: SLF001
+        return RunResult(runId=request.runId, status="completed")
+
+    monkeypatch.setattr(service_mod, "execute_run", fake_execute)
+    svc = _service()
+    first = _request("run_a")
+    first.callbackBaseUrl = "http://127.0.0.1:4101"
+    second = _request("run_b")
+    second.callbackBaseUrl = "http://127.0.0.1:4102"
+
+    results = await asyncio.gather(svc.run(first), svc.run(second))
+
+    assert [r.status for r in results] == ["completed", "completed"]
+    assert seen == {
+        "run_a": "http://127.0.0.1:4101",
+        "run_b": "http://127.0.0.1:4102",
+    }
+
+
+@pytest.mark.asyncio
 async def test_cancel_unknown_or_finished_run_is_false():
     svc = _service()
     assert svc.cancel("missing") is False

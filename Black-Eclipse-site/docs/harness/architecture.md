@@ -1075,6 +1075,19 @@ still executing and cancel was a no-op. `HARNESS_MAX_CONCURRENT_RUNS` (default
 0 = unbounded) adds an optional admission semaphore without changing any
 contract.
 
+**Multiple conversations run at once.** The client owns runs per conversation
+(`src/lib/agent/run-manager.ts`): one live run per `chatId`, many chats
+simultaneously, each with its own turn sink and recovery record
+(`eclipse.activeRuns.v2`). Queued prompts keep their originating chat, and only
+the focused conversation's run projects into the single Agent Workspace
+(`run-focus.ts`). On the runtime side, the market bridge and MCP sampling model
+are per-run `ContextVar`s (`python/harness/run_binding.py`), not fields on the
+process-wide singletons. The model gateway also has one process-wide credential
+pool and a per-key admission queue (`model_runtime/credential_pool.py`,
+`RateLimitManager.acquire_slot`), so parallel sessions wait on quota instead of
+failing. Same-origin tabs elect one run owner (`tab-coordinator.ts`) and merge
+their transcript writes. See `docs/harness/multi-session-concurrency.md`.
+
 **Change events carry the change itself.** Run events are content-free except
 for the one thing a code surface must show: a file change. `code.patch.applied`
 (one event per applied op, `code/tools.py`) and every fs write event (`fs.*`,

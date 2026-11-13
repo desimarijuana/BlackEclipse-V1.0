@@ -574,6 +574,21 @@ class AgentMemoryStore:
             ).fetchall()
         ]
 
+    def active_session_run(self, session_id: str) -> Optional[dict[str, Any]]:
+        """The newest non-terminal run for a chat session, if one exists.
+
+        This is the server-side truth a second browser/device can use to attach
+        to a live run instead of starting a duplicate.
+        """
+        row = self._db.execute(
+            """SELECT * FROM HarnessRun
+               WHERE sessionId=?
+                 AND status NOT IN ('completed','failed','cancelled','interrupted')
+               ORDER BY createdAt DESC LIMIT 1""",
+            (session_id,),
+        ).fetchone()
+        return _run_row(row) if row else None
+
     def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
         row = self._db.execute("SELECT * FROM HarnessRun WHERE id = ?", (run_id,)).fetchone()
         return _run_row(row) if row else None

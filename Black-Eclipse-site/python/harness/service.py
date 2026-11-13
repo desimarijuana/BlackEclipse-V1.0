@@ -1491,16 +1491,15 @@ class AgenticService:
         apply_chat_build_budget(request)
         record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or ""))
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
-        # Bind the process-wide market gateway to THIS run's bridge so market tools
-        # reach providers through the same per-run transport as every other tool.
-        market_gateway = getattr(self, "market_gateway", None)
-        if market_gateway is not None:
-            market_gateway._bridge = bridge  # noqa: SLF001 - deliberate per-run rebind
-        # Bind server-initiated sampling to THIS run's model (still off by
-        # default per server; a request is refused unless the operator enabled it).
-        mcp_manager = getattr(self, "mcp", None)
-        if mcp_manager is not None:
-            mcp_manager.set_sampling_model_factory(self._sampling_model_factory(request))
+        # Per-run bindings (market transport + MCP sampling model) travel in a
+        # ContextVar. The gateway/MCP manager are process-wide singletons, so
+        # writing these onto them would let two concurrent runs overwrite each
+        # other. Every await below runs inside `bind_run`.
+        sampling_factory = (
+            self._sampling_model_factory(request)
+            if getattr(self, "mcp", None) is not None
+            else None
+        )
         # Foreground activity: defer expensive background reviews to a short idle.
         try:
             self.learning_review.mark_user_active()
@@ -1513,25 +1512,27 @@ class AgenticService:
             try:
                 # One live owner per run. A duplicate submission with the same
                 # runId must not execute a second time.
+                from .run_binding import bind_run  # noqa: PLC0415
                 from .run_lease import RunLeaseGuard  # noqa: PLC0415
 
-                with RunLeaseGuard(self.store, request.runId) as lease:
-                    if not lease.owned:
-                        # W6: never write over a run another runtime owns. The
-                        # duplicate submission gets a live-only signal; the
-                        # owner's row, counters and event log are untouched.
-                        self.bus.publish({
-                            "id": f"evt_{request.runId}_lease_conflict",
-                            "runId": request.runId, "type": "run.lease_conflict",
-                            "seq": -1, "at": now_iso(),
-                            "data": {"code": "RUN_LEASE_CONFLICT"}, "transient": True,
-                        })
-                        return RunResult(runId=request.runId, status="failed")
-                    return await execute_run(
-                        request, self.registry, bridge, self.store, self.bus,
-                        runtime_id=(lease.manager.runtime_id if lease.manager else None),
-                        **self._run_kwargs(),
-                    )
+                with bind_run(bridge=bridge, sampling_factory=sampling_factory):
+                    with RunLeaseGuard(self.store, request.runId) as lease:
+                        if not lease.owned:
+                            # W6: never write over a run another runtime owns. The
+                            # duplicate submission gets a live-only signal; the
+                            # owner's row, counters and event log are untouched.
+                            self.bus.publish({
+                                "id": f"evt_{request.runId}_lease_conflict",
+                                "runId": request.runId, "type": "run.lease_conflict",
+                                "seq": -1, "at": now_iso(),
+                                "data": {"code": "RUN_LEASE_CONFLICT"}, "transient": True,
+                            })
+                            return RunResult(runId=request.runId, status="failed")
+                        return await execute_run(
+                            request, self.registry, bridge, self.store, self.bus,
+                            runtime_id=(lease.manager.runtime_id if lease.manager else None),
+                            **self._run_kwargs(),
+                        )
             finally:
                 # Close live SSE consumers whatever the terminal status, exactly
                 # like the background path does.
@@ -1967,34 +1968,38 @@ class AgenticService:
         apply_chat_build_budget(request)
         record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or ""))
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
-        market_gateway = getattr(self, "market_gateway", None)
-        if market_gateway is not None:
-            market_gateway._bridge = bridge  # noqa: SLF001 - per-run rebind
+        sampling_factory = (
+            self._sampling_model_factory(request)
+            if getattr(self, "mcp", None) is not None
+            else None
+        )
 
         async def _task() -> None:
             try:
+                from .run_binding import bind_run  # noqa: PLC0415
                 from .run_lease import RunLeaseGuard  # noqa: PLC0415
 
-                with RunLeaseGuard(self.store, request.runId) as lease:
-                    if not lease.owned:
-                        # W6: see the foreground path — a duplicate submission
-                        # never overwrites the live owner's run.
-                        self.bus.publish({
-                            "id": f"evt_{request.runId}_lease_conflict",
-                            "runId": request.runId, "type": "run.lease_conflict",
-                            "seq": -1, "at": now_iso(),
-                            "data": {"code": "RUN_LEASE_CONFLICT"}, "transient": True,
-                        })
-                        return
-                    result = await _with_run_slot(
-                        getattr(self, "_run_slots", None),
-                        lambda: execute_run(
-                            request, self.registry, bridge, self.store, self.bus,
-                            runtime_id=(lease.manager.runtime_id if lease.manager else None),
-                            **self._run_kwargs(),
-                        ),
-                    )
-                await self._schedule_review(request.runId, result.status)
+                with bind_run(bridge=bridge, sampling_factory=sampling_factory):
+                    with RunLeaseGuard(self.store, request.runId) as lease:
+                        if not lease.owned:
+                            # W6: see the foreground path — a duplicate submission
+                            # never overwrites the live owner's run.
+                            self.bus.publish({
+                                "id": f"evt_{request.runId}_lease_conflict",
+                                "runId": request.runId, "type": "run.lease_conflict",
+                                "seq": -1, "at": now_iso(),
+                                "data": {"code": "RUN_LEASE_CONFLICT"}, "transient": True,
+                            })
+                            return
+                        result = await _with_run_slot(
+                            getattr(self, "_run_slots", None),
+                            lambda: execute_run(
+                                request, self.registry, bridge, self.store, self.bus,
+                                runtime_id=(lease.manager.runtime_id if lease.manager else None),
+                                **self._run_kwargs(),
+                            ),
+                        )
+                    await self._schedule_review(request.runId, result.status)
             finally:
                 # Signal live SSE consumers that the run is over, whatever the
                 # terminal status, so their streams close promptly.

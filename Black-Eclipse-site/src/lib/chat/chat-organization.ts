@@ -233,6 +233,64 @@ export function normalizeConversations(raw: unknown): Conversation[] {
   return raw.map(normalizeConversation).filter((c): c is Conversation => c !== null);
 }
 
+const TERMINAL_MESSAGE_STATUS = new Set(['completed', 'error', 'cancelled']);
+
+function messagePreferred(local: Message, incoming: Message): Message {
+  const localStatus = String((local as { status?: unknown }).status ?? '');
+  const incomingStatus = String((incoming as { status?: unknown }).status ?? '');
+  const localTerminal = TERMINAL_MESSAGE_STATUS.has(localStatus);
+  const incomingTerminal = TERMINAL_MESSAGE_STATUS.has(incomingStatus);
+  if (incomingTerminal && !localTerminal) return incoming;
+  if (localTerminal && !incomingTerminal) return local;
+  return (incoming.content?.length ?? 0) >= (local.content?.length ?? 0) ? incoming : local;
+}
+
+function mergeMessages(local: Message[], incoming: Message[]): Message[] {
+  const merged = [...local];
+  const index = new Map(merged.map((message, i) => [message.id, i] as const));
+  for (const message of incoming) {
+    const at = index.get(message.id);
+    if (at === undefined) {
+      index.set(message.id, merged.length);
+      merged.push(message);
+    } else {
+      merged[at] = messagePreferred(merged[at], message);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Merge a conversation list written by another tab.
+ *
+ * Same-origin tabs share `localStorage`, but each one used to replace the whole
+ * list. Append-mostly transcripts converge safely by id; a newer conversation
+ * wins for metadata, while a message that exists in both keeps the terminal /
+ * fuller copy. Explicit deletes remain explicit (`deletedAt`).
+ */
+export function mergeConversations(
+  local: Conversation[],
+  incoming: Conversation[],
+): Conversation[] {
+  const byId = new Map(local.map((c) => [c.id, c] as const));
+  for (const other of incoming) {
+    const mine = byId.get(other.id);
+    if (!mine) {
+      byId.set(other.id, other);
+      continue;
+    }
+    const newer = (other.timestamp ?? 0) >= (mine.timestamp ?? 0) ? other : mine;
+    const older = newer === other ? mine : other;
+    byId.set(other.id, {
+      ...older,
+      ...newer,
+      messages: mergeMessages(older.messages, newer.messages),
+      timestamp: Math.max(mine.timestamp ?? 0, other.timestamp ?? 0),
+    });
+  }
+  return [...byId.values()].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+}
+
 function coerceFolder(raw: unknown): ChatFolder | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;

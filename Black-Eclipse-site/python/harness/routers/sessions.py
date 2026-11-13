@@ -117,7 +117,12 @@ def get_session(session_id: str) -> dict[str, Any]:
     session = service.store.get_chat_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
-    return {"success": True, "session": session, "runs": service.store.session_runs(session_id)}
+    return {
+        "success": True,
+        "session": session,
+        "runs": service.store.session_runs(session_id),
+        "activeRun": service.store.active_session_run(session_id),
+    }
 
 
 @router.patch("/sessions/{session_id}")

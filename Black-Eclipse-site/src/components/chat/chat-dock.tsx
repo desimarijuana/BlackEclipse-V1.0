@@ -42,6 +42,8 @@ import { FileSourcePicker } from '@/components/workspace/file-source-picker';
 import type { PickedFile } from '@/lib/chat/file-sources';
 import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
+import { takeNextFor } from '@/lib/chat/queue-store';
+import { runManager } from '@/lib/agent/run-manager';
 import { useChatModel } from '@/lib/agent/use-chat-model';
 import { useReasoningEffort } from '@/lib/agent/use-reasoning-effort';
 import type { AssistantTurn } from '@/lib/agent/response-model';
@@ -229,14 +231,10 @@ export function ChatDock({
     });
   };
 
-  // One place the turn lifecycle lives (shared with the ChatBot tab). The hook
-  // reports the AssistantTurn; the sink maps it onto this dock's own message
-  // store. `turnSinkRef` is rebound per send so it targets the live turn.
-  const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
-  const agentRun = useAgentRun({
-    onTurn: (turn) => turnSinkRef.current?.(turn),
-    chatId: dockSessionId,
-  });
+  // One place the turn lifecycle lives (shared with the ChatBot tab). The run
+  // manager owns the stream; this dock supplies a per-run sink so a background
+  // conversation can never write into the dock's transcript.
+  const agentRun = useAgentRun({ chatId: dockSessionId });
   useEffect(() => { setBusy(agentRun.active); }, [agentRun.active]);
 
   // The same real, persisted model picker the full ChatBot composer uses. The
@@ -471,7 +469,7 @@ export function ChatDock({
       { id: assistantId, role: 'assistant', content: '', status: 'queued', activities: [] },
     ]);
 
-    turnSinkRef.current = (turn) => {
+    const onTurn = (turn: AssistantTurn) => {
       const next = messagesRef.current.map(m =>
         m.id === assistantId
           ? {
@@ -518,13 +516,13 @@ export function ChatDock({
         chatId: sessionIdRef.current,
         model: chatModel.displayModel || undefined,
         reasoningEffort: reasoningEffort.effort,
+        onTurn,
       });
       // A finished reply is an incoming message, not a generic success.
       if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
     } catch {
       // The hook already recorded the error on the turn; the sink rendered it.
     } finally {
-      turnSinkRef.current = null;
       setBusy(false);
       // Persist the terminal transcript once (covers cancel/abort paths too).
       saveMessages(messagesRef.current);
@@ -537,13 +535,20 @@ export function ChatDock({
   // busy (removing the item re-renders before the run does).
   const drainingQueueRef = useRef(false);
   useEffect(() => {
-    if (busy || drainingQueueRef.current) return;
-    const next = messageQueue.peek();
-    if (!next) return;
+    const dockChatId = sessionIdRef.current;
+    if (
+      busy ||
+      drainingQueueRef.current ||
+      runManager.isBusy(dockChatId) ||
+      messageQueue.paused(dockChatId)
+    ) return;
+    if (!messageQueue.peekFor(dockChatId)) return;
     drainingQueueRef.current = true;
-    messageQueue.remove(next.id);
     const history = messagesRef.current.map(m => ({ role: m.role, content: m.content }));
-    void startTurn(history, next.text).finally(() => {
+    void takeNextFor(dockChatId).then((next) => {
+      if (!next) return;
+      return startTurn(history, next.text);
+    }).finally(() => {
       drainingQueueRef.current = false;
     });
     // Keyed on run state + queue contents; startTurn/refs are intentionally not
@@ -556,8 +561,8 @@ export function ChatDock({
     if (!text) return;
     // Busy means "queue it", never "drop it". The queue drains automatically as
     // each reply completes, in the order the prompts were typed.
-    if (busy || messageQueue.size() > 0) {
-      if (messageQueue.enqueue(text)) {
+    if (busy || messageQueue.sizeFor(sessionIdRef.current) > 0) {
+      if (messageQueue.enqueue(text, undefined, sessionIdRef.current)) {
         setQuery('');
         sound.tick();
       }
@@ -743,13 +748,13 @@ export function ChatDock({
         {/* Queued prompts — visible while the assistant is replying, so a
             follow-up is never silently lost and order is explicit. */}
         <MessageQueue
-          items={messageQueue.items}
+          items={messageQueue.items.filter((item) => item.chatId === sessionIdRef.current)}
           busy={busy}
           onEdit={messageQueue.update}
           onRemove={messageQueue.remove}
           onMove={messageQueue.move}
           onRunNow={runQueuedNext}
-          onClear={messageQueue.clear}
+          onClear={() => messageQueue.clear(sessionIdRef.current)}
         />
 
         {/* W4: the active goal / loop status strip, above the composer. */}
@@ -862,7 +867,7 @@ export function ChatDock({
                     <button
                       type="button"
                       onClick={() => void send()}
-                      className="flex h-9 items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2.5 text-primary transition-colors hover:bg-primary/25 cursor-pointer"
+                      className="flex h-9 items-center gap-1 rounded-full border-0 bg-primary px-2.5 text-primary-foreground transition-colors hover:bg-primary/90 cursor-pointer"
                       title="Queue this prompt — it runs after the current reply"
                       aria-label="Queue this prompt"
                     >
@@ -873,7 +878,7 @@ export function ChatDock({
                   <button
                     type="button"
                     onClick={() => void cancel()}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground/90 text-background transition-colors hover:bg-foreground cursor-pointer"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border-0 bg-foreground text-background transition-colors hover:bg-foreground/90 cursor-pointer"
                     title="Stop generating"
                     aria-label="Stop generating"
                   >

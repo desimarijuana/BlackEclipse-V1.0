@@ -86,6 +86,10 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   /** Focus mode — unmount the sidebar (desktop + mobile) for a clean canvas. */
   hidden?: boolean;
+  /** Conversations with a live run (parallel sessions show a spinner). */
+  runningConversationIds?: string[];
+  /** Waiting prompt count per conversation. */
+  queuedCounts?: Record<string, number>;
 }
 
 export function Sidebar({
@@ -102,6 +106,8 @@ export function Sidebar({
   mobileOpen = false,
   onCloseMobile,
   hidden = false,
+  runningConversationIds,
+  queuedCounts,
 }: SidebarProps) {
   const prefetchSettings = useSettingsPrefetch();
   // Quick launchers below the mode switcher: the Channel Gateway (Telegram,
@@ -387,6 +393,8 @@ export function Sidebar({
             onNewChat={onNewChat}
             onForkConversation={onForkConversation}
             onDeleteConversation={onDeleteConversation}
+            runningConversationIds={runningConversationIds}
+            queuedCounts={queuedCounts}
           />
         )}
 

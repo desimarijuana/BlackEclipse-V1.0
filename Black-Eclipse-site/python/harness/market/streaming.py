@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+from ..run_binding import current_bridge
 from .config import get_config
 from .models import MarketDataEvent, MarketMeta
 
@@ -395,10 +396,11 @@ class MarketStreamManager:
         URL/token is resolved through the bridge (no secret is stored here)."""
         if self.provider == "binance":
             return binance_stream_url(symbols, events)
-        if self._bridge is None:
+        bridge = current_bridge(self._bridge)
+        if bridge is None:
             raise StreamingUnavailable(f"no bridge to resolve the {self.provider} stream config")
         try:
-            payload = await self._bridge.fetch(
+            payload = await bridge.fetch(
                 "market_stream_config", {"provider": self.provider, "symbols": symbols, "eventTypes": list(events)}
             )
         except Exception as exc:  # noqa: BLE001 - a bridge failure is unavailable

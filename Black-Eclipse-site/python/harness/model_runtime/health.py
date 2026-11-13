@@ -7,6 +7,7 @@ wall-clock is read. Nothing here calls a network; probing is the caller's job.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -271,6 +272,7 @@ class RateLimitManager:
         now: Callable[[], float] = _monotonic,
         window_s: float = 60.0,
         backoff_s: float = 20.0,
+        default_concurrency: Optional[int] = None,
     ) -> None:
         self._now = now
         self._window_s = window_s
@@ -278,6 +280,11 @@ class RateLimitManager:
         self._limits: dict[str, dict[str, Optional[int]]] = {}
         self._state: dict[str, RateLimitState] = {}
         self._events: dict[str, Deque[tuple[float, int]]] = {}
+        # Admission is per key. Without a declared `concurrent` limit the
+        # default applies to every provider/model key, so parallel sessions
+        # cannot stampede one provider. 0/None keeps the old unbounded mode.
+        self._default_concurrency = default_concurrency
+        self._semaphores: dict[str, asyncio.Semaphore] = {}
 
     def set_limits(
         self,
@@ -325,7 +332,97 @@ class RateLimitManager:
     def record_429(self, key: str, *, retry_after_s: Optional[float] = None) -> None:
         state = self._state.setdefault(key, RateLimitState())
         state.last_429_at = self._now()
-        state.reset_at = self._now() + (retry_after_s or self._backoff_s)
+        # Honor the provider's own hint (already bounded by retry_policy).
+        state.reset_at = self._now() + max(1.0, float(retry_after_s or self._backoff_s))
+
+    def _concurrency_limit(self, key: str) -> Optional[int]:
+        declared = (self._limits.get(key) or {}).get("concurrent")
+        if declared is not None:
+            return int(declared)
+        return self._default_concurrency if self._default_concurrency else None
+
+    def _semaphore(self, key: str) -> Optional[asyncio.Semaphore]:
+        limit = self._concurrency_limit(key)
+        if limit is None:
+            return None
+        sem = self._semaphores.get(key)
+        if sem is None:
+            sem = asyncio.Semaphore(max(1, int(limit)))
+            self._semaphores[key] = sem
+        return sem
+
+    def _cooldown_or_window_wait(self, key: str) -> float:
+        """Seconds until the key's cooldown/RPM/TPM window admits a call."""
+        state = self._state.get(key)
+        wait = 0.0
+        reset_at = state.reset_at if state else None
+        if reset_at is not None:
+            wait = max(wait, reset_at - self._now())
+        limits = self._limits.get(key) or {}
+        rpm = limits.get("rpm")
+        if rpm is not None:
+            events = self._events.setdefault(key, deque())
+            cutoff = self._now() - self._window_s
+            while events and events[0][0] < cutoff:
+                events.popleft()
+            if len(events) >= rpm and events:
+                wait = max(wait, events[0][0] + self._window_s - self._now())
+        tpm = limits.get("tpm")
+        if tpm is not None:
+            events = self._events.setdefault(key, deque())
+            cutoff = self._now() - self._window_s
+            total = sum(tokens for at, tokens in events if at >= cutoff)
+            if total >= tpm:
+                for at, tokens in events:
+                    if at >= cutoff:
+                        total -= tokens
+                        wait = max(wait, at + self._window_s - self._now())
+                        if total < tpm:
+                            break
+        return max(0.0, wait)
+
+    def seconds_until_available(self, key: str) -> float:
+        """How long a caller should wait before this key can accept a call.
+
+        Concurrency is handled by the async semaphore, so this returns 0 for a
+        key that is merely at its in-flight ceiling (the caller will queue on
+        `acquire_slot`).
+        """
+        return self._cooldown_or_window_wait(key)
+
+    async def acquire_slot(self, key: str, *, timeout_s: Optional[float] = None) -> None:
+        """Wait for one admission slot, honoring cooldown/RPM/TPM and limits.
+
+        The semaphore is FIFO, so a burst of sessions queues fairly instead of
+        all retrying at once. `timeout_s` bounds the wait; the caller maps
+        `asyncio.TimeoutError` to an honest RATE_LIMITED failure.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = (loop.time() + max(0.0, timeout_s)) if timeout_s is not None else None
+        sem = self._semaphore(key)
+        if sem is not None:
+            remaining = None if deadline is None else max(0.0, deadline - loop.time())
+            await asyncio.wait_for(sem.acquire(), timeout=remaining)
+        try:
+            while True:
+                wait = self._cooldown_or_window_wait(key)
+                if wait <= 0:
+                    break
+                if deadline is not None and loop.time() + wait > deadline:
+                    raise asyncio.TimeoutError
+                # Short sleeps keep a second writer's 429 visible promptly.
+                await asyncio.sleep(min(max(0.05, wait), 0.5))
+            self.acquire(key)
+        except BaseException:
+            if sem is not None:
+                sem.release()
+            raise
+
+    def release_slot(self, key: str) -> None:
+        self.release(key)
+        sem = self._semaphores.get(key)
+        if sem is not None:
+            sem.release()
 
     def is_limited(self, key: str) -> bool:
         """True when a declared limit is reached, or a recent 429 is cooling."""
@@ -353,7 +450,10 @@ class RateLimitManager:
             "tokensInWindow": self._tokens(key),
             "concurrent": state.concurrent,
             "limited": self.is_limited(key),
-            "limits": self._limits.get(key, {}),
+            "limits": {
+                **self._limits.get(key, {}),
+                "concurrentDefault": self._default_concurrency,
+            },
         }
 
 

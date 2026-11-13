@@ -1,6 +1,42 @@
 # Change Log
 
 ## 2026-11-12
+- **feat(chat): durable, shared, pausable prompt queue.** `queue-store.ts`
+  persists each conversation's queue in `localStorage`, broadcasts changes over
+  BroadcastChannel, and dequeues under a per-chat Web Lock so two tabs cannot
+  run the same prompt. The queue panel gained pause/resume; the drain hook
+  resumes persisted work on mount for idle, unpaused chats. In-memory fallback
+  keeps private-mode sessions working. Tests: new `queue-store.test.ts`;
+  `tsc` clean and size ratchets green. docs updated:
+  `docs/harness/multi-session-concurrency.md`, `docs/CHANGELOG.md`.
+- **feat(model): quota-aware admission + cross-tab runs.** Provider capacity is
+  now a shared, process-wide gate: `get_credential_pool()` shares 429 cooldowns
+  and key rotation across runs, `RateLimitManager.acquire_slot()` queues on a
+  FIFO semaphore plus cooldown/RPM/TPM windows, `HARNESS_MODEL_CONCURRENCY`
+  (default 2) bounds parallel calls per provider/model/credential, and `Retry-After` is
+  honored (it was previously ignored). Waiting emits `model.queued` and is bounded
+  by `HARNESS_MODEL_COOLDOWN_WAIT_S` (default 60); past it the run fails honestly
+  with `RATE_LIMITED`. Cross-tab: `tab-coordinator.ts` elects one owner per chat
+  with Web Locks, shares `runId`/snapshots over BroadcastChannel +
+  `localStorage`, lets followers attach/act by run id, and merges transcripts by
+  message id in both the client cache and `writeTranscript()`; `GET /sessions/{id}`
+  returns `activeRun` as server truth. Tests: new `test_model_admission.py`,
+  `chat-organization` cross-tab merge; full Vitest 518 files / 4756 tests,
+  affected Python suites green, `tsc` clean. docs updated:
+  `docs/harness/multi-session-concurrency.md`, `docs/CHANGELOG.md`.
+- **feat(chat): run multiple conversations concurrently.** The chat shell
+  mounted one `useAgentRun` and refused a second run. A conversation-scoped
+  `run-manager.ts` now owns one stream per `chatId` (many chats at once), the
+  hook is a thin selector, each run has its own `onTurn` sink, queued prompts
+  keep their originating chat (`use-chat-queue-drain.ts`), active-run recovery
+  is a `chatId → run` map, and only the focused chat's run feeds the Agent
+  Workspace. The runtime's process-wide market bridge/MCP sampling model are
+  per-run `ContextVar`s (`run_binding.py`) instead of singleton fields, so
+  concurrent runs cannot cross-wire transports or models. Tests: new
+  `run-manager.test.ts`, `run-focus.test.ts`, queue chat-scope test,
+  `test_run_binding.py`, and a concurrent-bridge service test; full Vitest +
+  `tsc` green. docs updated: `docs/harness/multi-session-concurrency.md`,
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
 - **test(security): hardline denial without a gateway.** Adds a regression test
   proving `make_security_authorizer` refuses a destructive command via the
   always-on hardline even when no gateway/policy is installed, while a benign

@@ -8,6 +8,8 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  ListChecks,
+  Loader2,
   MoreHorizontal,
   Pin,
   Plus,
@@ -40,6 +42,10 @@ export interface ChatHistoryPanelProps {
   onForkConversation: (id: string) => void;
   /** Legacy permanent delete (also fixes the active selection in the shell). */
   onDeleteConversation: (id: string) => void;
+  /** Conversations with a live run (parallel sessions show a spinner). */
+  runningConversationIds?: string[];
+  /** Waiting prompt count per conversation. */
+  queuedCounts?: Record<string, number>;
 }
 
 type RenameTarget = { kind: 'chat' | 'folder'; id: string } | null;
@@ -57,6 +63,8 @@ export function ChatHistoryPanel({
   onNewChat,
   onForkConversation,
   onDeleteConversation,
+  runningConversationIds = [],
+  queuedCounts = {},
 }: ChatHistoryPanelProps) {
   const t = useT();
   const {
@@ -212,8 +220,11 @@ export function ChatHistoryPanel({
   );
 
   // ── Rows ───────────────────────────────────────────────────────────────────
+  const running = new Set(runningConversationIds);
   const renderRow = (c: Conversation, depth = 0) => {
     const isActive = activeConversationId === c.id;
+    const isRunning = running.has(c.id);
+    const queuedCount = queuedCounts[c.id] ?? 0;
     const isRenaming = renaming?.kind === 'chat' && renaming.id === c.id;
     const snippet = snippets?.get(c.id) ?? null;
     return (
@@ -244,6 +255,25 @@ export function ChatHistoryPanel({
               {snippet && !isRenaming && <span className="block truncate text-[10px] font-normal text-muted-foreground">{snippet}</span>}
             </span>
           </span>
+          {isRunning && (
+            <span
+              className="shrink-0 text-primary"
+              title={t('sidebar.running')}
+              aria-label={t('sidebar.running')}
+            >
+              <Loader2 size={11} className="animate-spin" />
+            </span>
+          )}
+          {queuedCount > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary"
+              title={`${queuedCount} queued`}
+              aria-label={`${queuedCount} queued`}
+            >
+              <ListChecks size={10} />
+              {queuedCount}
+            </span>
+          )}
           {!isRenaming && (c.tags?.length ?? 0) > 0 && (
             <span className="shrink-0 rounded bg-white/[0.06] px-1 text-[9px] text-muted-foreground">{c.tags!.length}</span>
           )}

@@ -14,6 +14,11 @@ export interface QueuedPrompt {
   text: string;
   /** Epoch ms — keeps the list stable and lets the UI say "queued 2m ago". */
   createdAt: number;
+  /**
+   * The conversation this prompt belongs to. Multi-session runs drain per
+   * conversation, so a prompt typed in chat A can never execute in chat B.
+   */
+  chatId?: string;
   /** A quoted passage that travels with this prompt when it drains. */
   quote?: MessageQuote;
 }
@@ -32,11 +37,21 @@ export function enqueuePrompt(
   makeId: () => string,
   now = Date.now(),
   quote?: MessageQuote,
+  chatId?: string,
 ): readonly QueuedPrompt[] {
   const trimmed = text.trim();
   if (!trimmed) return items;
   if (items.length >= MAX_QUEUED_PROMPTS) return items;
-  return [...items, { id: makeId(), text: trimmed, createdAt: now, ...(quote ? { quote } : {}) }];
+  return [
+    ...items,
+    {
+      id: makeId(),
+      text: trimmed,
+      createdAt: now,
+      ...(chatId ? { chatId } : {}),
+      ...(quote ? { quote } : {}),
+    },
+  ];
 }
 
 export function removeQueued(

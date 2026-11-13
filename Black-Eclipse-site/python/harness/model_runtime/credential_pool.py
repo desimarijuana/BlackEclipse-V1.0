@@ -21,6 +21,12 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional
 
 
+# Process-wide pools, keyed by the credential SET (provider + key fingerprints
+# + base URL). A per-run pool let two concurrent runs use the same cooling key;
+# this registry makes cooldown/rotation visible to every run.
+_SHARED_POOLS: dict[str, "CredentialPool"] = {}
+
+
 def _now() -> float:
     return time.monotonic()
 
@@ -115,6 +121,19 @@ class CredentialPool:
     def available(self, provider: str) -> bool:
         return self.acquire(provider) is not None
 
+    def seconds_until_available(self, provider: str) -> Optional[float]:
+        """Seconds until the next credential leaves cooldown.
+
+        `0` means a key is usable now. `None` means the provider has no keys at
+        all (callers must not wait for a credential that will never appear).
+        """
+        credentials = self._credentials.get(str(provider or ""), [])
+        if not credentials:
+            return None
+        now = self._now()
+        remaining = [max(0.0, credential.cooldown_until - now) for credential in credentials]
+        return min(remaining) if remaining else None
+
     def credentials(self, provider: str) -> list[Credential]:
         return list(self._credentials.get(str(provider or ""), []))
 
@@ -162,4 +181,33 @@ class CredentialPool:
         return sum(len(items) for items in self._credentials.values())
 
 
-__all__ = ["Credential", "CredentialPool"]
+def get_credential_pool(
+    settings: Any,
+    *,
+    environ: Optional[Mapping[str, str]] = None,
+) -> CredentialPool:
+    """The process-wide pool for this credential set.
+
+    Runs that share a provider/key/base URL share cooldowns and rotation. A
+    changed key set produces a new pool instead of retaining removed secrets.
+    """
+    provider = str(getattr(settings, "provider", "") or "").strip()
+    base_url = str(getattr(settings, "base_url", "") or "").strip()
+    run_key = str(getattr(settings, "api_key", "") or "")
+    env = environ if environ is not None else os.environ
+    env_name = "HARNESS_" + provider.upper().replace("-", "_").replace(".", "_") + "_API_KEYS"
+    extra_keys = [part.strip() for part in (env.get(env_name) or "").split(",") if part.strip()]
+    signature = "|".join([
+        provider,
+        base_url,
+        hashlib.sha256(run_key.encode("utf-8")).hexdigest()[:12],
+        ",".join(hashlib.sha256(key.encode("utf-8")).hexdigest()[:12] for key in extra_keys),
+    ])
+    pool = _SHARED_POOLS.get(signature)
+    if pool is None:
+        pool = CredentialPool.from_settings(settings, environ=env)
+        _SHARED_POOLS[signature] = pool
+    return pool
+
+
+__all__ = ["Credential", "CredentialPool", "get_credential_pool"]

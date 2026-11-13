@@ -26,6 +26,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
+from ..run_binding import current_bridge
 from ..tools import DataBridge
 from .cache import MarketCache
 from .config import get_config
@@ -167,7 +168,8 @@ class MarketDataGateway:
         The bridge's instrument master is authoritative. A bridge failure is a
         real error (never a guessed identity).
         """
-        if self._bridge is None:
+        bridge = current_bridge(self._bridge)
+        if bridge is None:
             return None, MarketError(DATA_NOT_AVAILABLE, "data bridge not configured")
         clean = (symbol or "").strip().upper()
         if not clean:
@@ -198,7 +200,7 @@ class MarketDataGateway:
             if terms.maturity:
                 params["maturity"] = terms.maturity
         try:
-            payload = await self._bridge.fetch("market_snapshot", params)
+            payload = await bridge.fetch("market_snapshot", params)
         except Exception as exc:  # noqa: BLE001 - a bridge failure is data
             payload = {"status": "UNAVAILABLE", "error": str(exc)}
         if payload.get("status") != "OK":
@@ -234,7 +236,8 @@ class MarketDataGateway:
         freshness: str = "any",
     ) -> tuple[Optional[dict[str, Any]], Optional[MarketError]]:
         """Fetch one provider's raw payload for a capability through the bridge."""
-        if self._bridge is None:
+        bridge = current_bridge(self._bridge)
+        if bridge is None:
             return None, MarketError(DATA_NOT_AVAILABLE, "data bridge not configured")
         bridge_params: dict[str, Any] = {
             "capability": capability,
@@ -256,7 +259,7 @@ class MarketDataGateway:
         bridge_params.update(params)
         self.metrics["providerCalls"] += 1
         try:
-            payload = await self._bridge.fetch(_BRIDGE_CAPABILITY, bridge_params)
+            payload = await bridge.fetch(_BRIDGE_CAPABILITY, bridge_params)
         except Exception as exc:  # noqa: BLE001
             return None, MarketError(
                 provider and "PROVIDER_UNAVAILABLE" or DATA_NOT_AVAILABLE,

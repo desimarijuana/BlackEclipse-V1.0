@@ -172,7 +172,9 @@ import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachmentPreview } from '@/components/chat/attachment-preview';
 import { MarketRegimeControl } from '@/components/layout/market-regime-control';
-import { useAgentRun, ChatRequestError } from '@/lib/agent/use-agent-run';
+import { useAgentRun, useRunningConversationIds, ChatRequestError } from '@/lib/agent/use-agent-run';
+import { runManager } from '@/lib/agent/run-manager';
+import { useChatQueueDrain } from '@/lib/chat/use-chat-queue-drain';
 import { useChatModel } from '@/lib/agent/use-chat-model';
 import { useReasoningEffort } from '@/lib/agent/use-reasoning-effort';
 import { clientIsOperator } from '@/lib/harness/clients/skills-browser';
@@ -262,11 +264,13 @@ function StockChatContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   // Bumped when a run finishes so the session bar re-lists output files.
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
-  // True while the agent is working — swaps the submit arrow for a pause button.
-  const [agentBusy, setAgentBusy] = useState(false);
+  // A delegated (@-mentioned) turn is still one-at-a-time; ordinary chat runs
+  // are per conversation (see `agentBusy` below).
+  const [delegationBusy, setDelegationBusy] = useState(false);
   // Prompts the user submits while a run is in flight. They drain in order as
-  // soon as the current reply stops; each can be edited/reordered/promoted.
-  const messageQueue = useMessageQueue();
+  // soon as the conversation's current reply stops; each can be edited,
+  // reordered or promoted. The queue is keyed by chat so prompts never migrate.
+  const messageQueue = useMessageQueue(activeConversationId);
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
   const projectBinding = useProjectBinding(activeConversationId);
@@ -317,17 +321,18 @@ function StockChatContent() {
     if (file) void sessionController.removeFile(file);
   };
 
-  // The one place a turn's streaming lifecycle lives. The hook reports the
-  // AssistantTurn; we map it onto the message store below. `turnSinkRef` is set
-  // per-run so the callback targets the turn being written (state closures would
-  // otherwise hold pre-send values after each await).
-  const turnSinkRef = useRef<((turn: AssistantTurn) => void) | null>(null);
-  // Prevents a duplicate submit landing before React re-renders `agentBusy`.
+  // Selects the ACTIVE conversation; background runs keep their own stream.
+  const agentRun = useAgentRun({ chatId: activeConversationId ?? undefined });
+  // Delegated (@-mentioned) turns remain a shell-level busy flag.
   const runInFlightRef = useRef(false);
-  const agentRun = useAgentRun({ onTurn: (turn) => turnSinkRef.current?.(turn), chatId: activeConversationId ?? undefined });
+  const agentBusy = agentRun.active || delegationBusy;
+  // Which conversations are streaming, for the sidebar's live badges.
+  const runningConversationIds = useRunningConversationIds();
+  const dispatchTurnRef = useRef<
+    (chatId: string, userText: string, message: Message) => Promise<void>
+  >(async () => undefined);
   const chatModel = useChatModel(); // the composer's real, persisted model choice
   const reasoningEffort = useReasoningEffort(); // per-question "model intelligence"
-  useEffect(() => { setAgentBusy(agentRun.active); }, [agentRun.active]);
 
   // The action the agent is blocked on, if any. Sourced from the live turn and
   // falling back to the last persisted assistant message, so the card survives a
@@ -641,7 +646,7 @@ function StockChatContent() {
     setActiveConversationId: (id) => setActiveConversationId(id),
     setMessages: (messages) => setMessages(messages),
     isBusy: () => agentBusy || runInFlightRef.current,
-    queueSize: () => messageQueue.size(),
+    queueSize: () => messageQueue.sizeFor(activeConversationIdRef.current),
     onSessionCloned: () => setSessionRefreshKey((k) => k + 1),
   });
   const { pendingQuote, clearQuote, acceptQuote, forkConversation: handleForkConversation, forkFromMessage: handleForkMessage } = conversationActions;
@@ -664,11 +669,14 @@ function StockChatContent() {
     setActiveConversationId(null);
     setMessages([]);
     clearQuote();
-    messageQueue.clear();
+    messageQueue.clear(activeConversationIdRef.current);
     useWorkspaceStore.getState().clear();
   };
 
   const handleDeleteConversation = (id: string) => {
+    // A live run or queued prompt would recreate a deleted conversation.
+    runManager.reset(id);
+    messageQueue.clear(id);
     clearQuote();
     const updated = conversationsRef.current.filter(c => c.id !== id);
     saveConversations(updated);
@@ -688,11 +696,13 @@ function StockChatContent() {
     }
   };
 
-  const addMessageToActiveChat = (userMsg: Message) => {
+  // Append to a specific conversation, or create one when the target is gone.
+  const addMessageToChat = (targetId: string | null, userMsg: Message): string => {
     // Read through the refs, not the closure: two sends in the same tick (or a
     // send followed by an injected prompt) must see each other's writes.
-    let currentId = activeConversationIdRef.current;
+    let currentId = targetId;
     let updatedConvs = [...conversationsRef.current];
+    let becameActive = false;
 
     if (!currentId) {
       currentId = 'chat_' + Date.now();
@@ -706,9 +716,7 @@ function StockChatContent() {
         createdAt: Date.now()
       };
       updatedConvs = [newChat, ...updatedConvs];
-      activeConversationIdRef.current = currentId;
-      setActiveConversationId(currentId);
-      setMessages([userMsg]);
+      becameActive = true;
     } else {
       const idx = updatedConvs.findIndex(c => c.id === currentId);
       if (idx !== -1) {
@@ -721,10 +729,10 @@ function StockChatContent() {
         };
         const [activeChat] = updatedConvs.splice(idx, 1);
         updatedConvs = [activeChat, ...updatedConvs];
-        setMessages(newMsgList);
       } else {
-        // Active id points at a conversation that no longer exists (e.g. it was
-        // deleted) — start a fresh one instead of dropping the message.
+        // The target conversation vanished (deleted, or a stale queued prompt).
+        // Keep the prompt, but give it its own chat instead of dropping it.
+        const wasActive = activeConversationIdRef.current === currentId;
         currentId = 'chat_' + Date.now();
         const newChat: Conversation = {
           id: currentId,
@@ -734,17 +742,33 @@ function StockChatContent() {
           createdAt: Date.now()
         };
         updatedConvs = [newChat, ...updatedConvs];
-        activeConversationIdRef.current = currentId;
-        setActiveConversationId(currentId);
-        setMessages([userMsg]);
+        becameActive = wasActive;
       }
     }
 
     // Keep the ref in lockstep so an immediately-following append sees this.
     conversationsRef.current = updatedConvs;
+    if (becameActive) {
+      activeConversationIdRef.current = currentId;
+      setActiveConversationId(currentId);
+    }
+    if (activeConversationIdRef.current === currentId) setMessages([...updatedConvs.find(c => c.id === currentId)?.messages ?? []]);
     saveConversations(updatedConvs);
     return currentId;
   };
+
+  const addMessageToActiveChat = (userMsg: Message): string =>
+    addMessageToChat(activeConversationIdRef.current, userMsg);
+
+  const drainQueueRef = useChatQueueDrain({
+    messageQueue,
+    addMessageToChat,
+    dispatchTurn: (chatId, userText, userMsg) =>
+      dispatchTurnRef.current(chatId, userText, userMsg),
+    blocked: () => runInFlightRef.current,
+    conversationExists: (id) => conversationsRef.current.some((c) => c.id === id),
+    revision: `${agentBusy}:${conversations.length}`,
+  });
 
   const appendAssistantReply = (chatId: string, replyMsg: Message, persist = true) => {
     // IMPORTANT: use the ref, not `conversations`. This runs after `await`, so
@@ -810,11 +834,13 @@ function StockChatContent() {
     if (e) e.preventDefault();
     const typed = query.trim();
 
-    // While a turn is in flight (or queued work is waiting) a submit becomes a
-    // QUEUED prompt instead of a silent no-op. The queue drains automatically
-    // when the current reply finishes, preserving the order the user typed.
-    // A pending quote rides with the queued prompt, so it is not lost.
-    if (agentBusy || runInFlightRef.current || messageQueue.size() > 0) {
+    // Only THIS conversation's run/queue turns a submit into a queued prompt;
+    // another conversation running is irrelevant. A quote rides with it.
+    if (
+      agentBusy ||
+      runInFlightRef.current ||
+      messageQueue.sizeFor(activeConversationIdRef.current) > 0
+    ) {
       const quote = pendingQuote;
       const queuedText = typed || (quote ? DEFAULT_QUOTE_PROMPT : '');
       if (!queuedText) return;
@@ -850,17 +876,10 @@ function StockChatContent() {
     await dispatchTurn(chatId, turnTextForHarness(userMsg), userMsg);
   };
 
-  /**
-   * Run one turn through the harness and track cancellation. EVERY message goes
-   * through the harness, so the chat IS the Eclipse Agent (system prompt + JDdS
-   * tools + persisted run). History is read from the ref (not state) because
-   * this runs after `await`.
-   */
+  // One harness turn per conversation; history is read from the ref post-await.
   const runAgent = async (chatId: string, userText: string, userMsg: Message) => {
-    // Guard against a duplicate submit landing before the state update.
-    if (runInFlightRef.current) return;
-    runInFlightRef.current = true;
-
+    // The manager owns duplicate protection per conversation; a second run for
+    // the same chat is a no-op there. Different chats may run together.
     const existing = conversationsRef.current.find((c) => c.id === chatId)?.messages ?? [userMsg];
     // Drop empty turns (cancelled/failed replies persist as ""). They carry no
     // context for the model and the front door would otherwise reject the run.
@@ -880,11 +899,8 @@ function StockChatContent() {
       activities: [],
     });
 
-    // Route the hook's turn updates into this exact message. Streaming frames
-    // update state only; the transcript is persisted once when the run reaches
-    // a terminal state (see the finally block), so a long stream does not
-    // serialize the whole conversation to localStorage ~60×/second.
-    turnSinkRef.current = (turn) => {
+    // Per-run sink: writes into THIS conversation even if the user switched.
+    const onTurn = (turn: AssistantTurn) => {
       replaceAssistantReply(chatId, placeholderId, {
         id: placeholderId,
         role: 'assistant',
@@ -904,21 +920,29 @@ function StockChatContent() {
         pendingClarification: turn.pendingClarification,
         // Elapsed turn time; finalised on the terminal frame.
         durationMs: Math.max(0, Date.now() - startedAt),
-      }, turn.done);    };
+      }, turn.done);
+    };
 
-    setAgentBusy(true);
     sound.tick();
 
     try {
-      const finalTurn = await agentRun.start({ history, userText, chatId, model: chatModel.displayModel || undefined, reasoningEffort: reasoningEffort.effort });
+      const finalTurn = await agentRun.start({
+        history,
+        userText,
+        chatId,
+        model: chatModel.displayModel || undefined,
+        reasoningEffort: reasoningEffort.effort,
+        onTurn,
+        onDone: () => drainQueueRef.current(),
+      });
       applyCommandUi(finalTurn.ui);
       setSessionRefreshKey((k) => k + 1);
       // A finished reply is an incoming message, not a generic success.
       if (finalTurn.status === 'completed' && (finalTurn.finalText || finalTurn.text)) sound.message();
       else sound.tick();
     } catch (err) {
-      // The hook records the error on the turn; ensure the message reflects it
-      // even if the sink was cleared.
+      // The manager records the error on the turn; ensure the message reflects
+      // it even if the sink was not called.
       replaceAssistantReply(chatId, placeholderId, {
         id: placeholderId,
         role: 'assistant',
@@ -929,9 +953,6 @@ function StockChatContent() {
       });
       sound.error();
     } finally {
-      turnSinkRef.current = null;
-      runInFlightRef.current = false;
-      setAgentBusy(false);
       // Persist the terminal transcript once (covers cancel/abort paths too).
       saveConversations(conversationsRef.current);
     }
@@ -947,7 +968,7 @@ function StockChatContent() {
     appendAssistantReply,
     replaceAssistantReply,
     persist: () => saveConversations(conversationsRef.current),
-    setBusy: setAgentBusy,
+    setBusy: setDelegationBusy,
     isInFlight: () => runInFlightRef.current,
     setInFlight: (v) => { runInFlightRef.current = v; },
     runFallback: (id, text) => runAgent(id, text, { id: Date.now().toString(), role: 'user', content: text }),
@@ -965,32 +986,8 @@ function StockChatContent() {
     else await runAgent(chatId, userText, userMsg);
   };
 
-  // ── Queue drain ────────────────────────────────────────────────────────
-  // One prompt at a time: when no run is active, take the head of the queue and
-  // run it through the SAME dispatch path as a manual send. `drainingRef` guards
-  // the window between removing the item and the run marking itself busy (the
-  // queue mutation re-renders synchronously and would otherwise re-enter).
-  const drainingQueueRef = useRef(false);
-  useEffect(() => {
-    if (agentBusy || runInFlightRef.current || drainingQueueRef.current) return;
-    const next = messageQueue.peek();
-    if (!next) return;
-    drainingQueueRef.current = true;
-    messageQueue.remove(next.id);
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: next.text,
-      ...(next.quote ? { quote: next.quote } : {}),
-    };
-    const chatId = addMessageToActiveChat(userMsg);
-    void dispatchTurn(chatId, turnTextForHarness(userMsg), userMsg).finally(() => {
-      drainingQueueRef.current = false;
-    });
-    // `dispatchTurn`/`addMessageToActiveChat` are stable enough here: the effect
-    // is deliberately keyed on run state + queue contents only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentBusy, messageQueue.items]);
+  // The queue-drain hook holds a ref to the latest dispatcher; keep it current.
+  dispatchTurnRef.current = dispatchTurn;
 
   /** Stop the in-flight run (cooperative cancel in the Python runtime). */
   const handleCancel = async () => {
@@ -1226,6 +1223,8 @@ function StockChatContent() {
           mobileOpen={mobileMenuOpen}
           onCloseMobile={() => setMobileMenuOpen(false)}
           hidden={focusMode}
+          runningConversationIds={runningConversationIds}
+          queuedCounts={messageQueue.counts}
         />
 
         <div
@@ -1388,12 +1387,12 @@ function StockChatContent() {
                         mentionTargets={mentionTargets}
                         searchProjectFiles={searchProjectFiles}
                         onReferenceFile={sessionController.attachProjectFile}
-                        queued={messageQueue.items}
+                        queued={messageQueue.items.filter((item) => (item.chatId ?? null) === activeConversationId)}
                         onQueueEdit={messageQueue.update}
                         onQueueRemove={messageQueue.remove}
                         onQueueMove={messageQueue.move}
                         onQueueRunNow={handleQueueRunNow}
-                        onQueueClear={messageQueue.clear}
+                        onQueueClear={() => messageQueue.clear(activeConversationId)}
                         contextLabel={sessionController.session && sessionController.session.contextChars > 0 ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars` : undefined}
                         contextFraction={sessionController.session ? sessionController.session.contextChars / sessionController.session.contextLimitChars : 0}
                       />

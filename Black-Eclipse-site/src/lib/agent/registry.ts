@@ -10,15 +10,21 @@ export { unwrapEventPayload } from './events';
 
 // ── Active-run recovery ──────────────────────────────────────────────────────
 // A dropped SSE connection must not start a SECOND run. We remember the run id
-// the server started, and on a stream failure poll the run's durable status
-// until it terminates, then return its output. The record also survives a
-// reload for the run panel / a future conversation-level reattach.
-const ACTIVE_RUN_KEY = 'eclipse.activeRun.v1';
+// the server started, per conversation, and on a stream failure poll the run's
+// durable status until it terminates, then return its output. The map survives
+// a reload so every live conversation can reattach, not just the last one.
+const ACTIVE_RUN_KEY = 'eclipse.activeRuns.v2';
+const LEGACY_ACTIVE_RUN_KEY = 'eclipse.activeRun.v1';
 
 interface ActiveRunRecord {
   runId: string;
   chatId?: string;
   at: number;
+}
+
+interface ActiveRunBook {
+  version: 2;
+  runs: Record<string, ActiveRunRecord>;
 }
 
 function storage(): Storage | null {
@@ -29,39 +35,85 @@ function storage(): Storage | null {
   }
 }
 
-export function rememberActiveRun(runId: string, chatId?: string): void {
+function readBook(): ActiveRunBook {
   try {
-    const value: ActiveRunRecord = { runId, chatId, at: Date.now() };
-    storage()?.setItem(ACTIVE_RUN_KEY, JSON.stringify(value));
+    const raw = storage()?.getItem(ACTIVE_RUN_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ActiveRunBook;
+      if (parsed && parsed.version === 2 && parsed.runs && typeof parsed.runs === 'object') {
+        return parsed;
+      }
+    }
+    // Migrate the single-record key from an older client.
+    const legacy = storage()?.getItem(LEGACY_ACTIVE_RUN_KEY);
+    if (legacy) {
+      const record = JSON.parse(legacy) as ActiveRunRecord;
+      if (record && typeof record.runId === 'string') {
+        const key = record.chatId || '__default__';
+        const book: ActiveRunBook = { version: 2, runs: { [key]: record } };
+        storage()?.setItem(ACTIVE_RUN_KEY, JSON.stringify(book));
+        storage()?.removeItem(LEGACY_ACTIVE_RUN_KEY);
+        return book;
+      }
+    }
+  } catch {
+    // A corrupt/unavailable store is not fatal; recovery is best-effort.
+  }
+  return { version: 2, runs: {} };
+}
+
+function writeBook(book: ActiveRunBook): void {
+  try {
+    if (Object.keys(book.runs).length === 0) {
+      storage()?.removeItem(ACTIVE_RUN_KEY);
+      return;
+    }
+    storage()?.setItem(ACTIVE_RUN_KEY, JSON.stringify(book));
   } catch {
     // sessionStorage can be unavailable/blocked; recovery is best-effort.
   }
 }
 
+export function rememberActiveRun(runId: string, chatId?: string): void {
+  const book = readBook();
+  const key = chatId && chatId.length > 0 ? chatId : '__default__';
+  book.runs[key] = { runId, chatId, at: Date.now() };
+  writeBook(book);
+}
+
 export function forgetActiveRun(runId?: string): void {
-  try {
-    if (!runId) {
-      storage()?.removeItem(ACTIVE_RUN_KEY);
-      return;
-    }
-    const current = loadActiveRun();
-    if (!current || current.runId === runId) storage()?.removeItem(ACTIVE_RUN_KEY);
-  } catch {
-    // ignore
+  const book = readBook();
+  if (!runId) {
+    writeBook({ version: 2, runs: {} });
+    return;
   }
+  let changed = false;
+  for (const [key, record] of Object.entries(book.runs)) {
+    if (record.runId === runId) {
+      delete book.runs[key];
+      changed = true;
+    }
+  }
+  if (changed) writeBook(book);
 }
 
 export function loadActiveRun(chatId?: string): ActiveRunRecord | null {
-  try {
-    const raw = storage()?.getItem(ACTIVE_RUN_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as ActiveRunRecord;
-    if (!parsed || typeof parsed.runId !== 'string') return null;
-    if (chatId && parsed.chatId && parsed.chatId !== chatId) return null;
-    return parsed;
-  } catch {
+  const book = readBook();
+  if (chatId) {
+    const exact = book.runs[chatId];
+    if (exact) return exact;
+    const fallback = book.runs.__default__;
+    if (fallback && (!fallback.chatId || fallback.chatId === chatId)) return fallback;
     return null;
   }
+  const records = Object.values(book.runs);
+  if (records.length === 0) return null;
+  return records.reduce((latest, record) => (record.at > latest.at ? record : latest), records[0]);
+}
+
+/** Every run the client knows about, for a reload/reattach sweep. */
+export function loadActiveRuns(): ActiveRunRecord[] {
+  return Object.values(readBook().runs);
 }
 
 export async function getRunSnapshot(

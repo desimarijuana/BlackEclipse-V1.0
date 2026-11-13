@@ -12,6 +12,7 @@ import {
   inScope,
   loadFolders,
   matchesQuery,
+  mergeConversations,
   mostRecentConversation,
   normalizeConversation,
   normalizeConversations,
@@ -356,5 +357,46 @@ describe('saveConversationsCache', () => {
     const s = quotaStorage(-1);
     expect(saveConversationsCache(s, list(3))).toBe(3);
     expect(s.stored).toBeNull();
+  });
+});
+
+describe('cross-tab conversation merge', () => {
+  it('unions messages from both tabs instead of last-writer-wins', () => {
+    const local = conv({
+      id: 'chat',
+      timestamp: 10,
+      messages: [
+        { id: 'u1', role: 'user', content: 'first' },
+        { id: 'a1', role: 'assistant', content: 'streaming', status: 'streaming' },
+      ],
+    });
+    const incoming = conv({
+      id: 'chat',
+      timestamp: 20,
+      messages: [
+        { id: 'a1', role: 'assistant', content: 'complete answer', status: 'completed' },
+        { id: 'u2', role: 'user', content: 'second' },
+      ],
+    });
+
+    const merged = mergeConversations([local], [incoming]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].messages.map((m) => m.id)).toEqual(['u1', 'a1', 'u2']);
+    expect(merged[0].messages[1].content).toBe('complete answer');
+    expect(merged[0].messages[1].status).toBe('completed');
+  });
+
+  it('keeps a terminal turn when the incoming copy is still streaming', () => {
+    const local = conv({
+      id: 'chat',
+      messages: [{ id: 'a1', role: 'assistant', content: 'final', status: 'completed' }],
+    });
+    const incoming = conv({
+      id: 'chat',
+      messages: [{ id: 'a1', role: 'assistant', content: 'partial', status: 'streaming' }],
+    });
+    const merged = mergeConversations([local], [incoming]);
+    expect(merged[0].messages[0].content).toBe('final');
+    expect(merged[0].messages[0].status).toBe('completed');
   });
 });

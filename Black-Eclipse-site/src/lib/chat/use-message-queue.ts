@@ -1,97 +1,182 @@
 'use client';
 
-// ── useMessageQueue — the queue's React home ─────────────────────────────────
-// The pure list rules live in `message-queue.ts`; this hook keeps a ref in
-// lockstep with state so an async drain loop reads the latest queue immediately
-// after a mutation (React state alone would be one render behind).
+// ── useMessageQueue — durable queue backed by localStorage ───────────────────
+// The list rules live in `message-queue.ts`; persistence/cross-tab coordination
+// lives in `queue-store.ts`. The hook keeps a React snapshot of every queued
+// prompt and forwards edits. `items` spans all conversations; the shell filters
+// what it renders.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MessageQuote } from '@/types/chat';
 import {
-  MAX_QUEUED_PROMPTS,
-  enqueuePrompt,
-  moveQueued,
-  promoteQueued,
-  removeQueued,
-  updateQueued,
-  type QueuedPrompt,
-} from './message-queue';
-
-function newId(): string {
-  return `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
+  allQueued,
+  clearStored,
+  enqueueStored,
+  isQueuePaused,
+  moveStored,
+  promoteStored,
+  queuedFor,
+  removeStored,
+  setQueuePaused,
+  subscribeQueueStore,
+  updateStored,
+} from './queue-store';
+import { MAX_QUEUED_PROMPTS, type QueuedPrompt } from './message-queue';
 
 export interface MessageQueue {
   items: QueuedPrompt[];
+  /** Queued count per conversation, for sidebar badges. */
+  counts: Record<string, number>;
   /** Resolves to false when the text was empty or the queue is full. */
-  enqueue: (text: string, quote?: MessageQuote) => boolean;
+  enqueue: (text: string, quote?: MessageQuote, chatId?: string | null) => boolean;
   remove: (id: string) => void;
   update: (id: string, text: string) => void;
   move: (id: string, direction: 'up' | 'down') => void;
   promote: (id: string) => void;
-  clear: () => void;
+  /** Clear the whole queue, or only one conversation's prompts. */
+  clear: (chatId?: string | null) => void;
   /** Current queue length, safe to read inside async handlers. */
   size: () => number;
+  /** Queue length for one conversation (undefined = all). */
+  sizeFor: (chatId?: string | null) => number;
   /** First item, safe to read inside async handlers. */
   peek: () => QueuedPrompt | undefined;
+  /** First item for one conversation. */
+  peekFor: (chatId?: string | null) => QueuedPrompt | undefined;
+  paused: (chatId?: string | null) => boolean;
+  setPaused: (chatId: string, paused: boolean) => void;
 }
 
-export function useMessageQueue(): MessageQueue {
+export function useMessageQueue(chatId?: string | null): MessageQueue {
   const [items, setItems] = useState<QueuedPrompt[]>([]);
-  const itemsRef = useRef<QueuedPrompt[]>(items);
-  itemsRef.current = items;
+  const scopeRef = useRef<string | null>(chatId ?? null);
+  scopeRef.current = chatId ?? null;
 
-  const commit = useCallback((next: readonly QueuedPrompt[]): boolean => {
-    if (next === itemsRef.current) return false;
-    itemsRef.current = [...next];
-    setItems(itemsRef.current);
-    return true;
+  const refresh = useCallback(() => {
+    setItems(allQueued());
   }, []);
 
-  const enqueue = useCallback(
-    (text: string, quote?: MessageQuote): boolean => {
-      const next = enqueuePrompt(itemsRef.current, text, newId, Date.now(), quote);
-      return commit(next);
+  useEffect(() => {
+    refresh();
+    return subscribeQueueStore(refresh);
+  }, [refresh]);
+
+  const findItem = useCallback(
+    (id: string): { item: QueuedPrompt; chatId: string } | null => {
+      for (const item of items) {
+        if (item.id === id && item.chatId) return { item, chatId: item.chatId };
+      }
+      return null;
     },
-    [commit],
+    [items],
+  );
+
+  const enqueue = useCallback(
+    (text: string, quote?: MessageQuote, target?: string | null): boolean => {
+      const resolved = target ?? scopeRef.current ?? '__default__';
+      if (!resolved) return false;
+      const item = enqueueStored(resolved, text, quote);
+      if (!item) return false;
+      refresh();
+      return true;
+    },
+    [refresh],
   );
 
   const remove = useCallback(
     (id: string) => {
-      commit(removeQueued(itemsRef.current, id));
+      const found = findItem(id);
+      if (!found) return;
+      removeStored(found.chatId, id);
+      refresh();
     },
-    [commit],
+    [findItem, refresh],
   );
 
   const update = useCallback(
     (id: string, text: string) => {
-      commit(updateQueued(itemsRef.current, id, text));
+      const found = findItem(id);
+      if (!found) return;
+      updateStored(found.chatId, id, text);
+      refresh();
     },
-    [commit],
+    [findItem, refresh],
   );
 
   const move = useCallback(
     (id: string, direction: 'up' | 'down') => {
-      commit(moveQueued(itemsRef.current, id, direction));
+      const found = findItem(id);
+      if (!found) return;
+      moveStored(found.chatId, id, direction);
+      refresh();
     },
-    [commit],
+    [findItem, refresh],
   );
 
   const promote = useCallback(
     (id: string) => {
-      commit(promoteQueued(itemsRef.current, id));
+      const found = findItem(id);
+      if (!found) return;
+      promoteStored(found.chatId, id);
+      refresh();
     },
-    [commit],
+    [findItem, refresh],
   );
 
-  const clear = useCallback(() => {
-    commit([]);
-  }, [commit]);
+  const clear = useCallback(
+    (target?: string | null) => {
+      clearStored(target);
+      refresh();
+    },
+    [refresh],
+  );
 
-  const size = useCallback(() => itemsRef.current.length, []);
-  const peek = useCallback(() => itemsRef.current[0], []);
+  const counts = useMemo(() => {
+    const next: Record<string, number> = {};
+    for (const item of items) {
+      if (item.chatId) next[item.chatId] = (next[item.chatId] ?? 0) + 1;
+    }
+    return next;
+  }, [items]);
 
-  return { items, enqueue, remove, update, move, promote, clear, size, peek };
+  const size = useCallback(() => items.length, [items]);
+  const sizeFor = useCallback(
+    (target?: string | null) =>
+      target === undefined
+        ? allQueued().length
+        : queuedFor(target).length,
+    [],
+  );
+  const peek = useCallback(() => items[0], [items]);
+  const peekFor = useCallback(
+    (target?: string | null) => queuedFor(target)[0],
+    [],
+  );
+  const paused = useCallback((target?: string | null) => isQueuePaused(target), []);
+  const setPaused = useCallback(
+    (target: string, value: boolean) => {
+      setQueuePaused(target, value);
+      refresh();
+    },
+    [refresh],
+  );
+
+  return {
+    items,
+    counts,
+    enqueue,
+    remove,
+    update,
+    move,
+    promote,
+    clear,
+    size,
+    sizeFor,
+    peek,
+    peekFor,
+    paused,
+    setPaused,
+  };
 }
 
 export { MAX_QUEUED_PROMPTS };

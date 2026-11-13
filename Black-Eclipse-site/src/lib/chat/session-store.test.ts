@@ -8,7 +8,9 @@ import {
   getSession,
   loadContextDocuments,
   readSessionFile,
+  readTranscript,
   writeSessionFile,
+  writeTranscript,
 } from './session-store';
 import { SESSION_LIMITS } from './session-types';
 
@@ -155,5 +157,35 @@ describe('loadContextDocuments', () => {
     expect(docs[0].text.length).toBe(SESSION_LIMITS.maxDocChars);
     expect(docs[0].truncated).toBe(true);
     expect(docs[0].originalChars).toBe(big.length);
+  });
+});
+
+describe('transcript durability across concurrent writers', () => {
+  it('unions messages by id instead of replacing the whole transcript', async () => {
+    await writeTranscript('chat_merge', {
+      id: 'chat_merge',
+      title: 'Concurrent',
+      timestamp: 100,
+      createdAt: 100,
+      messages: [
+        { id: 'u1', role: 'user', content: 'first' },
+        { id: 'a1', role: 'assistant', content: 'partial', status: 'streaming' },
+      ],
+    });
+    await writeTranscript('chat_merge', {
+      id: 'chat_merge',
+      title: 'Concurrent',
+      timestamp: 200,
+      createdAt: 100,
+      messages: [
+        { id: 'a1', role: 'assistant', content: 'complete', status: 'completed' },
+        { id: 'u2', role: 'user', content: 'second' },
+      ],
+    });
+
+    const stored = await readTranscript('chat_merge');
+    expect(stored?.messages.map((m) => m.id)).toEqual(['u1', 'a1', 'u2']);
+    expect(stored?.messages[1].content).toBe('complete');
+    expect(stored?.messages[1].status).toBe('completed');
   });
 });

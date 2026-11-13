@@ -10,6 +10,7 @@
 import { useEffect, useRef } from 'react';
 import {
   CONVERSATIONS_STORAGE_KEY,
+  mergeConversations,
   mostRecentConversation,
   normalizeConversations,
   saveConversationsCache,
@@ -51,6 +52,32 @@ export function useConversationPersistence(opts: ConversationPersistenceOptions)
     setMessages,
     loadOrganization,
   } = opts;
+
+  // Another same-origin tab wrote the cache. Merge instead of replacing: a
+  // background run in tab A must not be lost because tab B saved a new prompt.
+  useEffect(() => {
+    if (!mounted || typeof window === 'undefined') return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== CONVERSATIONS_STORAGE_KEY || !event.newValue) return;
+      try {
+        const incoming = normalizeConversations(JSON.parse(event.newValue));
+        const merged = mergeConversations(conversationsRef.current, incoming);
+        conversationsRef.current = merged;
+        setConversations(merged);
+        const activeId = activeConversationIdRef.current;
+        if (activeId) {
+          const active = merged.find((c) => c.id === activeId);
+          if (active) setMessages(active.messages);
+        }
+      } catch {
+        /* malformed cross-tab write: keep the in-memory transcript */
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+    // The setters are shell-provided wrappers; re-subscribing is cheap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
 
   // Server transcript sync. `serverHydratedRef` gates the diff-sync until the
   // first successful server load (so a failed load cannot delete server rows).
