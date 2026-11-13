@@ -1286,7 +1286,7 @@ class AgenticService:
         Precedence: an explicit ``model_settings`` from the calling request (the
         front door resolves the app's configured model), then
         ``ECLIPSE_SKILL_EVAL_MODEL=provider:model``. With neither, returns
-        ``None`` and the evaluator records ``needs_review`` â€” a missing model is
+        ``None`` and the evaluator records ``needs_review`` — a missing model is
         never simulated into a pass.
         """
         import os  # noqa: PLC0415
@@ -1517,15 +1517,15 @@ class AgenticService:
 
                 with RunLeaseGuard(self.store, request.runId) as lease:
                     if not lease.owned:
-                        self.store.update_run(
-                            request.runId, status="failed",
-                            error={"code": "RUN_LEASE_CONFLICT",
-                                   "message": "another live runtime owns this run"},
-                            finishedAt=now_iso(),
-                        )
-                        await RunEmitter(request.runId, self.store, self.bus).emit(
-                            "run.failed", {"code": "RUN_LEASE_CONFLICT"},
-                        )
+                        # W6: never write over a run another runtime owns. The
+                        # duplicate submission gets a live-only signal; the
+                        # owner's row, counters and event log are untouched.
+                        self.bus.publish({
+                            "id": f"evt_{request.runId}_lease_conflict",
+                            "runId": request.runId, "type": "run.lease_conflict",
+                            "seq": -1, "at": now_iso(),
+                            "data": {"code": "RUN_LEASE_CONFLICT"}, "transient": True,
+                        })
                         return RunResult(runId=request.runId, status="failed")
                     return await execute_run(
                         request, self.registry, bridge, self.store, self.bus,
@@ -1977,15 +1977,14 @@ class AgenticService:
 
                 with RunLeaseGuard(self.store, request.runId) as lease:
                     if not lease.owned:
-                        self.store.update_run(
-                            request.runId, status="failed",
-                            error={"code": "RUN_LEASE_CONFLICT",
-                                   "message": "another live runtime owns this run"},
-                            finishedAt=now_iso(),
-                        )
-                        await RunEmitter(request.runId, self.store, self.bus).emit(
-                            "run.failed", {"code": "RUN_LEASE_CONFLICT"},
-                        )
+                        # W6: see the foreground path — a duplicate submission
+                        # never overwrites the live owner's run.
+                        self.bus.publish({
+                            "id": f"evt_{request.runId}_lease_conflict",
+                            "runId": request.runId, "type": "run.lease_conflict",
+                            "seq": -1, "at": now_iso(),
+                            "data": {"code": "RUN_LEASE_CONFLICT"}, "transient": True,
+                        })
                         return
                     result = await _with_run_slot(
                         getattr(self, "_run_slots", None),

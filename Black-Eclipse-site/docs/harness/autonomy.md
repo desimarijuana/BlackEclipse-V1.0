@@ -119,7 +119,7 @@ A loop is a **heartbeat on the existing automation tick**
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `HARNESS_GOAL_LOOP` | `off` | `off` / `shadow` (record verdicts, start nothing) / `on` |
+| `HARNESS_GOAL_LOOP` | `off` | `off` / `shadow` (record goal verdicts; start no autonomous turn or loop) / `on` |
 | `HARNESS_AUTONOMY` | unset = on | Pre-existing global kill switch; `off` vetoes W4 |
 | `HARNESS_GOAL_MAX_TURNS` | 20 | Hard turn ceiling |
 | `HARNESS_GOAL_GATE_TIMEOUT_S` | 600 | Per-gate ceiling |

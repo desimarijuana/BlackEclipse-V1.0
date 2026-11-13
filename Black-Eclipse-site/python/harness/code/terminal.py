@@ -111,6 +111,15 @@ def classify(command: str) -> CommandVerdict:
         return CommandVerdict("deny", "", "There was no command to run.")
     if len(text) > MAX_COMMAND_CHARS:
         return CommandVerdict("deny", "", "That command is too long to run.")
+    # W6: the always-on command hardline is consulted before tokenization, so a
+    # quoted or malformed destructive shape cannot slip through a parse error.
+    from ..security.hardline import evaluate as _hardline  # noqa: PLC0415
+
+    fatal = _hardline(text)
+    if fatal is not None:
+        return CommandVerdict(
+            "deny", "", f"That command is blocked ({fatal.rule}): {fatal.reason}."
+        )
     try:
         tokens = shlex.split(text, posix=True)
     except ValueError:

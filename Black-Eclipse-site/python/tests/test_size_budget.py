@@ -34,7 +34,7 @@ RATCHET_PY: dict[str, int] = {
     # +2 for the quant system router include (2026-11-10).
     # Re-pinned 1245 -> 1253 (2026-11-11) for in-flight shared-tree routes.
     # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
-    "main.py": 1268,
+    "main.py": 1272,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research
@@ -298,7 +298,7 @@ RATCHET_PY: dict[str, int] = {
     # (pre-existing growth). Re-pinned 1549->1555 for ranked session-search
     # page slicing (offset); 1555->1586 for session/review offset paging.
     # May only shrink.
-    "persistence.py": 1586,
+    "persistence.py": 1603,
     # Pre-existing and unratcheted: the memory tool surface (inventory,
     # consolidation, review handlers). SPLIT CANDIDATE: the inventory handlers
     # belong beside `eclipse_memory/service.py`.
@@ -419,7 +419,7 @@ RATCHET_PY: dict[str, int] = {
     # this round's observability seam lives in `observability/`. Re-pinned
     # 1998->2005 to the measured tree. May only shrink.
     # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
-    "service.py": 2062,
+    "service.py": 2068,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

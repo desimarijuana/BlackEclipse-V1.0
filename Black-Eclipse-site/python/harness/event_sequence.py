@@ -21,6 +21,7 @@ The module is deliberately small and owns no schema beyond the index it adds.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
@@ -123,8 +124,6 @@ class EventSequence:
                         "at": now_iso(),
                         "data": data or {},
                     }
-                    import json  # noqa: PLC0415 - only this module needs the dump
-
                     self._db.execute(
                         "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) "
                         "VALUES (?, ?, ?, ?, ?, ?)",

@@ -316,6 +316,10 @@ class ToolTurn:
                 slot.result_text = slot.result.text
                 if d.effects is not None:
                     d.effects.mark_unknown(d.request.runId, step_index, slot.call_id)
+                if d.lineage is not None:
+                    d.lineage.mark_tool_unknown(
+                        d.request.runId, step_index, slot.call_id,
+                    )
                 await d.emitter.emit("effect.unknown", {
                     "name": slot.name, "toolCallId": slot.call_id,
                     "reason": "resume_after_started", "reconcile": True,

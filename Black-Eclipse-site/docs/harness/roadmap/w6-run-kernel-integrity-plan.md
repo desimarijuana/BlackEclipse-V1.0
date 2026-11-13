@@ -17,7 +17,8 @@ scope: implementation landed 2026-11-12
 > - `run_lease.fenced_progress` + `LeaseLost`; `RunScope.runtime_id`;
 >   `execute_run(runtime_id=)`; every `graph.py`/`tool_turn.py`/`run_flags.py`
 >   mutation is fenced. A lost lease returns `RUN_LEASE_LOST` without a terminal
->   write.
+>   write; a duplicate submission is a live-only `run.lease_conflict` and never
+>   overwrites the owner's row or event log.
 > - `RunLineage.save_boundary` (one transaction, one retry) and
 >   `CheckpointWriteFailed`; `execute_run` maps it to
 >   `CHECKPOINT_WRITE_FAILED`. The legacy two-commit path remains behind

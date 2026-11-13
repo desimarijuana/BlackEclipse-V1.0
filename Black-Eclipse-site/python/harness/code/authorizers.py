@@ -195,6 +195,12 @@ def build_effect_authorizer(
 
     code_authorizer = make_journal_authorizer(code_authorizer)
 
+    # W7 file checkpoints: `checkpoint_restore` is effectful and needs a
+    # single-use approval; list/diff fall through unchanged.
+    from .checkpoint_tools import make_checkpoint_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_checkpoint_authorizer(code_authorizer)
+
     # Graph Studio authoring: `create_workflow` writes a NEW workflow document
     # into the app catalog (the front door owns the planner, the IR validation
     # and the store). It is a reversible local write — it never runs the graph —

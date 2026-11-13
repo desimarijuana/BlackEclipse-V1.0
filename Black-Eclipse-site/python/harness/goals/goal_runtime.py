@@ -232,8 +232,6 @@ class GoalRuntime:
             model_base_url=snapshot["baseUrl"],
             workspace_id=workspace_id,
         )
-        # `create_goal` does not accept plan_id in its INSERT path; set it now.
-        self.store.update_goal_fields(goal.id, {"planId": plan.id})
         goal = self.store.get_goal(goal.id) or goal
         if start:
             self.start_turn(goal.id)
@@ -383,6 +381,10 @@ class GoalRuntime:
         gates = [GoalGate(**dict(item)) for item in (goal.gates or [])]
         binding = resolve_binding(self.service, goal.workspace_id)
         autonomy = str((goal.contract or {}).get("autonomy") or "edit_verify")
+        for gate in gates:
+            self._emit("goal.gate.started", {
+                "goalId": goal.id, "gateId": gate.id, "check": gate.check,
+            })
         gate_results: list[GateResult] = (
             run_gates(gates, binding, autonomy=autonomy) if gates else []
         )

@@ -8,6 +8,7 @@ and returns strict JSON validated by `model_runtime.structured`.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -30,6 +31,9 @@ JUDGE_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
+
+#: A judge that never answers must not leave the goal evaluating forever.
+JUDGE_TIMEOUT_S = 120.0
 
 _SYSTEM = (
     "You are the completion judge for a bounded agent goal. Deterministic gates "
@@ -153,8 +157,12 @@ async def judge_goal(
     messages: list[Any] = [SystemMessage(content=_SYSTEM), HumanMessage(content=prompt)]
 
     try:
-        response = await model.ainvoke(messages)
+        response = await asyncio.wait_for(
+            model.ainvoke(messages), timeout=JUDGE_TIMEOUT_S,
+        )
         text = _text_of(response)
+    except asyncio.TimeoutError:
+        return JudgeOutcome("blocked", "the judge timed out")
     except Exception as exc:  # noqa: BLE001 - a judge failure is not a run failure
         return JudgeOutcome("blocked", f"the judge could not answer: {exc}")
 
@@ -162,8 +170,11 @@ async def judge_goal(
     if not parsed.ok and parsed.validation_error:
         try:
             repair = structured.repair_prompt(text, JUDGE_SCHEMA, parsed.validation_error)
-            response = await model.ainvoke(
-                [SystemMessage(content=_SYSTEM), HumanMessage(content=repair)]
+            response = await asyncio.wait_for(
+                model.ainvoke(
+                    [SystemMessage(content=_SYSTEM), HumanMessage(content=repair)]
+                ),
+                timeout=JUDGE_TIMEOUT_S,
             )
             parsed = structured.parse_and_validate(_text_of(response), JUDGE_SCHEMA)
         except Exception:  # noqa: BLE001 - a failed repair falls through to blocked
@@ -191,6 +202,7 @@ async def judge_goal(
 
 __all__ = [
     "JUDGE_SCHEMA",
+    "JUDGE_TIMEOUT_S",
     "JudgeOutcome",
     "build_judge_prompt",
     "judge_goal",

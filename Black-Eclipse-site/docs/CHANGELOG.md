@@ -1,6 +1,15 @@
 # Change Log
 
 ## 2026-11-12
+- **chore(harness): finalize W4 autonomy and land run-kernel hardening.** The
+  goal judge now has a hard 120s timeout and the loop emits `goal.gate.started`
+  before each deterministic gate; the gated research finisher carries the
+  fenced `runtime_id`; W6 adds pre-tokenization hardline denial in the code
+  terminal plus checkpoint/event-sequence hardening; touched files are
+  LF-normalized and the size ratchets stay green. Tests: W4 (15+6), targeted
+  goal/task/automation/session/checkpoint suites, full Vitest (516 files /
+  4749 tests), eval gates ALL PASS, `tsc` clean. docs updated:
+  `docs/harness/autonomy.md`, `docs/CHANGELOG.md`.
 - **fix(harness): regenerate the tool registry and finish line-ending
   normalization.** `npm run eval:registry` now publishes 1,100 tools (digest
   `8e314b7245ccf458`), so `test_public_api` matches a fresh generation again;

@@ -721,10 +721,27 @@ class AgentMemoryStore:
             "at": now_iso(),
             "data": data or {},
         }
-        self._db.execute(
-            "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, ?, ?, ?, ?)",
-            (event["id"], run_id, event_type, seq, event["at"], json.dumps(event["data"])),
-        )
+        sql = "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, ?, ?, ?, ?)"
+        try:
+            self._db.execute(
+                sql,
+                (event["id"], run_id, event_type, seq, event["at"], json.dumps(event["data"])),
+            )
+        except sqlite3.IntegrityError:
+            # W6 adds a UNIQUE(runId, seq) index. A caller that hands in a
+            # reused seq (an audit helper, a test that reuses a run id) must
+            # still append durably; the durable allocator is the emitter, but
+            # this legacy seam bumps to the tail instead of dropping the event.
+            row = self._db.execute(
+                "SELECT COALESCE(MAX(seq), 0) AS m FROM HarnessEvent WHERE runId=?",
+                (run_id,),
+            ).fetchone()
+            event["seq"] = int(row["m"]) + 1
+            self._db.execute(
+                sql,
+                (event["id"], run_id, event_type, event["seq"], event["at"],
+                 json.dumps(event["data"])),
+            )
         self._db.commit()
         return event
 

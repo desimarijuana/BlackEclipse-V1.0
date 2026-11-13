@@ -120,6 +120,85 @@ _RESTORE_SCHEMA = {
 }
 
 
+APPROVAL_KIND = "checkpoint_restore"
+
+
+def make_checkpoint_authorizer(inner: Any = None):
+    """Gate `checkpoint_restore` on a single-use, digest-bound approval.
+
+    Read-only list/diff and every other tool fall through to `inner`.
+    """
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name != "checkpoint_restore":
+            return bool(await inner(tool, args, ctx)) if inner is not None else False
+        run_args = args or {}
+        checkpoint_id = str(run_args.get("checkpointId") or "").strip()
+        if not checkpoint_id:
+            return False
+        paths = run_args.get("paths") if isinstance(run_args.get("paths"), list) else []
+        digest_source = (
+            f"checkpoint_restore\x00{checkpoint_id}\x00"
+            f"{'|'.join(str(p) for p in paths)}\x00{bool(run_args.get('all'))}"
+        )
+        import hashlib  # noqa: PLC0415
+
+        digest = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
+        approvals = getattr(ctx, "approvals", None) if ctx is not None else None
+        if approvals is None:
+            return False
+        workspace = getattr(ctx, "workspace", None) if ctx is not None else None
+        ws_id = str(getattr(workspace, "id", "")) if workspace is not None else None
+        claimed = approvals.consume_kind(
+            kind=APPROVAL_KIND, request_key="checkpoint", digest=digest,
+            workspace_id=ws_id,
+        )
+        if claimed is not None:
+            return True
+        pending = None
+        try:
+            pending = approvals.request_kind(
+                kind=APPROVAL_KIND, request_key="checkpoint", digest=digest,
+                effect="write", run_id=str(getattr(ctx, "run_id", "")),
+                workspace_id=ws_id,
+                action_summary=f"Restore files from snapshot {checkpoint_id}",
+                risk="medium",
+            )
+        except Exception:  # noqa: BLE001 - a store failure must never authorize
+            return False
+        emitter = getattr(ctx, "emitter", None)
+        if emitter is not None:
+            try:
+                await emitter.emit("approval.requested", {
+                    "approvalId": (pending or {}).get("id"),
+                    "kind": APPROVAL_KIND,
+                    "title": "Approve restoring a file snapshot",
+                    "summary": f"Restore from {checkpoint_id}",
+                    "effect": "write",
+                    "risk": "medium",
+                })
+            except Exception:  # noqa: BLE001 - the card is best-effort
+                pass
+        if pending is not None:
+            from ..mcp.approvals import pause_for_decision  # noqa: PLC0415
+
+            if await pause_for_decision(
+                approvals, ctx, pending.get("id"),
+                lambda: approvals.consume_kind(
+                    kind=APPROVAL_KIND, request_key="checkpoint", digest=digest,
+                    workspace_id=ws_id,
+                ),
+                emitter=emitter, digest=digest,
+                event_type="approval.approved",
+                approved_payload={"kind": APPROVAL_KIND, "checkpointId": checkpoint_id},
+            ):
+                return True
+        return False
+
+    return authorize
+
+
 def register_checkpoint_tools(registry: Any) -> list[str]:
     definitions = [
         ToolDefinition(
@@ -156,4 +235,4 @@ def register_checkpoint_tools(registry: Any) -> list[str]:
     return added
 
 
-__all__ = ["register_checkpoint_tools"]
+__all__ = ["APPROVAL_KIND", "make_checkpoint_authorizer", "register_checkpoint_tools"]
