@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-11-11
+last-verified: 2026-11-12
 ---
 
 # Harness Architecture
@@ -108,10 +108,11 @@ rows are badged in the list and Today chips. `POST /evolution/drift/candidate` t
 | `checkpoint_io.py` | checkpoint (de)serialization (`serialize_messages`/`restore_messages`/`checkpoint_payload_of`), extracted from `graph.py` (size ratchet) and re-exported there |
 | `async_timeout.py` | the hard-deadline primitive (`await_bounded`): races a coroutine against a plain timer and raises `asyncio.TimeoutError` WITHOUT waiting for cancellation to be acknowledged, so a provider/tool that swallows `CancelledError` (observed: a run sat on `model.requested` for 10+ minutes) cannot hold a run hostage. Outer cancellation still cancels the inner task; abandoned work is drained. Used by `model_stream.py` and `ToolRegistry.execute` |
 | `model_stream.py` | model invoke/streaming helpers (extracted), with the HARD per-call deadline via `await_bounded`: a hung provider stream fails the run with `PROVIDER_TIMEOUT` at the declared budget, and the abandoned stream is flagged so it stops emitting deltas |
-| `run_watchdog.py` | the stall watchdog: every 30s, a run in `created`/`running` whose last recorded activity (event or start) is older than its own agent's model budget (`runTimeoutMs`) + 60s grace is failed with code `RUN_STALLED`, gets a durable `run.failed` event, its SSE stream is closed and its task is cancelled. A run legitimately waiting on a user decision (last event `approval.requested`) is exempt. Started/stopped from `boot.py`. This is the guarantee that a chat stream always reaches a terminal state |
+| `run_watchdog.py` | the stall watchdog: every 30s, a run in `created`/`running` whose last recorded activity (event or start) is older than `max(its agent's model budget, the 300s per-call ceiling) + 60s grace` is failed with code `RUN_STALLED`, gets a durable `run.failed` event, its SSE stream is closed and its task is cancelled. A run legitimately waiting on a user decision (last event `approval.requested`) is exempt. A run that already emitted a durable TERMINAL event (`run.completed`/`run.failed`/`run.cancelled`/`run.interrupted` after its current `startedAt`) is NOT stalled: it finished and only the row write lagged, so the sweep reconciles the row to the proven status instead of overwriting a finished run. Started/stopped from `boot.py`. This is the guarantee that a chat stream always reaches a terminal state |
 | `events.py` | per-run event emitter + live bus |
 | `event_system/` | **the canonical, durable Event System** (ADR-H153): `envelope.py` (`EclipseEvent` + correlation/causation/trace context vars + secret redaction), `registry.py` (`EventRegistry`/`EventTypeSpec`), `filters.py`, `store.py` (`HarnessEventLog`/`HarnessEventConsumer`/`HarnessEventDeadLetter`/`HarnessEventSubscription` on `agent-memory.db`), `metrics.py`, `middleware.py`, `security.py`, `bus.py` (`EventBus`/`Subscription`: workers, backpressure, retry, DLQ, idempotency, request/reply, legacy bridge), `rules.py` (event→action via the Automation Engine), `replay.py`, `service.py` (`EventSystem` facade + memory-candidate/self-improvement/market-sampler consumers), `config.py`, `bootstrap.py`. It BRIDGES `events.py` (one transport, one model) rather than replacing it. Detail: `docs/harness/event-system.md` |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
+| `run_patch.py` | the ONE run-patch serializer (`RUN_PATCH_FIELDS`, `RUN_JSON_FIELDS`, `run_patch_sql`): allowed columns plus JSON encoding, shared by `AgentMemoryStore.update_run` and the lease-fenced writer. A divergence here silently dropped every terminal write once; never give either writer its own field list |
 | `service.py` | process-wide store/registry/bus; the JDdS bridge transport itself lives in `bridge.py` |
 | `bridge.py` | the thin HTTP data-bridge transport (`HttpDataBridge`, re-exported by `service.py` as `_HttpDataBridge`): the ONE read-only path the finance/retrieval/market tools use to reach JDdS through the TS accessor. TWO timeout classes: 8s for structured/vault reads (below the smallest market-tool budget so the tool reports UNAVAILABLE, never `TOOL_TIMEOUT`) and 20s for capabilities that fetch the public web (under the 30s research budget). Exactly ONE retry, only on `ConnectError` (the instant dev-server-restart refusal); a timeout is never retried |
 | `run_recovery.py` | boot reconciliation for runs orphaned by a process restart: `fail_orphaned_runs` marks every `created`/`running` run row failed with code `RUN_ORPHANED` plus a durable `run.failed` event, so a client streaming a run whose process died sees a terminal state instead of waiting forever. Idempotent. `reconcile_orphaned_runs` wraps it with a **port-ownership guard**: FastAPI's lifespan runs *before* uvicorn binds, so a duplicate process that is about to fail its port bind would otherwise reconcile (and orphan) the runs a live runtime is executing — reconciliation proceeds only when the bind port is free. Called from `AgenticService.run_startup_maintenance` |
@@ -605,6 +606,15 @@ budget, provider `Retry-After` honored), a per-call ceiling
 (`MODEL_CALL_TIMEOUT_CEILING_S = 300`), and a `RunDeadline` created when the
 graph is built. The deadline is checked before every model call and every tool
 turn; a spent deadline is `RUN_TIMEOUT`, not a per-call `PROVIDER_TIMEOUT`.
+
+The run's wall clock and the per-call budget are DIFFERENT numbers. The preset's
+`runTimeoutMs` bounds one model call; it is **not** the whole-run deadline.
+`graph.chat_run_budget()` gives the default chat agent a 600 s wall-clock floor
+(`ECLIPSE_CHAT_RUN_TIMEOUT_S` overrides, 60 s..hard cap), because a 24-step
+research turn cannot fit inside one call's 120 s — treating it as the deadline
+made every real turn hit `RUN_TIMEOUT`. An explicit per-run agent config keeps
+its own declared value. The stall watchdog's silence budget likewise floors on
+the 300 s per-call ceiling, so it never kills a healthy run mid-call.
 Retries emit a durable `model.retry` event and are refused once any text has
 streamed (retrying would duplicate the user-visible answer). The policy is
 tunable with `HARNESS_MODEL_ATTEMPTS`, `HARNESS_MODEL_RETRY_BASE_S`,

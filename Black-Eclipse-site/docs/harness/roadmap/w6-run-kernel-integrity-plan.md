@@ -1,10 +1,10 @@
 ---
 title: W6 — Run-Kernel Integrity and Safety (Detailed Plan)
-status: Proposed
+status: Implemented
 last-verified: 2026-11-12
 owner: Agent runtime
 parent: docs/harness/roadmap/hermes-inspired-improvement-plan.md
-scope: implementation landed 2026-11-12
+scope: implementation landed 2026-11-12 — see the status block for deliberate gaps
 ---
 
 # W6 — Run-Kernel Integrity and Safety

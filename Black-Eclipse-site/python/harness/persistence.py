@@ -18,8 +18,9 @@ import re
 import sqlite3
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
+from .run_patch import RUN_JSON_FIELDS, RUN_PATCH_FIELDS, run_patch_sql
 from .sqlite_pool import ThreadLocalConnections
 
 SCHEMA = """
@@ -415,28 +416,7 @@ class AgentMemoryStore:
             self.touch_chat_session(session_id)
 
     def update_run(self, run_id: str, **patch: Any) -> None:
-        allowed = {
-            "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
-            "promptTokens", "completionTokens", "totalTokens",
-            "provider", "model", "startedAt", "finishedAt", "research", "memory",
-            "context", "codeVerification", "vision", "documents", "images", "video",
-            "sessionId", "profileId", "projectId",
-            # Round 3 / W2: the run's autonomy profile, its bound workspace and
-            # its tool-surface resolution. `autonomy` and `workspaceId` were in
-            # `RunResult` from the start but the write was silently dropped here,
-            # so the field was always None; `surface` is new in ADR-H280.
-            "autonomy", "workspaceId", "surface",
-        }
-        sets, params = [], []
-        for key in patch:
-            if key not in allowed:
-                continue
-            value = patch[key]
-            sets.append(f"{key} = ?")
-            if key in ("error", "research", "memory", "context", "codeVerification", "vision", "documents", "images", "video", "surface") and value is not None:
-                params.append(json.dumps(value))
-            else:
-                params.append(value)
+        sets, params = run_patch_sql(patch)
         if not sets:
             return
         sets.append("updatedAt = ?")
@@ -1615,4 +1595,8 @@ def _learning_review_row(row: sqlite3.Row) -> dict[str, Any]:
     return record
 
 
-__all__ = ["AgentMemoryStore", "SCHEMA", "DB_FILENAME", "default_db_path", "now_iso", "new_id"]
+__all__ = [
+    "AgentMemoryStore", "SCHEMA", "DB_FILENAME", "default_db_path", "now_iso", "new_id",
+    # Re-exported: the run-patch serializer is imported from here for compatibility.
+    "RUN_PATCH_FIELDS", "RUN_JSON_FIELDS", "run_patch_sql",
+]

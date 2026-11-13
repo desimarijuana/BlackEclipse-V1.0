@@ -34,7 +34,7 @@ adding a second agent loop or scheduler.
 | Wiring | `python/harness/goals/bootstrap.py`, `python/harness/tasks/bootstrap.py` | Install on the service, subscribe terminal task events, register the heartbeat on the automation tick |
 | API | `python/harness/routers/autonomy.py`, `src/app/api/{goals,loops}` | Operator-gated create/read/control/verdicts/health |
 | Commands | `src/lib/harness/commands/*` | `/goal`, `/goal status|pause|resume|cancel`, `/loop`, `/heartbeat` |
-| UI | `src/components/chat/goal-bar.tsx` | Goal turns, gate status, last verdict, next tick; pause/resume/cancel |
+| UI | `src/components/chat/goal-bar.tsx`, `src/lib/harness/clients/autonomy-browser.ts` | Goal turns, gate status, last verdict, next tick; pause/resume/cancel. The browser calls the Next `/api/goals` + `/api/loops` front door (never the server-only `autonomy-client`, which imports the Python launcher) |
 
 ## The turn loop
 

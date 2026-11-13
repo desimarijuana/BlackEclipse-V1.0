@@ -287,7 +287,10 @@ def test_a_learned_draft_is_evaluated_but_not_enabled():
         result = evaluate_drafted_skills(registry)
         assert result["evaluated"], result
         assert result["evaluated"][0]["skillId"].startswith("learned.")
-        assert store.get_skill(result["evaluated"][0]["skillId"])["status"] == "draft"
+        status = store.get_skill(result["evaluated"][0]["skillId"])["status"]
+        # Evaluation may leave a draft inert as `draft`, or park it in `testing`
+        # while the execution tier is pending. It is never enabled by eval alone.
+        assert status in ("draft", "testing"), status
         assert store.list_evaluations(
             result["evaluated"][0]["skillId"],
         ), "the evaluation must be persisted"

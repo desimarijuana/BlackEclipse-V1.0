@@ -205,6 +205,13 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
 
 DEFAULT_CHAT_MAX_STEPS = 24
 CHAT_MAX_STEPS_CEILING = 32
+#: The ordinary chat turn's WALL CLOCK. The preset's `runTimeoutMs` is the
+#: per-MODEL-CALL budget; using it as the whole-run deadline made every real
+#: research turn (8-20 steps, multi-second tools) exceed 120s and fail with
+#: RUN_TIMEOUT / RUN_STALLED before it could answer. 24 steps need more than one
+#: call's worth of time, so the default chat agent gets a floor of 10 minutes —
+#: the same floor the deep-quant and writing-autonomy paths already use.
+DEFAULT_CHAT_RUN_TIMEOUT_S = 600.0
 
 
 def chat_step_budget(agent: AgentConfig, request: Any) -> int:
@@ -230,6 +237,29 @@ def chat_step_budget(agent: AgentConfig, request: Any) -> int:
                 parsed = None
         base = parsed if parsed is not None else max(base, DEFAULT_CHAT_MAX_STEPS)
     return max(1, min(CHAT_MAX_STEPS_CEILING, base))
+
+
+def chat_run_budget(agent: AgentConfig, request: Any) -> float:
+    """The wall clock for one run, in seconds.
+
+    `runTimeoutMs` is declared per MODEL CALL (see the preset comment and
+    `run_watchdog.stall_threshold_s`). A multi-step chat turn needs more than one
+    call, so the default chat agent gets `DEFAULT_CHAT_RUN_TIMEOUT_S` as a floor.
+    An operator can tune it with `ECLIPSE_CHAT_RUN_TIMEOUT_S` (60..HARD cap); an
+    explicit per-run agent config still wins.
+    """
+    seconds = float((agent.runTimeoutMs or 120_000) / 1000.0)
+    explicit = getattr(request, "agent", None) is not None
+    if agent.id == "eclipse-agent" and not explicit:
+        floor = DEFAULT_CHAT_RUN_TIMEOUT_S
+        raw = (os.environ.get("ECLIPSE_CHAT_RUN_TIMEOUT_S") or "").strip()
+        if raw:
+            try:
+                floor = max(60.0, min(float(raw), HARD_RUN_TIMEOUT_S))
+            except ValueError:
+                pass
+        seconds = max(seconds, floor)
+    return seconds
 
 
 # Phase 22 / S2: a build session may buy more than the chat ceiling, but only up
@@ -502,7 +532,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         allowed = set(_resume_payload["allowlist"])
     max_steps: int = chat_step_budget(agent, request)
     tool_timeout_ms = agent.toolTimeoutMs or 20_000
-    run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
+    run_timeout_s = chat_run_budget(agent, request)
     if request.autonomy in ("edit_verify", "approve_external"):
         max_steps = max(max_steps, 24); run_timeout_s = max(run_timeout_s, 600.0)
     # Phase 22 / S2: a build session's budget, clamped to the hard caps.

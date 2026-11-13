@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import threading
 import time
 import uuid
 from typing import Any, Optional
 
 from .persistence import now_iso
+from .run_patch import run_patch_sql
 
 log = logging.getLogger("harness.run_lease")
 
@@ -241,13 +243,8 @@ class RunLeaseManager:
         return dict(row) if row else None
 
 
-_RUN_PATCH_FIELDS = frozenset({
-    "status", "output", "error", "modelSteps", "toolCalls", "toolErrors",
-    "promptTokens", "completionTokens", "totalTokens", "provider", "model",
-    "startedAt", "finishedAt", "research", "memory", "context",
-    "codeVerification", "vision", "documents", "images", "video",
-    "sessionId", "profileId", "projectId", "autonomy", "workspaceId", "surface",
-})
+# The patch allowlist and the JSON encoding are owned by `persistence` so this
+# writer and `AgentMemoryStore.update_run` cannot drift apart again.
 
 
 def fenced_update_run(store: Any, run_id: str, *, runtime_id: Optional[str] = None,
@@ -272,24 +269,35 @@ def fenced_update_run(store: Any, run_id: str, *, runtime_id: Optional[str] = No
         store.update_run(run_id, **patch)
         return True
 
-    fields = {k: v for k, v in patch.items() if k in _RUN_PATCH_FIELDS}
-    if not fields:
+    sets, params = run_patch_sql(patch)
+    if not sets:
         return False
-    sets = ", ".join(f"{key} = ?" for key in fields)
-    params = list(fields.values())
     sql = (
-        f"UPDATE HarnessRun SET {sets} WHERE id = ? AND ("
+        f"UPDATE HarnessRun SET {', '.join(sets)} WHERE id = ? AND ("
         "leaseEpoch IS NULL OR leaseEpoch = ("
         "SELECT epoch FROM RunLease WHERE runId = ? AND runtimeId = ? AND expiresAtMs >= ?))"
     )
     params.extend([run_id, run_id, runtime_id or default_runtime_id(), _now_ms()])
-    try:
-        cur = db.execute(sql, params)
-        db.commit()
-        return cur.rowcount > 0
-    except Exception:  # noqa: BLE001 - fencing must not crash the run path
-        log.warning("fenced update failed for %s", run_id, exc_info=True)
-        return False
+    # A transient write lock gets one retry. Anything else is a real defect and
+    # must be LOUD: silently returning False once left every run non-terminal,
+    # so the stall watchdog overwrote completed runs with RUN_STALLED.
+    for attempt in (1, 2):
+        try:
+            cur = db.execute(sql, params)
+            db.commit()
+            return cur.rowcount > 0
+        except sqlite3.OperationalError:  # locked/busy: worth one retry
+            if attempt == 1:
+                continue
+            log.error("fenced update hit a persistent lock for %s", run_id, exc_info=True)
+            return False
+        except Exception:  # noqa: BLE001 - fencing must not crash the run path
+            log.error(
+                "fenced update failed for %s (fields=%s); the run status may be stale",
+                run_id, sorted(patch), exc_info=True,
+            )
+            return False
+    return False
 
 
 class LeaseLost(RuntimeError):

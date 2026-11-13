@@ -136,6 +136,32 @@ def test_unleased_run_remains_writable_for_compatibility(store):
     assert store.get_run("run_plain")["status"] == "completed"
 
 
+def test_fenced_write_serializes_json_columns(store):
+    """Regression: a dict error/context payload must not abort the terminal write.
+
+    Binding a dict to a SQLite parameter raises; the old writer swallowed it and
+    returned False, so EVERY run stayed `running` after `run.completed` and the
+    stall watchdog later relabelled it RUN_STALLED.
+    """
+    from harness.run_lease import fenced_update_run
+
+    a = _manager(store, "rt-a")
+    store.create_run("run_json", "eclipse-agent", {"query": "x"})
+    store.update_run("run_json", status="running")
+    assert a.claim("run_json") == 1
+
+    assert fenced_update_run(
+        store, "run_json", runtime_id="rt-a", status="completed", output="done",
+        context={"budget": 10}, research={"status": "collected"},
+        error={"code": "X", "detail": {"nested": 1}},
+    ) is True
+    run = store.get_run("run_json")
+    assert run["status"] == "completed"
+    assert run["error"] == {"code": "X", "detail": {"nested": 1}}
+    assert run["context"] == {"budget": 10}
+    assert run["research"] == {"status": "collected"}
+
+
 def test_fenced_progress_stops_a_stale_worker(store):
     from harness.run_lease import LeaseLost, fenced_progress
 

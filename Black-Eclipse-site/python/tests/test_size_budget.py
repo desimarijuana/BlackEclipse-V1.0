@@ -419,7 +419,14 @@ RATCHET_PY: dict[str, int] = {
     # this round's observability seam lives in `observability/`. Re-pinned
     # 1998->2005 to the measured tree. May only shrink.
     # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
-    "service.py": 2068,
+    # Re-pinned 2068->2072 (2026-11-13): the multi-session concurrency commit's
+    # per-run bridge/sampling ContextVar binding. May only shrink.
+    "service.py": 2072,
+    # Quota-aware admission (2026-11-12, multi-session concurrency) lives on the
+    # ONE model path: shared credential-pool wait, per-key FIFO semaphore,
+    # cooldown/RPM/TPM windows, provider `Retry-After`, request-token accounting.
+    # SPLIT CANDIDATE: `model_runtime/admission.py`. May only shrink from here.
+    "model_runtime/runtime.py": 1269,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

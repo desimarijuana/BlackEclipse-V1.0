@@ -1,6 +1,72 @@
 # Change Log
 
+## 2026-11-13
+- **fix(chat): the dark-mode prompt bubble reads grey, not black.** The default
+  dark fill was a 20% foreground tint, which still composited to ~#303030 over
+  the near-black chat surface. Bumped the default (CSS fallback, prefs resolver,
+  and the Settings pick fallback) to a 30% tint (~#4c4c4c). docs updated:
+  `docs/ARCHITECTURE.md`.
+- **fix(chat): the "Eclipse has a question" prompt spans the composer width.**
+  `ClarificationCard` was capped at 720px, so it floated as a narrower island
+  above the full-width composer. It now uses the anchor's measured width.
+  no doc change — visual fix.
+- **fix(chat): a finished answer can no longer disappear from a conversation.**
+  The transcript is written by the browser in two steps: an empty
+  `status: "queued"` placeholder at send time, then the answer when the run
+  resolves **in the same tab**. A reload / second tab / app restart mid-run left
+  that empty placeholder as the last turn forever, while the answer sat safely in
+  `HarnessRun.output` — the conversation looked erased. New
+  `src/lib/chat/transcript-reconcile.ts` runs from `GET /api/chat/transcript`:
+  it finds a stuck last turn, matches it to a COMPLETED run (the turn's `runId`,
+  else the session's newest completed run that started after the prompt), fills
+  the content, clears any stale error, and writes it back through
+  `writeTranscript` (which keeps the fuller/terminal copy). Throttled to one pass
+  per 5 minutes, no-op when nothing is stuck, never touches failed/cancelled or
+  non-empty turns. `RunRecord` gained the runtime's `sessionId`. History was
+  also restored once: 19 conversations were rebuilt from their run records (per-
+  file backups kept as `transcript.json.bak-*`). Tests: new
+  `transcript-reconcile.test.ts` (11 cases). Also: split the run-patch
+  serializer into `harness/run_patch.py` (persistence was over its size pin) and
+  re-pinned the size ratchet for the committed concurrency growth
+  (`service.py` 2068→2072, new `model_runtime/runtime.py` entry). docs updated:
+  `docs/chat-ui-audit.md`, `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+
 ## 2026-11-12
+- **fix(harness): runs now reach their TRUE terminal status (the "every run
+  fails / times out" bug).** `run_lease.fenced_update_run()` bound `error`,
+  `context` and `research` dicts straight to SQLite parameters; that raises
+  `ProgrammingError`, the writer swallowed it and returned `False`, and the
+  graph ignored the boolean. Every terminal write (completed / failed /
+  cancelled) was silently dropped: the run row stayed `running` after the answer
+  streamed, the lease was released, and the stall watchdog relabelled the
+  finished run `RUN_STALLED` with a ~100-char "partial" minutes later. Progress
+  and flag writes that carried a dict were dropped the same way. Fixed with one
+  shared serializer (`persistence.run_patch_sql`, used by `update_run` AND the
+  fenced writer), loud error logging, and one retry for a transient lock. The
+  watchdog now reconciles a non-terminal row from its durable terminal event
+  instead of overwriting a finished run, and it self-heals history an older
+  build already mislabelled (a completed run marked RUN_STALLED is corrected to
+  completed, its bogus error cleared). Its silence budget floors on the 300s
+  per-call ceiling (a 250s in-flight model call is healthy, not stalled).
+  The default chat agent's RUN wall clock is now 600s
+  (`ECLIPSE_CHAT_RUN_TIMEOUT_S`): `runTimeoutMs=120s` is the per-MODEL-CALL
+  budget and was wrongly used as the whole-run deadline, so every real research
+  turn died with RUN_TIMEOUT at 120s. Tests: `test_run_lease` (dict payload),
+  `test_run_watchdog` (reconcile + resume), `test_chat_step_budget` (wall clock).
+  docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(desktop): one UI for the desktop shell and the web app
+  (`desktop:dev-bridge`).** The installed Tauri shell preferred its frozen
+  `<install>\app` payload over the repo, so it could show an old build while the
+  web app was current. `scripts/desktop-dev-bridge.js` preserves the bundled
+  payload as `app.bundled-<version>` and installs a small
+  `app\scripts\desktop-server.js` bridge that runs the repo's
+  `scripts/desktop-server.js`; both front doors now share one `.next` build and
+  one data directory. Run `npm run desktop:dev-bridge` after a fresh installer.
+  docs updated: `docs/desktop-app-plan.md`, `docs/CHANGELOG.md`.
+- **fix(chat): solid busy-state controls and roomier error card.** While a turn
+  runs, the Queue/Stop controls are now solid fills (no outline pill), and the
+  "Something went wrong" card gets extra bottom padding plus spacing beneath it
+  so the Retry action no longer hugs the card edge. no doc change — visual fix.
 - **feat(chat): durable, shared, pausable prompt queue.** `queue-store.ts`
   persists each conversation's queue in `localStorage`, broadcasts changes over
   BroadcastChannel, and dequeues under a per-chat Web Lock so two tabs cannot
@@ -9,6 +75,12 @@
   keeps private-mode sessions working. Tests: new `queue-store.test.ts`;
   `tsc` clean and size ratchets green. docs updated:
   `docs/harness/multi-session-concurrency.md`, `docs/CHANGELOG.md`.
+- **fix(legal): stop the risk-notice banner overlapping chat and nagging every
+  reload.** The local (non-hosted) reminder moved from a bottom-centre banner
+  (which sat on top of the chat composer and crossed the sidebar column) to the
+  top-right corner, and its dismissal now persists in `localStorage` instead of
+  per-session `sessionStorage`. Consent is still only recorded by Review →
+  Accept. no doc change — UI/UX bug fix, no contract change.
 - **feat(model): quota-aware admission + cross-tab runs.** Provider capacity is
   now a shared, process-wide gate: `get_credential_pool()` shares 429 cooldowns
   and key rotation across runs, `RateLimitManager.acquire_slot()` queues on a
@@ -37,6 +109,19 @@
   `test_run_binding.py`, and a concurrent-bridge service test; full Vitest +
   `tsc` green. docs updated: `docs/harness/multi-session-concurrency.md`,
   `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **fix(bots): make user bubbles and the composer grey frosted glass.** The bot
+  and group chat pages hardcoded `bg-white/[0.08]` prompt bubbles (which read as
+  black over the dark conversation surface) and the bot composer used the
+  near-black `.glass-card` tint. Both now use the shared `.chat-bubble` fill, and
+  both composers use `.glass-composer` (neutral zinc tint + real backdrop blur),
+  matching the Eclipse Agent page. The shared dark bubble default is now 20%
+  foreground (clearly grey); the composer is back to its original near-transparent
+  glass tint (`--card-rgb` at 0.16, blur 28px) so the transcript reads through it
+  instead of a flat grey panel; the GoalBar
+  now calls a client-safe `autonomy-browser.ts` front-door API instead of the
+  server-only `autonomy-client` (which pulled `fs`/`child_process` into the
+  browser bundle and failed the production build). docs updated:
+  `docs/harness/autonomy.md`, `docs/CHANGELOG.md`.
 - **test(security): hardline denial without a gateway.** Adds a regression test
   proving `make_security_authorizer` refuses a destructive command via the
   always-on hardline even when no gateway/policy is installed, while a benign
@@ -3037,314 +3122,3 @@
   and failing `gitignore-guard`'s "no tracked text file mixes CRLF and bare LF"
   contract (measured: 20,628 CRLF + 205 LF). It now normalizes the merged block
   to the target's dominant ending. no doc change — tooling fix, policy unchanged.
-
-## 2026-11-06
-- **fix(runtime): a runtime already on the harness port is adopted, not raced.**
-  `ensurePythonRuntime()` probed `/health`, and when a listener existed it probed
-  again — but a SUCCESSFUL second probe fell through to the spawn anyway, booting
-  a rival uvicorn that died with `WinError 10048`; the front door then reported
-  "runtime unavailable" for the rest of the session (observed live: a second
-  `npm run start` while a healthy runtime held 8766). It now adopts that runtime.
-  A child that dies from a port conflict is detected from its stderr and the live
-  runtime is adopted; a spawn that exits no longer makes boot wait the whole
-  cold-start budget; listener PIDs are parsed from the exact local-address column
-  (so `:18766` / a foreign `:8766` cannot match). `HARNESS_PY_URL` /
-  `HARNESS_PY_PORT` / `HARNESS_PY_HOST` now actually override the profile default
-  in the launcher, and `kill-port` clears the port that will be used. Tests:
-  `src/lib/harness/python-runtime.test.ts` (11). Docs:
-  `docs/harness/architecture.md`.
-- **fix(build,reports): production build and model-authored PDF tables.** The
-  build failed on stale imports from in-flight build-screen work: restored
-  `getProjectBrief`/`prepareProjectIndex` on the server client, added their
-  browser-client versions, restored `GET /code/project`, removed the stale
-  preview `mode` field, and added the missing `code.project.*` copy. Separately,
-  the PDF report renderer raised `REPORT_RENDER_FAILED: list index out of range`
-  for a table without headers, dict-shaped rows, or empty rows; `_table` now
-  derives headers, accepts list-of-objects rows and skips an empty table.
-  Verified: `npm run build` passes; `test_reports.py` (9), code task/tool/root
-  (40) and code API/UI Vitest (13) pass. Docs updated: `docs/CHANGELOG.md`.
-- **fix(vision): one privacy story and a bounded fallback chain.** Vision had its
-  own default (`HARNESS_VISION_PRIVACY=cloud_allowed`) that ignored the app-wide
-  `ECLIPSE_PRIVACY`; with local models configured, a screenshot still walked five
-  local models, LM Studio and OpenRouter (12 provider calls) before one answered.
-  The mode now inherits `ECLIPSE_PRIVACY=local-models` as `local_only`, caps the
-  chain (`HARNESS_VISION_MAX_ATTEMPTS`=4, `…_MAX_PER_PROVIDER`=2), emits
-  `vision.route.capped`, and records the provider/model that actually looked.
-  Tests: `test_vision_privacy_chain.py` (8). Docs: `docs/harness/vision.md`.
-- **fix(chat-api): the one-shot endpoint hands back a run instead of dying at
-  180 s.** `POST /api/harness/chat` awaited the whole run under
-  `maxDuration = 180`, while a writable turn is budgeted 80 steps / 2,700 s, so a
-  real build was killed with `PROVIDER_TIMEOUT` and no run id. It now stops
-  waiting at 150 s (`HARNESS_CHAT_SOFT_DEADLINE_MS`) and returns `202
-  {status:"running", runId, streamUrl}`, with the same id given to the runtime;
-  the run continues. Test: `src/app/api/harness/chat/route.test.ts`. Docs:
-  `docs/CHANGELOG.md`.
-- **feat(auth): `npm run auth:setup`.** One supported edit that sets
-  `HARNESS_AUTH=required` and generates a 32-byte `HARNESS_AUTH_SECRET`, refusing
-  to rotate an existing secret and never printing it (`--dry-run`, `--file`).
-  The doctor line now points at it. Docs: `docs/harness/authentication.md`.
-- **fix(code): five defects found by the LIVE failing-check acceptance run.**
-  (1) `shell_run` crashed with `name 'redact_output' is not defined` — the import
-  was missing, so the whole real-shell surface was dead. (2) `resolve_class`
-  rejected the obvious plural (`unit_tests`) and the refusal never named the
-  valid vocabulary, so the agent abandoned the pinned-check path and shelled out;
-  it now accepts the plural and lists the classes. (3) `package_test` refused with
-  "exit 1" and DROPPED the failing output; the refusal text now carries it.
-  (4) a `.black-eclipse/verify.json` written with a BOM silently pinned NO checks
-  (read with `utf-8-sig` now), so the verify-and-repair node never ran. (5) a
-  PASSED check was reported `REPAIR_EXHAUSTED` — and the answer annotated "still
-  failing" — when a later command spent the last check-run slot; status is now
-  fact-first and a spent budget after a pass is a no-op. Verified live twice
-  (fail → repair → pass, no false note). Tests: `test_code_check_path.py` (4),
-  `test_graph_repair_node.py` (+2). Docs: `docs/developing-a-project.md` (how to
-  pin and prove the loop).
-- **docs(security): say what actually runs.** `terminal_run`/`shell_run` use the
-  LOCAL tier (process-tree bounds, no filesystem/network isolation); Docker is a
-  selectable backend, not the executor. `BLACK_ECLIPSE_SANDBOX_REQUIRED=1` refuses
-  every execution it cannot isolate (`SANDBOX_UNAVAILABLE`). The boot line now
-  says this instead of implying a container. Docs: `docs/harness/security.md`.
-- **fix(trading): Deny on the trade-approval card removes it at once and stops
-  the turn.** The card was only removed *after* the decide round-trip, so a slow
-  request left it on screen, and the 6s poll could bring it back. Deny is now
-  optimistic: the card leaves immediately, the approval id is suppressed from
-  polling, and `onCancel` stops the in-flight run (the order is never sent). If
-  the decision genuinely fails, the card returns with the error. Verified live:
-  card gone in 58ms, `POST /trading/approvals/{id}/decide` 200, still gone after
-  the next poll. Tests: `tsc` clean, full suite 476 files / 4,417. No doc change
-  — a behaviour fix with no contract change.
-- **feat(search): semantic retrieval is now switchable and honest.** The vector
-  layer already existed but shipped dormant: with no provider it silently stayed
-  keyword-only, so a user could not tell what was on or turn it on. Added a
-  structured `EmbeddingService.resolution()` (`state`/`source`/`hint`/
-  `suggestions`) exposed via `/search/stats` and `/search/models`;
-  `POST /search/embedding/{apply,test,clear}` to pick a model live, verify one
-  real round-trip, and revert; and persistence of the operator's choice in
-  `SearchMeta.embedding_config` so it survives a runtime restart. Switching
-  vector space now schedules a forced re-index (`bulk_index(force=True)`,
-  dedup skipped) because old vectors are keyed to the previous model. The Search
-  Intelligence screen renders an actionable setup card instead of a passive
-  "keyword-only" pill. No silent provider substitution: a chat-only provider is
-  reported as unsupported, never swapped for a hosted embedding provider.
-  Docs updated: `docs/harness/search-retrieval.md`, `docs/CHANGELOG.md`.
-- **test(harness): first real chat quant eval passes.** Ran “forecast gold for
-  tomorrow” through the live configured model (Ollama / deepseek-v4.1-flash) and
-  graded the actual answer + 23 tool executions with `quant_chat_eval`:
-  **passed**, with an explicit spot-XAUUSD vs GC=F basis, a GARCH distribution
-  (no point forecast), walk-forward validation, costs, and an artifact line
-  (`art_…`). The artifact regex now recognises `art_`/`artifact_` ids too.
-  Docs updated: `docs/CHANGELOG.md`.
-- **feat(capabilities): a generated capability belongs to its project (P4).**
-  The draft root was already the run's project (`draft_root(root)` →
-  `<project>/.black-eclipse/capabilities`), but the process-wide dynamic recipe
-  registry was only refreshed on build/activate with whatever root that call
-  used — so a recipe built in project B could be reported active while
-  `analysis_run` could not execute it from B, and A's recipes could linger while
-  working in B. `capability_request` now refreshes the registry for the run's
-  root before assessing, so discovery and execution agree and capabilities are
-  isolated per project. Test: a built recipe is listed in
-  `project_b/.black-eclipse`, absent from `project_a`, a `gap` again in A, and
-  callable again in B without rebuilding. Docs updated: `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(harness): close the chat quant loop.** Deep quant turns now get a
-  32-step / 10-minute budget floor. The final answer is post-checked by
-  `finalize_quant_text`: if the model omitted the required artifact line, Eclipse
-  appends `Artifacts: <ids>` (or `Artifacts: none — …`) and names any still-missing
-  validation, OOS or cost evidence as an explicit `Eclipse check`, never silently
-  passing. The protocol also requires the gold basis (spot `XAUUSD` vs `GC=F`
-  futures). New offline gate `eval_gates/quant_contract.py` locks the contract
-  into `npm run test:evals`; new `quant_chat_eval.py` grades real chat outputs
-  from JSONL (`python -m harness.quant_chat_eval`) and `test_quant_chat_eval.py`
-  covers it. `graph.py` re-pinned 2461→2469. ADR-H345 records that quant work is
-  chat-native, not a UI mode. Docs updated: `docs/harness/decisions.md`,
-  `docs/CHANGELOG.md`.
-- **feat(builds): chat builds are durable, and the scorecard is per project (P3).**
-  A writing chat turn now records a `session.created` boundary
-  (`code/session.py::record_chat_build`, called from the same
-  `AgenticService.run`/`run_background` seam as the budget floor), pre-creating
-  the run row when needed so the FK-bound checkpoint can be written. Chat builds
-  therefore appear in the scorecard and are resumable through the existing run
-  path. It also writes the same `task.created` boundary a Code task has, so a
-  chat build now lists in **Builds** (diff, checks, preview, undo), not only in
-  the transcript; `code/tasks.py` lists any run with that boundary and
-  `TaskStore.view` returns None for a run that never built. `build_scorecard` no
-  longer requires `agentId == "code-agent"`: a build is any run with a session and
-  a code workspace row, and the row's `checkoutRoot` attributes it to a project.
-  `GET /code/scorecard` takes `taskId`/`rootId`
-  (resolved server-side, never a raw path) and the Builds tab gained a
-  **This project / All builds** toggle. Tests: 3 new `test_build_session.py`
-  cases (records once, planning is not a build, the chat build is listed) and a
-  per-project scorecard case.
-  Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/CHANGELOG.md`.
-- **feat(builds): run the project and look at it (P2).** New
-  `python/harness/code/preview.py` starts a project's dev command on the
-  EXISTING execution layer (`ServiceManager` + the terminal process manager) and
-  reports the URL it actually finds: it watches the process tree for the first
-  listening port that answers HTTP, so a running-but-silent process is `not
-  ready` with logs, never a fake URL. Command precedence is
-  `.black-eclipse/preview.json` > `package.json` `dev`/`start`/`preview`/`serve` >
-  a `Makefile` target. Routes `POST /code/preview/start`, `POST
-  /code/preview/stop`, `GET /code/preview`, `GET /code/preview/logs` (the project
-  is resolved server-side from the task's workspace or an approved root; no
-  `cwd` in a body), proxied by `src/app/api/code/preview/route.ts`. The Builds
-  tab gains `preview-panel.tsx` (Run / Check again / Open / Stop / logs) with
-  `code.preview.*` copy in `dictionaries/builds.ts`. A preview runs the project
-  ON DISK — an unlanded change is not included, and the panel says so. Tests:
-  `python/tests/test_preview.py` (9), +1 wiring assertion. Docs updated:
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(harness): chat deliverable contract + catalog-first reuse.** The quant
-  protocol now requires exactly one final `Artifacts: <ids>` or
-  `Artifacts: none — <missing>` line on every standard/deep turn, and a
-  `model_catalog` check BEFORE a build with reuse of a fitting artifact instead of
-  a duplicate. An ambiguous model family (DCF vs ML vs strategy vs risk) gets ONE
-  `clarify` question with those options. Reuse/catalog asks ("reuse the model from
-  last week", "what models do we have", "list my strategies") are now classified
-  as standard quant turns instead of concept/lookup non-turns. New deterministic
-  chat fixtures `python/tests/test_quant_chat_contract.py` (6) and benchmark cases
-  cover the contract. No separate UI: chat is the only delivery surface. Docs
-  updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-- **feat(builds): the Builds tab names its project, and land checks fit it (P1).**
-  New `components/screens/code/project-bar.tsx` shows the project new builds
-  belong to and switches it through the ONE trusted-roots registry + shared
-  `FolderPicker`; `task-list.tsx` passes `workspaceRootId` on both create paths,
-  so a build no longer relies on an invisible global selection. New
-  `dictionaries/builds.ts` holds the `code.project.*` copy (en.ts is ratcheted).
-  `code/land.py` now detects a user project's checks — `package.json` scripts,
-  `Cargo.toml`, `go.mod`, a declared pytest, a `Makefile` `test:` target — with
-  precedence `land.json` > harness defaults (Eclipse's repo only) > detected >
-  none-with-a-warning; an unrecognised project gets no checks rather than
-  Eclipse's. Tests: `project-bar.test.ts`, an extended
-  `code-screen-mounted.test.ts`, 4 new `test_land.py` cases. Harness budget
-  re-pinned to the measured tree. Docs updated: `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(harness): chat-native reuse of the model catalog.** The Eclipse Agent
-  prompt now tells the model to call `model_catalog` before building a duplicate,
-  reuse or extend an existing artifact where it fits, and name the created
-  artifact's id in the answer. This is intentionally chat-native: the catalog is
-  a read-only agent tool whose text result is summarized inline; there is no
-  separate catalog screen or workspace panel. The deep quant protocol already
-  carries the same instruction. Docs updated: `docs/CHANGELOG.md`.
-- **fix(workspace): the folder picker can find and create folders.** The chat
-  project chip's "Open folder…" (and the Editor's folder picker) now has a path
-  bar that accepts a typed/pasted absolute path, a **Drives** button back to the
-  filesystem roots, and a **+ New folder** action that enters the folder it just
-  created. Browse + create are **Node-native** (`src/lib/workspace/browse-server.ts`
-  + the `/api/workspace/browse[/mkdir]` routes) so a Python runtime restart can
-  no longer freeze the picker; approving a folder as a ROOT still goes through the
-  runtime's trusted-root store. When the page is on `localhost`, the picker calls
-  the same server on `127.0.0.1` (a separate browser connection pool) with a
-  narrow loopback CORS grant, fixing the dev keep-alive wedge that hung the second
-  request. Browse/create time out honestly and offer **Retry**. The runtime health
-  probe budget is raised (1.5s→8s, TTL 5s→15s) so a healthy-but-busy runtime is
-  not mistaken for dead and restarted. Tests: `browse-server.test.ts` (5),
-  `test_code_roots.py` (+3), `test_workspace_editor_api.py` (+2), `tsc` clean,
-  full vitest green (474 files / 4408). Docs updated: `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **fix(workspace): the folder dialog sits above the app, is accessible, and can
-  open the Windows picker.** `FolderPicker` is now portaled to `<body>` at
-  `z-[200]` (it was `z-[70]` inline, so the sidebar/menus covered it), with a
-  `role="dialog"` labelled title, initial focus on the path field, Escape to
-  close, a Tab focus trap and focus restore. Redesigned header/toolbar/list/
-  footer, folder rows with icons, explicit loading/empty/error states, and
-  `aria-live` status. On Windows a **Windows…** button calls the new
-  `POST /api/workspace/pick-folder` (`src/lib/workspace/native-picker.ts`),
-  which opens the real OS "Select Folder" dialog via a topmost
-  `FolderBrowserDialog`; the chosen path is loaded into the in-app picker for
-  confirmation. Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **fix(code): a build belongs to ONE project (P0).** Worktrees were always cut
-  from the globally *selected* trusted root, and `build_preview` resolved its
-  target the same way at promote time — so a build bound to project B could be
-  reviewed against, and land into, project A after a selection change.
-  `worktree.allocate/release/diff` now take the run's resolved root;
-  `CodeWorkspace` records `checkoutRoot` (additive column, legacy rows derive it
-  from the scratch path); `build_preview` and the rollback route read it back and
-  refuse a project that has moved instead of redirecting; `CreateTaskRequest`
-  accepts `workspaceRootId` and the front door forwards it. Cancel/discard now
-  release in the task's own project. Tests: new `test_project_binding.py` (5)
-  proves the diff cannot land in the selected project and that a vanished project
-  is refused; promotion/selfhost/maintenance/land/session suites still pass.
-  Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **refactor(self-build): the chat build-budget seam moved to the run funnel.**
-  The `standard`-budget floor now lives in `AgenticService.run` /
-  `run_background` (`apply_chat_build_budget`) instead of `main.start_run`, so
-  every entry point gets it and `main.py` stays under its hard ceiling (1199).
-  No behavioural change for `POST /runs`; the earlier entry's `start_run` wording
-  is superseded. Docs updated: `docs/CHANGELOG.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/NAVIGATION.md`.
-- **feat(harness): unified model/research catalog (Phase 3).** New
-  `python/harness/model_catalog.py` registers a read-only `model_catalog` tool
-  that aggregates the app's own registries — quant strategies + experiments, ML
-  models + datasets, statistical features and factors — with `kind`/`query`/`limit`
-  filters and an honest empty-registry note. It never writes and never invents an
-  entry; the stores are resolved lazily, so boot order cannot hide a family.
-  Registered from `quant/bootstrap.py`, added to the Eclipse Agent allowlist and
-  the quant surface, and the deep protocol now says to check the catalog before
-  building and confirm the id after creating. Tests: `test_model_catalog.py` (5),
-  plus the quant-tools/registry-parity/tool-contract/size suites. Size budget
-  re-pinned. Docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-- **chore(chat): drop the code-capability headline, de-clutter the learning line,
-  fix the composer's right-edge overflow.** Removed `ChatCapabilityPanel` from the
-  transcript (the "I'll look at the project…" card with its `details` toggle) and
-  deleted the component + its source-text test; the "Put this change into my
-  project" control it carried stays on the Code task screen, recovery console and
-  RSL panel via `PromoteChange`. Gave the memory/learning outcome line vertical
-  breathing room (`py-1.5`, `gap-y-1`, `leading-relaxed`). Composer toolbar no
-  longer overflows at ~850px: dropped `shrink-0` from the controls group, added
-  `min-w-0` and made the model label truncate inside a shrinking trigger. Tests:
-  `tsc` clean, full vitest green (472 files / 4399). Docs updated:
-  `docs/NAVIGATION.md`, `docs/interactive-response-engine.md`,
-  `docs/CHANGELOG.md`.
-- **feat(chat): Plan mode — plan first, then wait for approval.** Added the third
-  per-turn preference beside Quant and Choices, inside the composer's "+" menu:
-  `src/lib/agent/plan-mode.ts` (Auto/On/Off, persisted), `plan-mode-control.tsx`
-  (submenu + active badge), and `planMode` threaded through `ChatOptions`,
-  `buildChatPayload`, both chat routes and `run-service` into
-  `input.context.planMode`. `python/harness/plan_mode.py` appends a `<plan_mode>`
-  block to `runtime_context` only for `"on"`: work out goal/assumptions/steps,
-  record them with the existing `create_plan`/`create_task` tools when present
-  (otherwise write the plan in the reply), present it, then stop and wait for
-  approval before `run_plan`/effectful work. Guidance only — no hard block, no
-  capability grant; `off`/`auto` add nothing. Tests: `plan-mode.test.ts` (5),
-  `run-service` (+2), chat-route (+1), Python `test_plan_mode.py` (5); `tsc`
-  clean; targeted suites green. Size guard: `graph.py` re-pinned 2457→2461 for
-  the one import + one call seam. Docs updated: `docs/harness/architecture.md`,
-  `docs/CHANGELOG.md`.
-- **feat(chat): move the Quant and Choices modes into the composer's "+" menu.**
-  The two always-visible Auto/On/Off pills crowded the toolbar (and collapsed to
-  cryptic `Q`/`C` glyphs on narrow screens). They are now two submenus —
-  **Quant mode** and **Choices mode** — under the composer's "+" menu, each with
-  Auto / On / Off radio items and a small badge showing the active choice.
-  Default stays `auto` (nothing is sent); picking On or Off persists in
-  localStorage and therefore applies to every later run until changed. The
-  preference plumbing, server validation and Python behaviour are untouched.
-  Tests: `tsc --noEmit` clean, full vitest suite green (4393), targeted
-  `test_choices_mode.py` + `test_quant_intent.py` green (54). Docs updated:
-  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-- **fix(self-build): the Builder surface is reachable, and a chat build gets a
-  build budget.** `CodeScreen` was exported but never imported, so the Code
-  screen, land checks, per-file diffs and scorecard strip had no UI. Added the
-  `code` tab to `AppTab` + `ALL_TABS`, mounted it through a keep-alive wrapper
-  (`components/screens/code/code-tab.tsx`, so `stock-chat.tsx` grows by one
-  import + one line and its ratchet moves 1603→1606), and registered the palette
-  page **Builds** (`page-code`, launcher row) with a `code` icon. Also fixed the
-  24-step wall that cut the acceptance run off mid-change: `start_run` now
-  applies the `standard` session budget (80 steps / 45 min, additive,
-  hard-capped) when the turn's autonomy may write, via
-  `code/session.py::budget_for_autonomy`; planning turns keep the chat budget.
-  Harness size budget re-pinned to the measured tree (total, `.`, `code`). New
-  guard `code-screen-mounted.test.ts` fails if the surface is ever exported but
-  not mounted again. Tests: `test_build_session.py` (2 new), `app-tabs`,
-  `registry-sync`, `size-budget` green. Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/CHANGELOG.md`.
-- **fix(harness): a code-build task is never a quant turn.** The full suite
-  caught a real regression: the team task "write alpha.py and beta.py" matched
-  the bare `alpha` model object, so the quant surface narrowed away
-  `eval_fs_write`/`eval_run` and the modules were never written. The classifier
-  now has a code-task guard (`alpha.py`, `model.py`, `print(...)`, `def `,
-  `import `) that returns `none` unless a genuine quant term (backtest, quant,
-  forecast, portfolio, volatility, drawdown, Monte Carlo, optimization, a named
-  model) is present; bare `alpha` is no longer a model object. Regression cases
-  added to `test_quant_intent.py` and the 56-case benchmark; the team comparison
-  and code-eval suites pass again. Size budget re-pinned. Docs updated:
-  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
-
