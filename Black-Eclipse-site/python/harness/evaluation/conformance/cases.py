@@ -441,10 +441,21 @@ def signal_tool_batch() -> CaseResult:
     ])
     batches = report["tools"]["batches"]
     guardrails = report["tools"]["guardrails"]
-    ok = batches["count"] == 1 and batches["orderingViolations"] == 0 and guardrails["warn"] == 1
+    report["integrity"]["toolBatchOrderingViolations"] = 1
+    from ...observability.gate import evaluate_gate
+
+    injected = evaluate_gate(report, {"checks": [{
+        "name": "ordering", "path": "integrity.toolBatchOrderingViolations",
+        "kind": "invariant", "max": 0, "requires": "parallelTools",
+    }]})
+    ok = (
+        batches["count"] == 1 and batches["orderingViolations"] == 0
+        and guardrails["warn"] == 1 and injected.ok is False
+    )
     return CaseResult("signal.tool_batch", "signal", ok,
-                      "batch size, concurrency and guardrail outcome are recorded",
-                      {"batches": batches, "guardrails": guardrails})
+                      "batch size, concurrency and guardrail outcome are recorded; "
+                      "an injected ordering violation fails the gate",
+                      {"batches": batches, "guardrails": guardrails, "gate": injected.to_dict()})
 
 
 def signal_integrity_unknown_effect() -> CaseResult:

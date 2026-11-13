@@ -1,7 +1,7 @@
 ---
 title: Observability Platform
 status: Current
-last-verified: 2026-11-11
+last-verified: 2026-11-13
 ---
 
 # Observability Platform

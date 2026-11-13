@@ -74,7 +74,9 @@
   `docs/harness/observability.md`, `docs/harness/conformance.md`,
   `docs/DEPLOYMENT.md`, `docs/harness/decisions.md` (ADR-H360),
   `docs/harness/roadmap/w8-observability-and-slos-plan.md`,
-  `docs/NAVIGATION.md`.
+  `docs/NAVIGATION.md`. Also re-pins `scripts/size-budget.json` to the measured
+  landed tree (the W0–W8 runtime + W8 signals) so the size gate stays green;
+  per-file ratchets unchanged. No schema change, no new dependency.
 - **test(harness): W2 closeout verification.** W2-focused suite 159 passed; full
   tree vitest 4,749 passed and pytest 10,718 passed / 35 skipped. Seven pytest
   failures during the 42-minute shared-tree run were concurrent-edit artifacts
@@ -178,7 +180,7 @@
   signal dictionary, the SLO vs invariant split with targets/minimum samples,
   report schema v2 + `capabilities`, eager objectives with an honest
   `unmeasured` state, the data-driven budgets/gate design, real Prometheus
-  rules, eleven conformance cases (including an alert-metric contract), slices
+  rules, twelve conformance cases (including an alert-metric contract), slices
   W8.0–W8.7, test matrix, rollout and exit criteria. Planning only — no
   production code changed. Docs:
   `docs/harness/roadmap/w8-observability-and-slos-plan.md`,

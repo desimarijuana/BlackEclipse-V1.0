@@ -1,7 +1,7 @@
 ---
 title: Conformance Suite (C8)
 status: Current
-last-verified: 2026-11-11
+last-verified: 2026-11-13
 ---
 
 # Conformance suite

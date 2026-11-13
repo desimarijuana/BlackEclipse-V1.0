@@ -34,6 +34,16 @@ log = logging.getLogger("harness.event_sequence")
 UNIQUE_INDEX = "idx_harness_event_run_seq_unique"
 
 
+def _notify(event_type: str, data: dict[str, Any], *, run_id: str = "") -> None:
+    """W8 telemetry for the allocator. Fail-open; never affects allocation."""
+    try:
+        from .observability.bridge import publish  # noqa: PLC0415
+
+        publish(event_type, data, run_id=run_id)
+    except Exception:  # noqa: BLE001 - telemetry must not break the allocator
+        pass
+
+
 class EventSequence:
     """Per-store event allocator over the ONE agent-memory connection."""
 
@@ -137,7 +147,9 @@ class EventSequence:
                     raise
             except sqlite3.IntegrityError as exc:
                 last_error = exc
+                _notify("event.seq_retry", {"attempt": _attempt + 1}, run_id=run_id)
                 continue
+        _notify("event.seq_collision", {"attempts": 2}, run_id=run_id)
         raise RuntimeError(f"could not allocate an event sequence for {run_id!r}") from last_error
 
 

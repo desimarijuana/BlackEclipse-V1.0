@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from typing import Any, Optional
 
 from .checkpoint_io import restore_messages, serialize_run_messages
@@ -32,6 +33,16 @@ from .migrations import Migration, MigrationRunner
 from .persistence import now_iso
 
 log = logging.getLogger("harness.run_lineage")
+
+
+def _notify(event_type: str, data: dict[str, Any], *, run_id: str = "") -> None:
+    """W8 telemetry for a durable boundary. Fail-open; never affects the write."""
+    try:
+        from .observability.bridge import publish  # noqa: PLC0415
+
+        publish(event_type, data, run_id=run_id)
+    except Exception:  # noqa: BLE001 - telemetry must not fail a checkpoint
+        pass
 
 
 class CheckpointWriteFailed(RuntimeError):
@@ -312,6 +323,7 @@ class RunLineage:
         if messages:
             serialized = serialize_run_messages(list(messages))
         last_error: Optional[Exception] = None
+        started = time.monotonic()
         for attempt in range(max(0, int(retries)) + 1):
             try:
                 self._db.execute("BEGIN IMMEDIATE")
@@ -322,6 +334,10 @@ class RunLineage:
                         merged["messageSeq"] = cursor
                     checkpoint = self._insert_checkpoint_locked(run_id, kind, merged)
                     self._db.execute("COMMIT")
+                    _notify("checkpoint.write", {
+                        "ok": True, "kind": kind,
+                        "durationMs": int((time.monotonic() - started) * 1000.0),
+                    }, run_id=run_id)
                     return checkpoint
                 except Exception:
                     self._db.execute("ROLLBACK")
@@ -330,6 +346,10 @@ class RunLineage:
                 last_error = exc
                 if attempt >= retries:
                     break
+        _notify("checkpoint.write", {
+            "ok": False, "kind": kind,
+            "durationMs": int((time.monotonic() - started) * 1000.0),
+        }, run_id=run_id)
         raise CheckpointWriteFailed(
             f"could not write the {kind!r} boundary for {run_id!r}: {last_error}"
         ) from last_error

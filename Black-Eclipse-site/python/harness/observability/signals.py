@@ -326,14 +326,16 @@ class SignalAggregates:
 
     def context_report(self) -> dict[str, Any]:
         usage = list(self.context_usage_ratio)
+        samples = max(len(usage), self.context_overflow + self.context_recovered)
         return {
             "usageRatio": {
                 "samples": len(usage),
                 "p50": _pct(usage, 0.50),
                 "p95": _pct(usage, 0.95),
             },
+            "samples": samples,
             "overflow": self.context_overflow,
-            "overflowRate": _ratio(self.context_overflow, self.context_overflow + len(usage) + self.context_recovered),
+            "overflowRate": _ratio(self.context_overflow, samples),
             "recovered": self.context_recovered,
             "compactions": {
                 "samples": self.context_compactions,
@@ -415,6 +417,7 @@ class SignalAggregates:
             "failed": self.file_checkpoint_failed,
             "restored": self.file_checkpoint_restored,
             "pruned": self.file_checkpoint_pruned,
+            "samples": total,
             "failureRate": _ratio(self.file_checkpoint_failed, total),
             "bytes": {
                 "samples": len(self.file_checkpoint_bytes),
@@ -587,7 +590,7 @@ def record_metrics(metrics: Any, hook: str, event: Any) -> None:
             "eclipse_delegations_total", labels={"event": event_name},
             help_text="Async delegation lifecycle",
         )
-        if event_name == "worktree":
+        if str(attrs.get("eventType") or "").startswith("delegation.worktree"):
             metrics.inc_counter("eclipse_delegation_worktrees_total", help_text="Delegation worktrees allocated")
 
 

@@ -487,7 +487,7 @@ not hard-code report values in the probe.
 
 ### 8.2 New conformance cases
 
-Add eleven cases to `evaluation/conformance/cases.py` **and**
+Add twelve cases to `evaluation/conformance/cases.py` **and**
 `docs/harness/conformance.json`:
 
 | Case | Invariant |
@@ -560,7 +560,7 @@ Slices land alongside the workstream they observe.
 | **W8.4** Tool signals | Project `tool.batch_plan` / `tool.batch` / `tool.guardrail`; ordering invariant; concurrency and duration metrics | W3 | 2 d | A mixed batch with a failure keeps order and reports zero violations; injected violation fails the gate |
 | **W8.5** Autonomy + learning | Project `goal.*`, `loop.tick`, `skill.execution_eval`, `curator.run`; completion/blocked SLOs; enable-without-eval invariant | W4, W5 | 2–3 d | Gate-first judge suppression is visible; blocked rate has samples; enable-without-eval cannot pass |
 | **W8.6** Delegation + file checkpoints | Project `checkpoint.created/failed/restored/pruned` and `delegation.*`; snapshot/restore latency, failure rate, repairs, worktree count | W7 | 1–2 d | Snapshot/restore distinguishable; failure rate has samples; restore count auditable |
-| **W8.7** Conformance + alerts | Eleven new cases, manifest entries, real alert rules, `contract.alert_metric_names` | W8.0–W8.6 | 2–3 d | `npm run gate:conformance` includes the cases; `check-all.js` green; rule/metric contract passes |
+| **W8.7** Conformance + alerts | twelve new cases, manifest entries, real alert rules, `contract.alert_metric_names` | W8.0–W8.6 | 2–3 d | `npm run gate:conformance` includes the cases; `check-all.js` green; rule/metric contract passes |
 
 Total: **16–22 engineer-days**, but only ~6–8 days of new work if each
 workstream ships its W8 rows as part of its own definition of done (the intended
@@ -655,7 +655,7 @@ W8 is complete when all of the following are true:
 5. The integrity invariants (unknown effect, lease lost, checkpoint failure,
    sequence collision) are zero on a clean probe and fail the gate with an
    injected occurrence.
-6. `npm run gate:conformance` runs the eleven new cases and the alert/metric
+6. `npm run gate:conformance` runs the twelve new cases and the alert/metric
    contract.
 7. `deploy/prometheus/blackeclipse.rules.yml` has real runtime rules (no
    commented placeholders) and `check-all.js` is green.

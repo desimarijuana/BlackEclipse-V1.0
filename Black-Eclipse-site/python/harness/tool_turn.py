@@ -320,10 +320,6 @@ class ToolTurn:
                     d.lineage.mark_tool_unknown(
                         d.request.runId, step_index, slot.call_id,
                     )
-                await d.emitter.emit("effect.unknown", {
-                    "name": slot.name, "toolCallId": slot.call_id,
-                    "reason": "resume_after_started", "reconcile": True,
-                })
                 continue
 
             # W3.2: the guardrail decision is made BEFORE effects begin or a
