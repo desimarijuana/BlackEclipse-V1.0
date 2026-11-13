@@ -661,8 +661,8 @@ Target:
 
 - `graph.py` (`tools_node` wiring and the guardrail-halt route — no new bodies)
 - `tools.py` (`ToolDefinition` fields; execution seam unchanged)
-- `tool_batches.py` (new: partition, slots, context clone)
-- `tools/guardrails.py` (new), `tools/bm25.py` (new)
+- `tool_turn.py` (new: preflight/dispatch/postflight, contiguous batches, context clone)
+- `tool_guardrails.py` (new), `tool_bm25.py` (new)
 - `tool_disclosure.py` (new: mode/threshold/tier/catalogue), `tool_surface.py`
 - `routers/recovery.py` (operator reset endpoint)
 - `config/flags.py` (new values), `context_budget.py` (measurement only)

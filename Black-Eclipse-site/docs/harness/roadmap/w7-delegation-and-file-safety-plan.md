@@ -745,13 +745,16 @@ Landed behind the W7 flags (defaults preserve today's behaviour):
   (`delegate_async/status/result/cancel/steer/wait`), Fabric policy + worker
   registration, `/delegations` routes and front-door proxy.
 - **Schema repair** — `delegation_repair.py` (bounded schema checks, no remote
-  `$ref`, JSON extraction, one repair prompt); the worker runs exactly one
-  tool-less repair.
+  `$ref`, JSON extraction, one repair prompt); both the async worker and the
+  synchronous `delegate` path run exactly one tool-less repair and preserve the
+  raw answer.
 - **Steering** — durable mailbox drained at the top of `agent_node`; consumed
   at the next checkpoint so a resume delivers at most once.
-- **Per-child worktree** — `isolated` allocates `worktree.allocate()` in the
-  worker, returns a diff handle, and never merges; a non-isolated child loses
-  `WRITE_TOOLS`.
+- **Per-child worktree** — `isolated` allocates `worktree.allocate()`, mints a
+  one-run opaque token (`workspaceScratchToken`) the runtime consumes to bind
+  the child to that worktree, returns a diff handle, and never merges; a
+  non-isolated child loses `WRITE_TOOLS`. The synchronous `delegate` path uses
+  the same token seam.
 - **File checkpoints** — `code/checkpoints.py` (shadow-git snapshots, list,
   diff, restore, prune), hooks in `FileSystemService`, `shell_run` and
   `apply_promotion`, `checkpoint_*` tools, `/code/checkpoints*` routes,

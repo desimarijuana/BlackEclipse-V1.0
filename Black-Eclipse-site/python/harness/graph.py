@@ -360,6 +360,15 @@ def _run_workspace(request: Any) -> Any:
     Called without the second argument when the run has no per-chat binding, so
     the historical one-argument seam (and tests that patch it) stays intact.
     """
+    token = getattr(request, "workspaceScratchToken", None)
+    if token:
+        # W7: an isolated delegated child. The token was minted by
+        # `worktree.allocate`; it is consumed once and must resolve under the
+        # server's own scratch root.
+        from .code.worktree import claim_scratch  # noqa: PLC0415
+        from .code.workspace import resolve_scratch_workspace  # noqa: PLC0415
+
+        return resolve_scratch_workspace(claim_scratch(token))
     root_id = getattr(request, "workspaceRootId", None)
     if root_id:
         return resolve_workspace(request.workspace, root_id)

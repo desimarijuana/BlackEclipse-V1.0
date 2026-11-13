@@ -355,9 +355,9 @@ def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:
             turn_key=str(preview.get("previewDigest") or "promote"),
         )
     except CheckpointError as exc:
-        from ..config.flags import get_flag  # noqa: PLC0415
+        from .checkpoints import checkpoint_mode  # noqa: PLC0415
 
-        if get_flag("HARNESS_FILE_CHECKPOINTS") in ("on", "enforce"):
+        if checkpoint_mode() == "enforce":
             raise PromotionError(exc.code, exc.reason) from exc
     except Exception:  # noqa: BLE001 - best-effort in warn/off
         pass

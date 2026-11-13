@@ -1,6 +1,26 @@
 # Change Log
 
 ## 2026-11-12
+- **feat(harness): W3 tool execution (core).** Adds `tool_turn.py` (the ONE
+  preflight/dispatch/postflight flow; contiguous `parallel_safe` batches,
+  semaphore + batch deadline, per-call context clone, index-addressed results,
+  effectful/interactive calls always serial), `tool_guardrails.py` (pure
+  success-signature/cycle/failure-streak controller; warn-first, controlled
+  halt, poller exemption, operator reset), `tool_bm25.py` + `tool_disclosure.py`
+  (BM25 with tags/domain, tiered catalogue block, `auto` threshold over a
+  known window, `availableSources`), and the matching `ToolDefinition` fields
+  (`interactive`, `parallel_safe`, `tags`, `domain`). `graph.tools_node` is now
+  wiring; the guardrail-halt route ends the run with a deterministic notice.
+  Flags: parallel `off|shadow|on`, guardrails `warn|halt|off`, disclosure
+  `auto|on|off`; `HARNESS_LAZY_TOOLS` is a deprecated alias. First audited
+  parallel tools: `tool_search` + the response-contract read-backs; `clarify`
+  is interactive. Tests: `test_parallel_tools.py`, `test_tool_guardrails.py`,
+  `test_tool_disclosure_bm25.py`, extended `test_flags.py`,
+  `test_run_effects.py`, `test_size_budget.py`. Targeted harness gate: 1,250
+  passed / 3 skipped; `tsc --noEmit` clean. Docs:
+  `docs/harness/roadmap/w3-tool-execution-plan.md` (status + §15),
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/harness/roadmap/w0-flags-and-review.md`.
 - **feat(harness): W8 observability, SLOs and conformance (implemented).** Adds
   `observability/signals.py` (bounded W8 aggregates + stable metric mapping),
   `observability/bridge.py` (the same projector for subsystems with no
@@ -46,7 +66,8 @@
   Flags: `HARNESS_FILE_CHECKPOINTS` is now `off|warn|enforce`; async/schema/
   steer/completion flags added. Tests: `test_delegation_lifecycle.py`,
   `test_file_checkpoints.py`. Docs: `docs/harness/code-filesystem.md`,
-  `docs/harness/roadmap/w7-delegation-and-file-safety-plan.md`.
+  `docs/harness/roadmap/w7-delegation-and-file-safety-plan.md`; the tool
+  registry was regenerated (1,100 tools).
 - **feat(harness): W6 run-kernel integrity and safety.** Adds
   `fenced_progress`/`LeaseLost` and threads `runtime_id` through
   `RunScope`/`execute_run` so every progress/terminal write proves the caller

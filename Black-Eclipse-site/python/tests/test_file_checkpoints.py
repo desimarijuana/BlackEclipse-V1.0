@@ -100,6 +100,32 @@ def test_enforce_mode_alias():
         os.environ["HARNESS_FILE_CHECKPOINTS"] = "warn"
 
 
+def _ctx(root):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(workspace=SimpleNamespace(root=root), run_id="run_ctx")
+
+
+def test_checkpoint_tools_list_diff_restore(tmp_path):
+    import asyncio
+    from harness.code.checkpoint_tools import (
+        checkpoint_diff, checkpoint_list, checkpoint_restore,
+    )
+
+    root = _git_repo(tmp_path)
+    snap = checkpoints.snapshot(root, run_id="r1", turn_key="r1")
+    (root / "a.txt").write_text("two", encoding="utf-8")
+    listed, data = asyncio.run(checkpoint_list({}, _ctx(root)))
+    assert "Recent snapshots" in listed and data["status"] == "ok"
+    diff_text, diff_data = asyncio.run(checkpoint_diff({"checkpointId": snap["id"]}, _ctx(root)))
+    assert "a.txt" in diff_text and diff_data["status"] == "ok"
+    restored, restore_data = asyncio.run(checkpoint_restore(
+        {"checkpointId": snap["id"], "paths": ["a.txt"]}, _ctx(root),
+    ))
+    assert restore_data["status"] == "restored"
+    assert (root / "a.txt").read_text(encoding="utf-8") == "one"
+
+
 def test_command_may_write_is_conservative():
     assert checkpoints.command_may_write("rm -rf build") is True
     assert checkpoints.command_may_write("echo hi > out.txt") is True

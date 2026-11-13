@@ -294,6 +294,13 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
             query += f"\n\nApproach: {child.approach}"
         if child.context:
             query += f"\n\nContext:\n{child.context}"
+        if child.output_schema is not None:
+            import json  # noqa: PLC0415
+
+            query += (
+                "\n\nReturn ONLY JSON that satisfies this schema (no prose, no markdown):\n"
+                + json.dumps(child.output_schema, ensure_ascii=False)[:8_000]
+            )
         # A surface may give delegated children their own bounded prompt. The
         # child keeps its OWN agent preset and its narrowed allowlist; the
         # surface only appends prompt evidence, never a tool or a permission.
@@ -336,16 +343,38 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
                 child_settings = ctx.model_settings.model_copy(update=updates)
             except Exception:  # noqa: BLE001 - keep the parent's settings, never crash
                 child_settings = ctx.model_settings
+        # W7: a writing part gets its own disposable worktree. The token is an
+        # opaque, process-local capability; no path is passed.
+        scratch_token = None
+        workspace = None
+        if child.isolated:
+            try:
+                from .code import worktree  # noqa: PLC0415
+
+                workspace = worktree.allocate()
+                scratch_token = worktree.mint_scratch_token(workspace.root)
+            except Exception as exc:  # noqa: BLE001 - isolation is required
+                return {
+                    "status": "refused", "runId": child_run_id,
+                    "summary": "", "reason": f"no isolated workspace: {exc}"[:500],
+                    "tokens": 0, "handles": [],
+                }
         child_request = RunRequest(
             runId=child_run_id,
             # Carry the depth so a grandchild cannot reset it to 0 and bypass MAX_DEPTH.
-            input=RunInput(query=query[:4000], context={"delegationDepth": depth + 1}),
+            input=RunInput(query=query[:100_000], context={"delegationDepth": depth + 1}),
             agentId=child.agent_id or DEFAULT_AGENT_ID,
             **({"agent": child_agent} if child_agent is not None else {}),
             modelSettings=child_settings,
             parentRunId=ctx.run_id,
-            autonomy=getattr(ctx, "autonomy", None) if child.workspace_id else None,
-            workspaceId=child.workspace_id,
+            autonomy=(
+                getattr(ctx, "autonomy", None)
+                if (child.workspace_id or workspace is not None) else None
+            ),
+            workspaceId=(
+                workspace.id if workspace is not None else child.workspace_id
+            ),
+            workspaceScratchToken=scratch_token,
             callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
         )
         # The child runs on its OWN run id, so its events never reach the parent's
@@ -395,11 +424,74 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         status = "completed" if dumped.get("status") == "completed" else "failed"
         tokens = max(0, int(dumped.get("totalTokens") or 0))
         reason = error.get("message") if isinstance(error, dict) else None
+        raw = str(dumped.get("output") or "")
+
+        # W7: validate the contract and allow ONE bounded repair turn. The raw
+        # answer is kept whatever happens.
+        from .delegation_repair import repair_prompt, validate_output  # noqa: PLC0415
+
+        validated = validate_output(raw, child.output_schema)
+        repair_run_id = None
+        repair_attempted = False
+        if validated["valid"] is False and child.schema_repair and child.output_schema is not None:
+            repair_attempted = True
+            repair_run_id = f"{child_run_id}_repair"
+            try:
+                from .agents import get_agent as _get_agent  # noqa: PLC0415
+                from .schemas import AgentConfig as _AgentConfig  # noqa: PLC0415
+
+                base = _get_agent(child.agent_id or DEFAULT_AGENT_ID)
+                repair_request = RunRequest(
+                    runId=repair_run_id,
+                    input=RunInput(query=repair_prompt(child.output_schema, raw, validated["errors"])),
+                    agent=_AgentConfig(
+                        id=base.id, name=base.name,
+                        systemPrompt=base.systemPrompt + "\n\n## Schema repair\nReturn ONLY corrected JSON.",
+                        tools=[], maxSteps=1,
+                    ),
+                    modelSettings=child_settings,
+                    parentRunId=child_run_id,
+                    callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
+                )
+                repaired = await execute_run(
+                    repair_request, ctx.tool_registry, ctx.data_bridge, ctx.memory_store,
+                    getattr(ctx, "bus", None),
+                )
+                repaired_dump = repaired.model_dump() if hasattr(repaired, "model_dump") else dict(repaired)
+                if repaired_dump.get("status") == "completed":
+                    validated = validate_output(str(repaired_dump.get("output") or ""), child.output_schema)
+            except Exception as exc:  # noqa: BLE001 - preserve the raw answer
+                validated = {
+                    "valid": False, "text": raw,
+                    "errors": [*validated["errors"], f"repair failed: {exc}"[:500]],
+                }
+
+        diff = None
+        if workspace is not None:
+            try:
+                from .code import worktree  # noqa: PLC0415
+
+                diff = worktree.diff(workspace.id, strategy=workspace.strategy)
+                diff = {k: diff.get(k) for k in (
+                    "available", "strategy", "base", "digest", "filesChanged",
+                    "additions", "deletions",
+                )}
+                diff["workspaceId"] = workspace.id
+            except Exception:  # noqa: BLE001
+                diff = {"workspaceId": workspace.id, "available": False}
+
         await bridge.finish(status, tokens=tokens, reason=reason)
         return {
             "status": status,
             "runId": dumped.get("runId", child_run_id),
-            "summary": dumped.get("output") or "",
+            "summary": validated["text"],
+            "rawSummary": raw,
+            "schemaValid": validated["valid"],
+            "schemaErrors": validated["errors"],
+            "repairAttempted": repair_attempted,
+            "repairRunId": repair_run_id,
+            "workspaceId": workspace.id if workspace is not None else child.workspace_id,
+            "diff": diff,
             # REAL usage for the budget report — never estimated.
             "tokens": tokens,
             # A run_id handle lets the parent re-check existence. A check-claim
@@ -454,8 +546,13 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         "total": len(result.outcomes),
         "droppedClaims": len(result.droppedClaims),
         "outcomes": [
-            {"childIndex": o.child_index, "runId": o.run_id, "status": o.status,
-             "reason": o.reason, "claimed": o.claimed, "dropped": o.dropped}
+            {
+                "childIndex": o.child_index, "runId": o.run_id, "status": o.status,
+                "reason": o.reason, "claimed": o.claimed, "dropped": o.dropped,
+                "schemaValid": o.schema_valid, "schemaErrors": o.schema_errors,
+                "repairAttempted": o.repair_attempted,
+                **({"workspaceId": o.workspace_id} if o.workspace_id else {}),
+            }
             for o in result.outcomes
         ],
         "budget": result.budget.model_dump(by_alias=True),

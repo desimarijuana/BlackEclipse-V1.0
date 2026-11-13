@@ -244,6 +244,37 @@ def resolve_workspace(
     )
 
 
+def resolve_scratch_workspace(scratch_root: Path | str | None) -> Optional[ResolvedWorkspace]:
+    """Bind a run to a scratch worktree minted by `worktree.allocate`.
+
+    Only a path *inside* the server-resolved scratch root is accepted; the
+    caller supplies the opaque token, and `worktree.claim_scratch` resolves it
+    to a path this process created. A missing/foreign path is a refusal.
+    """
+    if scratch_root is None:
+        return None
+    base = default_root()
+    if base is None:
+        return None
+    allowed = Path(os.path.realpath(str(base / ".black-eclipse" / "code-workspaces")))
+    try:
+        candidate = Path(os.path.realpath(str(scratch_root)))
+    except (OSError, ValueError):
+        return None
+    if candidate == allowed or allowed not in candidate.parents:
+        return None
+    if not candidate.is_dir():
+        return None
+    base_revision = _git_head(candidate)
+    return ResolvedWorkspace(
+        id=_stable_id(candidate),
+        root=candidate,
+        base_revision=base_revision,
+        strategy="worktree",
+        binding=_binding_for(candidate, base_revision, "worktree"),
+    )
+
+
 def _rel_of(root: Path, resolved: Path) -> str:
     try:
         return resolved.relative_to(root).as_posix()
@@ -434,6 +465,7 @@ __all__ = [
     "MAX_SEARCH_MS",
     "ResolvedWorkspace",
     "WorkspaceDenial",
+    "resolve_scratch_workspace",
     "confine",
     "default_root",
     "git_probe",

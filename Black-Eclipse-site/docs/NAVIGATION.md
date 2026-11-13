@@ -548,6 +548,7 @@ health).
 | Harness agent contract | `python/harness/agents.py` + `python/harness/schemas.py` (`AgentConfig`) |
 | Harness agent system prompts | `python/harness/prompts.py` (authoritative; the TS side sends only an `agentId`) |
 | Harness tool contract | `python/harness/tools.py` (`ToolDefinition`, `ToolRegistry`) |
+| Change how tool calls are executed, batched, guarded or discovered | `python/harness/tool_turn.py` (the ONE preflight/dispatch/postflight flow), `tool_guardrails.py`, `tool_bm25.py`, `tool_disclosure.py`, `tool_surface.py`; plan `docs/harness/roadmap/w3-tool-execution-plan.md` |
 | MCP server/effect contract | `python/harness/mcp/config.py` (`MCPServerConfig`, `EffectClass`) |
 | MCP client / adapter | `python/harness/mcp/client.py` (`MCPConnection`), `python/harness/mcp/manager.py` (`MCPManager`) |
 | MCP default-agent reachability | `python/harness/agents.py` (`allowMcpTools`), `python/harness/graph.py` (`effective_allowlist`) |

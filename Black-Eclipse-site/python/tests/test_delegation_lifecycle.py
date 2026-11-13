@@ -246,6 +246,74 @@ def test_narrowing_never_widens_and_non_isolated_has_no_writes():
     assert not set(forged.tools or []) & set(WRITE_TOOLS)
 
 
+def test_scratch_token_binds_only_its_own_worktree(tmp_path, monkeypatch):
+    import subprocess
+    from harness.code import worktree
+    from harness.code.workspace import resolve_scratch_workspace
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=root, check=True)
+    (root / "a.txt").write_text("one", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=root, check=True)
+    monkeypatch.setenv("BLACK_ECLIPSE_CODE_ROOT", str(root))
+    workspace = worktree.allocate()
+    token = worktree.mint_scratch_token(workspace.root)
+    resolved = resolve_scratch_workspace(worktree.claim_scratch(token))
+    assert resolved is not None
+    assert resolved.root == workspace.root
+    # A consumed token cannot be reused.
+    assert resolve_scratch_workspace(worktree.claim_scratch(token)) is None
+    # An arbitrary path outside the scratch root is refused.
+    assert resolve_scratch_workspace(tmp_path) is None
+
+
+def test_sync_delegate_schema_repair(tmp_path, monkeypatch):
+    import harness.graph as graph_mod
+    from harness.delegation_tools import delegate_handler
+    from harness.tools import ToolContext, ToolRegistry
+
+    store = _store(tmp_path)
+    calls = {"n": 0}
+
+    class _Result:
+        def __init__(self, output: str) -> None:
+            self._output = output
+
+        def model_dump(self) -> dict:
+            return {"runId": "child", "status": "completed", "output": self._output,
+                    "error": None, "totalTokens": 1}
+
+    async def fake_execute_run(request, *args, **kwargs):
+        calls["n"] += 1
+        if "did not satisfy" in request.input.query:
+            return _Result('{"answer": "fixed"}')
+        return _Result("not json")
+
+    monkeypatch.setattr(graph_mod, "execute_run", fake_execute_run)
+    ctx = ToolContext(
+        run_id="run_parent", log=lambda *_: None,
+        model_settings=ModelSettings(provider="ollama", model="llama3.1"),
+        tool_registry=ToolRegistry(), data_bridge=object(), memory_store=store,
+        allowed={"workspace_read"},
+    )
+    text, data = asyncio.run(delegate_handler({
+        "children": [{
+            "goal": "structured",
+            "output_schema": {"type": "object", "required": ["answer"],
+                              "properties": {"answer": {"type": "string"}}},
+        }],
+    }, ctx))
+    assert data["status"] == "ok"
+    assert calls["n"] == 2
+    assert data["outcomes"][0]["schemaValid"] is True
+    assert data["outcomes"][0]["repairAttempted"] is True
+    assert data["outcomes"][0]["claimed"] == []  # prose is not a check-claim
+
+
 def test_fabric_registers_a_delegation_worker():
     from harness.fabric.builtin_workers import build_default_workers
 

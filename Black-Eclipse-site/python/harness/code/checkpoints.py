@@ -325,6 +325,13 @@ def _snapshot_impl(root: Any, *, reason: str = "before-write", run_id: str = "",
         mapping = _last_map(root_path)
         mapping[key] = checkpoint_id
         _write_last(root_path, mapping)
+        # Keep the ref count bounded without paying for a prune on every write.
+        try:
+            keep = max(1, get_int("HARNESS_FILE_CHECKPOINT_RETENTION"))
+            if len(_refs(root_path)) > keep + 5:
+                prune(root_path)
+        except Exception:  # noqa: BLE001 - retention must not lose the snapshot
+            pass
         return {
             "id": checkpoint_id, "ref": ref, "commit": commit_sha, "reason": reason,
             "runId": run_id, "turnKey": turn_key, "createdAt": _now_iso(),

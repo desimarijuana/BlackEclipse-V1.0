@@ -79,9 +79,9 @@ class FileSystemService:
                 turn_key=self._run_id,
             )
         except Exception:  # noqa: BLE001 - `warn`/`off` never block a write
-            from ...config.flags import get_flag  # noqa: PLC0415
+            from .. import checkpoints as _checkpoints  # noqa: PLC0415
 
-            if get_flag("HARNESS_FILE_CHECKPOINTS") in ("on", "enforce"):
+            if _checkpoints.checkpoint_mode() == "enforce":
                 # Safety-first mode: a missing undo point refuses the mutation.
                 raise
 

@@ -321,6 +321,10 @@ class RunRequest(BaseModel):
     # tool called with no binding is refused (Phase 0: no workspace ⇒ no code
     # permissions, whatever the profile).
     workspaceId: Optional[str] = None  # noqa: N815
+    # W7 (internal): an opaque capability token for a scratch worktree created
+    # by `worktree.allocate`. Only the delegation worker sets it; one token
+    # binds exactly one run, and it carries no caller-supplied path.
+    workspaceScratchToken: Optional[str] = Field(default=None, max_length=128)  # noqa: N815
     # Phase 22 (additive, optional): a build session's budget. Absent means the
     # agent/profile default. The runtime clamps both to its hard ceilings, so a
     # caller can never buy an unbounded run.

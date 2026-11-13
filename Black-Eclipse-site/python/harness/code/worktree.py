@@ -53,6 +53,30 @@ WORKSPACE_TTL_SECONDS = 24 * 60 * 60
 # config per-command avoids mutating the operator's global git config.
 _GIT: tuple[str, ...] = ("git", "-c", "core.longpaths=true")
 
+# Process-local capability tokens for a freshly allocated scratch workspace.
+# A run carries the opaque token, never a path; `claim` pops it so a replay or a
+# second run cannot reuse another task's scratch root.
+_SCRATCH_TOKENS: dict[str, Path] = {}
+_MAX_SCRATCH_TOKENS = 256
+
+
+def mint_scratch_token(root: Path) -> str:
+    token = "cwscratch_" + uuid.uuid4().hex
+    if len(_SCRATCH_TOKENS) >= _MAX_SCRATCH_TOKENS:
+        _SCRATCH_TOKENS.pop(next(iter(_SCRATCH_TOKENS)), None)
+    _SCRATCH_TOKENS[token] = Path(os.path.realpath(str(root)))
+    return token
+
+
+def claim_scratch(token: str) -> Optional[Path]:
+    """Consume a scratch token. One token binds exactly one run."""
+    return _SCRATCH_TOKENS.pop(str(token or ""), None)
+
+
+def peek_scratch(token: str) -> Optional[Path]:
+    return _SCRATCH_TOKENS.get(str(token or ""))
+
+
 GIT_WORKTREE_ARGV: dict[str, tuple[str, ...]] = {
     "add": _GIT + ("worktree", "add", "--detach"),
     "remove": _GIT + ("worktree", "remove", "--force"),
@@ -541,7 +565,10 @@ __all__ = [
     "WORKSPACE_TTL_SECONDS",
     "WorkspaceError",
     "allocate",
+    "claim_scratch",
     "diff",
+    "mint_scratch_token",
+    "peek_scratch",
     "release",
     "scratch_root",
     "sweep_expired",

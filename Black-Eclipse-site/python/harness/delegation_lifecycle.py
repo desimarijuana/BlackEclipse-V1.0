@@ -339,13 +339,27 @@ async def execute_job(service: Any, ctx: Any) -> Any:
         await _emit_completion(service, payload, index, "failed", reason=reason)
         return WorkerOutcome(status="failed", error=reason,
                              error_class="CREDENTIALS_UNAVAILABLE")
+    # A part may name another model on the SAME provider and its own sampling
+    # temperature. The provider/credential never change.
+    try:
+        updates: dict[str, Any] = {}
+        if child.model and getattr(settings, "model", None) != child.model:
+            updates["model"] = child.model
+        if child.temperature is not None:
+            updates["temperature"] = child.temperature
+        if updates:
+            settings = settings.model_copy(update=updates)
+    except Exception:  # noqa: BLE001 - keep the parent's settings
+        pass
 
     workspace = None
+    scratch_token: Optional[str] = None
     if child.isolated:
         try:
             from .code import worktree  # noqa: PLC0415
 
             workspace = worktree.allocate()
+            scratch_token = worktree.mint_scratch_token(workspace.root)
         except Exception as exc:  # noqa: BLE001 - isolation is a hard requirement
             reason = f"This part needs an isolated workspace, which is unavailable: {exc}"[:500]
             db.complete(delegation_id, index, status="refused", child_run_id=child_run_id,
@@ -373,6 +387,7 @@ async def execute_job(service: Any, ctx: Any) -> Any:
             userId=payload.get("userId"),
             sessionId=payload.get("sessionId"),
             workspaceId=(workspace.id if workspace is not None else child.workspace_id),
+            workspaceScratchToken=scratch_token,
             # A child may hold the parent's autonomy profile only when it is
             # bound to a workspace; the profile still narrows through the tool
             # allowlist, and `operator` is never inherited.
