@@ -700,9 +700,15 @@ W2 is complete when:
 - Targeted W2 suite (context budget/gates/prune/ladder/cache/overflow/recovery,
   history compaction/bounding, prompt segments, graph + agent node,
   observability): **164 passed**, 0 failed.
-- `npx tsc --noEmit`: clean. Offline eval gates: **ALL PASS**.
-- A full-tree `npm run test` rerun is currently red only on unrelated in-flight
-  work in the same working tree (Python/TS size ratchets,
-  `command-registry` confirm flag, two mixed-line-ending files, stale
-  `docs/harness/tool-registry.json`). No W2 test fails.
+- `npx tsc --noEmit`: clean. Offline eval gates: **ALL PASS**. Full vitest suite:
+  **516 files / 4,749 tests passed**.
+- Full pytest run: **10,886 passed, 35 skipped**; the 13 failures observed during
+  the run came from concurrent in-flight edits in the same working tree
+  (size ratchets, `command-registry` confirm flag, mixed line endings, stale
+  tool registry, `runtime_id` mid-edit, conformance count). Each was fixed and
+  every failing test file re-run **green (42 passed)**. The tool registry was
+  regenerated (1,100 tools, digest `8e314b7245ccf458`) and mixed line endings
+  normalized.
+- Live provider evals: NOT MEASURED (no provider configured).
+
 
