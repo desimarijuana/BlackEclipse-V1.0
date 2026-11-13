@@ -9,6 +9,7 @@ import {
   readTranscript,
   writeTranscript,
 } from "@/lib/chat/session-store";
+import { reconcileStuckTranscripts } from "@/lib/chat/transcript-reconcile";
 
 const gzipAsync = promisify(gzip);
 
@@ -65,7 +66,17 @@ export async function GET(request: Request) {
     if (chatId) {
       return await jsonResponse(request, { success: true, transcript: await readTranscript(chatId) });
     }
-    return await jsonResponse(request, { success: true, conversations: await listTranscripts() });
+    const conversations = await listTranscripts();
+    // Self-heal: a conversation left with an empty "queued" placeholder (tab
+    // reload / app restart mid-run) is filled from its completed run's stored
+    // output. Bounded and throttled; a failure returns the list untouched.
+    let healed = conversations;
+    try {
+      healed = await reconcileStuckTranscripts(conversations);
+    } catch (err) {
+      console.error("[api/chat/transcript] reconcile skipped:", err);
+    }
+    return await jsonResponse(request, { success: true, conversations: healed });
   } catch (err) {
     const { status, body } = statusFor(err);
     return NextResponse.json(body, { status });

@@ -432,6 +432,8 @@ export interface RunRecord {
   id: string;
   agentId: string;
   userId: string | null;
+  /** The chat session this run belongs to (null for scheduled/autoruns). */
+  sessionId?: string | null;
   status: RunStatus;
   input: RunInput;
   output: string | null;

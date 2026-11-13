@@ -626,6 +626,20 @@ All helpers (`isNumericText`, `isNegativeValue`, `isUnavailableText`,
   are covered too). `ChatHistory` already memoized assistant Markdown, so the
   remaining per-frame cost is bounded.
 
+- **A placeholder can outlive its run (fixed 2026-11-13).** Persisting once at
+  terminal time assumes the SAME tab is alive to write it. A reload, a second
+  tab, or an app restart mid-run left the empty `status: "queued"` placeholder
+  as the conversation's last turn forever — the answer existed in
+  `HarnessRun.output` but never in the transcript, so it looked deleted.
+  `src/lib/chat/transcript-reconcile.ts` closes that gap server-side: when
+  `GET /api/chat/transcript` lists conversations, any stuck last turn is matched
+  to its completed run (by the turn's `runId`, else the session's newest
+  completed run that started after the prompt) and filled from the stored
+  output, then written back through `writeTranscript` (which keeps the
+  fuller/terminal copy). It is throttled to one pass per five minutes, needs no
+  client change, is a no-op when nothing is stuck, and never touches a failed,
+  cancelled, or non-empty turn.
+
 ### Accessibility
 
 - **Error turns announce.** The error block is now `role="alert"` so it is read
