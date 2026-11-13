@@ -100,6 +100,24 @@ def approve_promotion(
 
     skill_id = request["skillId"]
     version = request["version"]
+    # Re-check the gate at approval time: the flag may have been enabled after
+    # the request was created, and a request must never outlive its evidence.
+    from ..config.flags import get_bool  # noqa: PLC0415
+    from .evaluation import execution_gate_applies, promotion_gate  # noqa: PLC0415
+
+    manifest = registry.manifest(skill_id)
+    evaluation = registry.store.get_evaluation(str(request.get("evaluationId") or ""))
+    if evaluation is not None and manifest is not None:
+        gate = promotion_gate(
+            evaluation,
+            require_execution=(
+                get_bool("HARNESS_SKILL_EXEC_EVAL")
+                and execution_gate_applies(manifest)
+            ),
+            store=registry.store,
+        )
+        if not gate["passed"]:
+            return {"ok": False, "error": gate["reason"], "gate": gate}
     report = registry.validate(skill_id, version)
     if not report["ok"]:
         return {"ok": False, "error": "skill failed validation", "validation": report}

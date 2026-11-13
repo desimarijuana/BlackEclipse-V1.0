@@ -649,20 +649,35 @@ W5 is done when:
   `test_self_modification.py` now explicitly turns the execution gate off
   because it tests TTL/audit, not W5.
 
+### Operational behaviour (fixed 2026-11-12, follow-up)
+
+- **The eval model is auto-resolved.** The Next.js launcher publishes the
+  operator's saved model as `ECLIPSE_SKILL_EVAL_MODEL` /
+  `ECLIPSE_SKILL_EVAL_API_KEY` / `ECLIPSE_SKILL_EVAL_BASE_URL` when it spawns the
+  Python runtime (a real env var still wins). The `/skills/{id}/evaluate` client
+  also sends the app's resolved `modelSettings` per request. Only a truly
+  unconfigured app falls back to `needs_review`.
+- **Failed attempts are held.** `HARNESS_SKILL_EVAL_RETRY_HOURS` (default 12)
+  serves the prior failed/needs-review result for an unchanged fingerprint, so a
+  boot no longer re-runs the same model cases. A manifest change changes the
+  fingerprint and retries immediately.
+- **BM25 uses the lexical canonical vocabulary.** Synonym groups and light
+  stemming from `normalize.py` are applied before BM25, so a paraphrase the
+  lexical gate accepts is not lost to a literal-token mismatch. This is still
+  deterministic lexical overlap, not an embedding.
+- **Curator `apply` hands archive suggestions to the one maintenance pass**
+  (which stays report-only unless its own policy enables auto-archive).
+  Merged instructions are de-duplicated line-by-line; every retained line is
+  verbatim from a source skill.
+
 ### Deliberate gaps (do not report these as landed)
 
-- **No semantic/embedding component.** W5.3 is BM25 + the existing lexical
-  score. A semantic tie-break remains future work and is not needed to pass the
-  labelled eval.
-- **No LLM curator pass.** The deterministic scan and merge-draft assembly are
-  implemented; an optional LLM umbrella writer is not. The merge is faithful
-  concatenation, never invented prose.
-- **No automatic archive in `apply` mode.** Curator `apply` creates proposals
-  and inert drafts; archive suggestions are handed to the existing maintenance
-  pass, which remains report-only unless its own policy enables it.
-- **Execution eval needs a configured eval model.** That is intentional: with no
-  model, a learned skill stays `needs_review` and cannot enable. The
-  zero-config app still boots and serves; it just does not fabricate a pass.
+- **No embedding/vector component.** W5.3 is canonicalized BM25 + the existing
+  lexical score. A semantic tie-break remains future work and is not needed to
+  pass the labelled eval.
+- **No LLM curator prose writer.** Merge drafts are deterministic
+  concatenation + de-duplication, never invented prose. An optional LLM
+  umbrella writer remains future work.
 - **Per-profile memory isolation** is unchanged: profiles already use separate
   namespaces/databases, so retrieval does not add a redundant `profile_id`
   filter.

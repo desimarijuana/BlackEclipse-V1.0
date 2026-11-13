@@ -255,6 +255,11 @@ FLAG_SPECS: dict[str, FlagSpec] = {
         "HARNESS_MEMORY_HYBRID", "bool", "off", owner="W5",
         description="BM25/lexical hybrid memory retrieval",
     ),
+    "HARNESS_SKILL_EVAL_RETRY_HOURS": _spec(
+        "HARNESS_SKILL_EVAL_RETRY_HOURS", "int", "12",
+        minimum=0, maximum=720, owner="W5",
+        description="Backoff before a failed/needs-review execution eval is retried",
+    ),
     # W6 — run kernel / safety
     "HARNESS_FENCED_PROGRESS": _spec(
         "HARNESS_FENCED_PROGRESS", "bool", "on", owner="W6",

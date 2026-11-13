@@ -28,7 +28,7 @@ import hashlib
 import itertools
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from .manifest import SkillManifest
 
@@ -190,6 +190,7 @@ def _merge_draft(
         "",
     ]
     support: dict[str, list[str]] = {}
+    seen_lines: set[str] = set()
     for member in members:
         loaded = registry.get(member.id)
         try:
@@ -199,12 +200,18 @@ def _merge_draft(
         files = _support_files(registry, member.id)
         if files:
             support[member.id] = files
-        sections.extend([
-            f"## From {member.id}",
-            "",
-            (text.strip() or "(no instruction body was stored for this version)"),
-            "",
-        ])
+        # Deduplicate identical body lines across members. This is a
+        # deterministic clean-up, not synthesis: every retained line exists
+        # verbatim in a source skill.
+        kept: list[str] = []
+        for line in (text.strip() or "(no instruction body was stored for this version)").splitlines():
+            normalized = line.strip().lower()
+            if normalized and not line.lstrip().startswith("#"):
+                if normalized in seen_lines:
+                    continue
+                seen_lines.add(normalized)
+            kept.append(line)
+        sections.extend([f"## From {member.id}", "", "\n".join(kept).strip(), ""])
     if support:
         sections.extend(["## Supporting files", ""])
         for skill_id, files in sorted(support.items()):
@@ -370,6 +377,7 @@ def run_curator(
     *,
     mode: Optional[str] = None,
     policy: Optional[CuratorPolicy] = None,
+    maintenance_policy: Optional[dict[str, Any]] = None,
     apply: bool = False,
 ) -> dict[str, Any]:
     """Run one curator pass and persist the report/proposals."""
@@ -402,13 +410,32 @@ def run_curator(
                 "skillIds": proposal.skillIds, "status": status,
                 "proposedDraftId": f"{draft['skillId']}@{draft['version']}" if draft else None,
             })
+        applied = 0
+        maintenance: dict[str, Any] = {}
+        if mode == "apply":
+            # Archive suggestions are handed to the ONE maintenance pass, which
+            # is report-only unless its own policy enables auto-archive. The
+            # curator never bypasses pinned exemptions or deletes anything.
+            try:
+                from .maintenance import run_skill_maintenance  # noqa: PLC0415
+
+                maintenance = run_skill_maintenance(
+                    store, registry, maintenance_policy or {},
+                )
+                applied = len(maintenance.get("archived") or [])
+            except Exception as exc:  # noqa: BLE001 - hand-off must not fail the run
+                maintenance = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         store.finish_curator_run(
             run_id, status="completed",
             skills_scanned=len(registry.list_summaries()),
             groups_found=len(proposals),
             proposals_created=len(created),
-            applied=0,
-            details={"mode": mode, "kinds": sorted({p.kind for p in proposals})},
+            applied=applied,
+            details={
+                "mode": mode,
+                "kinds": sorted({p.kind for p in proposals}),
+                "maintenance": maintenance,
+            },
         )
         store.append_event(
             "skill.curator_run",
@@ -426,6 +453,7 @@ def run_curator(
         return {
             "ok": True, "runId": run_id, "mode": mode,
             "proposals": len(created), "created": created,
+            "applied": applied, "maintenance": maintenance,
         }
     except Exception as exc:  # noqa: BLE001 - a curator pass never blocks boot
         store.finish_curator_run(run_id, status="failed", error=f"{type(exc).__name__}: {exc}")
@@ -520,6 +548,7 @@ def curator_due(store: Any, policy: CuratorPolicy) -> bool:
 
 def maybe_run_curator(
     store: Any, registry: Any, *, policy: Optional[CuratorPolicy] = None,
+    maintenance_policy: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Cadence-guarded pass (no daemon). Concurrent callers cannot interleave."""
     policy = policy or CuratorPolicy.from_flags()
@@ -532,7 +561,10 @@ def maybe_run_curator(
     try:
         if not curator_due(store, policy):
             return {"ok": True, "skipped": True, "reason": "not_due", "proposals": 0}
-        return run_curator(store, registry, policy=policy)
+        return run_curator(
+            store, registry, policy=policy,
+            maintenance_policy=maintenance_policy,
+        )
     finally:
         _CURATOR_LOCK.release()
 

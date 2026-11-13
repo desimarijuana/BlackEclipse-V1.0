@@ -373,10 +373,19 @@ export async function evaluateSkill(
   version?: string,
   runRegression = false
 ): Promise<{ ok: boolean; evaluationId?: string; status: string; dimensions: SkillEvaluationRecord["dimensions"]; error?: string }> {
+  // The behavioural tier needs a model. Resolve the app's configured model the
+  // same way a chat run does, so an operator does not have to configure a
+  // second eval-only credential. If none is configured, the runtime records
+  // `needs_review` honestly rather than fabricating a pass.
+  const modelSettings = await resolveModelSettings().catch(() => undefined);
   return request(`/skills/${encodeURIComponent(skillId)}/evaluate`, {
     method: "POST",
-    timeoutMs: 120_000,
-    body: JSON.stringify({ version, runRegression }),
+    timeoutMs: 240_000,
+    body: JSON.stringify({
+      version,
+      runRegression,
+      ...(modelSettings?.model ? { modelSettings } : {}),
+    }),
   });
 }
 
@@ -591,6 +600,52 @@ export async function rejectDraft(skillId: string, operator: boolean, requestId:
   return request(`/skill-drafts/${encodeURIComponent(skillId)}/reject`, {
     method: "POST",
     body: JSON.stringify({ operator, requestId, reason }),
+  });
+}
+
+// ── W5.2 skill curator ───────────────────────────────────────────────────────
+
+export interface SkillCuratorProposal {
+  id: string;
+  runId: string;
+  kind: string;
+  skillIds: string[];
+  baseVersion?: string | null;
+  proposedDraftId?: string | null;
+  diff?: Record<string, unknown> | null;
+  reason?: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface SkillCuratorReport {
+  success: boolean;
+  runs: Array<Record<string, unknown>>;
+  proposals: SkillCuratorProposal[];
+}
+
+export async function getSkillCuratorReport(): Promise<SkillCuratorReport> {
+  return request<SkillCuratorReport>("/skills/curator", { method: "GET" });
+}
+
+export async function runSkillCurator(mode?: "dry_run" | "propose" | "apply") {
+  return request<{ success: boolean; runId?: string; mode?: string; proposals?: number }>(
+    "/skills/curator/run",
+    { method: "POST", body: JSON.stringify({ mode }) },
+  );
+}
+
+export async function approveCuratorProposal(proposalId: string, notes = "") {
+  return request(`/skills/curator/proposals/${encodeURIComponent(proposalId)}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function rejectCuratorProposal(proposalId: string, notes = "") {
+  return request(`/skills/curator/proposals/${encodeURIComponent(proposalId)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ notes }),
   });
 }
 

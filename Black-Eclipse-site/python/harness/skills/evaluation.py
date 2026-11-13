@@ -53,6 +53,7 @@ def execution_gate_applies(manifest: SkillManifest) -> bool:
     return (
         str(manifest.id or "").startswith("learned.")
         or str(manifest.origin or "") in _EXECUTION_GATED_ORIGINS
+        or "curated" in {str(tag).lower() for tag in manifest.tags}
     )
 
 
@@ -321,6 +322,32 @@ def evaluate_skill(
             "dimensions": [], "cases": [], "fingerprint": fingerprint,
         }
 
+    # A failed / needs-review execution attempt is held for a bounded backoff.
+    # Without this, every boot re-ran the same real-model cases for the same
+    # unchanged draft (cost + latency) even though nothing had changed. A
+    # manifest change changes the fingerprint and re-runs immediately.
+    if execution_required and not execution_cached and not run_regression and prior:
+        from ..config.flags import get_int  # noqa: PLC0415
+
+        latest = prior[0]
+        same_attempt = (
+            str(latest.get("version")) == str(resolved_version)
+            and latest.get("executionFingerprint") == fingerprint
+            and str(latest.get("status")) in ("failed", "needs_review")
+        )
+        retry_hours = get_int("HARNESS_SKILL_EVAL_RETRY_HOURS")
+        if same_attempt and retry_hours > 0 and _evaluation_age_hours(latest.get("createdAt")) < retry_hours:
+            return {
+                "ok": True, "skipped": True, "reason": "execution_retry_backoff",
+                "skillId": skill_id, "version": resolved_version,
+                "status": latest.get("status"),
+                "summary": f"execution retry held for {retry_hours}h after an unchanged attempt",
+                "dimensions": latest.get("dimensions") or [],
+                "cases": [], "fingerprint": fingerprint,
+                "evaluationId": latest.get("id"),
+                "execution": None,
+            }
+
     dimensions: list[dict[str, Any]] = []
 
     # 1. Manifest validation (pydantic already passed at load; re-affirm).
@@ -382,6 +409,12 @@ def evaluate_skill(
     if execution_needed:
         from .execution_eval import EXECUTION_KINDS, evaluate_skill_execution  # noqa: PLC0415
 
+        # A draft is inert and therefore not executable. `testing` is the
+        # existing evaluation state: executable only in non-interactive modes,
+        # never enabled, never selectable for a live user turn.
+        stored_status = str((registry.store.get_version(skill_id, resolved_version) or {}).get("status") or "")
+        if stored_status in ("draft", "evaluating", "review"):
+            registry.store.set_version_status(skill_id, resolved_version, "testing")
         execution_cases = [
             case for case in cases
             if str(case.get("kind") or "") in EXECUTION_KINDS
@@ -622,6 +655,24 @@ def _evidence_shape(manifest: SkillManifest) -> tuple[bool, str]:
         # output still has an honest place for limitations and missing data.
         return True, "quality output can report limitations and missing data"
     return False, "output schema has no evidence/references field"
+
+
+def _evaluation_age_hours(stamp: Any) -> float:
+    """Age of a stored evaluation timestamp, in hours (∞ when unparseable)."""
+    import datetime  # noqa: PLC0415
+
+    if not stamp:
+        return float("inf")
+    try:
+        parsed = datetime.datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return float("inf")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return max(
+        0.0,
+        (datetime.datetime.now(datetime.timezone.utc) - parsed).total_seconds() / 3600.0,
+    )
 
 
 def _version_key(version: Any) -> tuple[int, ...]:

@@ -426,7 +426,10 @@ def run_skill_curator(
     mode = (payload or {}).get("mode")
     return {
         "success": True,
-        **run_curator(service.skill_store, service.skill_registry, mode=mode),
+        **run_curator(
+            service.skill_store, service.skill_registry, mode=mode,
+            maintenance_policy=service.memory.policy.get_all(),
+        ),
     }
 
 

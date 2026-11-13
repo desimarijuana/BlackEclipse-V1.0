@@ -1,6 +1,21 @@
 # Change Log
 
 ## 2026-11-12
+- **fix(harness): regenerate the tool registry and finish line-ending
+  normalization.** `npm run eval:registry` now publishes 1,100 tools (digest
+  `8e314b7245ccf458`), so `test_public_api` matches a fresh generation again;
+  `code-browser.ts` and `i18n/dictionaries/builds.ts` are LF-only, so the
+  gitignore guard sees no mixed-ending file. Docs:
+  `docs/harness/tool-registry.json` (generated).
+- **fix(harness): keep the tree green after the W4/checkpoint merge.** Passes the
+  run's fenced `runtime_id` into `_finish_research` (a concurrent W6 change left
+  it undefined, failing every gated research run), normalizes mixed CRLF/LF in
+  `routers/recovery.py` and the touched command files, and extracts the
+  `/rollback` + `/terminal` specs and the `/rollback` handler into
+  `command-specs-dev.ts` / `command-handlers-dev.ts` so the size ratchets hold
+  while the W4 command specs/handlers live in their own modules. Tests: full
+  vitest (516 files / 4749 tests) green, targeted Python (208 + 1408 tail)
+  green, eval gates ALL PASS, `tsc` clean. Docs: `docs/CHANGELOG.md`.
 - **feat(harness): W3 tool execution (core).** Adds `tool_turn.py` (the ONE
   preflight/dispatch/postflight flow; contiguous `parallel_safe` batches,
   semaphore + batch deadline, per-call context clone, index-addressed results,
@@ -91,6 +106,16 @@
   ratchet to the measured shared-tree lines (pre-existing W3/W5 growth). Docs:
   `docs/harness/roadmap/w6-run-kernel-integrity-plan.md`,
   `docs/NAVIGATION.md`.
+- **fix(harness): W5 operational follow-ups.** The Next.js runtime launcher now
+  publishes the saved app model as `ECLIPSE_SKILL_EVAL_MODEL` (plus key/base URL)
+  so boot/draft execution evaluation works without a second credential; the
+  evaluate client also sends per-request `modelSettings`. Failed/needs-review
+  execution attempts are held for `HARNESS_SKILL_EVAL_RETRY_HOURS` (default 12)
+  instead of re-running every boot. BM25 now ranks over the same canonical
+  synonym/stem vocabulary as the lexical scorer. Curator `apply` hands archive
+  suggestions to the one maintenance pass, and merged instructions are
+  de-duplicated line-by-line. Docs:
+  `docs/harness/roadmap/w5-learning-loop-plan.md` §13 update.
 - **feat(harness): W5 learning loop (core).** Adds
   `skills/execution_eval.py` (real execution tier through
   `ExecutionMode="evaluation"`, existing graders, `ExecutionEvalResult`,

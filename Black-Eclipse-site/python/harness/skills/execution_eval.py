@@ -23,6 +23,7 @@ Design rules:
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
@@ -242,7 +243,7 @@ def evaluate_skill_execution(
     all_scores: dict[str, list[float]] = {}
     for index, case in enumerate(execution_cases):
         case_id = str(case.get("caseId") or f"case_{index + 1}")
-        run_id = f"skileval_{manifest.id.replace('.', '_')}_{index + 1}"
+        run_id = f"skileval_{manifest.id.replace('.', '_')}_{uuid.uuid4().hex[:12]}"
         try:
             invocation = invoker.invoke(manifest, case, run_id=run_id)
         except Exception as exc:  # noqa: BLE001 - an invocation crash is a failed case
@@ -344,10 +345,22 @@ class RuntimeSkillInvoker:
             runId=run_id,
             timeoutMs=self.timeout_ms,
         )
-        result = asyncio.run(execute_skill(
+        coro = execute_skill(
             request, self.registry, self.tool_registry, self.data_bridge,
             self.memory_store, self.bus, memory_service=self.memory_service,
-        ))
+        )
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            result = asyncio.run(coro)
+        else:
+            # The evaluator is normally called from a sync endpoint/boot hook,
+            # but never assume: a caller inside an event loop gets a dedicated
+            # thread+loop instead of `asyncio.run` raising.
+            import concurrent.futures  # noqa: PLC0415
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                result = pool.submit(asyncio.run, coro).result()
         return InvocationResult(
             ok=result.status in ("completed", "ok", "passed", "succeeded", "success"),
             runId=result.runId or run_id,

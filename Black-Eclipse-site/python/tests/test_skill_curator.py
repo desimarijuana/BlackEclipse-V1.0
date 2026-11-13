@@ -47,7 +47,10 @@ def _add(store, manifest):
         category=manifest.category, latest_version=manifest.version,
         status="enabled", tags=manifest.tags,
     )
-    store.save_version(manifest.model_dump(), manifest.content_hash(), instructions=manifest.name)
+    store.save_version(
+        manifest.model_dump(), manifest.content_hash(),
+        instructions="Shared procedure body.",
+    )
 
 
 @pytest.fixture()
@@ -140,6 +143,27 @@ def test_compliance_and_pinned_skills_are_skipped(tmp_path):
     ids = {skill_id for proposal in proposals for skill_id in proposal.skillIds}
     assert "skill.protected" not in ids
     store.close()
+
+
+def test_apply_hands_archive_suggestions_to_maintenance(registry):
+    reg, store = registry
+    result = run_curator(store, reg, mode="apply", maintenance_policy={})
+    assert result["ok"]
+    assert result["applied"] == 0, "report-only maintenance must not archive"
+    assert result["maintenance"], "apply must run the one maintenance pass"
+
+
+def test_merge_deduplicates_identical_body_lines(registry):
+    reg, store = registry
+    result = run_curator(store, reg, mode="propose")
+    assert result["ok"]
+    proposal = next(p for p in store.list_curator_proposals() if p["proposedDraftId"])
+    skill_id, version = proposal["proposedDraftId"].split("@")
+    stored = store.get_version(skill_id, version)
+    instructions = stored["instructions"]
+    # The fixture stores the same one-line body on both members; the merged
+    # draft must carry it once, not twice.
+    assert instructions.count("Shared procedure body.") == 1
 
 
 def test_off_mode_writes_nothing(registry):

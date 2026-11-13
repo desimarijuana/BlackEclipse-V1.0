@@ -1124,6 +1124,7 @@ class AgenticService:
             if policy.mode != "off":
                 result["skillCurator"] = maybe_run_curator(
                     self.skill_store, self.skill_registry, policy=policy,
+                    maintenance_policy=self.memory.policy.get_all(),
                 )
         except Exception:  # noqa: BLE001 - the curator must never block boot
             log.warning("startup skill curator failed", exc_info=True)
@@ -1279,34 +1280,39 @@ class AgenticService:
             pass
         return result
 
-    def build_execution_eval_invoker(self) -> Any:
-        """The W5.1 execution runner, only when an eval model is configured.
+    def build_execution_eval_invoker(self, model_settings: Any = None) -> Any:
+        """The W5.1 execution runner.
 
-        Zero-config is preserved: with no ``ECLIPSE_SKILL_EVAL_MODEL`` this returns
-        ``None``, and the evaluator records ``needs_review`` (no behavioural
-        evidence) rather than fabricating a model. Format:
-        ``provider:model`` (e.g. ``openai:gpt-4o-mini``); credentials come from
-        ``ECLIPSE_SKILL_EVAL_API_KEY`` / ``ECLIPSE_SKILL_EVAL_BASE_URL``.
+        Precedence: an explicit ``model_settings`` from the calling request (the
+        front door resolves the app's configured model), then
+        ``ECLIPSE_SKILL_EVAL_MODEL=provider:model``. With neither, returns
+        ``None`` and the evaluator records ``needs_review`` â€” a missing model is
+        never simulated into a pass.
         """
         import os  # noqa: PLC0415
 
-        raw = (os.environ.get("ECLIPSE_SKILL_EVAL_MODEL") or "").strip()
-        if not raw or ":" not in raw:
-            return None
-        provider, model = raw.split(":", 1)
-        provider, model = provider.strip(), model.strip()
-        if not provider or not model:
-            return None
         try:
             from .schemas import ModelSettings  # noqa: PLC0415
             from .skills.execution_eval import RuntimeSkillInvoker  # noqa: PLC0415
 
-            settings = ModelSettings(
-                provider=provider,
-                model=model,
-                api_key=os.environ.get("ECLIPSE_SKILL_EVAL_API_KEY"),
-                base_url=os.environ.get("ECLIPSE_SKILL_EVAL_BASE_URL"),
-            )
+            if isinstance(model_settings, ModelSettings):
+                settings = model_settings
+            elif isinstance(model_settings, dict) and model_settings.get("provider") and model_settings.get("model"):
+                settings = ModelSettings.model_validate(model_settings)
+            else:
+                raw = (os.environ.get("ECLIPSE_SKILL_EVAL_MODEL") or "").strip()
+                if not raw or ":" not in raw:
+                    return None
+                provider, model = raw.split(":", 1)
+                provider, model = provider.strip(), model.strip()
+                if not provider or not model:
+                    return None
+                settings = ModelSettings(
+                    provider=provider,
+                    model=model,
+                    api_key=os.environ.get("ECLIPSE_SKILL_EVAL_API_KEY"),
+                    base_url=os.environ.get("ECLIPSE_SKILL_EVAL_BASE_URL"),
+                )
             return RuntimeSkillInvoker(
                 registry=self.skill_registry,
                 tool_registry=self.registry,

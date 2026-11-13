@@ -46,6 +46,7 @@ reviewer can answer two questions without reading the whole programme:
 | `HARNESS_SKILL_EXEC_EVAL` | `on` | on/off | W5 | `off` uses static eval | after W5 |
 | `HARNESS_SKILL_CURATOR` | `dry_run` | dry_run/propose/apply/off | W5 | `off` disables | after W5 |
 | `HARNESS_MEMORY_HYBRID` | `off` | on/off | W5 | `off` uses lexical only | after W5 |
+| `HARNESS_SKILL_EVAL_RETRY_HOURS` | `12` | 0–720 | W5 | `0` retries immediately; a positive value holds an unchanged failed attempt | after W5 |
 | `HARNESS_FENCED_PROGRESS` | `on` | on/off | W6 | `off` uses `update_run` | after W6 |
 | `HARNESS_CHECKPOINT_ATOMIC` | `on` | on/off | W6 | `off` uses two commits | after W6 |
 | `HARNESS_EVENT_SEQ` | `on` | on/off | W6 | `off` uses per-emitter seq | after W6 |

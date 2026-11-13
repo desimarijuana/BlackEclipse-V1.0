@@ -381,13 +381,26 @@ def retrieve_memories(
         bm25_by_id: dict[str, float] = {}
         if hybrid_on and eligible and terms:
             from .bm25 import bm25_scores  # noqa: PLC0415
+            from .normalize import canonical_tokens  # noqa: PLC0415
 
+            # BM25 runs over the SAME canonical vocabulary the lexical scorer
+            # uses (synonyms + light stemming), so a paraphrase the lexical
+            # relevance gate already accepts is not lost to a literal-token
+            # mismatch. This is still deterministic lexical overlap — not an
+            # embedding and never an admission signal.
+            bm25_query = " ".join(canonical_tokens(terms))
             bm25_by_id = bm25_scores(
-                query,
+                bm25_query,
                 {
-                    str(memory.get("id")): " ".join(
-                        str(memory.get(key) or "") for key in ("content", "subject")
-                    )
+                    str(memory.get("id")): " ".join(canonical_tokens(
+                        re.findall(
+                            r"[a-z0-9]+",
+                            " ".join(
+                                str(memory.get(key) or "")
+                                for key in ("content", "subject")
+                            ).lower(),
+                        )
+                    ))
                     for memory in eligible
                 },
             )

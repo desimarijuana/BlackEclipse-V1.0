@@ -213,6 +213,9 @@ def test_evaluate_skill_persists_execution_evidence(learned_registry, monkeypatc
     assert stored["executionRunIds"] == list(execution["runIds"])
     assert stored["executionScores"]["honesty"] == 1.0
     assert any(d["name"] == "execution_eval" for d in stored["dimensions"])
+    # A draft becomes `testing` (non-interactive only) so the real runtime can
+    # execute it; it is still not enabled.
+    assert store.get_version("learned.execution-demo", "0.1.0")["status"] == "testing"
 
     # The production invoker writes a SkillExecution row per run; mirror that so
     # the gate can prove provenance, not just a list of ids.
@@ -239,6 +242,27 @@ def test_evaluate_skill_without_runner_is_needs_review(learned_registry):
     dimension = next(d for d in report["dimensions"] if d["name"] == "execution_eval")
     assert dimension["status"] == "needs_review"
     assert "no execution runner" in dimension["detail"]
+
+
+def test_failed_execution_is_held_for_a_bounded_backoff(learned_registry, monkeypatch):
+    monkeypatch.setenv("HARNESS_SKILL_EXEC_EVAL", "on")
+    monkeypatch.setenv("HARNESS_SKILL_EVAL_RETRY_HOURS", "12")
+    registry, _ = learned_registry
+    invoker = _Invoker(fail=True)
+    first = evaluate_skill(
+        "learned.execution-demo", "0.1.0", registry,
+        require_execution=True, execution_invoker=invoker,
+    )
+    assert first["execution"]["status"] == "failed"
+    assert first["status"] == "needs_review"
+    attempts = len(invoker.calls)
+    second = evaluate_skill(
+        "learned.execution-demo", "0.1.0", registry,
+        require_execution=True, execution_invoker=invoker,
+    )
+    assert second["skipped"] is True
+    assert second["reason"] == "execution_retry_backoff"
+    assert len(invoker.calls) == attempts, "an unchanged failed attempt must not re-run"
 
 
 def test_flag_off_preserves_static_behaviour(learned_registry):

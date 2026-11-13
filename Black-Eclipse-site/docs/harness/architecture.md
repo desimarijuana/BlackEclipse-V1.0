@@ -447,7 +447,9 @@ registry or agent loop. `python/harness/skills/` owns it:
 | `learning.py` | run-trace analysis → inert learning candidates; ordinary-chat eligibility + explicit "turn this into a skill" candidates |
 | `draft.py` | candidate → unvalidated draft with a real generated procedure + evaluation cases (never auto-enabled) |
 | `evaluation.py` | deterministic evaluation + promotion gates |
-| `lifecycle.py` | submit-review / approve / reject / rollback |
+| `execution_eval.py` | the W5.1 **behavioural** tier: runs the skill through `execute_skill` in `ExecutionMode="evaluation"`, grades the trajectory with `evaluation/graders`, and returns run ids/scores; a static-only pass never satisfies the promotion/enable gate |
+| `curator.py` | the W5.2 curator: deterministic duplicate/near-duplicate/eval-debt/tag-drift scan, protected-skill rules, inert merge drafts, cadence + lock; modes `off|dry_run|propose|apply` behind `HARNESS_SKILL_CURATOR` |
+| `lifecycle.py` | submit-review / approve / reject / rollback (requires execution evidence for learned skills when the W5 flag is on) |
 | `patches.py` | M2 structured skill patches: JSON-pointer `replace`/`add`/`remove`, allowed-field set, forbidden identity/permission/tool/risk fields, stale-base conflict + never-canary classification |
 | `versioning.py` | M2 versioned activation: propose → evaluate → canary → activate, atomic rollback (preserving both versions), automatic rollback triggers, version history |
 | `library/` | the shipped skills (research, quality, finance, system) |
@@ -463,6 +465,14 @@ grants.
 Discovery is deterministic and metadata-only (`discover()`), so full instructions
 load **only** for a selected skill — progressive disclosure by construction.
 Skill `skill.*` events ride the same `RunEmitter`/bus/persistence as `tool.*`.
+
+**W5 learning loop.** `skills/execution_eval.py` is the behavioural tier;
+`skills/curator.py` is consolidation. Memory ranking has one hybrid branch:
+`eclipse_memory/bm25.py` (corpus-level IDF) is added as a bounded tie-break in
+`retrieval.retrieve_memories` behind `HARNESS_MEMORY_HYBRID`; the lexical
+relevance gate, scope/status/privacy filters and contradiction guard remain
+authoritative, and flag-off is the original ordering. See
+[`roadmap/w5-learning-loop-plan.md`](./roadmap/w5-learning-loop-plan.md).
 
 Details: [`phase-3-architecture.md`](./phase-3-architecture.md).
 

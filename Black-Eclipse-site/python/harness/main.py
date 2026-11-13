@@ -897,7 +897,9 @@ def evaluate_skill_endpoint(skill_id: str, payload: dict[str, Any]) -> dict[str,
         metrics=payload.get("metrics"),
         base_metrics=payload.get("baseMetrics"),
         require_execution=get_bool("HARNESS_SKILL_EXEC_EVAL"),
-        execution_invoker=service.build_execution_eval_invoker(),
+        execution_invoker=service.build_execution_eval_invoker(
+            (payload or {}).get("modelSettings")
+        ),
     )
     return {"success": result.get("ok", False), **result}
 
@@ -989,7 +991,9 @@ def evaluate_skill_version(skill_id: str, version: str, payload: Optional[dict[s
         service.skill_registry, skill_id, version,
         actor=_actor(bool((payload or {}).get("operator"))),
         require_execution=get_bool("HARNESS_SKILL_EXEC_EVAL"),
-        execution_invoker=service.build_execution_eval_invoker(),
+        execution_invoker=service.build_execution_eval_invoker(
+            (payload or {}).get("modelSettings")
+        ),
     )
     return {"success": result.get("ok", False), **result}
 

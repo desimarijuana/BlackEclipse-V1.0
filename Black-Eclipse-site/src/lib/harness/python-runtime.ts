@@ -469,6 +469,19 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       if (cfg.model && !process.env.HARNESS_JOB_MODEL) extraEnv.HARNESS_JOB_MODEL = cfg.model;
       if (cfg.baseUrl && !process.env.HARNESS_JOB_BASE_URL) extraEnv.HARNESS_JOB_BASE_URL = cfg.baseUrl;
       if (cfg.apiKey && !process.env.HARNESS_JOB_API_KEY) extraEnv.HARNESS_JOB_API_KEY = cfg.apiKey;
+      // W5.1: the boot/draft execution evaluation needs a model. Use the SAME
+      // operator-configured model rather than requiring a second eval-only
+      // credential. A real env var wins; with no configured model the tier
+      // stays an honest `needs_review` (never simulated).
+      if (provider && cfg.model && !process.env.ECLIPSE_SKILL_EVAL_MODEL) {
+        extraEnv.ECLIPSE_SKILL_EVAL_MODEL = `${provider}:${cfg.model}`;
+        if (cfg.baseUrl && !process.env.ECLIPSE_SKILL_EVAL_BASE_URL) {
+          extraEnv.ECLIPSE_SKILL_EVAL_BASE_URL = cfg.baseUrl;
+        }
+        if (cfg.apiKey && !process.env.ECLIPSE_SKILL_EVAL_API_KEY) {
+          extraEnv.ECLIPSE_SKILL_EVAL_API_KEY = cfg.apiKey;
+        }
+      }
     } catch (err) {
       console.warn("[harness] could not resolve saved model config for the runtime:", err);
     }

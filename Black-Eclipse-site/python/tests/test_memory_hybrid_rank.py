@@ -70,6 +70,26 @@ def test_no_signal_query_does_not_admit_unrelated_memory(service, monkeypatch):
     assert not any("Lisbon" in m["content"] for m in outcome.memories)
 
 
+def test_bm25_uses_the_same_canonical_synonyms_as_the_lexical_scorer(service, monkeypatch):
+    monkeypatch.setenv("HARNESS_MEMORY_HYBRID", "on")
+    service.write_memory(
+        memory_type="semantic",
+        content="The portfolio volatility limit is 12 percent.",
+        source="manual", scope="general", confidence=0.8, allow_duplicate=True,
+    )
+    # A second, unrelated document gives BM25 real IDF: with one document every
+    # term is "in every document" and correctly contributes zero.
+    service.write_memory(
+        memory_type="semantic", content="The office is in Lisbon.",
+        source="manual", scope="general", confidence=0.8, allow_duplicate=True,
+    )
+    outcome = service.retrieve(query="risk limit", scope="general", limit=8)
+    assert outcome.diagnostics["hybrid"] is True
+    # "volatility" and "risk" are one canonical group in normalize.py; BM25 must
+    # see the overlap rather than requiring the literal query token.
+    assert any(score > 0 for score in outcome.diagnostics["bm25ByMemory"].values())
+
+
 def test_labelled_eval_keeps_safety_thresholds_in_both_modes(monkeypatch):
     for mode in ("off", "on"):
         monkeypatch.setenv("HARNESS_MEMORY_HYBRID", mode)

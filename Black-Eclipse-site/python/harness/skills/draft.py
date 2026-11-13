@@ -171,10 +171,13 @@ def evaluate_drafted_skills(
 
     evaluated: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    for row in store.list_skills(status="draft")[:limit]:
+    candidates = [
+        row for row in store.list_skills()
+        if str(row.get("id") or "").startswith("learned.")
+        and str(row.get("status") or "") in ("draft", "testing")
+    ][:limit]
+    for row in candidates:
         skill_id = str(row.get("id") or "")
-        if not skill_id.startswith("learned."):
-            continue
         if registry.load_stored(skill_id) is None:
             skipped.append({"skillId": skill_id, "reason": "manifest_unreadable"})
             continue
