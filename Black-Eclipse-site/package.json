@@ -13,6 +13,7 @@
     "setup:pine": "npm --prefix pine-engine install --omit=dev --no-audit --no-fund",
     "setup:git": "node scripts/install-git-hooks.js",
     "setup:desktop": "node scripts/desktop-shortcut.js",
+    "desktop:dev-bridge": "node scripts/desktop-dev-bridge.js",
     "desktop:dev": "cargo run --manifest-path desktop/src-tauri/Cargo.toml",
     "desktop:check": "cargo check --manifest-path desktop/src-tauri/Cargo.toml",
     "desktop:build": "cargo build --manifest-path desktop/src-tauri/Cargo.toml --release",

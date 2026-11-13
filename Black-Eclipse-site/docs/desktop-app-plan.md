@@ -638,5 +638,29 @@ works, others silently do nothing) and the attention hint has no portable
 equivalent. Documented as a gap rather than faked; Windows is the shipped target
 and macOS uses the native badge + attention APIs.
 
+## 21. Developer mode: one UI for desktop and web
+
+A packaged install ships its own frozen copy of the UI under
+`<install>\app`, and the shell prefers that copy over any repository checkout.
+That is correct for a shipped build, but on a development machine it makes the
+desktop window drift from `npm run dev` / `npm run up` — the same symptom as
+"the web app has my changes, the desktop app does not".
+
+`npm run desktop:dev-bridge` (`scripts/desktop-dev-bridge.js`) resolves this:
+
+1. Renames `<install>\app` to `<install>\app.bundled-<version>` (nothing lost;
+   rename it back to return to the self-contained build).
+2. Writes a small `<install>\app\scripts\desktop-server.js` bridge that
+   `chdir`s to this repository and requires the repo's own
+   `scripts/desktop-server.js`.
+3. The shell's normal root discovery finds `app`, runs the bridge, and the
+   bridge starts `next start` from the repository against the same `.next`
+   build the web app uses.
+
+The bridge stores no data of its own: `scripts/desktop-server.js` still
+resolves the repo root, so the desktop and web app share one data directory and
+one build. Re-run the command after a fresh desktop install (an installer
+restores the bundled `app`). It is Windows-only, matching the packaged shell.
+
 
 
