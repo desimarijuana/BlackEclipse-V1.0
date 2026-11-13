@@ -34,6 +34,15 @@ export class VoiceRecorder {
     return this.recorder !== null;
   }
 
+  /**
+   * The live microphone stream, or null between sessions.
+   * Exposed so the visual level meter can analyse the SAME stream; it must not
+   * take ownership of the tracks (stop/cancel still release them).
+   */
+  getStream(): MediaStream | null {
+    return this.stream;
+  }
+
   async start(): Promise<void> {
     if (this.recorder) return;
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {

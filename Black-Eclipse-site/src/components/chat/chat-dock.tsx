@@ -29,7 +29,9 @@ import {
   ArrowUp, Bot, Maximize2, Minimize2, Minus, Pause, Plus, SquarePen, Trash2,
   Image as ImageIcon, Layers, Blocks,
 } from '@/lib/icons';
-import { VoiceInputButton } from './voice-input-button';
+import { VoiceInputButtonView } from './voice-input-button';
+import { VoiceFireField } from './voice-fire-field';
+import { useVoiceInput } from '@/hooks/use-voice-input';
 import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import {
@@ -211,6 +213,22 @@ export function ChatDock({
     },
     [setQuery],
   );
+  // The dock owns its dictation session so its composer can morph into the
+  // same fire field as the full composer.
+  const voice = useVoiceInput(insertVoiceText);
+  const voiceActive = voice.state !== 'idle';
+  const cancelVoiceRef = useRef(voice.cancel);
+  cancelVoiceRef.current = voice.cancel;
+  useEffect(() => {
+    if (!voiceActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      cancelVoiceRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [voiceActive]);
   const sessionIdRef = useRef<string>('dock-temp');
   const [dockSessionId, setDockSessionId] = useState<string>('dock-temp');
   const [pickerMode, setPickerMode] = useState<'all' | 'images' | null>(null);
@@ -775,23 +793,60 @@ export function ChatDock({
         {/* Composer — always visible, bottom-centre. */}
         <div
           ref={setComposerEl}
+          data-voice={voiceActive ? 'active' : undefined}
           className="rounded-[1.75rem] border border-white/12 dark:border-white/8 glass-card p-2 shadow-2xl shadow-black/50"
         >
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            placeholder={placeholder}
-            aria-label={title}
-            className="max-h-[200px] w-full resize-none bg-transparent px-3 pb-1 pt-2.5 text-sm leading-relaxed text-foreground outline-none scrollbar-hide placeholder:text-muted-foreground/70"
-          />
+          <div className={cn('relative', voiceActive && 'h-[84px]')}>
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              readOnly={voiceActive}
+              onKeyDown={e => {
+                if (voiceActive) {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    voice.cancel();
+                    return;
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    voice.stop();
+                    return;
+                  }
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              placeholder={placeholder}
+              aria-label={title}
+              className={cn(
+                'max-h-[200px] w-full resize-none bg-transparent px-3 pb-1 pt-2.5 text-sm leading-relaxed text-foreground outline-none scrollbar-hide placeholder:text-muted-foreground/70',
+                voiceActive && 'pointer-events-none select-none opacity-0',
+              )}
+            />
+            {voiceActive && (
+              <div className="absolute inset-0 z-10">
+                <VoiceFireField
+                  meterRef={voice.meterRef}
+                  phase={
+                    voice.state === 'starting'
+                      ? 'starting'
+                      : voice.state === 'transcribing'
+                        ? 'transcribing'
+                        : 'recording'
+                  }
+                  transcript={query}
+                  interim={voice.interim}
+                  height={84}
+                  className="h-full"
+                />
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center gap-1.5 px-1">
             <DropdownMenu>
@@ -867,13 +922,13 @@ export function ChatDock({
             />
 
             <div className="ml-auto flex items-center gap-1.5">
-              <VoiceInputButton
-                onTranscript={insertVoiceText}
+              <VoiceInputButtonView
+                voice={voice}
                 onStart={captureVoiceSelection}
                 className="h-9 w-9"
                 iconSize={17}
               />
-              {busy ? (
+              {!voiceActive && (busy ? (
                 <>
                   {canQueue && (
                     <button
@@ -913,7 +968,7 @@ export function ChatDock({
                 >
                   <ArrowUp size={17} />
                 </button>
-              )}
+              ))}
             </div>
           </div>
           {pickerMode ? (

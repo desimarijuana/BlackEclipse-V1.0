@@ -1335,6 +1335,25 @@ html:not(.dark) .glass-composer {
   background: rgba(255, 255, 255, 0.22);
   box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
+/* Voice field — while dictating, the composer is an ember bed. Only the rim
+ * warms; the fill stays the same near-transparent glass so the flame reads
+ * through it. No new backdrop-filter (the composer already owns one). */
+.glass-composer[data-voice="active"],
+.glass-card[data-voice="active"] {
+  border-color: rgba(255, 122, 42, 0.38);
+  box-shadow:
+    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),
+    inset 0 1px 0 rgba(255, 176, 108, 0.16),
+    0 0 0 1px rgba(255, 122, 42, 0.10);
+}
+html:not(.dark) .glass-composer[data-voice="active"],
+html:not(.dark) .glass-card[data-voice="active"] {
+  border-color: rgba(198, 84, 18, 0.35);
+  box-shadow:
+    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.25)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 0 1px rgba(198, 84, 18, 0.08);
+}
 /* Frosted-glass button â€” translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
 .glass-button {

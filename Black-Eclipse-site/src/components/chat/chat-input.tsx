@@ -5,7 +5,9 @@ import { createPortal } from 'react-dom';
 import { Plus, ArrowUp, Pause, Loader2, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen, MessageSquareText } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { ProviderLogo } from '@/components/providers/provider-logo';
-import { VoiceInputButton } from './voice-input-button';
+import { VoiceInputButtonView } from './voice-input-button';
+import { VoiceFireField } from './voice-fire-field';
+import { useVoiceInput } from '@/hooks/use-voice-input';
 import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
@@ -228,6 +230,24 @@ export function ChatInput({
     },
     [setQuery],
   );
+  // The composer owns the dictation session so it can morph into the voice
+  // field on the same state. Insertion still goes through `insertVoiceText`.
+  const voice = useVoiceInput(insertVoiceText);
+  const voiceActive = voice.state !== 'idle';
+  const cancelVoiceRef = useRef(voice.cancel);
+  cancelVoiceRef.current = voice.cancel;
+  // Escape must cancel even when the pointer has moved focus out of the hidden
+  // textarea (clicking the flame field blurs it).
+  useEffect(() => {
+    if (!voiceActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      cancelVoiceRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [voiceActive]);
   // The REAL configured provider, never a fabricated model list.
   const providerLabel = useMemo(() => getAgentProvider().label, []);
   // Translated copy for the command palette / badge (i18n keys, not literals).
@@ -432,6 +452,20 @@ export function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Dictation owns the keyboard while it is open: Esc cancels, Enter stops and
+    // transcribes. Never send an empty prompt mid-dictation.
+    if (voiceActive) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        voice.cancel();
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        voice.stop();
+        return;
+      }
+    }
     // The `@` palette takes priority: arrows navigate it and Enter/Tab completes
     // the highlighted mention (instead of sending).
     if (mentionMenuOpen && !e.nativeEvent.isComposing) {
@@ -799,25 +833,57 @@ export function ChatInput({
           </div>,
           document.body,
         )}
-      <form ref={formRef} onSubmit={handleSubmit} aria-busy={busy} className="relative flex flex-col w-full glass-composer border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-visible">
-        <textarea 
-          ref={textareaRef}
-          rows={1}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={placeholder}
-          autoFocus={autoFocus}
-          aria-label="Message Eclipse"
-          // Keep the placeholder on ONE line while the composer is empty so it
-          // clips cleanly instead of wrapping into a tall block on mobile.
-          // Typed content returns to normal soft-wrapping (and auto-grow).
-          wrap={query.length === 0 ? 'off' : 'soft'}
-          className="chat-composer-scroll w-full bg-transparent border-0 outline-none resize-none overflow-x-hidden overflow-y-hidden placeholder:text-muted-foreground text-foreground px-2 sm:px-2.5 pt-2 pb-1 text-sm leading-relaxed min-w-0 focus:outline-none focus:ring-0"
-        />
+      <form ref={formRef} onSubmit={handleSubmit} aria-busy={busy} data-voice={voiceActive ? 'active' : undefined} className="relative flex flex-col w-full glass-composer border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-visible">
+        <div className={cn('relative', voiceActive && 'h-[84px]')}>
+          <textarea 
+            ref={textareaRef}
+            rows={1}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+            readOnly={voiceActive}
+            aria-label="Message Eclipse"
+            // Keep the placeholder on ONE line while the composer is empty so it
+            // clips cleanly instead of wrapping into a tall block on mobile.
+            // Typed content returns to normal soft-wrapping (and auto-grow).
+            wrap={query.length === 0 ? 'off' : 'soft'}
+            className={cn(
+              'chat-composer-scroll w-full bg-transparent border-0 outline-none resize-none overflow-x-hidden overflow-y-hidden placeholder:text-muted-foreground text-foreground px-2 sm:px-2.5 pt-2 pb-1 text-sm leading-relaxed min-w-0 focus:outline-none focus:ring-0',
+              voiceActive && 'pointer-events-none select-none opacity-0',
+            )}
+          />
+          {voiceActive && (
+            <div className="absolute inset-0 z-10">
+              <VoiceFireField
+                meterRef={voice.meterRef}
+                phase={
+                  voice.state === 'starting'
+                    ? 'starting'
+                    : voice.state === 'transcribing'
+                      ? 'transcribing'
+                      : 'recording'
+                }
+                transcript={query}
+                interim={voice.interim}
+                height={84}
+                className="h-full"
+              />
+            </div>
+          )}
+        </div>
         
         <div className="flex min-w-0 items-end justify-between gap-2 px-0.5">
+          {voiceActive && (
+            <span className="flex h-8 items-center gap-2 px-1.5 font-mono text-[10px] uppercase tracking-wide text-rose-300/90">
+              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-400" />
+              {voice.engine === 'browser' ? 'Browser dictation' : 'Whisper dictation'}
+              <span className="normal-case tracking-normal text-muted-foreground/60">esc to cancel</span>
+            </span>
+          )}
+          {!voiceActive && (
           <DropdownMenu>
             <DropdownMenuTrigger
               type="button"
@@ -857,33 +923,38 @@ export function ChatInput({
               <PlanModeControl disabled={busy} />
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
           <div className="flex min-w-0 items-center justify-end gap-1 sm:gap-2">
-            {modelState ? (
-              <ModelSelector state={modelState} />
-            ) : showProvider ? (
-              /* The real configured provider — not a fabricated model picker. */
-              <span
-                className="hidden min-[400px]:inline-flex items-center gap-1.5 px-3 py-1 h-7 rounded-full bg-accent/25 border border-border/25 text-muted-foreground text-xs font-medium whitespace-nowrap"
-                title={`Chat provider: ${providerLabel}`}
-              >
-                <ProviderLogo provider={providerLabel} size={12} className="text-primary" />
-                {providerLabel}
-              </span>
-            ) : null}
-            {effortState && (
-              <EffortControl
-                value={effortState.effort}
-                index={effortState.index}
-                onIndexChange={effortState.setIndex}
-                disabled={busy}
-              />
+            {!voiceActive && (
+              <>
+                {modelState ? (
+                  <ModelSelector state={modelState} />
+                ) : showProvider ? (
+                  /* The real configured provider — not a fabricated model picker. */
+                  <span
+                    className="hidden min-[400px]:inline-flex items-center gap-1.5 px-3 py-1 h-7 rounded-full bg-accent/25 border border-border/25 text-muted-foreground text-xs font-medium whitespace-nowrap"
+                    title={`Chat provider: ${providerLabel}`}
+                  >
+                    <ProviderLogo provider={providerLabel} size={12} className="text-primary" />
+                    {providerLabel}
+                  </span>
+                ) : null}
+                {effortState && (
+                  <EffortControl
+                    value={effortState.effort}
+                    index={effortState.index}
+                    onIndexChange={effortState.setIndex}
+                    disabled={busy}
+                  />
+                )}
+              </>
             )}
-            <VoiceInputButton
-              onTranscript={insertVoiceText}
+            <VoiceInputButtonView
+              voice={voice}
               onStart={captureVoiceSelection}
               className="h-8 w-8"
             />
-            {busy ? (
+            {!voiceActive && (busy ? (
               <div className="flex items-center gap-1.5">
                 {(query.trim() || quote || (attachments && attachments.length > 0)) && (
                   <Button
@@ -917,7 +988,7 @@ export function ChatInput({
               >
                 <ArrowUp size={17} />
               </Button>
-            )}
+            ))}
           </div>
         </div>
       </form>

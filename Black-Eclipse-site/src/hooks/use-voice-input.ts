@@ -8,12 +8,14 @@
 // the composers only need to render a button and insert the returned text.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import {
   browserRecognitionAvailable,
   startBrowserRecognition,
   type BrowserRecognitionHandle,
 } from '@/lib/voice/browser-recognition';
 import { loadVoiceConfig, transcribeAudio, VoiceError } from '@/lib/voice/client';
+import { VoiceMeter } from '@/lib/voice/meter';
 import { VoiceRecorder } from '@/lib/voice/recorder';
 import { useVoiceInputStore } from '@/lib/voice/store';
 import {
@@ -31,6 +33,13 @@ export interface UseVoiceInput {
   /** The engine that will actually run right now. */
   engine: 'whisper' | 'browser' | 'none';
   available: boolean;
+  /**
+   * Live loudness/brightness for the visual field. Read it from an animation
+   * loop — it is deliberately NOT React state (60 fps would re-render).
+   */
+  meterRef: RefObject<VoiceMeter | null>;
+  /** Unconfirmed browser transcript (browser engine only; '' for Whisper). */
+  interim: string;
   start: () => void;
   stop: () => void;
   cancel: () => void;
@@ -59,9 +68,13 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
   const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<VoiceServerConfig | null>(null);
+  const [interim, setInterim] = useState('');
 
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const browserRef = useRef<BrowserRecognitionHandle | null>(null);
+  const meterRef = useRef<VoiceMeter | null>(null);
+  // Browser dictation owns no stream, so a visual-only capture feeds the meter.
+  const visualStreamRef = useRef<MediaStream | null>(null);
   const tickRef = useRef<number | null>(null);
   const capRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
@@ -121,13 +134,49 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
     }
   }, []);
 
+  /** Release the analyser and any visual-only capture. Idempotent. */
+  const closeMeter = useCallback(() => {
+    meterRef.current?.close();
+    meterRef.current = null;
+    visualStreamRef.current?.getTracks().forEach((track) => track.stop());
+    visualStreamRef.current = null;
+  }, []);
+
+  /**
+   * Browser dictation has no stream of its own. A second, visual-only capture
+   * drives the flame; if it fails the field still burns on its idle smoulder
+   * and dictation is untouched.
+   */
+  const startVisualMeter = useCallback(() => {
+    if (meterRef.current || visualStreamRef.current) return;
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return;
+    void navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        if (stateRef.current !== 'recording') {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        visualStreamRef.current = stream;
+        try {
+          meterRef.current = new VoiceMeter(stream);
+        } catch {
+          stream.getTracks().forEach((track) => track.stop());
+          visualStreamRef.current = null;
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   const finish = useCallback(() => {
     clearTimers();
+    closeMeter();
     startingRef.current = false;
     stopRequestedRef.current = false;
     setElapsedMs(0);
+    setInterim('');
     setState('idle');
-  }, [clearTimers]);
+  }, [clearTimers, closeMeter]);
 
   const stop = useCallback(async () => {
     if (stateRef.current !== 'recording' || stopRequestedRef.current) return;
@@ -147,6 +196,8 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
     }
 
     clearTimers();
+    // The meter follows the recording, not the request: stop it now.
+    closeMeter();
     setState('transcribing');
     const result = await recorder.stop();
     recorderRef.current = null;
@@ -172,7 +223,7 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
       setError(err instanceof VoiceError ? err.message : 'Transcription failed. Your audio was discarded.');
       finish();
     }
-  }, [clearTimers, finish, prefs.language, prefs.prompt]);
+  }, [clearTimers, closeMeter, finish, prefs.language, prefs.prompt]);
   stopRef.current = () => {
     void stop();
   };
@@ -183,16 +234,19 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
     recorderRef.current?.cancel();
     recorderRef.current = null;
     clearTimers();
+    closeMeter();
+    setInterim('');
     startingRef.current = false;
     stopRequestedRef.current = false;
     setElapsedMs(0);
     setState('idle');
-  }, [clearTimers]);
+  }, [clearTimers, closeMeter]);
 
   const start = useCallback(async () => {
     if (startingRef.current || stateRef.current !== 'idle') return;
     startingRef.current = true;
     setError(null);
+    setInterim('');
     setState('starting');
 
     let resolved = config;
@@ -242,6 +296,7 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
       try {
         browserRef.current = startBrowserRecognition({
           lang: prefs.language,
+          onInterim: (text) => setInterim(text),
           onFinal: (text) => {
             if (text.trim()) onTranscriptRef.current(text.trim());
           },
@@ -256,6 +311,7 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
           },
         });
         setState('recording');
+        startVisualMeter();
       } catch (err) {
         browserRef.current = null;
         clearTimers();
@@ -270,6 +326,14 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
     try {
       await recorder.start();
       recorderRef.current = recorder;
+      const stream = recorder.getStream();
+      if (stream) {
+        try {
+          meterRef.current = new VoiceMeter(stream);
+        } catch {
+          // Visuals degrade; recording is unaffected.
+        }
+      }
       setState('recording');
     } catch (err) {
       clearTimers();
@@ -277,7 +341,7 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
       setState('idle');
       setError(microphoneError(err));
     }
-  }, [clearTimers, config, finish, prefs.engine, prefs.language, prefs.maxSeconds]);
+  }, [clearTimers, config, finish, prefs.engine, prefs.language, prefs.maxSeconds, startVisualMeter]);
 
   // Never leave the mic (or a recognition session) running after unmount.
   useEffect(
@@ -287,8 +351,9 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
       recorderRef.current?.cancel();
       recorderRef.current = null;
       clearTimers();
+      closeMeter();
     },
-    [clearTimers],
+    [clearTimers, closeMeter],
   );
 
   const engine = describeVoiceEngine(prefs.engine, config?.ready === true, browserRecognitionAvailable());
@@ -300,6 +365,8 @@ export function useVoiceInput(onTranscript: (text: string) => void): UseVoiceInp
     config,
     engine,
     available: engine !== 'none',
+    meterRef,
+    interim,
     start: () => {
       void start();
     },

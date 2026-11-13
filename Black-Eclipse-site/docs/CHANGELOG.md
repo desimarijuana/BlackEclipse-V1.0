@@ -1,6 +1,39 @@
 # Change Log
 
 ## 2026-11-13
+- **feat(voice): the composer catches fire when you dictate.** Tapping the mic
+  now morphs the full chat composer into an interactive ember field instead of
+  just starting a hidden recording. New `src/lib/voice/meter.ts` (AnalyserNode
+  RMS + spectral centroid, pure `rmsToLevel`/`smoothLevel`/`spectralCentroid`),
+  `src/lib/voice/fire-field.ts` (framework-free, seeded heat advection + ember
+  pool + pointer wind), and `src/components/chat/voice-fire-field.tsx` (canvas
+  host, source-over glow, 30 fps cap, DPR ≤ 2, one static frame under reduced
+  motion, DOM transcript with `aria-live`). `use-voice-input` now exposes
+  `meterRef` + `interim` and feeds the meter from the recorder's own stream on
+  the Whisper path and from a visual-only capture on the browser path (failure
+  degrades to the idle smoulder, never blocks dictation). `VoiceInputButton` is
+  split into a controlled `VoiceInputButtonView` so `chat-input.tsx` can own the
+  session, morph on `data-voice`, hide the textarea while keeping it mounted,
+  and handle the keyboard while listening (Esc cancels, Enter stops). Desktop stays
+  honest: WebView2 has no SpeechRecognition, so the flame reacts but words land
+  after transcription. Tests `src/lib/voice/{meter,fire-field}.test.ts`. docs
+  updated: `docs/voice.md`, `docs/voice-fire-field-plan.md` (partially shipped),
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`; `docs/voice-ascii-wave-plan.md`
+  marked Superseded.
+- **docs(voice): supersede the ASCII wave plan with an interactive fire field.**
+  New `docs/voice-fire-field-plan.md` specifies the effect actually wanted: the
+  mic tap morphs the composer into a canvas ember field — an advected heat field
+  with a heat ramp, an additive ember pool, and pointer "wind" — driven by a new
+  `VoiceMeter` (RMS + spectral centroid). Loudness drives height/ember rate, the
+  centroid drives colour temperature, the cursor bends the flame, and Stop banks
+  it down before the transcript inserts at the caret. Same plumbing as before
+  (hook hoisted out of `VoiceInputButton`, `data-voice` morph, interim via the
+  unused `onInterim`), plus a performance contract (no React per frame, 30 fps,
+  particle budget, pause on hidden) and honest limits (desktop is Whisper-only,
+  so no live text while speaking; reduced motion gets a static ember frame).
+  `docs/voice-ascii-wave-plan.md` is marked Superseded, not deleted. docs
+  updated: `docs/voice-fire-field-plan.md` (new),
+  `docs/voice-ascii-wave-plan.md` (Superseded), `docs/CHANGELOG.md`.
 - **feat(chat): Retry resumes a failed run instead of starting over.** A
   `failed` run is no longer terminal: Retry re-enters the SAME run at its last
   non-terminal checkpoint (completed tool calls are reused), clears the prior

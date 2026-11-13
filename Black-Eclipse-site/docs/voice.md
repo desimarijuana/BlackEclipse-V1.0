@@ -1,7 +1,7 @@
 ---
 title: Voice (Read Aloud & Dictation)
 status: Current
-last-verified: 2026-10-30
+last-verified: 2026-11-13
 ---
 
 # Voice — Read Aloud & Dictation
@@ -113,6 +113,37 @@ Audio is bounded (≤ 15 MB, ≤ 120 s), MIME-allowlisted, transcribed once and
 discarded. Nothing is written to disk, JDDS, artifacts or memory; the transcript
 is ordinary composer text, so the operator reviews it before sending.
 
+### Voice field (the composer catches fire)
+
+Tapping the mic in the full composer **morphs the composer into an ember field**
+(`data-voice="active"` on the form): an advected heat grid, additive embers, a
+warm rim, and the transcript typed above the flame. The composer owns the
+dictation session (`useVoiceInput` lives in `chat-input.tsx`), so the field and
+the control cannot disagree; `VoiceInputButtonView` is the controlled control,
+`VoiceInputButton` the self-contained one used by the floating dock.
+
+- **Amplitude.** `VoiceMeter` (`src/lib/voice/meter.ts`) attaches an
+  AnalyserNode to the **same** stream the recorder owns and returns a smoothed
+  loudness + spectral centroid. Loudness drives flame height and spark rate, the
+  centroid drives colour temperature. The canvas reads it through a ref, so no
+  React render happens per frame.
+- **Interaction.** Pointer movement is wind (the flame bends away), a tap throws
+  a flare, Esc cancels, Enter stops and transcribes. Stop is always visible.
+- **Browser engine.** `SpeechRecognition` exposes no stream, so a *visual-only*
+  `getUserMedia` feeds the meter and `onInterim` supplies the live words. If the
+  extra capture fails, the field keeps its idle smoulder and dictation is
+  unaffected.
+- **Honest limits.** Desktop (Tauri/WebView2) has no `SpeechRecognition`, so the
+  flame reacts to the voice but words appear only after transcription — never a
+  fake live transcript. Streaming Whisper is a separate, unshipped decision.
+- **Cost.** 30 fps cap, DPR ≤ 2, particle budget by area, loop paused when the
+  tab is hidden, and no `filter: blur()`. Reduced motion / animations-off draws
+  one static ember frame and no loop.
+- **Nothing new is stored.** Audio handling, caps and insertion are unchanged.
+
+Design rationale, phases and the mobile notes:
+`docs/voice-fire-field-plan.md`.
+
 ### Where it lives
 
 | Concern | File |
@@ -123,7 +154,10 @@ is ordinary composer text, so the operator reviews it before sending.
 | SpeechRecognition wrapper + friendly errors | `src/lib/voice/browser-recognition.ts` |
 | Front-door client (config + transcribe, no key) | `src/lib/voice/client.ts` |
 | State machine (engine choice, caps, permissions, cleanup) | `src/hooks/use-voice-input.ts` |
-| Mic control (timer, spinner, error pill) | `src/components/chat/voice-input-button.tsx` |
+| Mic control (timer, spinner, error pill) | `src/components/chat/voice-input-button.tsx` (`VoiceInputButtonView` = controlled, `VoiceInputButton` = self-contained) |
+| Live level/spectrum meter (AnalyserNode + pure maths) | `src/lib/voice/meter.ts` |
+| Fire simulation (heat advection, embers, wind; framework-free) | `src/lib/voice/fire-field.ts` |
+| Canvas host + transcript overlay | `src/components/chat/voice-fire-field.tsx` |
 | Composer insertion (caret-aware, never replaces typed text) | `src/lib/voice/insert.ts` |
 | Server config + key resolution | `src/lib/voice/config-server.ts` |
 | Config route (`GET` readiness/stored, `PUT` save) | `src/app/api/voice/config/route.ts` |

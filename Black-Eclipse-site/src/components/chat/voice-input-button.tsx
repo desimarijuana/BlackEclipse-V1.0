@@ -4,11 +4,17 @@
 // Idle: microphone. Recording: stop + elapsed timer. Transcribing: spinner.
 // Errors surface in a small glass pill above the button (and in `title`) so a
 // blocked permission or missing provider is never a silent no-op.
+//
+// Two exports:
+//   * `VoiceInputButton` — self-contained; owns the dictation session.
+//   * `VoiceInputButtonView` — the same control wired to a session the COMPOSER
+//     owns (`useVoiceInput`), which is what lets the composer morph into the
+//     voice field on the same state.
 
 import { useEffect, useState } from 'react';
 import { Loader2, Mic, Square } from '@/lib/icons';
 import { cn } from '@/lib/utils';
-import { useVoiceInput } from '@/hooks/use-voice-input';
+import { useVoiceInput, type UseVoiceInput } from '@/hooks/use-voice-input';
 
 export interface VoiceInputButtonProps {
   onTranscript: (text: string) => void;
@@ -20,6 +26,12 @@ export interface VoiceInputButtonProps {
   align?: 'left' | 'right';
 }
 
+export interface VoiceInputButtonViewProps extends Omit<VoiceInputButtonProps, 'onTranscript'> {
+  voice: UseVoiceInput;
+  /** Called instead of the default start (the composer captures the caret). */
+  onStart?: () => void;
+}
+
 function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(total / 60);
@@ -27,14 +39,14 @@ function formatElapsed(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export function VoiceInputButton({
-  onTranscript,
+/** The presentational control. Pure: every behaviour comes from `voice`. */
+export function VoiceInputButtonView({
+  voice,
   onStart,
   className,
   iconSize = 16,
   align = 'right',
-}: VoiceInputButtonProps) {
-  const voice = useVoiceInput(onTranscript);
+}: VoiceInputButtonViewProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const recording = voice.state === 'recording';
@@ -115,6 +127,13 @@ export function VoiceInputButton({
       </button>
     </span>
   );
+}
+
+/** Backwards-compatible, self-contained control (used where the host has no
+ *  interest in the session state, e.g. the floating dock today). */
+export function VoiceInputButton({ onTranscript, onStart, ...rest }: VoiceInputButtonProps) {
+  const voice = useVoiceInput(onTranscript);
+  return <VoiceInputButtonView voice={voice} onStart={onStart} {...rest} />;
 }
 
 export default VoiceInputButton;

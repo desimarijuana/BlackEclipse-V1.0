@@ -1,10 +1,17 @@
 ---
 title: Voice Field — ASCII Wave Dictation Plan
-status: Proposed
+status: Superseded
 last-verified: 2026-11-13
+superseded-by: docs/voice-fire-field-plan.md
 ---
 
 # Voice Field — ASCII Wave Dictation (plan)
+
+> **Superseded 2026-11-13.** The intended effect is an interactive **fire**
+> field, not an ASCII seismograph. The plumbing analysis (meter, hook hoisting,
+> composer morph) still holds and is carried forward in
+> `docs/voice-fire-field-plan.md`; the rendering and interaction sections here
+> are obsolete.
 
 **Who this is for:** whoever builds the "composer turns into a living ASCII
 wave while you dictate" feature.
