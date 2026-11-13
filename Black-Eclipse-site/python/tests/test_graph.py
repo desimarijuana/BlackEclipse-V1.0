@@ -268,7 +268,10 @@ async def test_completes_with_plain_answer(store, monkeypatch):
         "step.completed",
         # C4: the answer seam records/verifies checkable claims.
         "evidence.verified",
-        "run.completed", "session.indexed",
+        "run.completed",
+        # Latency summary: one record per run, written after the terminal event.
+        "run.timings",
+        "session.indexed",
     ]
 
 

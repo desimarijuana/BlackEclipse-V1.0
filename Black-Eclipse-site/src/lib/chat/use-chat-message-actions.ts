@@ -8,8 +8,9 @@
 
 import { useCallback, useRef } from 'react';
 import type { Conversation } from './chat-organization';
-import type { Message } from '@/types/chat';
+import type { Message, ShellRun } from '@/types/chat';
 import { turnTextForHarness } from './quote';
+import { buildShellFailureTurn, buildShellTurn } from './shell';
 
 export interface ChatMessageActionsOptions {
   conversationsRef: { current: Conversation[] };
@@ -27,6 +28,12 @@ export interface ChatMessageActions {
   retry: (assistantId: string) => void;
   edit: (id: string, content: string) => void;
   resend: (id: string) => void;
+  /**
+   * Run one `!` shell command in the session workspace and append it to the
+   * conversation as its own turn. It never dispatches an agent run: the run is
+   * surfaced in the transcript, and the NEXT turn carries it as context.
+   */
+  runShell: (command: string) => Promise<void>;
 }
 
 export function useChatMessageActions(options: ChatMessageActionsOptions): ChatMessageActions {
@@ -116,5 +123,35 @@ export function useChatMessageActions(options: ChatMessageActionsOptions): ChatM
     if (message && message.role === 'user') edit(id, message.content);
   }, [edit]);
 
-  return { feedback, retry, edit, resend };
+  /**
+   * `!` shell mode: run the command through the runtime's confined shell and
+   * keep the run in the transcript. A refused/failed START is recorded as an
+   * explicit unavailable turn — never as a successful empty run.
+   */
+  const runShell = useCallback(async (rawCommand: string) => {
+    const { addUserMessage } = optionsRef.current;
+    const command = rawCommand.trim();
+    if (!command) return;
+    try {
+      const res = await fetch('/api/code/shell', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ command }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        result?: ShellRun;
+        error?: string;
+      };
+      if (!res.ok || !data.result) {
+        throw new Error(data.error ?? `Shell run failed (${res.status})`);
+      }
+      addUserMessage(buildShellTurn(command, data.result));
+    } catch (err) {
+      addUserMessage(
+        buildShellFailureTurn(command, err instanceof Error ? err.message : 'Shell run failed'),
+      );
+    }
+  }, []);
+
+  return { feedback, retry, edit, resend, runShell };
 }

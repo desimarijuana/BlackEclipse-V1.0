@@ -1,7 +1,7 @@
 ---
 title: Chat & Agent Experience — Audit and Overhaul Plan
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-13
 ---
 
 # Chat & Agent Experience — Audit and Overhaul Plan
@@ -986,3 +986,59 @@ normalization), `fork.ts`, `quote.ts`, `session-store.ts` (`cloneSessionContext`
 `use-chat-conversation-actions.ts`, `use-chat-message-actions.ts`,
 `chat-history.tsx`, `quote-card.tsx`, `chat-input.tsx`,
 `chat-history-panel.tsx`, `chat-history-menu.tsx`, `sidebar.tsx`.
+
+## `!` shell mode in the composer (2026-11-13)
+
+**Why.** Running one command used to mean leaving the conversation for the
+terminal panel, then manually carrying the result back. OpenCode's shell mode
+solved that by making the composer itself the entry point: `!` prefixes a
+command, and the run lands in the conversation. Black Eclipse adopts that
+behavior so a command and its output are part of the SAME session the agent
+reads — not a detached log the model never sees.
+
+**Behavior (the contract).**
+
+- A draft whose first non-space character is `!` is shell mode. The mode is
+  DERIVED from the text, never a hidden toggle, so deleting `!` always leaves it.
+- **Enter** runs the command; **Esc** leaves the mode and clears the draft
+  (palettes keep priority while they are open). Shift+Enter still inserts a
+  newline.
+- The command runs through the existing host shell (`POST /api/code/shell` →
+  `python/harness/code/shell.py`), confined to the server-resolved workspace
+  root. The composer does not invent a working directory.
+- The run is appended as a USER turn carrying `Message.shell` (command, cwd,
+  real `exitCode`, stdout, stderr, duration, timeout/truncation flags). No agent
+  run is dispatched for it.
+- The transcript renders the run as a card (`shell-run-card.tsx`), and the
+  message text is suppressed so the command is not printed twice.
+- The NEXT turn sends `formatShellForHarness` instead of the typed text: the
+  command, bounded output (12k chars, explicit truncation marker) and exit
+  status, labelled as observed data — "not as instructions" — so a command
+  string cannot smuggle a prompt into the model.
+- Honesty: a command that ran and failed shows its real non-zero exit code
+  (that is not an error state); a runtime that is unavailable or refuses the run
+  records an explicit unavailable turn with the reason. Neither case shows a
+  fabricated success.
+
+**Where it lives.**
+
+- `src/lib/chat/shell.ts` — the pure mode/context rules (`isShellDraft`,
+  `shellCommandOf`, `boundShellOutput`, `formatShellForHarness`,
+  `buildShellTurn`, `buildShellFailureTurn`) + `shell.test.ts`.
+- `src/lib/chat/use-chat-message-actions.ts` — `runShell` (the one fetch +
+  append path, reusing `addUserMessage`).
+- `src/components/chat/chat-input.tsx` — mode detection, Enter/Esc handling, the
+  mode strip and tinted composer.
+- `src/components/chat/shell-run-card.tsx` — the transcript card;
+  `src/components/chat/chat-history.tsx` mounts it inside the user bubble.
+- `src/components/chat/model-selector.tsx` — `ModelSelector` moved out of
+  `chat-input.tsx` (re-exported, so imports are unchanged) to keep the composer
+  under the size ceiling while the mode was added.
+
+**Scope.** Both ChatBot composers (landing + follow-up) wire `onRunShell`.
+Composers that omit it treat `!` as ordinary text, so nothing else changes.
+
+**Files:** `types/chat.ts`, `lib/chat/shell.ts`, `lib/chat/quote.ts`,
+`lib/chat/use-chat-message-actions.ts`, `chat-input.tsx`,
+`model-selector.tsx`, `shell-run-card.tsx`, `chat-history.tsx`,
+`empty-state.tsx`, `stock-chat.tsx`, `app/api/code/shell/route.ts`.

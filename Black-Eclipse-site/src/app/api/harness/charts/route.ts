@@ -32,7 +32,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    await ensurePythonRuntime();
+    const ready = await ensurePythonRuntime();
+    if (!ready) {
+      return NextResponse.json(
+        {
+          status: "UNAVAILABLE",
+          error:
+            "the chart engine is unavailable — install the Python runtime with `npm run setup:python`",
+        },
+        { status: 503 },
+      );
+    }
     const url = new URL(`${HARNESS_PY_URL}/charts/render`);
     const operatorToken = runtimeCallbackToken();
     const res = await fetch(url, {

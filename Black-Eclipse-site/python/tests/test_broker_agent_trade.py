@@ -17,10 +17,15 @@ from harness.trade.bootstrap import set_service
 class FakeMandates:
     def __init__(self, allowed: bool) -> None:
         self.allowed = allowed
+        self.calls: list[dict[str, str]] = []
 
-    def covers(self, mandate_id: str, *, connection_id: str, symbol: str) -> bool:
+    def covers(
+        self, mandate_id: str, *, connection_id: str, symbol: str, mode: str = "",
+    ) -> bool:
+        self.calls.append({"connectionId": connection_id, "symbol": symbol, "mode": mode})
         return (
             self.allowed
+            and mode == "demo"
             and mandate_id == "mnd_ok"
             and connection_id == "brk_1"
             and symbol.upper() == "EURUSD"
@@ -35,7 +40,7 @@ class FakeService:
         self.mandates = FakeMandates(allowed)
         self.active = active if active is not None else [{"id": "mnd_ok"}]
         self.connections = connections if connections is not None else [
-            {"id": "brk_1"}, {"id": "brk_2"},
+            {"id": "brk_1", "mode": "demo"}, {"id": "brk_2", "mode": "demo"},
         ]
 
     def list_mandates(self, connection_id: str, *, active_only: bool = False):
@@ -137,7 +142,7 @@ def test_other_tools_still_delegate_to_the_inner_authorizer():
 
 
 def test_order_submit_drops_a_stale_connection_id_when_one_is_saved():
-    set_service(FakeService(True, connections=[{"id": "brk_1"}]))
+    set_service(FakeService(True, connections=[{"id": "brk_1", "mode": "demo"}]))
     try:
         authorize = wrap_trade_authorizer(_never)
         assert asyncio.run(authorize(
@@ -175,3 +180,50 @@ def test_no_service_fails_closed():
     set_service(None)
     authorize = wrap_trade_authorizer(_never)
     assert asyncio.run(authorize(_tool("order_submit"), _args())) is False
+
+
+def test_order_submit_refuses_a_live_connection_even_with_an_active_mandate():
+    """The live gate must be enforced by MODE, not by prompt wording.
+
+    Regression: `wrap_trade_authorizer` used to check only mandate coverage, so a
+    live mandate with an empty workflow pin on an armed connection could be
+    submitted from an agent/bot run. The agent tool surface is demo-only.
+    """
+    set_service(FakeService(True, connections=[{"id": "brk_1", "mode": "live"}]))
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        assert asyncio.run(authorize(_tool("order_submit"), _args())) is False
+    finally:
+        set_service(None)
+
+
+def test_order_submit_refuses_an_unknown_mode():
+    # A connection whose mode cannot be read is refused: never guess "demo".
+    set_service(FakeService(True, connections=[{"id": "brk_1"}]))
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        assert asyncio.run(authorize(_tool("order_submit"), _args())) is False
+    finally:
+        set_service(None)
+
+
+def test_order_submit_passes_the_connection_mode_to_the_mandate_check():
+    service = FakeService(True)
+    set_service(service)
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        assert asyncio.run(authorize(_tool("order_submit"), _args())) is True
+        assert service.mandates.calls[-1]["mode"] == "demo"
+    finally:
+        set_service(None)
+
+
+def test_position_close_is_still_allowed_on_a_live_connection():
+    # Exits must never be blocked by the live gate: an expired grant must not
+    # trap the operator (or a bot) in a live position.
+    set_service(FakeService(True, connections=[{"id": "brk_1", "mode": "live"}]))
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        assert asyncio.run(authorize(_tool("position_close"), {"ticket": 111})) is True
+    finally:
+        set_service(None)

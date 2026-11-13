@@ -446,6 +446,150 @@ export function parseMarkdown(src: string): BlockNode[] {
   return blocks;
 }
 
+// ── Incremental parsing for a streaming turn ────────────────────────────────
+//
+// A streaming answer grows one delta at a time and the render layer re-renders
+// several times a second. Re-parsing the WHOLE document every time is O(n) per
+// frame (O(n²) over the turn) and, worse, hands React a brand-new object for
+// every block, so no block can ever be skipped.
+//
+// `parseMarkdownIncremental` parses only the part after the last STABLE block
+// boundary (a blank line that no open fence / display-math / blockquote spans)
+// and returns the earlier blocks by identity. The renderer memoizes each block,
+// so already-written prose is neither re-parsed nor re-diffed.
+//
+// It is pure and always agrees with `parseMarkdown` on the same input; a test
+// compares the two over growing documents (fences, tables, blockquotes, math).
+
+export interface MarkdownParseCache {
+  /** The exact source prefix the cached `blocks` were parsed from. */
+  prefix: string;
+  /** `prefix.length` (kept separately so the compare is a length check first). */
+  cut: number;
+  /** Blocks produced for `prefix`, in order. */
+  blocks: BlockNode[];
+}
+
+/** The cache to keep, plus every block for the current source (incl. the tail). */
+export interface MarkdownStreamParse {
+  cache: MarkdownParseCache;
+  blocks: BlockNode[];
+}
+
+const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_ANY_CLOSE_RE = /^ {0,3}(?:`{3,}|~{3,})\s*$/;
+
+/**
+ * The length of the longest prefix of `src` that ends on a block boundary.
+ *
+ * A boundary is a blank line (the next character is the start of a new block)
+ * that is NOT inside a fenced code block or display mathematics, and that does
+ * not fall inside a blockquote that continues on the next non-blank line (this
+ * parser lets a blockquote absorb blank lines).
+ *
+ * Conservative by design: whenever the state is ambiguous the answer is an
+ * earlier (or zero) cut, which only costs caching, never correctness.
+ */
+export function stableBoundary(src: string): number {
+  const candidates: number[] = [];
+  let inFence = false;
+  let mathOpen = false;
+  let candidateBeforeFence = 0;
+  let prevNonBlank = '';
+  let i = 0;
+
+  while (i < src.length) {
+    const nl = src.indexOf('\n', i);
+    const end = nl === -1 ? src.length : nl;
+    const line = src.slice(i, end);
+    const trimmed = line.trim();
+
+    if (inFence) {
+      if (FENCE_ANY_CLOSE_RE.test(line)) inFence = false;
+    } else if (FENCE_OPEN_RE.test(line)) {
+      inFence = true;
+      candidateBeforeFence = candidates.length ? candidates[candidates.length - 1] : 0;
+    } else if (mathOpen) {
+      if (trimmed.includes('$$') || trimmed.includes('\\]')) mathOpen = false;
+    } else if (/^ {0,3}(?:\$\$|\\\[)/.test(line)) {
+      // A one-line $$...$$ / \[...\] closes on itself; anything else stays open.
+      const rest = line.replace(/^ {0,3}(?:\$\$|\\\[)/, '');
+      mathOpen = !(rest.includes('$$') || rest.includes('\\]'));
+    }
+
+    if (nl === -1) break;
+
+    // A blank line whose previous line was prose is a candidate boundary.
+    if (!inFence && !mathOpen && trimmed === '' && prevNonBlank !== '') {
+      candidates.push(nl + 1);
+    } else if (!inFence && !mathOpen && trimmed !== '') {
+      prevNonBlank = line;
+    }
+
+    i = nl + 1;
+  }
+
+  // An unterminated fence is still being written: everything after the last
+  // boundary before it is unstable.
+  if (inFence) return candidateBeforeFence;
+
+  // Newest candidate that a blockquote does not continue across.
+  for (let c = candidates.length - 1; c >= 0; c -= 1) {
+    const at = candidates[c];
+    const before = lastNonBlankLine(src.slice(0, at));
+    const after = firstNonBlankLine(src.slice(at));
+    if (!(BLOCKQUOTE_RE.test(before) && BLOCKQUOTE_RE.test(after))) return at;
+  }
+  return 0;
+}
+
+function lastNonBlankLine(text: string): string {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim()) return lines[i];
+  }
+  return '';
+}
+
+function firstNonBlankLine(text: string): string {
+  for (const line of text.split('\n')) {
+    if (line.trim()) return line;
+  }
+  return '';
+}
+
+/**
+ * Parse a growing document in time proportional to what was added.
+ *
+ * `prev` is the previous result's cache (or `null`). When the new source still
+ * starts with the cached prefix, only the tail after the cached boundary is
+ * parsed and the earlier blocks are returned by identity — so a memoized render
+ * skips them. Any mismatch (edited/rewritten text) falls back to one full parse,
+ * which is always correct.
+ */
+export function parseMarkdownStream(
+  prev: MarkdownParseCache | null,
+  source: string,
+): MarkdownStreamParse {
+  const cut = stableBoundary(source);
+  let cache: MarkdownParseCache;
+  if (prev && cut >= prev.cut && source.startsWith(prev.prefix)) {
+    cache = cut === prev.cut
+      ? prev
+      : {
+          prefix: source.slice(0, cut),
+          cut,
+          // The segment that just became stable is complete blocks; parse it on
+          // its own so the blocks cached earlier keep their identity.
+          blocks: prev.blocks.concat(parseMarkdown(source.slice(prev.cut, cut))),
+        };
+  } else {
+    cache = { prefix: source.slice(0, cut), cut, blocks: parseMarkdown(source.slice(0, cut)) };
+  }
+  if (cache.cut === source.length) return { cache, blocks: cache.blocks };
+  return { cache, blocks: cache.blocks.concat(parseMarkdown(source.slice(cache.cut))) };
+}
+
 export function isBlockStart(line: string): boolean {
   return (
     FENCE_RE.test(line) ||

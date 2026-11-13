@@ -1,30 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Plus, ArrowUp, Pause, Loader2, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen, MessageSquareText } from '@/lib/icons';
+import { Plus, ArrowUp, Pause, Loader2, FileText, X, Layers, Image as ImageIcon, Blocks, SquarePen, MessageSquareText, Terminal } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { ProviderLogo } from '@/components/providers/provider-logo';
 import { VoiceInputButtonView } from './voice-input-button';
 import { VoiceFireField } from './voice-fire-field';
+import { MentionPalette, type MentionOption } from './mention-palette';
+import { ModelSelector } from './model-selector';
 import { useVoiceInput } from '@/hooks/use-voice-input';
 import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { useCommandStore } from '@/lib/search/store';
-import { useHydrateEnabledModels, compactModels, useEnabledModelsStore } from '@/lib/agent/enabled-models';
-import { ManageModelsDialog } from '@/components/screens/manage-models-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  DropdownMenuGroup,
 } from '@/components/ui/dropdown-menu';
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
@@ -43,7 +37,7 @@ import { CommandPaletteDialog } from './command-dialog';
 import { CommandSuggestions } from './command-suggestions';
 import { searchMentions, mentionedTargets, type MentionTarget } from '@/lib/bots/mentions';
 import { isLongPaste } from '@/lib/chat/paste';
-import { originLabel, describeSource, folderOf, type FileRef } from '@/lib/chat/file-sources';
+import { originLabel, describeSource, type FileRef } from '@/lib/chat/file-sources';
 import type { FileOrigin } from '@/lib/chat/session-types';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
@@ -56,6 +50,7 @@ import type { QueuedPrompt } from '@/lib/chat/message-queue';
 import type { MessageQuote } from '@/types/chat';
 import { quoteSourceLabel } from '@/lib/chat/quote';
 import { MessageQueue } from './message-queue';
+import { isShellDraft, shellCommandOf, SHELL_PLACEHOLDER } from '@/lib/chat/shell';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
@@ -84,6 +79,13 @@ interface ChatInputProps {
   query: string;
   setQuery: (val: string) => void;
   onSend: (e: React.FormEvent) => void;
+  /**
+   * Run a `!` shell command instead of sending a prompt. When provided, a draft
+   * that starts with `!` becomes shell mode (OpenCode parity): Enter runs it in
+   * the session workspace, Esc leaves the mode, and the run is appended to the
+   * transcript rather than sent to the agent. Omitted → `!` is ordinary text.
+   */
+  onRunShell?: (command: string) => void | Promise<void>;
   placeholder?: string;
   autoFocus?: boolean;
   /** Show the real configured provider label as a quiet pill. */
@@ -169,6 +171,7 @@ export function ChatInput({
   query, 
   setQuery, 
   onSend, 
+  onRunShell,
   placeholder = "Ask about a stock, sector, or market trend...", 
   autoFocus,
   showProvider = true,
@@ -349,6 +352,12 @@ export function ChatInput({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // ── `!` shell mode ──────────────────────────────────────────────────────────
+  // Derived from the draft, not a hidden toggle: `!` at the start runs the line
+  // through the session workspace shell (OpenCode parity). Deleting the `!`
+  // leaves the mode, so the composer can never be silently stuck in it.
+  const shellMode = !!onRunShell && isShellDraft(query);
+
   // Remember the command (not the prose) when a draft is submitted. Consecutive
   // duplicates are de-duplicated by the store, so the form/keydown double path
   // is harmless.
@@ -358,10 +367,19 @@ export function ChatInput({
   }, []);
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
+      // Shell mode owns submit: a `!` draft RUNS, it is never sent as a prompt.
+      if (shellMode && onRunShell) {
+        e.preventDefault();
+        const command = shellCommandOf(queryRef.current);
+        if (!command) return;
+        setQuery('');
+        void onRunShell(command);
+        return;
+      }
       recordDraftCommand();
       onSend(e);
     },
-    [onSend, recordDraftCommand],
+    [onSend, onRunShell, recordDraftCommand, shellMode, setQuery],
   );
 
   // ── Bot / group / file `@mention` palette ────────────────────────────────
@@ -400,9 +418,6 @@ export function ChatInput({
     return () => { alive = false; clearTimeout(timer); };
   }, [mentionToken, searchProjectFiles]);
 
-  type MentionOption =
-    | { kind: 'bot'; target: MentionTarget }
-    | { kind: 'file'; file: FileRef };
   const mentionOptions = useMemo<MentionOption[]>(() => [
     ...mentionMatches.map((target) => ({ kind: 'bot' as const, target })),
     ...fileMatches.map((file) => ({ kind: 'file' as const, file })),
@@ -465,6 +480,19 @@ export function ChatInput({
         voice.stop();
         return;
       }
+    }
+    // Shell mode: Esc leaves the mode without running anything (OpenCode parity).
+    // Only when no palette is open — palettes own Escape while they are visible.
+    if (
+      shellMode &&
+      e.key === 'Escape' &&
+      !mentionMenuOpen &&
+      !commandMenuOpen &&
+      !suggestions.visible
+    ) {
+      e.preventDefault();
+      setQuery('');
+      return;
     }
     // The `@` palette takes priority: arrows navigate it and Enter/Tab completes
     // the highlighted mention (instead of sending).
@@ -540,6 +568,14 @@ export function ChatInput({
     // so submit is always forwarded and the host decides send-vs-queue.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
+      if (shellMode && onRunShell) {
+        const command = shellCommandOf(queryRef.current);
+        if (command) {
+          setQuery('');
+          void onRunShell(command);
+        }
+        return;
+      }
       recordDraftCommand();
       onSend(e);
     }
@@ -748,93 +784,34 @@ export function ChatInput({
         onOpenChange={setCommandDialogOpen}
         onSelect={completeCommand}
       />
-      {mentionMenuOpen && paletteBox && typeof document !== 'undefined' &&
-        createPortal(
-          <div
-            ref={mentionListRef}
-            role="listbox"
-            aria-label={t('bots.mentions.paletteLabel')}
-            style={{
-              position: 'fixed',
-              left: paletteBox.left,
-              width: paletteBox.width,
-              bottom: paletteBox.bottom,
-            }}
-            className="z-[120] max-h-[50vh] overflow-y-auto rounded-2xl glass-command-popover shadow-lg"
-          >
-            <div className="flex items-center justify-between px-3 pt-2 pb-1">
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">
-                {t('bots.mentions.paletteLabel')}
-              </span>
-              {fileSearching && <Loader2 size={11} className="animate-spin text-muted-foreground/50" />}
-            </div>
-            {mentionOptions.map((option, i) => {
-              const active = i === mentionHighlight;
-              if (option.kind === 'file') {
-                const file = option.file;
-                return (
-                  <button
-                    key={`file:${file.path}`}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    onMouseEnter={() => setMentionHighlight(i)}
-                    onMouseDown={(e) => { e.preventDefault(); completeMention(option); }}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                      active ? 'bg-accent/40' : 'hover:bg-accent/25',
-                    )}
-                  >
-                    <FileText size={15} className="shrink-0 text-primary/80" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-foreground/90">{file.name}</span>
-                      <span className="block truncate font-mono text-[10px] text-muted-foreground/60">
-                        {folderOf(file.path) || file.rootLabel || '.'}
-                      </span>
-                    </span>
-                    <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-                      {file.rootLabel?.trim() || 'Project'}
-                    </span>
-                  </button>
-                );
-              }
-              const m = option.target;
-              return (
-                <button
-                  key={`${m.kind}:${m.id}`}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onMouseEnter={() => setMentionHighlight(i)}
-                  // onMouseDown (not onClick) so the textarea does not blur/lose the
-                  // selection before the mention is inserted.
-                  onMouseDown={(e) => { e.preventDefault(); completeMention(option); }}
-                  className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                    active ? 'bg-accent/40' : 'hover:bg-accent/25',
-                  )}
-                >
-                  {m.kind === 'group'
-                    ? <GhostAvatar spec={ghostSpecFromId(m.id)} size={18} title={m.name} />
-                    : <BotAvatar botId={m.id} spec={avatarFor(mentionAvatars, m.id)} size={18} title={m.name} />}
-                  <span className="min-w-0 shrink-0 truncate font-medium">@{m.name}</span>
-                  {m.description && (
-                    <span className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70 sm:inline">
-                      {m.description}
-                    </span>
-                  )}
-                  <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-                    {m.kind === 'group' ? <Users size={9} /> : <Bot size={9} />}
-                    {m.kind}
-                  </span>
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )}
-      <form ref={formRef} onSubmit={handleSubmit} aria-busy={busy} data-voice={voiceActive ? 'active' : undefined} className="relative flex flex-col w-full glass-composer border border-white/10 dark:border-white/5 rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 focus-within:border-primary transition-colors overflow-visible">
+      {mentionMenuOpen && paletteBox && typeof document !== 'undefined' && (
+        <MentionPalette
+          open
+          box={paletteBox}
+          label={t('bots.mentions.paletteLabel')}
+          options={mentionOptions}
+          highlight={mentionHighlight}
+          onHighlight={setMentionHighlight}
+          onSelect={completeMention}
+          searching={fileSearching}
+          listRef={mentionListRef}
+          avatars={mentionAvatars}
+        />
+      )}
+      <form ref={formRef} onSubmit={handleSubmit} aria-busy={busy} data-voice={voiceActive ? 'active' : undefined} data-shell={shellMode ? 'active' : undefined} className={cn('relative flex flex-col w-full glass-composer border rounded-3xl px-1.5 sm:px-3 py-1.5 shadow-lg shadow-black/20 transition-colors overflow-visible', shellMode ? 'border-primary/45' : 'border-white/10 dark:border-white/5 focus-within:border-primary')}>
         <div className={cn('relative', voiceActive && 'h-[84px]')}>
+          {shellMode && (
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 px-2 pt-1.5 font-mono text-[9.5px] uppercase tracking-wide text-primary/80">
+              <Terminal size={11} />
+              <span>Shell</span>
+              <span className="normal-case tracking-normal text-muted-foreground/60">
+                runs in the session workspace
+              </span>
+              <span className="ml-auto normal-case tracking-normal text-muted-foreground/45">
+                esc to leave
+              </span>
+            </div>
+          )}
           <textarea 
             ref={textareaRef}
             rows={1}
@@ -842,7 +819,7 @@ export function ChatInput({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={placeholder}
+            placeholder={shellMode ? SHELL_PLACEHOLDER : placeholder}
             autoFocus={autoFocus}
             readOnly={voiceActive}
             aria-label="Message Eclipse"
@@ -1011,261 +988,4 @@ export function ChatInput({
   );
 }
 
-/**
- * The composer's model selector. ALWAYS rendered (never gated on a non-empty
- * list) so a model can be changed even before settings/catalog finish loading.
- * A submenu switches provider (with the key status the server reported), the
- * top level switches model on the active provider, and a "Custom model id…"
- * item types any id. A local/router provider gets a live discovery action.
- */
-export function ModelSelector({ state }: { state: ChatModelState }) {
-  const [customOpen, setCustomOpen] = useState(false);
-  const [custom, setCustom] = useState("");
-  // The menu is controlled so opening the Manage-models dialog can CLOSE it
-  // first — otherwise the dialog opens behind the still-open `z-[110]` menu and
-  // the click looks like it did nothing.
-  const [menuOpen, setMenuOpen] = useState(false);
-  const label = state.displayModel || state.providerLabel || "Model";
-  const current = state.providers.find((p) => p.id === state.selectedProvider);
-  // Prefer the provider's own id; fall back to whichever provider owns the
-  // selected model, then the label (resolved by ProviderLogo).
-  const logoProvider =
-    state.selectedProvider ||
-    state.providers.find((p) => p.models.includes(state.selectedModel))?.id ||
-    current?.id ||
-    state.providerLabel;
-  useHydrateEnabledModels();
-  const enabledFor = useEnabledModelsStore((s) => s.enabledFor);
-  const isCurated = useEnabledModelsStore((s) => s.isCurated);
-
-  const submitCustom = () => {
-    const v = custom.trim();
-    if (v) state.setModel(v);
-    setCustom("");
-    setCustomOpen(false);
-  };
-
-  return (
-    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-      <DropdownMenuTrigger
-        title={`Model: ${state.displayModel || "default"} · provider ${state.providerLabel}`}
-        className="inline-flex min-w-0 items-center gap-1.5 px-2.5 py-1 h-7 max-w-none sm:max-w-[180px] sm:px-3 rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
-      >
-        <ProviderLogo provider={logoProvider} size={13} className="text-primary" />
-        <span className="hidden min-w-0 truncate font-mono sm:inline">{label}</span>
-        <ChevronDown size={13} className="shrink-0 opacity-70" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 max-w-[calc(100vw-1.5rem)]">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="flex items-center justify-between gap-2">
-            <span>Model</span>
-            <span className="text-[10px] font-normal text-muted-foreground truncate">{state.providerLabel}</span>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <div className="max-h-64 overflow-y-auto">
-          {state.loading && (state.providers.length === 0) && (
-            <div className="px-2 py-1.5 text-[11px] text-muted-foreground flex items-center gap-2">
-              <Loader2 size={12} className="animate-spin" /> Loading models…
-            </div>
-          )}
-          {(() => {
-            // Every provider the operator can use right now (a keyless local
-            // server, or a key that resolves from env/vault). Models from ALL of
-            // them are listed — the active provider first — so a second
-            // connected provider is usable directly, without first switching the
-            // active provider. Selecting a model here switches the active
-            // provider to that model's provider.
-            const usable = state.providers.filter((p) => p.keyless || p.available);
-            const ordered = [
-              ...state.providers.filter((p) => p.id === state.selectedProvider),
-              ...usable.filter((p) => p.id !== state.selectedProvider),
-            ];
-            // Fall back to the current provider alone when none report usable
-            // (runtime/settings not ready) so the menu is never empty.
-            const groups = ordered.length ? ordered : (current ? [current] : []);
-            if (groups.length === 0) {
-              return !state.loading ? (
-                <div className="px-2 py-1.5 text-[11px] text-muted-foreground">No declared models</div>
-              ) : null;
-            }
-            return groups.map((p) => {
-              const all = p.models ?? [];
-              // Only the ENABLED (or, when uncurated, a capped slice) reach the
-              // menu, so a provider listing hundreds of models never floods it.
-              const curated = isCurated(p.id);
-              const { models, truncated } = compactModels(p.id, all, {
-                explicitEnabled: curated ? enabledFor(p.id) : null,
-                selected: p.id === state.selectedProvider ? state.selectedModel : undefined,
-              });
-              const list =
-                p.id === state.selectedProvider && state.selectedModel && !models.includes(state.selectedModel)
-                  ? [state.selectedModel, ...models]
-                  : models;
-              const manageable = all.length > 0 && (curated || truncated || all.length > 1);
-              if (list.length === 0 && !manageable) return null;
-              return (
-                <div key={p.id}>
-                  <DropdownMenuLabel className="flex items-center justify-between gap-2">
-                    <span className="truncate">{p.label}</span>
-                    <span className="flex items-center gap-1.5">
-                      {p.keyless ? (
-                        <span className="text-[9px] font-normal text-muted-foreground/60">local</span>
-                      ) : p.available ? (
-                        <span className="text-[9px] font-normal text-emerald-400/70">key set</span>
-                      ) : null}
-                      {manageable && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // Close the menu FIRST so the dialog is not rendered
-                            // behind it; then open the curation dialog.
-                            setMenuOpen(false);
-                            state.openManageModels(p.id);
-                          }}
-                          className="inline-flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground/70 hover:text-foreground cursor-pointer"
-                          title={`Manage ${p.label} models`}
-                        >
-                          <Layers size={10} /> Manage
-                        </button>
-                      )}
-                    </span>
-                  </DropdownMenuLabel>
-                  {list.length === 0 && (
-                    <div className="px-2 py-1.5 text-[10px] text-muted-foreground/70">
-                      None enabled — open Manage to choose models.
-                    </div>
-                  )}
-                  {list.map((m) => {
-                    const selected = p.id === state.selectedProvider && m === state.selectedModel;
-                    return (
-                      <DropdownMenuItem
-                        key={`${p.id}:${m}`}
-                        onClick={() => { if (!selected) state.select(p.id, m); }}
-                        className="gap-2"
-                      >
-                        <Check size={13} className={cn("shrink-0", selected ? "opacity-100 text-primary" : "opacity-0")} />
-                        <span className="font-mono truncate">{m}</span>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </div>
-              );
-            });
-          })()}
-          </div>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled={!state.canDiscover}
-          closeOnClick={false}
-          onClick={() => {
-            // Discover then immediately open Manage so the operator curates the
-            // catalog instead of it being poured into the menu. Close the menu so
-            // the dialog is not hidden behind it.
-            setMenuOpen(false);
-            void state.discoverProvider().finally(() => state.openManageModels());
-          }}
-          className="gap-2 text-primary/90"
-        >
-          {state.discovering
-            ? <Loader2 size={13} className="shrink-0 animate-spin" />
-            : <Layers size={13} className="shrink-0" />}
-          Manage models…
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="gap-2">
-            <Cpu size={13} className="shrink-0" />
-            <span>Provider</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-64 max-w-[calc(100vw-1.5rem)]">
-            <div className="max-h-72 overflow-y-auto">
-              {state.providers.map((p) => (
-                <DropdownMenuItem
-                  key={p.id}
-                  onClick={() => {
-                    // A provider with no key cannot run — send the operator to
-                    // Settings › AI, where the key is added, instead of selecting
-                    // a provider that would fail. Keyless/configured providers
-                    // select normally, adopting their first model so the choice
-                    // is (provider, model) together — never a mismatched pair.
-                    if (!p.keyless && !p.available) {
-                      useCommandStore.getState().dispatch({ tab: "settings", subroute: "settings.ai" });
-                      return;
-                    }
-                    state.select(p.id, p.models[0] ?? "");
-                  }}
-                  className="gap-2"
-                >
-                  <Check size={13} className={cn("shrink-0", p.id === state.selectedProvider ? "opacity-100 text-primary" : "opacity-0")} />
-                  <ProviderLogo provider={p.id} size={13} className={p.id === state.selectedProvider ? "text-primary" : "text-muted-foreground"} />
-                  <span className="truncate">{p.label}</span>
-                  {p.keyless ? (
-                    <span className="ml-auto text-[9px] text-muted-foreground/50">no key</span>
-                  ) : p.available ? (
-                    <span className="ml-auto text-[9px] text-emerald-400/70">key set</span>
-                  ) : (
-                    <span className="ml-auto inline-flex items-center gap-1 text-[9px] font-medium text-primary/90">
-                      <KeyRound size={10} /> Add key
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </div>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuGroup>
-          {state.error && (
-            <div className="px-2 py-1 text-[10px] text-rose-400/90">{state.error}</div>
-          )}
-          {customOpen ? (
-            <div className="flex items-center gap-1.5 px-1.5 py-1">
-              <input
-                autoFocus
-                value={custom}
-                onChange={(e) => setCustom(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    submitCustom();
-                  }
-                }}
-                placeholder="model id"
-                className="min-w-0 flex-1 rounded-md bg-background/60 border border-border/30 px-2 py-1 text-xs font-mono outline-none focus:border-primary"
-              />
-              <button
-                type="button"
-                onClick={submitCustom}
-                className="rounded-md px-2 py-1 text-[11px] text-primary hover:bg-accent"
-              >
-                Use
-              </button>
-            </div>
-          ) : (
-            <DropdownMenuItem
-              closeOnClick={false}
-              onClick={() => setCustomOpen(true)}
-              className="gap-2"
-            >
-              <Plus size={13} className="shrink-0" />
-              <span>Custom model id…</span>
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-      {state.manageTarget && (
-        <ManageModelsDialog
-          providerId={state.manageTarget.id}
-          providerLabel={state.manageTarget.label}
-          allModels={state.manageTarget.models ?? []}
-          selected={state.selectedProvider === state.manageTarget.id ? state.selectedModel : undefined}
-          onDiscover={() => state.discoverProvider(state.manageTarget!.id)}
-          canDiscover={state.canDiscover}
-          onClose={state.closeManageModels}
-        />
-      )}
-    </DropdownMenu>
-  );
-}
+export { ModelSelector } from './model-selector';

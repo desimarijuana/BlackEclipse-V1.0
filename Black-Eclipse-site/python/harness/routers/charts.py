@@ -13,6 +13,7 @@ unauthenticated caller.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -105,7 +106,7 @@ async def render_chart_route(
     artifact_id = getattr(entry, "id", None) if entry is not None else None
     if artifact_id:
         figure["artifactId"] = artifact_id
-    return {
+    payload: dict[str, Any] = {
         "status": "OK",
         "figure": figure,
         # The LIVE chart: a Plotly figure the browser renders (vector, zoomable).
@@ -120,6 +121,17 @@ async def render_chart_route(
             "downloadUrl": f"/artifacts/{artifact_id}/download" if artifact_id else None,
         },
     }
+    if not artifact_id:
+        # The Artifact Center is best-effort (a locked/absent database must not
+        # make a drawn chart disappear). When the picture could not be stored,
+        # return it inline so the UI still shows the chart; the artifact URL is
+        # simply absent. A chart is never replaced by a "could not be stored"
+        # error box when the bytes exist.
+        payload["image"] = {
+            "mimeType": "image/png",
+            "data": base64.b64encode(rendered.png).decode("ascii"),
+        }
+    return payload
 
 
 @router.post("/charts/code")

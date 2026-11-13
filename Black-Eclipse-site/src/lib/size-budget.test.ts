@@ -228,7 +228,11 @@ const RATCHET: Record<string, number> = {
   // session bar wiring and related chat-surface mount points from in-flight
   // work. Split candidate unchanged (message renderer vs composer/stream
   // controller). May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1717,
+  // Re-pinned 1717→1718 (2026-11-13): the composer's `!` shell mode wires the
+  // shared `runShell` action onto the landing and follow-up composers; the mode
+  // itself, the transcript card and the context assembly all live in
+  // `lib/chat/shell.ts` / `chat/shell-run-card.tsx`. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1718,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

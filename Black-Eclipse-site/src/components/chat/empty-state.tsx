@@ -9,6 +9,8 @@ interface EmptyStateProps {
   query: string;
   setQuery: (val: string) => void;
   onSend: (e: React.FormEvent) => void;
+  /** Run a `!` shell command instead of sending a prompt (see `ChatInput`). */
+  onRunShell?: (command: string) => void | Promise<void>;
   /** Retained for call-site compatibility; the landing shows only the composer. */
   onViewMarketOverview?: () => void;
   /** Opens the document picker — the composer "+" attaches context. */
@@ -41,7 +43,7 @@ interface EmptyStateProps {
  * The chat landing surface: nothing but the composer, full width. The eclipse
  * background is painted by the chat tab container, so this stays transparent.
  */
-export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, attachments, onRemoveAttachment, onOpenAttachment, busy, onCancel, modelState, effortState, mentionTargets, searchProjectFiles, onReferenceFile, onPasteText }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onRunShell, onAttach, onAttachImage, attachments, onRemoveAttachment, onOpenAttachment, busy, onCancel, modelState, effortState, mentionTargets, searchProjectFiles, onReferenceFile, onPasteText }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-end w-full px-4 md:px-6 pb-2 z-10 relative">
       <div
@@ -52,6 +54,7 @@ export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, a
           query={query}
           setQuery={setQuery}
           onSend={onSend}
+          onRunShell={onRunShell}
           onAttach={onAttach}
           onAttachImage={onAttachImage}
           attachments={attachments}

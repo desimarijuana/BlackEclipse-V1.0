@@ -92,8 +92,8 @@ export function VoiceFireField({
       canvas.style.height = `${cssHeight}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const cols = Math.min(140, Math.max(28, Math.round(width / 7)));
-      const rows = Math.min(52, Math.max(12, Math.round(cssHeight / 6)));
+      const cols = Math.min(160, Math.max(28, Math.round(width / 6)));
+      const rows = Math.min(64, Math.max(16, Math.round(cssHeight / 3.2)));
       const current = fieldRef.current;
       if (!current || current.cols !== cols || current.rows !== rows) {
         fieldRef.current = createFireField({ cols, rows, maxEmbers: Math.round(Math.min(140, Math.max(36, (width * cssHeight) / 1400))) });
@@ -132,13 +132,13 @@ export function VoiceFireField({
 
       ctx.clearRect(0, 0, width, cssHeight);
 
-      // 1. Coal-bed glow.
+      // 1. Coal-bed glow — tight at the base, not a full-height haze.
       const energy = field.energy;
       const glowY = cssHeight - 2;
-      const glowR = Math.max(width * 0.35, 60) * (0.55 + energy * 0.65);
+      const glowR = Math.max(width * 0.2, 80) * (0.5 + energy * 0.5);
       const glow = ctx.createRadialGradient(width / 2, glowY, 0, width / 2, glowY, glowR);
       const [gr, gg, gb] = heatColor(0.55 + energy * 0.3, centroid);
-      glow.addColorStop(0, `rgba(${gr}, ${gg}, ${gb}, ${0.16 + energy * 0.24})`);
+      glow.addColorStop(0, `rgba(${gr}, ${gg}, ${gb}, ${0.1 + energy * 0.16})`);
       glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, width, cssHeight);
@@ -159,13 +159,17 @@ export function VoiceFireField({
           data[i] = r;
           data[i + 1] = g;
           data[i + 2] = b;
-          data[i + 3] = Math.round(heatAlpha(v) * 255);
+          data[i + 3] = Math.round(Math.min(1, heatAlpha(v) * 1.12) * 255);
         }
       }
       offCtx?.putImageData(image, 0, 0);
       ctx.globalCompositeOperation = 'lighter';
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(off, 0, 0, width, cssHeight);
+      // A second, weaker pass thickens the body without a blur filter.
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(off, 0, 0, width, cssHeight);
+      ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
 
       // 3. Embers.
@@ -176,8 +180,8 @@ export function VoiceFireField({
         const py = cssHeight - (ember.y / field.rows) * cssHeight;
         const life = Math.max(0, ember.life / ember.maxLife);
         const [er, eg, eb] = heatColor(0.55 + ember.heat * 0.45, centroid);
-        ctx.fillStyle = `rgba(${er}, ${eg}, ${eb}, ${life * 0.9})`;
-        const size = life > 0.65 ? 2 : 1.4;
+        ctx.fillStyle = `rgba(${er}, ${eg}, ${eb}, ${life * 0.95})`;
+        const size = life > 0.72 ? 2.6 : life > 0.35 ? 1.8 : 1.2;
         ctx.fillRect(px - size / 2, py - size / 2, size, size);
       }
       ctx.globalCompositeOperation = 'source-over';
@@ -221,12 +225,12 @@ export function VoiceFireField({
       style={{ height }}
     >
       <canvas ref={canvasRef} aria-hidden className="absolute inset-0 block h-full w-full" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full flex-col justify-center px-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex h-full flex-col justify-start px-3 pt-1.5">
         <p
           role="status"
           aria-live="polite"
           aria-atomic="false"
-          className="max-h-[3.2em] overflow-hidden text-center font-mono text-[12px] leading-relaxed text-foreground/90"
+          className="max-h-[3.2em] overflow-hidden text-center font-mono text-[12px] leading-relaxed text-foreground/90 [text-shadow:0_1px_10px_rgba(0,0,0,0.65)]"
         >
           {phase === 'transcribing' ? (
             <span className="text-muted-foreground">{TRANSCRIBING_LABEL}</span>

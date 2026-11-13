@@ -38,7 +38,7 @@ const runtimeFetch = vi.fn(async (_url: string, _init?: RequestInit): Promise<un
 
 vi.mock("@/lib/harness/python-runtime", () => ({
   HARNESS_PY_URL: "http://127.0.0.1:8765",
-  ensurePythonRuntime: async () => true,
+  ensurePythonRuntime: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/harness/runtime-auth", () => ({
@@ -46,6 +46,7 @@ vi.mock("@/lib/harness/runtime-auth", () => ({
 }));
 
 import { POST } from "@/app/api/harness/charts/route";
+import { ensurePythonRuntime } from "@/lib/harness/python-runtime";
 
 function req(body: unknown): Request {
   return new Request("http://localhost:3000/api/harness/charts", {
@@ -127,5 +128,14 @@ describe("POST /api/harness/charts", () => {
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.status).toBe("UNAVAILABLE");
+  });
+
+  it("names the repair command when the runtime is not installed", async () => {
+    vi.mocked(ensurePythonRuntime).mockResolvedValueOnce(false);
+    const res = await POST(req({ kind: "line", series: [{ name: "s", data: [1] }] }));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toContain("setup:python");
+    expect(runtimeFetch).not.toHaveBeenCalled();
   });
 });

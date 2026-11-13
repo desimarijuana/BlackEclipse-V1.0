@@ -279,7 +279,10 @@ class BrokerService:
             )
         if mode == "live":
             # The second key: an unattended live mandate can only be created on an
-            # armed live connection. Execution re-checks the arm again.
+            # armed live connection. Execution re-checks the arm again. The pin
+            # (workflow id + version) is enforced by the mandate store itself
+            # (`MANDATE_WORKFLOW_REQUIRED`), which is the ONE place a mandate is
+            # created — this method must not re-state it with a weaker rule.
             self._assert_live_armed(connection)
         mandate = self.mandates.create(
             connection=connection,

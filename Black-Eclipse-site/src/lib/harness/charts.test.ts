@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // out, and a failure is an error the UI can show — never a silent empty
 // chart.
 
-import { renderChart } from "@/lib/harness/charts";
+import { chartImageSrc, renderChart } from "@/lib/harness/charts";
 
 const okFigure = {
   kind: "line",
@@ -72,5 +72,38 @@ describe("renderChart", () => {
       vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ status: "OK" }) })),
     );
     await expect(renderChart({ kind: "line" })).rejects.toThrow(/no figure/i);
+  });
+
+  it("keeps the drawn picture when the artifact could not be stored", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "OK",
+          figure: okFigure,
+          artifact: { id: null, name: "chart-line-abc.png", bytes: 1234, sha256: "abc" },
+          image: { mimeType: "image/png", data: "aGVsbG8=" },
+        }),
+      })),
+    );
+    const rendered = await renderChart({ kind: "line", series: [{ name: "s", data: [1, 2] }] });
+    expect(rendered.artifact.id).toBeNull();
+    expect(chartImageSrc(rendered)).toBe("data:image/png;base64,aGVsbG8=");
+  });
+
+  it("prefers the durable artifact URL once the picture is stored", async () => {
+    const rendered = await renderChart({ kind: "line", series: [{ name: "s", data: [1, 2] }] });
+    expect(chartImageSrc(rendered)).toBe("/api/artifacts/art_1/download");
+  });
+
+  it("returns no source only when no picture exists at all", async () => {
+    expect(
+      chartImageSrc({
+        figure: okFigure,
+        artifact: { id: null, name: "x.png", bytes: 0, sha256: "", downloadUrl: null },
+      } as Parameters<typeof chartImageSrc>[0]),
+    ).toBeNull();
   });
 });

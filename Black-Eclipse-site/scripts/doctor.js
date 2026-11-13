@@ -273,6 +273,31 @@ if (py) {
     }
   }
 
+  // 5d-ter. The CHART ENGINE's dependencies. Charts are a core surface (the
+  //        chat, the market workspace), so a missing stack is repaired here
+  //        even when `langgraph` is already present: an older runtime install
+  //        skipped `plotly`, leaving every chart as a static PNG at best. The
+  //        full analysis requirements file covers numpy, pandas, matplotlib and
+  //        plotly in one command.
+  {
+    // One cheap probe (module specs, not imports) so a healthy boot pays ~1 s
+    // instead of importing four heavy packages.
+    const probe = run(
+      `"${py}" -c "import importlib.util; mods=['numpy','pandas','matplotlib','plotly']; print(','.join(m for m in mods if importlib.util.find_spec(m) is None))"`,
+      { timeout: 30000 }
+    );
+    const missingCharts = (probe.stdout || "").trim().split(",").filter(Boolean);
+    if (missingCharts.length > 0) {
+      const analysisReq = path.join(root, "python", "analysis-requirements.txt");
+      if (fs.existsSync(analysisReq)) {
+        fix(
+          `Python chart engine (missing: ${missingCharts.join(", ")})`,
+          `"${py}" -m pip install -r "${analysisReq}"`
+        );
+      }
+    }
+  }
+
   // 5d-bis. Browser Automation Runtime — the Python Playwright package. OPTIONAL
   //         in effect: a missing one makes the browser toolset report an honest
   //         UNAVAILABLE (never a fake browser), so this is a best-effort repair.

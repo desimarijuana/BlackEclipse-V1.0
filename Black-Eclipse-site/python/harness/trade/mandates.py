@@ -232,14 +232,24 @@ class TradingMandateStore:
         self._db.commit()
         return self.get(mandate_id)
 
-    def covers(self, mandate_id: str, *, connection_id: str, symbol: str) -> bool:
-        """Active, same connection, symbol allowed. Margin is checked at submit."""
+    def covers(
+        self, mandate_id: str, *, connection_id: str, symbol: str, mode: str = "",
+    ) -> bool:
+        """Active, same connection, symbol allowed. Margin is checked at submit.
+
+        `mode` is checked when supplied: a demo mandate must never authorize a
+        live order and a live mandate must never authorize a demo one. Callers
+        that resolve an execution mode always pass it, so the omission of the
+        argument is not a way to bypass the check.
+        """
         row = self._db.execute(
             "SELECT * FROM TradingMandate WHERE id=?", (str(mandate_id or ""),)
         ).fetchone()
         if row is None:
             return False
         data = _row(row)
+        if mode and data["mode"] != mode:
+            return False
         return (
             data["connectionId"] == connection_id
             and _active(row)

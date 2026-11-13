@@ -20,8 +20,7 @@
 // object, no callback and no per-widget rendering logic left.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { downloadUrl } from "@/lib/harness/clients/artifacts-browser";
-import { renderChart, type ChartFigure, type ChartSpec } from "@/lib/harness/charts";
+import { chartImageSrc, renderChart, type ChartFigure, type ChartSpec } from "@/lib/harness/charts";
 import { cn } from "@/lib/utils";
 
 export interface PythonChartProps {
@@ -80,14 +79,16 @@ export function PythonChart({
     renderChart(spec)
       .then((rendered) => {
         if (cancelled || requestId.current !== id) return;
-        const artifactId = rendered.artifact.id;
-        if (!artifactId) {
-          const message = "the chart was drawn but could not be stored";
+        // A chart whose artifact could not be recorded still has bytes: show
+        // them inline. Only a render that produced no picture is an error.
+        const src = chartImageSrc(rendered);
+        if (!src) {
+          const message = "the chart engine returned no picture";
           setState({ status: "error", message });
           onError?.(message);
           return;
         }
-        setState({ status: "ready", figure: rendered.figure, src: downloadUrl(artifactId) });
+        setState({ status: "ready", figure: rendered.figure, src });
         onRendered?.(rendered.figure);
       })
       .catch((err: unknown) => {

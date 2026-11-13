@@ -120,6 +120,12 @@ error tracking; Prometheus is a scrape endpoint.
      `model.attempt.completed|failed` → `onModelAttempt`; `model.first_token`
      → `onModelFirstToken`; `model.first_token_timeout` → a timeout signal;
      `model.fallback` → `onModelFallback`
+    - **Latency**: `run.timings` arrives once, after the run's terminal event.
+      It is the per-run breakdown of where an answer's time went
+      (`setupMs` = `run.started` → first `model.requested`, `ttftMs` from
+      `model.first_token`, `firstDeltaMs`, and `deltaGapP50Ms`/`P95`/`Max` over
+      the transient `model.delta` gaps). It is derived from the same events
+      above, so it adds no measurement path of its own.
    - **W8, context**: `memory.history_bounded` → `onContextPressure` (usage
      ratio + gate); `context.compressed` → `onContextCompaction`;
      `CONTEXT_OVERFLOW`/`CONTEXT_EXHAUSTED` run failures → an overflow signal

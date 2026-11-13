@@ -133,16 +133,20 @@ export function stepFire(field: FireField, dt: number, input: FireInput): void {
     if (pointerCol != null) {
       const dx = x - pointerCol;
       // The pointer is wind: it pushes heat away instead of feeding it.
-      value -= Math.exp(-(dx * dx) / (2 * windSigma * windSigma)) * 0.35;
+      value -= Math.exp(-(dx * dx) / (2 * windSigma * windSigma)) * 0.2;
     }
     heat[x] = clamp01(value);
   }
 
-  // ── Advect upward with lateral sway and light diffusion ─────────────────
+  // ── Advect upward with lateral sway, turbulence and a ragged cap ────────
+  // Each column burns to its own height: the noise field makes tongues of
+  // flame instead of a smooth gradient, which is the difference between fire
+  // and a lava lamp.
   for (let y = rows - 1; y >= 1; y -= 1) {
     const row = y * cols;
     const below = (y - 1) * cols;
     const sway = Math.sin(field.time * 1.6 + y * 0.19) * (0.35 + y * 0.02);
+    const yt = y / rows;
     for (let x = 0; x < cols; x += 1) {
       let sx = x + sway;
       if (pointerCol != null) {
@@ -156,8 +160,19 @@ export function stepFire(field: FireField, dt: number, input: FireInput): void {
       const left = heat[below + (i0 === 0 ? 0 : i0 - 1)];
       const mid = heat[below + i0] * (1 - f) + heat[below + i1] * f;
       const right = heat[below + Math.min(cols - 1, i1 + 1)];
-      // Slight horizontal diffusion stops single columns from looking digital.
-      scratch[row + x] = (mid * 2 + left + right) * 0.25 * (0.9 - y * 0.004);
+      const mixed = (mid * 2 + left + right) * 0.25;
+
+      // A per-column tongue height that drifts over time.
+      const tongue =
+        0.58 +
+        0.24 * Math.sin(x * 0.33 + field.time * 1.4) +
+        0.18 * Math.sin(x * 0.91 - field.time * 2.2);
+      const feather = Math.min(1, Math.max(0, (tongue - yt) * 5));
+      // Turbulent flicker, strongest near the tip. Centred on 1 so it does not
+      // systematically dim the column (that was flattening the flame).
+      const flicker = 1 + 0.2 * Math.sin(field.time * 7.3 + x * 1.7 + y * 0.6);
+
+      scratch[row + x] = Math.min(1, mixed * (0.992 - y * 0.0004) * feather * flicker);
     }
   }
   heat.set(scratch.subarray(cols, rows * cols), cols);

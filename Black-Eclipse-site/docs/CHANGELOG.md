@@ -1,6 +1,142 @@
 # Change Log
 
 ## 2026-11-13
+- **docs(trading): correction to the P0 write-up — there was no exploitable live
+  path, and `create_mandate` never allowed an unpinned live mandate.**
+  `TradingMandateStore.create` already required `workflowId` **and**
+  `workflowVersion` for a live mandate (`MANDATE_WORKFLOW_REQUIRED`), and because
+  the agent tool passes no `workflow_id`, `submit_order` refused at
+  `mandates.verify` (`MANDATE_WORKFLOW_MISMATCH`) before the phrase logic ran. The
+  real defect was narrower: `wrap_trade_authorizer` checked mandate coverage but
+  not the connection's mode, so the live refusal existed only as a side effect of
+  the workflow pin, with a misleading error, one edit away from disappearing (a
+  bot-pinned mandate in P5 would have reopened it silently). The redundant
+  `LIVE_MANDATE_UNPINNED` check this session briefly added to `create_mandate` was
+  removed — the store stays the single authority and the error code is unchanged.
+  The mode check, `covers(mode=)`, the handler-level `LIVE_ORDER_REFUSED` and the
+  corrected descriptions remain as defence in depth. docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ G5, § P0),
+  `docs/trading.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(chat): the session-files row no longer collides with the project chip.**
+  On the landing composer the row under it was full-width while the composer is
+  `max-w-[80%]` centered, and `SessionBar` was `w-full` with an unconstrained
+  absolute path, so the path spilled across the project chip and off the pane.
+  The row now shares the composer's px/max-w column, `SessionBar` is a
+  shrinkable flex item (`min-w-0 flex-1`, optional `className`) whose path
+  truncates, and "Session 3" (which read like a session number) is now
+  "Session files" with the count in a badge. no doc change — layout/copy fix,
+  no contract change.
+- **fix(charts): a drawn chart is never replaced by an error, and the chart
+  stack is guaranteed on install.** Three failure paths were closed: (1) a
+  chart whose Artifact Center registration failed was discarded by both chart
+  surfaces as "drawn but could not be stored" — the render route now returns the
+  PNG inline and `chartImageSrc()` shows it as a data URL; (2) the plotly
+  library route was `force-static` and only looked in vendored paths, so
+  macOS/Linux installs and any build performed before `postinstall` finished
+  could cache a permanent 503 — it now resolves the library through the running
+  interpreter and stays dynamic; (3) `plotly` was missing from the analysis
+  requirements and from `setup-python`'s stack probe, so an install that already
+  had `langgraph` never got it — it is now installed and probed by both
+  `setup-python` and `doctor`. docs updated: `docs/chart-engine.md`,
+  `docs/CHANGELOG.md`.
+- **chore(desktop): ship the voice field to Stable (`UvJqNNf5nTphjUbd36d_I`).**
+  Built, validated, promoted and relaunched through `desktop:refresh` only —
+  the browser lane stayed off (`:3000` free, `web-guard` intact). Release
+  `releases/stable/UvJqNNf5nTphjUbd36d_I` contains the field (verified by
+  `speak naturally` + `esc to cancel` in `static/chunks/56648-*.js`), `:3100`
+  serves that build id, and the desktop shell was relaunched. Also tuned the
+  flame after the first render (per-column tongues, slower decay, tighter base
+  glow, top-aligned transcript with a text shadow, softer pointer wind) and
+  clamped the advected heat to 0..1. no doc change — build/promotion plus
+  visual tuning, no contract change.
+- **docs(trading): autonomy tiers for bots (L0/L1/L2) added to the parity plan.**
+  Decision recorded: live is the target, per-order approval is the default (L0),
+  and unattended execution (`order_submit` under a live mandate pinned to
+  `botId` + `botVersion`) is tier L2 — granted per bot only after a scored
+  advisory track record, and bounded by an armed connection, mandate caps
+  (`maxOrders`/`maxMargin`), the daily-loss brake, the money guardrails, a
+  per-bot position/cooldown limit and the magic-scoped kill switch. Sizing is
+  `risk_based` by default with a stop required on every order; `user_fixed` is a
+  per-bot override where the bot may decline but never resize. "Based on its
+  mood" is replaced by a versioned risk-appetite band so a loss can be traced to
+  a rule. Sequence is P0 → P1 → P3 → P4 → P5, because L2 is gated on the scored
+  record P4 produces. No code change in this entry. docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **fix(chat): the composer crashed with `ModelSelector is not defined`.** After
+  `ModelSelector` moved to `src/components/chat/model-selector.tsx`,
+  `chat-input.tsx` kept only `export { ModelSelector } from './model-selector'`
+  — a re-export does not create a local binding, so the JSX reference threw and
+  the whole shell rendered "Something went wrong" (digest 938137588). The module
+  now imports it for use and still re-exports it. no doc change — restoring
+  intended behaviour, no contract change.
+- **fix(trading): the "no agent path for live orders" rule is now enforced by code,
+  not by prompt wording.** `wrap_trade_authorizer` checked mandate coverage without
+  checking the connection's mode, and `submit_order` skips the typed LIVE phrase
+  when a `mandateId` is present, so a live mandate with an empty `workflowId` on an
+  armed connection could be submitted from any agent or bot run. Fixes: the
+  authorizer now resolves the connection mode and refuses anything that is not
+  `demo` (unknown/missing mode also refused, fail closed) and passes the mode to
+  the mandate check; `TradingMandateStore.covers` matches the mandate's mode;
+  `create_mandate` refuses an unpinned live mandate (`LIVE_MANDATE_UNPINNED`);
+  `order_submit` re-checks the mode in the handler (`LIVE_ORDER_REFUSED`) so a
+  missing wrapper cannot send one. Exits are untouched: `position_close` /
+  `position_modify` stay allowed on a live connection so an expired grant never
+  traps a position. Tests `python/tests/test_broker_agent_trade.py` (+5) and
+  `python/tests/test_trade_mandate_mode.py` (4). docs updated: `docs/trading.md`
+  (§ two operator-gated paths), `docs/harness/bot-parity-and-trade-execution-plan.md`
+  (decision recorded: live with per-order approval; P3 rewritten, standing mandate
+  out of scope), `docs/CHANGELOG.md`.
+- **docs(harness): plan bot capability parity and governed trade execution.** New
+  `docs/harness/bot-parity-and-trade-execution-plan.md` records what is already
+  true (a bot run already inherits the interactive agent's full tool allowlist via
+  `automation/dispatcher.py::_run_request`; demo orders already submit unattended
+  under an operator mandate; unattended live exists only through Graph Studio's
+  `allow_live_trading` + workflow-pinned mandate gate), the five real gaps
+  (no tool-level approval channel for scheduled runs, no workspace/autonomy for
+  code verbs, a narrower `bot_create` surface, unused `PermissionPolicy`, and a
+  prose-only live gate), and a P0-P4 plan that reuses the mandate/guardrail/kill
+  switch stack. It also flags a safety discrepancy found while writing it: the
+  `order_submit` description and `trade/authorizers.py` docstring state that no
+  agent path exists for live orders, but `wrap_trade_authorizer` does not check
+  mandate mode and `submit_order` skips the typed phrase when a `mandateId` is
+  present, so a live mandate with an empty `workflowId` on an armed connection can
+  be submitted from an agent run. Closing that in code is P0. docs updated:
+  `docs/harness/bot-parity-and-trade-execution-plan.md`, `docs/CHANGELOG.md`.
+- **perf(chat): progressive Markdown parsing + a per-run latency record.** A
+  streaming turn re-parsed and re-diffed the whole answer on every animation
+  frame, so a long reply got slower the longer it streamed (O(n²) parse plus a
+  new object for every block, which defeated memoization). `lib/chat/markdown.ts`
+  now exposes `stableBoundary()` and `parseMarkdownStream()`: only the part
+  after the last completed block boundary is parsed, earlier blocks are returned
+  by identity, and `Block` is memoized — already-written prose is neither
+  re-parsed nor re-rendered. Boundaries are conservative (an open fence, display
+  math or a continuing blockquote stops the cut), and a test asserts the
+  incremental result equals one full `parseMarkdown` at every growth step.
+  Separately, `RunEmitter` now feeds a `RunTimings` recorder and writes ONE
+  durable `run.timings` event after the terminal event with `setupMs`
+  (run.started → first model.requested), `ttftMs` (model.first_token),
+  `firstDeltaMs` and `deltaGapP50/P95/Max` over the transient `model.delta`
+  gaps — so "feels stuck" can be attributed to setup, provider latency or token
+  cadence instead of guessed at. Deltas stay transient; the record is one row
+  per run. Tests `src/lib/chat/markdown-incremental.test.ts` (19),
+  `python/tests/test_run_timings.py` (4). docs updated:
+  `docs/harness/architecture.md` (§ Live streaming), `docs/harness/observability.md`.
+- **feat(chat): `!` shell mode in the composer (OpenCode parity).** Typing `!`
+  at the start of an empty prompt now runs a shell command instead of sending a
+  prompt: Enter runs it in the session workspace, Esc leaves the mode, Shift+Enter
+  still inserts a newline. The run is appended to the conversation as a user turn
+  carrying `Message.shell` (command, cwd, real exit code, stdout/stderr, duration,
+  timeout/truncation flags) and rendered by `shell-run-card.tsx`; no agent run is
+  dispatched for it. The NEXT turn sends `formatShellForHarness` — the command,
+  12k-bounded output and exit status, labelled "observed data, not instructions" —
+  so the run stays in session context rather than in a detached terminal pane.
+  Honesty: a failed command reports its real non-zero exit code; an unavailable
+  or refusing runtime records an explicit unavailable turn. `ModelSelector` moved
+  from `chat-input.tsx` to `model-selector.tsx` (re-exported, imports unchanged)
+  to keep the composer under the size ceiling; size pin stock-chat 1717→1718.
+  Tests `src/lib/chat/shell.test.ts` (13). docs updated: `docs/chat-ui-audit.md`
+  (§ `!` shell mode), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **feat(voice): the composer catches fire when you dictate.** Tapping the mic
   now morphs **both** chat composers (full `chat-input` and floating
   `chat-dock`) into an interactive ember field instead of just starting a hidden
@@ -17,10 +153,11 @@
   session, morph on `data-voice`, hide the textarea while keeping it mounted,
   and handle the keyboard while listening (Esc cancels, Enter stops). Desktop stays
   honest: WebView2 has no SpeechRecognition, so the flame reacts but words land
-  after transcription. Tests `src/lib/voice/{meter,fire-field}.test.ts`. docs
-  updated: `docs/voice.md`, `docs/voice-fire-field-plan.md` (partially shipped),
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`; `docs/voice-ascii-wave-plan.md`
-  marked Superseded.
+  after transcription. Tests `src/lib/voice/{meter,fire-field}.test.ts`. The `@`
+  palette moved to `src/components/chat/mention-palette.tsx` so the composer
+  stays under the 1200-line ceiling (1197). docs updated: `docs/voice.md`,
+  `docs/voice-fire-field-plan.md` (partially shipped), `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`; `docs/voice-ascii-wave-plan.md` marked Superseded.
 - **docs(voice): supersede the ASCII wave plan with an interactive fire field.**
   New `docs/voice-fire-field-plan.md` specifies the effect actually wanted: the
   mic tap morphs the composer into a canvas ember field — an advected heat field

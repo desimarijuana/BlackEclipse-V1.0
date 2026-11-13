@@ -347,6 +347,26 @@ async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             connection_id = _pick(service, {})
         except ValueError as exc:
             return str(exc), {"status": "CONNECTION_REQUIRED"}
+    # Defence in depth: the authorizer already refuses a non-demo connection, but
+    # this handler must not depend on that wrapper being installed. Live orders
+    # have exactly one unattended home (a workflow-pinned mandate run by a Graph
+    # Studio trading node) and one manual home (the order_preview approval card).
+    mode = ""
+    try:
+        for item in service.list_connections():
+            if str(item.get("id") or "") == connection_id:
+                mode = str(item.get("mode") or "")
+                break
+    except Exception:  # noqa: BLE001 - unknown mode is refused below
+        mode = ""
+    if mode != "demo":
+        return (
+            "This tool submits DEMO orders only; it will not send a live order. "
+            "For a live trade call `order_preview` with the exact intent — the "
+            "operator approves that one order and types the LIVE phrase, and the "
+            "approval card submits it. There is no unattended live path here.",
+            {"status": "LIVE_ORDER_REFUSED", "mode": mode or "unknown"},
+        )
     if not mandate_id:
         mandate_id = _select_mandate(service, connection_id, str(intent.get("symbol") or ""))
     if not mandate_id:
@@ -705,9 +725,10 @@ def register_broker_tools(registry: Any) -> None:
         "you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. "
         "This call performs "
         "its own preview and submission; do not call order_preview first and never call "
-        "it with empty arguments. It cannot create a mandate or arm live. LIVE orders "
-        "are never submitted by this tool: call `order_preview` and the operator "
-        "confirms the approval card in chat.",
+        "it with empty arguments. It refuses any connection that is not demo: LIVE "
+        "orders are never submitted by this tool. For a live trade call "
+        "`order_preview` and the operator confirms the approval card in chat, typing "
+        "the LIVE phrase.",
         order_submit,
         {
             "type": "object",

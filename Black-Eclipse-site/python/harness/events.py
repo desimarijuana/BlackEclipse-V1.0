@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import Any, Callable, Optional
 
 from .config.flags import get_bool
 from .execution_log import ExecutionEventLog
 from .persistence import AgentMemoryStore, now_iso
+from .run_timings import RunTimings, TERMINAL_EVENT_TYPES
 
 log = logging.getLogger("harness.events")
 
@@ -78,6 +80,12 @@ class RunEmitter:
         self._store = store
         self._bus = bus
         self._seq = 0
+        # Latency marks for this run. Fed by every event this emitter sees and
+        # written ONCE as `run.timings` on the terminal event, so the trace gains
+        # one row per run instead of one per token.
+        self._clock = time.monotonic
+        self._timings = RunTimings(self._clock)
+        self._timings_emitted = False
         # Round 5 / C2: the run projection and the canonical log are written
         # together. The log never owns run state; `HarnessEvent` stays
         # authoritative for the run reader.
@@ -101,6 +109,16 @@ class RunEmitter:
                 self._log.append("run", self.run_id, event_type, event["data"])
             except Exception:  # noqa: BLE001 - the canonical log is fail-open
                 pass
+        self._timings.observe(event_type, event["data"], at=self._clock())
+        if event_type in TERMINAL_EVENT_TYPES and not self._timings_emitted:
+            # One durable latency record per run, written AFTER the terminal event
+            # so a reader always sees the run's outcome first. Fail-open: the
+            # summary is diagnostics and can never fail a finished run.
+            self._timings_emitted = True
+            try:
+                await self.emit("run.timings", self._timings.summary(at=self._clock()))
+            except Exception:  # noqa: BLE001
+                pass
         return event
 
     def emit_sync(self, event_type: str, data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -119,6 +137,7 @@ class RunEmitter:
                 self._log.append("run", self.run_id, event_type, event["data"])
             except Exception:  # noqa: BLE001 - the canonical log is fail-open
                 pass
+        self._timings.observe(event_type, event["data"], at=self._clock())
         return event
 
     def _durable_event(
@@ -175,6 +194,9 @@ class RunEmitter:
             "data": data or {},
             "transient": True,
         }
+        # Token deltas are where cadence is measured: the gap between them is the
+        # difference between a smooth stream and a bursty one.
+        self._timings.observe(event_type, event["data"], at=self._clock())
         if self._bus:
             self._bus.publish(event)
 

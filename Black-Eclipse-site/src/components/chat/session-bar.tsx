@@ -19,6 +19,8 @@ import type { SessionFile } from '@/lib/chat/session-types';
 interface SessionBarProps {
   session: SessionController;
   compact?: boolean;
+  /** Extra layout classes from the host (e.g. `min-w-0 flex-1` beside a chip). */
+  className?: string;
 }
 
 function formatBytes(n: number): string {
@@ -33,7 +35,7 @@ function formatBytes(n: number): string {
  * composer's "+" button (which uploads into this same session), so there is one
  * attach affordance instead of two. Collapsed by default.
  */
-export function SessionBar({ session: controller, compact = false }: SessionBarProps) {
+export function SessionBar({ session: controller, compact = false, className }: SessionBarProps) {
   const { session, busy, error, pending, removeFile, removePending } = controller;
   const [open, setOpen] = useState(false);
 
@@ -45,25 +47,28 @@ export function SessionBar({ session: controller, compact = false }: SessionBarP
   if (total === 0 && !error) return null;
 
   return (
-    <div className={cn('w-full', compact ? 'text-[11px]' : 'text-xs')}>
-      <div className="flex items-center gap-2">
+    <div className={cn('min-w-0', compact ? 'text-[11px]' : 'text-xs', className)}>
+      <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
           title={session?.path}
         >
           {open ? <FolderOpen size={13} /> : <Folder size={13} />}
-          <span className="font-medium">{chatId ? 'Session' : 'Attached'}</span>
-          <span className="text-muted-foreground/60">{total}</span>
-          <ChevronUp size={12} className={cn('transition-transform', open ? '' : 'rotate-180')} />
+          {/* "Session 3" read like a session number. Say what the count is. */}
+          <span className="font-medium">{chatId ? 'Session files' : 'Attached'}</span>
+          <span className="rounded-full bg-accent/40 px-1 tabular-nums text-[10px] text-muted-foreground/70">{total}</span>
+          <ChevronUp size={12} className={cn('shrink-0 transition-transform', open ? '' : 'rotate-180')} />
         </button>
 
-        {busy && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
+        {busy && <Loader2 size={12} className="shrink-0 animate-spin text-muted-foreground" />}
 
         {session && (
+          // A long absolute path must truncate inside the row, never spill over
+          // the project chip beside it. Hidden on narrow panes.
           <span
-            className="hidden min-[900px]:block truncate font-mono text-[10px] text-muted-foreground/50"
+            className="hidden min-w-0 flex-1 truncate text-left font-mono text-[10px] text-muted-foreground/50 min-[900px]:block"
             title={session.path}
           >
             {session.path}

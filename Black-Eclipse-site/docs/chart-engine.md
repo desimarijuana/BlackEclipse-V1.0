@@ -1,6 +1,6 @@
 # The chart engine — Eclipse draws its charts with Python
 
-**Status:** Active. **Last verified:** 2026-11-10.
+**Status:** Active. **Last verified:** 2026-11-13.
 
 Eclipse renders every chart with the Python runtime's chart engine: a validated
 **chart spec** goes in, `matplotlib` draws a transparent PNG, and the picture is
@@ -222,6 +222,15 @@ The picture is returned as an **artifact**, not as bytes: the browser fetches
 it back through `/api/artifacts/<id>/download`, so a chart is discoverable,
 downloadable and versioned.
 
+**Artifact registration is best-effort, and never hides a drawn chart.** If the
+Artifact Center cannot record the picture (a locked or absent database on a
+fresh install), the render response carries the PNG inline (`image:
+{mimeType, data}`) and the browser shows it from a data URL. The chart is still
+real; only its durable copy is missing. A "could not be stored" box is never
+shown in place of bytes that exist. `chartImageSrc()` in
+`src/lib/harness/charts.ts` is the one place that chooses artifact URL vs inline
+image.
+
 ```
 chart block ──▶ chart-spec.ts ──▶ spec ──▶ python_chart tool / /charts/render
                                                         │
@@ -239,6 +248,13 @@ app serves from its OWN route (`/api/harness/charts/plotly`): the library ships
 inside the Python package, so it is never vendored into git and never fetched
 from a CDN — the app keeps working offline. The browser loads it once and
 reuses it for every chart.
+
+The route **asks the running interpreter where its plotly lives** (falling back
+to the vendored/managed site-packages paths), so a system Python, a venv or the
+Windows vendored install all resolve. It is deliberately `force-dynamic`: a
+static build-time answer was cached, which meant a package installed after
+`next build` was invisible and a build that raced `postinstall` cached a
+permanent 503.
 
 The figure has **no background** (`paper_bgcolor` and `plot_bgcolor` are
 transparent), so the chart sits on the app's frosted surface without hiding
@@ -303,6 +319,16 @@ Two rules keep the picture readable:
   more than ~12 labels, the engine keeps every Nth label (and turns long
   ones, because a row of `2026-07-01` strings cannot share a line). The DATA is
   never thinned — only the labels are.
+
+### 3.3 First-run install
+
+Charts must work on a fresh install without a manual pip command. `plotly`
+therefore lives in `python/analysis-requirements.txt` alongside
+`numpy` / `pandas` / `matplotlib`, and both `scripts/setup-python.js` (postinstall)
+and `scripts/doctor.js` probe **all four**. This matters for an install that
+already had `langgraph`: the runtime marker used to skip the requirements file
+forever, so the chart stack was never completed. A missing stack is repaired with
+`npm run setup:python`.
 
 ## 4. What the user gets
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, ReactNode } from 'react';
+import { Fragment, ReactNode, memo, useMemo, useRef } from 'react';
 import { ExternalLink } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import {
@@ -14,6 +14,8 @@ import {
   isSourceHeading,
   isUnavailableText,
   parseMarkdown,
+  parseMarkdownStream,
+  type MarkdownParseCache,
   tableToTsv,
 } from '@/lib/chat/markdown';
 import { CopyButton } from './copy-button';
@@ -131,7 +133,20 @@ export function renderInline(nodes: InlineNode[]): ReactNode[] {
  * agent replies read like a document rather than a bubble.
  */
 export function Markdown({ content, className, compact = false, streaming = false, onFollowup }: MarkdownProps) {
-  const blocks = parseMarkdown(content);
+  // A settled turn is parsed once per content change. A streaming turn parses
+  // only the part after the last completed block, so already-written prose is
+  // returned by identity and its memoized `Block` never re-renders — the turn
+  // stays smooth as the answer grows instead of degrading toward the end.
+  const cacheRef = useRef<MarkdownParseCache | null>(null);
+  const blocks = useMemo(() => {
+    if (!streaming) {
+      cacheRef.current = null;
+      return parseMarkdown(content);
+    }
+    const parsed = parseMarkdownStream(cacheRef.current, content);
+    cacheRef.current = parsed.cache;
+    return parsed.blocks;
+  }, [content, streaming]);
 
   return (
     <div
@@ -148,7 +163,7 @@ export function Markdown({ content, className, compact = false, streaming = fals
   );
 }
 
-function Block({
+const Block = memo(function Block({
   block,
   compact,
   streaming,
@@ -413,4 +428,4 @@ function Block({
       );
     }
   }
-}
+});

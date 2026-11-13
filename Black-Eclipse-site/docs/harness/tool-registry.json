@@ -1,5 +1,5 @@
 {
-  "digest": "8e314b7245ccf458",
+  "digest": "c9f34f71e2553571",
   "manifestVersion": "1",
   "toolCount": 1100,
   "tools": [
@@ -21183,7 +21183,7 @@
     },
     {
       "deprecated": false,
-      "description": "Submit ONE DEMO order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. It cannot create a mandate or arm live. LIVE orders are never submitted by this tool: call `order_preview` and the operator confirms the approval card in chat.",
+      "description": "Submit ONE DEMO order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. It refuses any connection that is not demo: LIVE orders are never submitted by this tool. For a live trade call `order_preview` and the operator confirms the approval card in chat, typing the LIVE phrase.",
       "effect": "trading",
       "inputSchema": {
         "properties": {

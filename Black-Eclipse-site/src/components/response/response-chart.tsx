@@ -25,8 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { downloadUrl } from '@/lib/harness/clients/artifacts-browser';
-import { renderChart, type ChartFigureData, type RenderedChart } from '@/lib/harness/charts';
+import { chartImageSrc, renderChart, type ChartFigureData, type RenderedChart } from '@/lib/harness/charts';
 import { PlotlyChart } from '@/components/charts/plotly-chart';
 import { chartBlockToSpec, type ChartPlan } from '@/lib/response/chart-spec';
 import { chartSpecWarning } from '@/lib/response/chart-capabilities';
@@ -120,14 +119,17 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         const specKey = JSON.stringify(plan.spec);
         const rendered = await cachedRender(specKey, plan.spec);
         if (cancelled) return;
-        const artifactId = rendered.artifact.id;
-        if (!artifactId) {
-          setState({ status: 'error', message: 'the chart was drawn but could not be stored' });
+        // A chart whose artifact could not be recorded still has bytes: show
+        // them inline. Only a render that produced no picture is an error.
+        const src = chartImageSrc(rendered);
+        if (!src) {
+          setState({ status: 'error', message: 'the chart engine returned no picture' });
           return;
         }
+        const artifactId = rendered.artifact.id;
         // The export helpers fetch the picture by artifact id.
-        if (chartId) registerChartArtifact(chartId, artifactId);
-        setState({ status: 'ready', src: downloadUrl(artifactId), chart: rendered.chart, plan });
+        if (chartId && artifactId) registerChartArtifact(chartId, artifactId);
+        setState({ status: 'ready', src, chart: rendered.chart, plan });
       } catch (err) {
         if (cancelled) return;
         setState({

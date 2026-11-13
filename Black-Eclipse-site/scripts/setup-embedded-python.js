@@ -102,7 +102,7 @@ async function install() {
   // recipe cannot draw.
   const analysisReq = path.join(path.dirname(VENDOR_DIR), "..", "..", "python", "analysis-requirements.txt");
   if (fs.existsSync(analysisReq)) {
-    log("installing the analysis stack (numpy, pandas, matplotlib)...");
+    log("installing the analysis and chart stack (numpy, pandas, matplotlib, plotly)...");
     run(`"${PYTHON_EXE}" -m pip install --disable-pip-version-check --quiet -r "${analysisReq}"`, {
       stdio: "inherit",
     });

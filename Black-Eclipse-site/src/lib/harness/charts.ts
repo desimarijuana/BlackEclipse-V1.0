@@ -237,6 +237,13 @@ export interface ChartFigureData {
   layout: Record<string, unknown>;
 }
 
+/** A drawn picture carried inline when the Artifact Center could not record it. */
+export interface RenderedChartImage {
+  mimeType: string;
+  /** Base64 PNG bytes. */
+  data: string;
+}
+
 export interface RenderedChart {
   figure: ChartFigure;
   /** The LIVE chart (vector, zoomable, pannable). Absent when plotly is off. */
@@ -248,6 +255,29 @@ export interface RenderedChart {
     sha256: string;
     downloadUrl: string | null;
   };
+  /**
+   * Present only when the picture was drawn but the Artifact Center could not
+   * store it. The chart is still real: render this instead of an error box.
+   */
+  image?: RenderedChartImage;
+}
+
+/**
+ * The URL to display for a rendered chart.
+ *
+ * Prefers the recorded artifact (durable, versioned, downloadable); falls back
+ * to the inline bytes when registration was unavailable. `null` means the
+ * engine drew no picture at all — which is the only case the UI may report as
+ * a failed chart.
+ */
+export function chartImageSrc(rendered: RenderedChart): string | null {
+  const id = rendered.artifact.id;
+  if (id) return `/api/artifacts/${encodeURIComponent(id)}/download`;
+  if (rendered.image?.data) {
+    const mime = rendered.image.mimeType || "image/png";
+    return `data:${mime};base64,${rendered.image.data}`;
+  }
+  return null;
 }
 
 /**
@@ -262,6 +292,7 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
   });
   const body = (await res.json().catch(() => ({}))) as Partial<RenderedChart> & {
     chart?: ChartFigureData;
+    image?: RenderedChartImage;
     status?: string;
     error?: string;
     detail?: { code?: string; message?: string } | string;
@@ -280,6 +311,7 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
   return {
     figure: body.figure,
     ...(body.chart ? { chart: body.chart } : {}),
+    ...(body.image ? { image: body.image } : {}),
     artifact: body.artifact ?? {
       id: null,
       name: body.figure.artifact,

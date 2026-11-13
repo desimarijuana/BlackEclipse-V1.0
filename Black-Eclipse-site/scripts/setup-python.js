@@ -79,13 +79,21 @@ for (const cmd of candidates) {
     }
   }
 
-  // 3. The SANDBOX's numerical stack (numpy, pandas, matplotlib). This is the
-  //    environment an `analysis_run` program executes in, so it must live in
-  //    the SAME interpreter the sandbox runs (the vendored one on Windows).
-  if (hasModule(cmd, "numpy") && hasModule(cmd, "pandas") && hasModule(cmd, "matplotlib")) {
-    console.log("[setup] Python analysis stack already installed.");
+  // 3. The SANDBOX's numerical stack (numpy, pandas, matplotlib) AND the chart
+  //    engine's live output (plotly). This is the environment an `analysis_run`
+  //    program executes in, so it must live in the SAME interpreter the sandbox
+  //    runs (the vendored one on Windows). `plotly` is checked here too: it is
+  //    what turns a drawn PNG into a real, zoomable chart, and a runtime that
+  //    had langgraph from an earlier install used to skip it forever.
+  if (
+    hasModule(cmd, "numpy") &&
+    hasModule(cmd, "pandas") &&
+    hasModule(cmd, "matplotlib") &&
+    hasModule(cmd, "plotly")
+  ) {
+    console.log("[setup] Python analysis and chart stack already installed.");
   } else {
-    console.log("[setup] Installing the analysis stack (numpy, pandas, matplotlib)...");
+    console.log("[setup] Installing the analysis and chart stack (numpy, pandas, matplotlib, plotly)...");
     try {
       execSync(`"${cmd}" -m pip install -r "${analysisRequirements}" --disable-pip-version-check`, {
         stdio: "inherit",

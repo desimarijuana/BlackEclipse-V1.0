@@ -10,6 +10,12 @@
 # A missing one degrades honestly: a figure recipe without matplotlib fails
 # with a ModuleNotFoundError the model can see and act on — it never draws a
 # fabricated chart.
+#
+# `plotly` is the chart engine's LIVE output (in the harness process, which
+# uses the same interpreter on a Windows install). Without it a chart still
+# falls back to the drawn PNG, but the interactive chart is unavailable — so it
+# belongs in the stack that guarantees "charts work out of the box".
 numpy>=1.26
 pandas>=2.1
 matplotlib>=3.8
+plotly>=5.20

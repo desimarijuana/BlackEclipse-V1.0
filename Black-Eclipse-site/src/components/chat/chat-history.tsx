@@ -4,10 +4,12 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type C
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown, SquarePen, GitBranch, MessageSquareText } from '@/lib/icons';
 import { cn } from '@/lib/utils';
-import { Message, type MessageQuote } from '@/types/chat';
+import { Message, type MessageQuote, type ShellRun } from '@/types/chat';
 import { boundQuote } from '@/lib/chat/quote';
+import { shellOutput } from '@/lib/chat/shell';
 import { selectionGapFillers, type Filler } from '@/lib/chat/selection-band';
 import { QuoteCard } from './quote-card';
+import { ShellRunCard } from './shell-run-card';
 import { Markdown } from './markdown';
 import { ResponseRuntimeProvider } from '@/components/response/figure-context';
 import { buildFigureResolver } from '@/lib/response/refs';
@@ -536,6 +538,18 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
     }
   };
 
+  const [copiedShellId, setCopiedShellId] = useState<string | null>(null);
+
+  const copyShellOutput = async (messageId: string, run: ShellRun) => {
+    try {
+      await navigator.clipboard.writeText(shellOutput(run));
+      setCopiedShellId(messageId);
+      setTimeout(() => setCopiedShellId((c) => (c === messageId ? null : c)), 1500);
+    } catch {
+      // Clipboard unavailable — leave the button unchanged.
+    }
+  };
+
   return (
     <div
       ref={rootRef}
@@ -895,11 +909,20 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     {msg.quote && (
                       <QuoteCard quote={msg.quote} onJump={jumpToMessage} compact={compact} />
                     )}
+                    {msg.shell && (
+                      <ShellRunCard
+                        run={msg.shell}
+                        copied={copiedShellId === msg.id}
+                        onCopy={() => void copyShellOutput(msg.id, msg.shell!)}
+                      />
+                    )}
                     <div data-quotable-content>
-                      {msg.content.length > LONG_USER_MESSAGE_CHARS && expandedId !== msg.id
+                      {/* A shell turn IS its card: repeating `!cmd` above the
+                          run would duplicate the command. */}
+                      {msg.shell ? null : msg.content.length > LONG_USER_MESSAGE_CHARS && expandedId !== msg.id
                         ? `${msg.content.slice(0, USER_MESSAGE_PREVIEW_CHARS).trimEnd()}…`
                         : msg.content}
-                      {msg.content.length > LONG_USER_MESSAGE_CHARS && (
+                      {!msg.shell && msg.content.length > LONG_USER_MESSAGE_CHARS && (
                         <button
                           type="button"
                           onClick={() => setExpandedId((id) => (id === msg.id ? null : msg.id))}

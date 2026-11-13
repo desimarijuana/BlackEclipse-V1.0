@@ -255,6 +255,18 @@ compete:
    agent calls `order_submit` once with `intent`; the mandate is the authorization
    (see the mandate section). This is also the Graph Studio path.
 
+**`order_submit` is demo-only, enforced by mode.** The agent tool resolves the
+connection's `mode` and refuses anything that is not `demo` (`LIVE_ORDER_REFUSED`;
+the authorizer refuses it too, and `TradingMandateStore.covers` now matches the
+mandate's mode against the connection's). A live trade therefore has exactly two
+homes: the approval card in path 1, or a workflow-pinned live mandate executed by
+a Graph Studio `trading.*` node. The mandate store already refused an unpinned
+live mandate (`MANDATE_WORKFLOW_REQUIRED`, workflow id **and** version), so
+unattended live authority always names the workflow it authorizes; the agent path
+now refuses live explicitly rather than relying on the workflow-pin check to fail
+for the wrong reason. An unknown or missing connection mode is refused rather
+than assumed to be demo.
+
 Because both paths return through `order_submit` in the ledger, an earlier
 `MANDATE_REQUIRED` refusal is not evidence that the order failed: after the
 operator confirms a card, `order_ledger` shows the filled ticket. The agent's

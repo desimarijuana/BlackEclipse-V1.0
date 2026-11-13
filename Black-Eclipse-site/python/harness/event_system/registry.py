@@ -140,6 +140,9 @@ def _build_default_specs() -> list[EventTypeSpec]:
         ("run.cancelled", "A run was cancelled", "normal"),
         ("run.resumed", "A run resumed from a checkpoint", "normal"),
         ("run.replanned", "A run replanned", "normal"),
+        # Latency summary written once on the terminal event (setup / TTFT /
+        # token cadence). Diagnostics, not a state transition.
+        ("run.timings", "A run recorded its latency summary", "low"),
     ]:
         s.append(_spec(name, description=desc, producer=("harness",), priority=prio, retention_days=90))
 

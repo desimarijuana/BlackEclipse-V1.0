@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-11-12
+last-verified: 2026-11-13
 ---
 
 # Harness Architecture
@@ -109,7 +109,8 @@ rows are badged in the list and Today chips. `POST /evolution/drift/candidate` t
 | `async_timeout.py` | the hard-deadline primitive (`await_bounded`): races a coroutine against a plain timer and raises `asyncio.TimeoutError` WITHOUT waiting for cancellation to be acknowledged, so a provider/tool that swallows `CancelledError` (observed: a run sat on `model.requested` for 10+ minutes) cannot hold a run hostage. Outer cancellation still cancels the inner task; abandoned work is drained. Used by `model_stream.py` and `ToolRegistry.execute` |
 | `model_stream.py` | model invoke/streaming helpers (extracted), with the HARD per-call deadline via `await_bounded`: a hung provider stream fails the run with `PROVIDER_TIMEOUT` at the declared budget, and the abandoned stream is flagged so it stops emitting deltas |
 | `run_watchdog.py` | the stall watchdog: every 30s, a run in `created`/`running` whose last recorded activity (event or start) is older than `max(its agent's model budget, the 300s per-call ceiling) + 60s grace` is failed with code `RUN_STALLED`, gets a durable `run.failed` event, its SSE stream is closed and its task is cancelled. A run legitimately waiting on a user decision (last event `approval.requested`) is exempt. A run that already emitted a durable TERMINAL event (`run.completed`/`run.failed`/`run.cancelled`/`run.interrupted` after its current `startedAt`) is NOT stalled: it finished and only the row write lagged, so the sweep reconciles the row to the proven status instead of overwriting a finished run. Started/stopped from `boot.py`. This is the guarantee that a chat stream always reaches a terminal state |
-| `events.py` | per-run event emitter + live bus |
+| `events.py` | per-run event emitter + live bus. It also feeds `run_timings.py` and, on the terminal event, writes ONE durable `run.timings` record (setup / TTFT / token cadence) — because `model.delta` is transient, the trace otherwise cannot explain a slow run |
+| `run_timings.py` | the per-run latency recorder behind `run.timings`: a pure in-memory observer over the events the emitter already emits (`setupMs`, `ttftMs`, `firstDeltaMs`, delta-gap p50/p95/max). Absent marks are omitted, never guessed; recording is total and fail-open |
 | `event_system/` | **the canonical, durable Event System** (ADR-H153): `envelope.py` (`EclipseEvent` + correlation/causation/trace context vars + secret redaction), `registry.py` (`EventRegistry`/`EventTypeSpec`), `filters.py`, `store.py` (`HarnessEventLog`/`HarnessEventConsumer`/`HarnessEventDeadLetter`/`HarnessEventSubscription` on `agent-memory.db`), `metrics.py`, `middleware.py`, `security.py`, `bus.py` (`EventBus`/`Subscription`: workers, backpressure, retry, DLQ, idempotency, request/reply, legacy bridge), `rules.py` (event→action via the Automation Engine), `replay.py`, `service.py` (`EventSystem` facade + memory-candidate/self-improvement/market-sampler consumers), `config.py`, `bootstrap.py`. It BRIDGES `events.py` (one transport, one model) rather than replacing it. Detail: `docs/harness/event-system.md` |
 | `persistence.py` | `agent-memory.db` (runs, events, tool execs, retrieval/receipt records, learning-recurrence ledger) + token usage aggregates |
 | `run_patch.py` | the ONE run-patch serializer (`RUN_PATCH_FIELDS`, `RUN_JSON_FIELDS`, `run_patch_sql`): allowed columns plus JSON encoding, shared by `AgentMemoryStore.update_run` and the lease-fenced writer. A divergence here silently dropped every terminal write once; never give either writer its own field list |
@@ -1075,6 +1076,17 @@ observed, and the front door sends the terminal `client.final` with the
 authoritative answer when the stream ends. If SSE is unavailable the client
 falls back to the one-shot `/api/harness/chat` — a run always yields an answer
 or an honest error.
+
+**Where the time went (`run.timings`).** Because deltas are not persisted, the
+trace alone cannot answer "why did this feel slow?". `RunEmitter` feeds a
+`RunTimings` recorder (`run_timings.py`) from the events it already sees and, on
+the run's terminal event, writes ONE durable `run.timings` record:
+`setupMs` (`run.started` → first `model.requested` — prompt, memory, surface and
+bridge work), `ttftMs` (the provider's own first-token latency, from
+`model.first_token`), `firstDeltaMs`, and the p50/p95/max gap between
+`model.delta` frames (cadence: a bursty stream and a smooth one have the same
+tokens and a very different feel). Absent marks are omitted, never faked; the
+record is fail-open and exists once per run, not once per token.
 
 **Both run paths are now visible (Round 5 / ADR-H348).** `service.run` (the
 foreground path) registers its task in `service._active` exactly like

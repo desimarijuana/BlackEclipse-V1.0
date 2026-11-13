@@ -7,6 +7,7 @@
 // Pure (no DOM) so the bounding and prompt shape are unit-testable.
 
 import type { Message, MessageQuote } from '@/types/chat';
+import { formatShellForHarness } from './shell';
 
 /** A selection longer than this is stored as a bounded excerpt. */
 export const MAX_QUOTE_CHARS = 4_000;
@@ -65,10 +66,18 @@ export function buildQuoteContext(quote: MessageQuote): string {
 }
 
 /**
- * The exact text a turn contributes to the harness. Quote-free messages are
- * unchanged, so every existing conversation behaves exactly as before.
+ * The exact text a turn contributes to the harness. Quote-free, shell-free
+ * messages are unchanged, so every existing conversation behaves exactly as
+ * before.
  */
-export function turnTextForHarness(message: Pick<Message, 'content' | 'quote'>): string {
+export function turnTextForHarness(
+  message: Pick<Message, 'content' | 'quote' | 'shell'>,
+): string {
+  if (message.shell) {
+    // The command the user ran IS this turn's content: it must not also read as
+    // a prompt, or the model would answer the command text as a question.
+    return formatShellForHarness(message.shell);
+  }
   if (!message.quote) return message.content;
   const question = message.content.trim() || DEFAULT_QUOTE_PROMPT;
   return `${buildQuoteContext(message.quote)}\n\n${question}`;

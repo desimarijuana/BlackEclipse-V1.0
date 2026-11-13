@@ -1326,6 +1326,7 @@ function StockChatContent() {
                       query={query}
                       setQuery={setQuery}
                       onSend={handleSend}
+                      onRunShell={messageActions.runShell}
                       onViewMarketOverview={() => setActiveTab('discovery')}
                       onAttach={contextPicker.open}
                       onAttachImage={contextPicker.openImages}
@@ -1339,9 +1340,11 @@ function StockChatContent() {
                       searchProjectFiles={searchProjectFiles}
                       onReferenceFile={sessionController.attachProjectFile}
                     />
-                    <div className="flex max-w-full items-center gap-2 px-4 md:px-6">
-                      <SessionBar session={sessionController} />
-                      <ProjectChip chatId={activeConversationId ?? undefined} />
+                    {/* Same px + max-w as the composer column, so it can't overflow. */}
+                    <div className="w-full px-4 md:px-6">
+                      <div className="mx-auto flex w-full min-w-0 max-w-full items-center gap-2 md:max-w-[80%]">
+                        <SessionBar session={sessionController} className="min-w-0 flex-1" /><ProjectChip chatId={activeConversationId ?? undefined} />
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -1371,6 +1374,7 @@ function StockChatContent() {
                         query={query}
                         setQuery={setQuery}
                         onSend={handleSend}
+                        onRunShell={messageActions.runShell}
                         placeholder="Ask a follow-up..."
                         showProvider={false}
                         modelState={chatModel}
@@ -1417,11 +1421,9 @@ function StockChatContent() {
                         />
                       )}
                       <AttachmentPreview preview={sessionController.preview} onClose={sessionController.closePreview} />
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <SessionBar session={sessionController} />
-                          <ProjectChip chatId={activeConversationId ?? undefined} compact />
-                        </div>
+                      <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                        <SessionBar session={sessionController} className="min-w-0 flex-1" />
+                        <ProjectChip chatId={activeConversationId ?? undefined} compact />
                       </div>
                     </div>
                   </div>

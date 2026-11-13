@@ -23,6 +23,31 @@ export interface MessageQuote {
   truncated?: boolean;
 }
 
+/**
+ * One shell command the user ran with `!` shell mode in the composer.
+ *
+ * The transcript keeps it so the run is visible as part of the conversation
+ * (not a detached terminal pane) and so the next turn can carry the command and
+ * its output into harness context. `error` is set only when the runtime could
+ * not run the command at all — a command that RAN and failed has a real
+ * `exitCode` and is not an error state.
+ */
+export interface ShellRun {
+  command: string;
+  /** Workspace-relative directory the command ran in, as reported by the runtime. */
+  cwd: string;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  timedOut: boolean;
+  truncated: boolean;
+  /** Human-readable runtime status (kept verbatim from the shell runner). */
+  status: string;
+  /** Set when the runtime was unavailable or refused the run; no exit code then. */
+  error?: string;
+}
+
 export interface MessageAttachment {
   /** Session file name, e.g. `pasted-text.txt`. */
   name: string;
@@ -57,6 +82,13 @@ export interface Message {
    * context is assembled by `turnTextForHarness`.
    */
   quote?: MessageQuote;
+  /**
+   * A shell command this user turn ran instead of a prompt (`!` shell mode).
+   * `content` stays `!<command>` so the prompt reads naturally; the transcript
+   * renders the run from here, and `turnTextForHarness` adds it to the next
+   * turn's context.
+   */
+  shell?: ShellRun;
   /** Lifecycle of an assistant turn (absent on user turns and legacy rows). */
   status?: ResponseStatus;
   /** Tools/retrieval the agent used while producing this turn. */
