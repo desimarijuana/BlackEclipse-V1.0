@@ -891,7 +891,7 @@ export function ChatInput({
                     size="icon"
                     title="Queue this prompt — it runs after the current reply"
                     aria-label="Queue this prompt"
-                    className="flex h-8 items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2.5 text-primary transition-colors hover:bg-primary/25 focus-visible:ring-0 focus-visible:outline-none"
+                    className="flex h-8 items-center gap-1 rounded-full border-0 bg-primary px-2.5 text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:ring-0 focus-visible:outline-none"
                   >
                     <ArrowUp size={14} />
                     <span className="hidden text-[11px] font-semibold min-[420px]:inline">Queue</span>
@@ -903,7 +903,7 @@ export function ChatInput({
                   onClick={onCancel}
                   title="Stop generating"
                   aria-label="Stop generating"
-                  className="p-1.5 bg-foreground/90 text-background hover:bg-foreground rounded-full shrink-0 h-8 w-8 cursor-pointer transition-colors flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
+                  className="p-1.5 border-0 bg-foreground text-background hover:bg-foreground/90 rounded-full shrink-0 h-8 w-8 cursor-pointer transition-colors flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
                 >
                   <Pause size={15} fill="currentColor" />
                 </Button>

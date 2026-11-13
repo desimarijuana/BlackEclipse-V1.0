@@ -882,7 +882,7 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
             rows={1}
             placeholder={t('bots.groups.composer')}
             aria-label={t('bots.groups.composer')}
-            className="max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none dark:bg-input/30"
+            className="glass-composer max-h-[200px] min-h-10 flex-1 resize-none overflow-y-auto rounded-xl border border-white/10 px-3 py-2 text-sm outline-none dark:border-white/5"
           />
           {!sending && (
             <Button
@@ -1038,7 +1038,7 @@ function GroupBubble({
           className={cn(
             'rounded-2xl px-3.5 py-2 text-sm',
             isUser
-              ? 'bg-white/[0.08] text-foreground'
+              ? 'chat-bubble text-foreground'
               : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
           )}
         >

@@ -18,7 +18,7 @@ import {
   resumeLoop,
   type GoalView,
   type LoopView,
-} from '@/lib/harness/clients/autonomy-client';
+} from '@/lib/harness/clients/autonomy-browser';
 import { cn } from '@/lib/utils';
 
 interface GoalBarProps {

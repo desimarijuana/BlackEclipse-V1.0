@@ -618,7 +618,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   {msg.error && (
                     <div
                       role="alert"
-                      className="relative w-full overflow-hidden rounded-2xl border border-rose-500/25 glass-card"
+                      className="relative mb-3 w-full overflow-hidden rounded-2xl border border-rose-500/25 glass-card"
                     >
                       {/* Rose wash sits OVER the glass so the surface still
                           frosts (a solid rose fill would kill the blur). */}
@@ -626,7 +626,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                         aria-hidden
                         className="pointer-events-none absolute inset-0 bg-gradient-to-br from-rose-500/[0.14] via-rose-500/[0.05] to-transparent"
                       />
-                      <div className="relative flex items-start gap-3 px-3.5 py-3">
+                      <div className="relative flex items-start gap-3 px-3.5 pb-4 pt-3">
                         <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/15 text-rose-300">
                           <AlertTriangle size={14} />
                         </span>

@@ -1322,18 +1322,18 @@ html:not(.dark) .glass-command-popover {
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-/* Chat composer â€” a NEUTRAL GREY frosted panel. The `--card-rgb` tint read as
- * black over the dark conversation surface, so the composer now uses a straight
- * neutral grey (zinc) tint while keeping the real blur. Alpha stays ≤ ~0.55 so
- * the frost remains visible (see hard rule #2). */
+/* Chat composer â€” a NEAR-TRANSPARENT frosted panel. The fill is the app's
+ * neutral card tint at very low alpha, so the transcript behind reads through
+ * real glass instead of a flat grey panel. Alpha stays ≤ ~0.55 so the frost
+ * remains visible (see hard rule #2). */
 .glass-composer {
-  background: rgb(113 113 122 / 0.30);
+  background: rgb(var(--card-rgb, 18 18 20) / 0.16);
   backdrop-filter: blur(28px) saturate(1.5);
-  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 html:not(.dark) .glass-composer {
-  background: rgba(244, 244, 245, 0.72);
-  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.70);
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 /* Frosted-glass button â€” translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
@@ -1624,8 +1624,10 @@ html.dark .chat-surface-layer {
 .chat-bubble {
   background: var(--chat-bubble-bg-light, color-mix(in srgb, var(--foreground) 10%, transparent));
 }
+/* A 30% foreground tint lands on a clearly grey (#4c-ish) bubble over the dark
+ * conversation surface; 10–20% still read as black. */
 html.dark .chat-bubble {
-  background: var(--chat-bubble-bg-dark, color-mix(in srgb, var(--foreground) 10%, transparent));
+  background: var(--chat-bubble-bg-dark, color-mix(in srgb, var(--foreground) 30%, transparent));
 }
 /* Giant ChatBot wordmark. A display-type wordmark (e.g. "ECLIPSE AGENT") painted
  * behind the ChatBot landing, above the wallpaper art but below the transcript

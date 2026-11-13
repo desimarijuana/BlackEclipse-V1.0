@@ -822,7 +822,7 @@ export function BotChat({
             </Button>
           </div>
         )}
-        <div className="relative flex w-full items-end gap-1.5 rounded-3xl border border-white/10 glass-card px-1.5 py-1 shadow-lg shadow-black/20 transition-colors focus-within:border-primary sm:px-2 dark:border-white/5">
+        <div className="relative flex w-full items-end gap-1.5 rounded-3xl border border-white/10 glass-composer px-1.5 py-1 shadow-lg shadow-black/20 transition-colors focus-within:border-primary sm:px-2 dark:border-white/5">
           <textarea
             ref={textareaRef}
             value={input}
@@ -857,7 +857,7 @@ export function BotChat({
                 onClick={stop}
                 title={t('bots.chat.stop')}
                 aria-label={t('bots.chat.stop')}
-                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/90 p-1.5 text-background transition-colors hover:bg-foreground focus-visible:outline-none focus-visible:ring-0"
+                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-foreground p-1.5 text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-0"
               >
                 <Pause size={15} fill="currentColor" />
               </Button>
@@ -1041,7 +1041,7 @@ function ChatBubble({
           className={cn(
             'rounded-2xl px-3.5 py-2 text-sm',
             isUser
-              ? 'bg-white/[0.08] text-foreground'
+              ? 'chat-bubble text-foreground'
               : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
           )}
         >

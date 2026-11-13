@@ -843,6 +843,10 @@ export interface ChatBubbleCss {
 
 /** The neutral bubble tint used when the user has not picked a color. */
 export const DEFAULT_CHAT_BUBBLE_BG = 'color-mix(in srgb, var(--foreground) 10%, transparent)';
+/** Dark-mode prompt bubble: a 30% foreground tint reads as a clear neutral grey
+ *  (#4c-ish) instead of the near-black 10–20% tints. */
+export const DEFAULT_CHAT_BUBBLE_BG_DARK =
+  'color-mix(in srgb, var(--foreground) 30%, transparent)';
 
 /**
  * Resolve the prompt-bubble fill for light and dark mode. Empty picks fall back
@@ -851,7 +855,7 @@ export const DEFAULT_CHAT_BUBBLE_BG = 'color-mix(in srgb, var(--foreground) 10%,
 export function resolveChatBubbleCss(prefs: BackgroundPrefs): ChatBubbleCss {
   return {
     light: prefs.chatBubbleColorLight.trim() || DEFAULT_CHAT_BUBBLE_BG,
-    dark: prefs.chatBubbleColor.trim() || DEFAULT_CHAT_BUBBLE_BG,
+    dark: prefs.chatBubbleColor.trim() || DEFAULT_CHAT_BUBBLE_BG_DARK,
   };
 }
 

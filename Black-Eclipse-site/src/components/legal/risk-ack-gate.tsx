@@ -5,9 +5,10 @@
 // notice existed never saw it, so this closes that gap in the least intrusive
 // way that still records the acceptance:
 //
-//   * local self-hosted (auth off on loopback): a dismissible bottom banner
-//     with a "Review" action. Dismissal is per-session; nothing is recorded
-//     until the user actually accepts.
+//   * local self-hosted (auth off on loopback): a dismissible corner banner
+//     with a "Review" action. Dismissal persists in localStorage so the notice
+//     never nags once acknowledged; nothing is recorded as consent until the
+//     user actually accepts.
 //   * remote / multi-user (hosted): a blocking modal, because consent from
 //     every user of a hosted service must be explicit.
 //
@@ -58,7 +59,7 @@ export function RiskAckGate() {
           setOpen(true);
         } else {
           try {
-            setDismissed(sessionStorage.getItem(DISMISS_KEY) === '1');
+            setDismissed(localStorage.getItem(DISMISS_KEY) === '1');
           } catch {
             setDismissed(false);
           }
@@ -108,7 +109,7 @@ export function RiskAckGate() {
   const dismissBanner = () => {
     setDismissed(true);
     try {
-      sessionStorage.setItem(DISMISS_KEY, '1');
+      localStorage.setItem(DISMISS_KEY, '1');
     } catch {
       /* private mode — it stays dismissed for this render */
     }
@@ -116,8 +117,11 @@ export function RiskAckGate() {
 
   if (!open) {
     if (dismissed) return null;
+    // Top-right corner, not bottom-centre: the chat composer also lives at the
+    // bottom, so a centred banner covered the input and read as misaligned
+    // against the sidebar/content column.
     return (
-      <div className="fixed inset-x-0 bottom-4 z-[150] flex justify-center px-4" role="status">
+      <div className="fixed inset-x-3 top-14 z-[150] flex justify-end sm:inset-x-auto sm:right-4 sm:top-16" role="status">
         <div className="glass-card flex w-full max-w-[560px] items-start gap-2.5 rounded-2xl border border-border/40 px-3.5 py-2.5 shadow-lg">
           <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
             <ShieldCheck size={14} />

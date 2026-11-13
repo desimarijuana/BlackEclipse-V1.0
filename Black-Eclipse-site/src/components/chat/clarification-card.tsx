@@ -73,7 +73,7 @@ export function ClarificationCard({ clarification, anchor, onAnswer }: Clarifica
         position: 'fixed',
         left: rect.left,
         top: rect.top - 10,
-        width: Math.min(rect.width, 720),
+        width: rect.width,
         maxHeight: Math.max(220, rect.top - 16),
         overflowY: 'auto',
         transform: 'translate(-50%, -100%)',
