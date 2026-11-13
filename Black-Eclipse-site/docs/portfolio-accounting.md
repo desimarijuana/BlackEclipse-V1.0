@@ -1,7 +1,7 @@
 ---
 title: Portfolio Accounting Engine
 status: Current
-last-verified: 2026-10-19
+last-verified: 2026-11-13
 ---
 
 # Portfolio Accounting Engine
@@ -32,7 +32,9 @@ Transactions ──▶ Tax lots ──▶ Positions ──▶ Valuation ──�
   `src/app/api/portfolio/[[...path]]/route.ts`, the engine-backed fund adapter
   `src/lib/portfolio/engine-funds.ts`, and the Funds screens
   `src/components/screens/portfolio/{index,fund-manager,fund-workspace}.tsx`.
-- **Tests:** `python/tests/test_portfolio_*.py`.
+- **Tests:** `python/tests/test_portfolio_*.py` and the hardcore suite
+  `python/tests/test_accounting_hardcore.py` (prompts:
+  `docs/accounting-hardcore-tests.md`).
 
 ## Source of truth
 
@@ -137,6 +139,15 @@ highest-cost lot first (tax-loss harvesting); `SPECIFIC_ID` consumes the exact
 lots named in the sell transaction's `lot_selection` (`[{lotId, quantity}]`),
 falling back to FIFO for any unselected remainder.
 
+**Lot ids are deterministic** (`lot_<source transaction id>`), so the id a
+caller reads from `portfolio_calculate_tax_lots` is still valid when the sell is
+posted and after any rebuild. `SPECIFIC_ID` validates the designation before it
+is used: an unknown lot, a duplicate selection, or a malformed/zero quantity is
+an error (`LOT_MISMATCH` / `INVALID_TRANSACTION`) and the service refuses the
+write. A `lot_selection` on a book whose method is not `SPECIFIC_ID` is also
+refused rather than silently ignored — the designation is a tax instruction, and
+quietly substituting FIFO would produce a wrong, defensible-looking result.
+
 Golden case — BUY 10 @ $100, BUY 10 @ $200, SELL 10 @ $300:
 
 | method | realized cost basis | realized P&L |
@@ -145,15 +156,25 @@ Golden case — BUY 10 @ $100, BUY 10 @ $200, SELL 10 @ $300:
 | LIFO | $2,000 | $1,000 |
 | AVERAGE_COST | $1,500 | $1,500 |
 
-Fees on a BUY raise cost basis; fees/taxes on a SELL reduce proceeds. An
-in-kind `TRANSFER_OUT` with no stated price moves at **book value** (basis
-carries, no gain). Splits/reverse splits scale lot quantity and inverse-scale
-per-unit cost.
+Fees on a BUY raise cost basis; fees/taxes on a SELL reduce proceeds. A sell that
+carries only a settled `net_amount` (no price/gross, as many broker exports do)
+uses that net amount as the proceeds — it is never read as a zero-proceeds
+disposal. An oversell is refused; the diagnostic run prorates proceeds over the
+requested quantity, so clamping to the available quantity cannot inflate the
+per-unit proceeds. An in-kind `TRANSFER_OUT` with no stated price moves at **book
+value** (basis carries, no gain). Splits/reverse splits scale lot quantity and
+inverse-scale per-unit cost.
 
 **Invariants** (tested): `acquired − disposed == remaining` and
-`remaining cost basis + realized cost basis == acquisition cost`. A disposal can
-never drive a position negative — **short positions are refused**, not
-miscalculated.
+`remaining cost basis + realized cost basis == acquisition cost`. Both quantity
+rollups are restated during a split, so a disposal that happened before the
+split is counted in post-split share units and the invariant still holds. A
+disposal can never drive a position negative — **short positions are refused**,
+not miscalculated.
+
+`AVERAGE_COST` pools basis, but a match still reports a real `acquired_at` from
+the earliest shares consumed, so a multi-year holding is not mislabeled as a
+0-day (short-term) disposal.
 
 ## Valuation, FX and data quality
 
@@ -164,6 +185,15 @@ yields an explicit `UNAVAILABLE`/`PARTIAL` data-quality state with named
 `missingPrices` / `stalePrices` / `missingFX` — never a silently substituted
 zero. Prices are read through the **Market Data Gateway** (provider-independent),
 or caller-injected `marks` (the HTTP front door passes live JDdS quotes).
+
+**Every lookup is bounded, and a portfolio resolves its symbols concurrently.**
+`MarketAdapter` wraps each gateway quote/FX call in a timeout
+(`PORTFOLIO_MARK_TIMEOUT_S`, default 8 s); a slow provider becomes a MISSING
+mark instead of consuming the tool's whole budget. `PortfolioService.read`
+gathers the per-symbol lookups (bounded at 6), so a five-symbol fund costs one
+round-trip window rather than five. Before this, one slow PSX quote made
+`portfolio_get` hit its 20 s `TOOL_TIMEOUT`, which sent the agent off guessing
+unrelated app routes until the run ended without an answer (2026-11-13).
 
 ## P&L, exposure, allocation
 

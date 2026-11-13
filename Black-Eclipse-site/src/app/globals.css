@@ -1624,10 +1624,11 @@ html.dark .chat-surface-layer {
 .chat-bubble {
   background: var(--chat-bubble-bg-light, color-mix(in srgb, var(--foreground) 10%, transparent));
 }
-/* A 30% foreground tint lands on a clearly grey (#4c-ish) bubble over the dark
- * conversation surface; 10–20% still read as black. */
+/* A 24% foreground tint lands on a clearly grey (#414141-ish) bubble over the
+ * dark conversation surface — visible, but dark enough for the theme's contrast.
+ * 10–20% read as black; 30% read too light. */
 html.dark .chat-bubble {
-  background: var(--chat-bubble-bg-dark, color-mix(in srgb, var(--foreground) 30%, transparent));
+  background: var(--chat-bubble-bg-dark, color-mix(in srgb, var(--foreground) 24%, transparent));
 }
 /* Giant ChatBot wordmark. A display-type wordmark (e.g. "ECLIPSE AGENT") painted
  * behind the ChatBot landing, above the wallpaper art but below the transcript

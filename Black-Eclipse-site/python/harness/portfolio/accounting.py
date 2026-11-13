@@ -17,11 +17,13 @@ Money and quantity are `Decimal` throughout. No floats touch a balance.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional, Sequence
 
 from .errors import (
     INSUFFICIENT_POSITION,
+    INVALID_TRANSACTION,
+    LOT_MISMATCH,
     SHORT_NOT_SUPPORTED,
     UNSUPPORTED_METHOD,
     UNSUPPORTED_TRANSACTION,
@@ -145,7 +147,6 @@ def compute_accounting(
             UNSUPPORTED_METHOD, f"unknown cost-basis method {method!r}", {"method": str(method)}
         )
 
-    result.total_disposed_qty = sum((m.quantity for m in result.matches), ZERO)
     return result
 
 
@@ -190,6 +191,10 @@ def _run_lot_method(
                     source_transaction_id=tx.id,
                     sequence=seq,
                     currency=currency,
+                    # Deterministic: the same ledger must reproduce the same lot
+                    # ids, otherwise a SPECIFIC_ID designation taken from one
+                    # `tax_lots` read can never be found on the next recompute.
+                    id=f"lot_{tx.id}",
                 )
             )
 
@@ -218,6 +223,7 @@ def _run_lot_method(
                     sequence=seq,
                     currency=currency,
                     fee_allocated=tx.fees,
+                    id=f"lot_{tx.id}",
                 )
             )
 
@@ -228,6 +234,13 @@ def _run_lot_method(
                     lot.quantity *= factor
                     lot.original_quantity *= factor
                     lot.cost_per_unit = lot.cost_per_unit / factor
+                # Quantities are share counts: a split rescales everything held at
+                # that instant, so BOTH running quantity rollups must follow the
+                # lots. Otherwise the documented invariant
+                # `acquired - disposed == remaining` fails after any split (a
+                # pre-split disposal would still be counted in old share units).
+                result.total_acquired_qty *= factor
+                result.total_disposed_qty *= factor
             else:
                 result.warnings.append(f"{t.value} {tx.id} ignored: no valid split ratio")
 
@@ -285,10 +298,20 @@ def _consume_lots(
         if qty_to_dispose == 0:
             return
 
-    gross = sell.computed_gross()
-    net_proceeds = gross - sell.fees - sell.taxes
-    # Proceeds allocated per disposed unit (net of fees/taxes).
-    proceeds_per_unit = (net_proceeds / qty_to_dispose) if qty_to_dispose else ZERO
+    gross = abs(sell.computed_gross())
+    # A broker import may carry ONLY a net amount (no price/gross). The cash
+    # actually received IS the net amount; falling back to gross (zero) would
+    # book a fabricated total loss. Fees/taxes are already inside `net_amount`.
+    if sell.net_amount is not None:
+        net_proceeds_total = sell.net_amount
+    else:
+        net_proceeds_total = gross - sell.fees - sell.taxes
+    # Proceeds are allocated over the ORIGINAL requested quantity. Dividing the
+    # full gross by the clamped quantity after an oversell would inflate the
+    # per-unit proceeds (20 requested @300 clamped to 10 available must not
+    # report 6000 of proceeds for 10 units).
+    requested_qty = abs(sell.quantity)
+    proceeds_per_unit = (net_proceeds_total / requested_qty) if requested_qty else ZERO
     # An in-kind transfer/bridge with no stated price moves at BOOK VALUE: the
     # cost basis carries to the destination and no gain/loss is realized.
     book_value = (
@@ -297,7 +320,7 @@ def _consume_lots(
     )
 
     remaining = qty_to_dispose
-    for lot, cap in _ordered_lots(lots, method, sell):
+    for lot, cap in _ordered_lots(lots, method, sell, result):
         if remaining <= 0:
             break
         if lot.quantity <= 0:
@@ -321,6 +344,7 @@ def _consume_lots(
                 realized_pnl=q_money(realized),
                 acquired_at=lot.opened_at,
                 disposed_at=sell.effective_date(),
+                id=f"match_{sell.id}_{lot.id}",
             )
         )
         result.realized_pnl += realized
@@ -328,33 +352,82 @@ def _consume_lots(
         result.total_proceeds += proceeds
         lot.quantity -= take
         remaining -= take
+        result.total_disposed_qty += take
 
     # Drop fully-consumed lots so `open_lots` is set below without dead rows.
     lots[:] = [lot for lot in lots if lot.quantity > 0]
 
 
 def _ordered_lots(lots: list[TaxLot], method: CostBasisMethod,
-                  sell: Transaction) -> list[tuple[TaxLot, Optional[Decimal]]]:
+                  sell: Transaction, result: AccountingResult) -> list[tuple[TaxLot, Optional[Decimal]]]:
     """Order the open lots for consumption and (for SPECIFIC_ID) cap quantities.
 
     FIFO: earliest sequence. LIFO: latest sequence. HIFO: highest cost/unit.
     SPECIFIC_ID: the lots named in `sell.lot_selection`, in order, each capped at
     the selected quantity; any unselected lots follow at full quantity so a
     partial selection still fully consumes the disposal.
+
+    A lot designation is a tax instruction, not a hint: an unknown lot id, a
+    duplicate selection or a malformed/zero quantity is recorded as an error and
+    the whole disposal falls back to plain FIFO (the service's disposal
+    pre-check then refuses the write). Silently substituting FIFO for a lot the
+    caller named would report a defensible-looking but wrong tax result.
     """
     open_lots = [lot for lot in lots if lot.quantity > 0]
     if method == CostBasisMethod.SPECIFIC_ID and sell.lot_selection:
         by_id = {lot.id: lot for lot in open_lots}
         ordered: list[tuple[TaxLot, Optional[Decimal]]] = []
         chosen: set[str] = set()
+        problem = False
         for selection in sell.lot_selection:
+            if not isinstance(selection, dict):
+                result.errors.append(PortfolioError(
+                    INVALID_TRANSACTION,
+                    f"{sell.id}: lot_selection entries must be objects with lotId/quantity",
+                ))
+                problem = True
+                continue
             lot_id = selection.get("lotId") or selection.get("lot_id")
             lot = by_id.get(lot_id)
-            if lot is None or lot.id in chosen:
+            if lot is None:
+                result.errors.append(PortfolioError(
+                    LOT_MISMATCH,
+                    f"{sell.id}: selected lot {lot_id!r} is not an open lot of {sell.symbol}",
+                    {"symbol": sell.symbol, "lotId": lot_id},
+                ))
+                problem = True
+                continue
+            if lot.id in chosen:
+                result.errors.append(PortfolioError(
+                    LOT_MISMATCH,
+                    f"{sell.id}: lot {lot.id} is selected more than once",
+                    {"symbol": sell.symbol, "lotId": lot.id},
+                ))
+                problem = True
                 continue
             cap = selection.get("quantity")
-            ordered.append((lot, Decimal(str(cap)) if cap is not None else lot.quantity))
+            try:
+                cap_value = Decimal(str(cap)) if cap is not None else lot.quantity
+            except (InvalidOperation, ValueError, TypeError):
+                result.errors.append(PortfolioError(
+                    INVALID_TRANSACTION,
+                    f"{sell.id}: lot {lot.id} has a non-numeric selection quantity {cap!r}",
+                    {"symbol": sell.symbol, "lotId": lot.id},
+                ))
+                problem = True
+                continue
+            if cap_value <= 0:
+                result.errors.append(PortfolioError(
+                    INVALID_TRANSACTION,
+                    f"{sell.id}: lot {lot.id} selection quantity must be positive",
+                    {"symbol": sell.symbol, "lotId": lot.id},
+                ))
+                problem = True
+                continue
+            ordered.append((lot, cap_value))
             chosen.add(lot.id)
+        if problem:
+            return [(lot, None) for lot in sorted(open_lots, key=lambda l: l.sequence)]
         ordered.extend((lot, None) for lot in open_lots if lot.id not in chosen)
         return ordered
     if method == CostBasisMethod.HIFO:
@@ -408,6 +481,11 @@ def _run_average_cost(
     running_qty = ZERO
     running_cost = ZERO
     seq = 0
+    # Acquisition-date layers exist ONLY to report a meaningful holding period.
+    # Basis stays pooled (that is what average cost means); a match's
+    # `acquiredAt` is taken from the earliest shares still in the pool, so a
+    # position bought three years ago is not mislabeled as a 0-day holding.
+    layers: list[list] = []  # [opened_at, quantity]
 
     for tx in ordered:
         t = tx.transaction_type
@@ -426,6 +504,7 @@ def _run_average_cost(
             running_qty += qty
             running_cost += cost * qty
             result.total_acquired_qty += qty
+            layers.append([tx.effective_date(), qty])
 
         elif t in DISPOSALS or (t == TransactionType.ADJUSTMENT and tx.quantity < 0):
             qty_to_dispose = abs(tx.quantity)
@@ -459,10 +538,19 @@ def _run_average_cost(
             if book_value:
                 net_proceeds = cost
             else:
-                gross = tx.computed_gross()
-                net_proceeds_total = gross - tx.fees - tx.taxes
-                net_proceeds = (net_proceeds_total / abs(tx.quantity)) * qty_to_dispose if tx.quantity else ZERO
+                # Same rule as the lot engine: an imported trade may carry only a
+                # net amount, which is the cash actually received (fees/taxes
+                # already deducted). Never book gross=0 as a total loss.
+                if tx.net_amount is not None:
+                    net_total = tx.net_amount
+                else:
+                    net_total = abs(tx.computed_gross()) - tx.fees - tx.taxes
+                requested_qty = abs(tx.quantity)
+                net_proceeds = (
+                    net_total * qty_to_dispose / requested_qty if requested_qty else ZERO
+                )
             realized = net_proceeds - cost
+            acquired_at = _consume_average_layers(layers, qty_to_dispose) or tx.effective_date()
             result.matches.append(
                 TaxLotMatch(
                     portfolio_id=portfolio_id,
@@ -473,13 +561,15 @@ def _run_average_cost(
                     cost_basis=q_money(cost),
                     proceeds=q_money(net_proceeds),
                     realized_pnl=q_money(realized),
-                    acquired_at=tx.effective_date(),
+                    acquired_at=acquired_at,
                     disposed_at=tx.effective_date(),
+                    id=f"match_{tx.id}_{AVERAGE_POOL_ID}",
                 )
             )
             result.realized_pnl += realized
             result.realized_cost_basis += cost
             result.total_proceeds += net_proceeds
+            result.total_disposed_qty += qty_to_dispose
             running_cost -= cost
             running_qty -= qty_to_dispose
 
@@ -487,6 +577,10 @@ def _run_average_cost(
             factor = _split_factor(tx)
             if factor and factor > 0:
                 running_qty *= factor
+                for layer in layers:
+                    layer[1] *= factor
+                result.total_acquired_qty *= factor
+                result.total_disposed_qty *= factor
 
         elif t in BASIS_ADJUSTING:
             delta = tx.basis_adjustment or ZERO
@@ -515,12 +609,47 @@ def _run_average_cost(
                 quantity=running_qty,
                 original_quantity=running_qty,
                 cost_per_unit=avg_cost,
-                opened_at=ordered[0].effective_date() if ordered else "",
+                opened_at=layers[0][0] if layers else (ordered[0].effective_date() if ordered else ""),
                 source_transaction_id=AVERAGE_POOL_ID,
                 sequence=0,
                 currency=currency,
+                id=f"lot_{AVERAGE_POOL_ID}",
             )
         ]
+
+
+def _consume_average_layers(layers: list[list], qty: Decimal) -> str:
+    """Consume acquisition-date layers for holding-period reporting.
+
+    Returns the acquisition date of the earliest shares consumed (or "" when no
+    layer can be dated). Basis is NOT taken from these layers — it stays pooled.
+    """
+    remaining = qty
+    acquired_at = ""
+    for layer in layers:
+        if remaining <= 0:
+            break
+        take = layer[1] if layer[1] <= remaining else remaining
+        if take > 0 and not acquired_at:
+            acquired_at = layer[0] or ""
+        layer[1] -= take
+        remaining -= take
+    layers[:] = [layer for layer in layers if layer[1] > 0]
+    return acquired_at
+
+
+def lot_selection_error(tx: Transaction, method: CostBasisMethod) -> Optional[PortfolioError]:
+    """Refuse a lot designation the book cannot honour instead of ignoring it."""
+    if not tx.lot_selection:
+        return None
+    if method != CostBasisMethod.SPECIFIC_ID:
+        return PortfolioError(
+            INVALID_TRANSACTION,
+            "lot_selection requires the SPECIFIC_ID cost-basis method "
+            f"(this portfolio uses {method.value})",
+            {"method": method.value},
+        )
+    return None
 
 
 def _split_factor(tx: Transaction) -> Optional[Decimal]:

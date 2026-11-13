@@ -119,9 +119,17 @@ python/csess_*/
 /rust/**/target/
 # Native shell build artifacts (docs/desktop-app-plan.md).
 /desktop/src-tauri/target/
+/desktop/src-tauri/target-dev/
 /desktop/src-tauri/gen/
 /dist/
 /.next-desktop/
+/.next-desktop-dev/
+# Desktop channel release artifacts + promotion pointers (runtime state).
+/releases/
+# Desktop runtime state beside the checkout data directory (locks, owner marker,
+# native log, first-run notice).
+/.runtime/
+/first-run-notice-shown
 /rust/**/out/
 /rust/**/frames/
 /rust/**/strip.png

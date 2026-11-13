@@ -86,6 +86,12 @@ If docs and code disagree, **the code wins** — then fix the doc.
   input, resolves LLM config from the settings vault, serves the read-only JDdS
   data bridge, and proxies. Do not rebuild an agent loop, tool registry, or
   model adapter in TypeScript.
+- **Desktop first.** The native desktop app is the primary front door; the
+  browser server is secondary. Release updates re-pin and restart the desktop
+  before anything web-facing is touched (`scripts/update.js` →
+  `scripts/desktop-refresh.js`; browser restart is opt-in via `--restart`).
+  The desktop must never require `npm run dev` or `npm run up`, and desktop-only
+  use (port `3100` alone) is a supported configuration.
 - **Zero-config must keep working.** `npm install && npm run dev` must never
   require manual setup. `postinstall` installs the Python agent stack
   automatically; `doctor.js` repairs it on boot. If Python is genuinely

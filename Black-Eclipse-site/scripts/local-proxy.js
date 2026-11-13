@@ -48,6 +48,11 @@ const { tlsConfig } = require("./lib/tls");
 const { PROD } = require("./lib/profiles");
 const { writeProxyState, clearProxyState } = require("./lib/proxy-state");
 const { isNavigation, saveCachedPage, offlinePage } = require("./lib/proxy-offline");
+const { refuseWebLane } = require("./lib/channels");
+
+// Retired browser front door. A launcher that is explicitly allowed to run the
+// web lane passes BE_ALLOW_WEB=1 to this child, so this guard never blocks it.
+if (refuseWebLane("proxy")) process.exit(0);
 
 const ROOT = path.join(__dirname, "..");
 

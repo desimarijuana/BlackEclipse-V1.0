@@ -1,16 +1,24 @@
 ---
 title: Local Hostname — blackeclipse (http/https)
-status: Stale
+status: Retired
 last-verified: 2026-10-15
 ---
 
 # Local Hostname — `blackeclipse`
 
-> **Stale (2026-10-20):** the proxy now fronts the **production** profile on
-> `127.0.0.1:3100`, not `:3000`. `npm run dev` no longer starts the proxy; it
-> serves the development server directly on `http://localhost:3000`. Where this
-> doc says `:3000` for the proxy target, read `:3100`. See
-> [`environments.md`](./environments.md).
+> **Retired (2026-11-13):** the product is desktop-only. The browser lane and
+> this proxy are kept for a future web release and are disabled unless
+> `BE_ALLOW_WEB=1` (`npm run proxy` / `npm run up` / `npm start` print a
+> desktop-only message). The native app opens `127.0.0.1:3100` directly and does
+> not need a hostname, hosts entry, proxy or TLS.
+>
+> The historical note below is kept for the retired browser lane. **Updated
+> (2026-11-13):** the proxy fronts the **production** profile on
+> `127.0.0.1:3105`, not `:3000` or `:3100`. `npm run dev` does not start the
+> proxy; it serves development directly on `http://localhost:3000`. `:3100` is
+> the native Tauri desktop app's own pinned server and is intentionally not the
+> website port. Where this doc says `:3000` for the proxy target, read `:3105`.
+> See [`environments.md`](./environments.md).
 
 **Who this is for:** an operator who wants to reach the app at
 `blackeclipse` instead of `http://localhost:3000`, on this machine only, without
@@ -266,7 +274,7 @@ back (`http://blackeclipse:8080`), which defeats the goal, so prefer freeing 80.
 Then `npm run proxy:stop` and `npm run proxy` again.
 
 **"BlackEclipse is offline" card.** That is the front door working as designed:
-the proxy is up but the app on `:3100` is not. Press **Start BlackEclipse** on
+the proxy is up but the app on `:3105` is not. Press **Start BlackEclipse** on
 the card, or `black eclipse`. Assets other than a page load still get a `503`
 (never the HTML card), so health probes and the page's own reconnect check stay
 honest.

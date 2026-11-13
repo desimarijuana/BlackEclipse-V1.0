@@ -29,6 +29,11 @@ const { tlsAvailable } = require("./lib/tls");
 const { profileFor, childEnv } = require("./lib/profiles");
 const { liveProxy, pidAlive } = require("./lib/proxy-state");
 const { ensureProxyTask } = require("./lib/proxy-task");
+const { refuseWebLane } = require("./lib/channels");
+
+// Only the CLI entry point is gated: `up.js` requires this module for
+// `runLocalHost`, and its own guard has already decided.
+if (require.main === module && refuseWebLane("npm run dev / npm start")) process.exit(0);
 
 const ROOT = path.join(__dirname, "..");
 const APP_HOST = "127.0.0.1";

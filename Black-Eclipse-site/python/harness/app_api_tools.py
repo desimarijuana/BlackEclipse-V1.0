@@ -101,6 +101,26 @@ async def app_api_get_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[s
             body = json.loads(text)
         except ValueError:
             body = None
+    # A guessed route answers with the app's full HTML 404 page. Pasting that
+    # into the transcript taught the model nothing and encouraged more guesses
+    # (`/api/journal/open`, `/api/journal/positions`, `/api/broker/positions`…)
+    # until the run budget was gone. A missing API route must read as a short,
+    # final "this route does not exist" — not as page content.
+    if status >= 400 and "html" in content_type.lower():
+        return (
+            f"GET {path} → {status}: no such API route (the app answered with its HTML page, not JSON). "
+            f"Do not guess another /api/ path; use a documented domain tool instead.",
+            {
+                "status": status,
+                "path": path,
+                "base": base,
+                "contentType": content_type,
+                "body": None,
+                "text": "",
+                "truncated": truncated,
+                "routeMissing": True,
+            },
+        )
     preview = text[:4000] + ("\n… (response truncated for display)" if len(text) > 4000 else "")
     size_note = f" ({len(raw)} bytes" + (f", truncated at {MAX_BYTES}" if truncated else "") + ")"
     return (

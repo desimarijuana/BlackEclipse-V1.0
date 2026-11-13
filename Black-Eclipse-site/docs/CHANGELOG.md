@@ -1,6 +1,97 @@
 # Change Log
 
 ## 2026-11-13
+- **test(accounting): hardcore cross-book accounting prompts + offline suite; 6
+  real bugs fixed.** Added `docs/accounting-hardcore-tests.md` (20 chat prompts
+  with pass rules for the double-entry General Ledger and the securities
+  Portfolio Accounting Engine) and `python/tests/test_accounting_hardcore.py`
+  (24 deterministic cases). Bugs found and fixed in the portfolio core:
+  (1) a SELL carrying only a settled `net_amount` booked zero proceeds and a
+  fabricated total loss (now uses the net amount; cash ledger follows); (2) an
+  oversell clamped to available quantity divided the full gross by the reduced
+  quantity, inflating proceeds (now prorated over the requested quantity);
+  (3) the documented `acquired − disposed == remaining` invariant broke after
+  every split — both rollups are now restated in post-split share units;
+  (4) `SPECIFIC_ID` lot ids were random per recompute, so a lot id read from
+  `tax_lots` could never be found when the sell posted (now deterministic
+  `lot_<transaction id>` ids, deterministic match ids); (5) an unknown,
+  duplicate or malformed lot designation silently fell back to FIFO (now
+  `LOT_MISMATCH`/`INVALID_TRANSACTION`, and the service refuses the write); a
+  `lot_selection` on a non-`SPECIFIC_ID` book is refused rather than ignored;
+  (6) average-cost matches reported the sell date as the acquisition date,
+  fabricating a 0-day holding period (now uses the earliest pooled shares
+  consumed). Also: net-only deposits/withdrawals/dividends now report their
+  settled cash, and `calculate_tax_lots` computes each symbol once. docs
+  updated: `docs/accounting-hardcore-tests.md` (new),
+  `docs/portfolio-accounting.md`, `docs/ledger.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(desktop): desktop-only product with Stable and Dev channels; the
+  website lane is retired.** One channel table (`scripts/lib/channels.js`):
+  Stable 3100/harness 8767, Dev 3101/harness 8768, separate builds, pins,
+  versioned releases and runtime data. `desktop:dev` builds `.next-desktop-dev`
+  and launches a separate Dev shell (own Tauri identifier via `TAURI_CONFIG`,
+  `target-dev`); `desktop:promote` stages + validates `releases/<channel>/<id>`,
+  moves `current.json` (keeping `previous.json`) and restarts only that channel;
+  `desktop:rollback` flips back; `desktop:doctor` reports window/port/build/
+  harness/provider. `npm run dev/up/start/proxy` (and `start-eclipse.vbs`) are
+  gated behind `BE_ALLOW_WEB=1`; `setup:desktop` now targets the installed
+  native app. Dev data is isolated under `.black-eclipse/desktop-dev/` with a
+  one-time `VACUUM INTO` copy of `jdds.db`. Two live-launch bugs found and fixed
+  in QA: the bootstrap readiness budget was 90 s and Next measured 126 s under a
+  concurrent build (a healthy child was left unowned and the window showed a
+  failure panel) — now 300 s; and the Dev window lookup JSON-escaped a Windows
+  path (`\\`), so `stopShell` matched nothing and single-instance silently kept
+  the stale window — now a PowerShell single-quoted path. Also: harness readiness now probes a
+  constant-time `/health/live` with a 30 s budget (the 20 s diagnostic `/health`
+  under load made a healthy runtime look dead and restart-loop), and
+  `isHarnessHealth` accepts `harness-runtime`. docs updated:
+  `desktop/README.md`, `docs/environments.md`, `docs/QUICKSTART.md`,
+  `docs/NAVIGATION.md`, `docs/local-hostname.md`, `docs/CHANGELOG.md`.
+- **feat(updates): desktop-first release updates.** `black update` now re-pins
+  and restarts the native desktop app (`scripts/desktop-refresh.js`) right after
+  a successful build, before anything web-facing is considered. The browser
+  production server on 3105 is secondary and only restarts with `--restart`;
+  `--no-desktop` skips the app refresh for web-only machines. Encoded the rule
+  as an always-on engineering rule and documented why desktop-only (3100 alone)
+  is a supported configuration. docs updated: `AGENTS.md`, `docs/UPDATES.md`,
+  `docs/environments.md`.
+- **fix(agent): a portfolio question can no longer end with no answer.**
+  Root cause (QA of 15 stored runs): `portfolio_get` fetched quotes one symbol
+  at a time with no per-call timeout, so one slow PSX quote consumed the tool's
+  20 s budget and returned `TOOL_TIMEOUT`. The agent then guessed app routes
+  (`/api/journal/open`, `/api/broker/positions`, …); each 404 came back as a
+  42 KB HTML page, `/api/journal/trades` ignored `?limit`/`?status` and returned
+  104 KB every time, and the run hit its deadline with partial text only.
+  Fixes: `MarketAdapter` bounds each quote/FX lookup
+  (`PORTFOLIO_MARK_TIMEOUT_S`, default 8 s) and reports a MISSING mark;
+  `PortfolioService.read` resolves symbols concurrently (bounded 6);
+  `app_api_get` turns an HTML 404 into a short "no such API route — do not
+  guess" result; `GET /api/journal/trades` honours `limit`/`take`, `status`,
+  `symbol` (filters before limit, adds `count`/`total`). Verified end to end:
+  the reported question ("look at my current trade…") now completes in 167 s
+  with a full trade/risk answer. Tests: new
+  `python/tests/test_portfolio_market_adapter.py`, extended
+  `test_app_api_tools.py` and `route.test.ts`. docs updated:
+  `docs/portfolio-accounting.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(desktop): the window survives an in-flight `next build`.**
+  3100 is now the desktop's own port and the app serves an immutable pinned copy
+  of the last completed build (`.black-eclipse/desktop-dist/.next`); the
+  website/agent production profile moved to 3105 (dev stays 3000). A checkout
+  never attaches to a website server — only to its own owner-marked pinned
+  server. `npm run desktop:refresh` builds, re-pins and reopens. docs updated:
+  `desktop/README.md`, `docs/desktop-app-plan.md`, `docs/environments.md`,
+  `docs/QUICKSTART.md`, `docs/local-hostname.md`, `docs/DEPLOYMENT.md`,
+  `docs/NAVIGATION.md`.
+- **fix(chat): dark bubble tuned one step darker.** A 30% foreground tint read
+  too light next to the theme; the default is now `24%` (~#414141), which stays
+  visibly grey while keeping the theme's contrast. docs updated:
+  `docs/ARCHITECTURE.md`.
+- **feat(desktop): one-command refresh for the dev-bridged desktop window.**
+  Added `npm run desktop:refresh` (`scripts/desktop-refresh.js`): builds only
+  when source is newer, restarts the 3100 server via `up.js --restart`, and
+  reopens the shell — so a source edit no longer leaves the window serving a
+  stale `.next` build. Leaves packaged (non-bridged) installs alone. docs
+  updated: `desktop/README.md`.
 - **fix(chat): the dark-mode prompt bubble reads grey, not black.** The default
   dark fill was a 20% foreground tint, which still composited to ~#303030 over
   the near-black chat surface. Bumped the default (CSS fallback, prefs resolver,

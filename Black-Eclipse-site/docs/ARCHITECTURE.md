@@ -411,7 +411,7 @@ Two mechanisms:
       The **prompt bubble** (the user's own messages) has its own scheme-aware
       fill (`chatBubbleColor` dark / `chatBubbleColorLight` light; empty → a
       neutral `color-mix(var(--foreground) 10%, transparent)` tint in light,
-      `30%` in dark so the bubble reads grey instead of near-black), applied as
+      `24%` in dark so the bubble reads grey instead of near-black), applied as
       `--chat-bubble-bg-light/-dark` onto a `.chat-bubble` class by
       `ChatHistory`; unlike the surface it has no enable toggle.
       The giant landing wordmark (`ChatWordmark`) is **opt-in for Image** (the
@@ -598,7 +598,10 @@ so the add-trade contract lives in one file.
   approval-gated) in `python/harness/journal_tools.py` reach the screen's own
   `/api/journal/trades` route (GET/POST) over the loopback callback — the SAME
   Prisma store, never a second book. The add RE-READS the store to verify the
-  write before it is reported as done.
+  write before it is reported as done. The GET honours `limit`/`take`, `status`
+  and `symbol` (filters run before the limit; response adds `count`/`total`), so
+  an agent turn asks for the rows it needs instead of serialising the whole book
+  on every call.
 - **List controls.** The Trades tab filters on symbol/strategy/setup/account/
   tag/emotion/session/direction/result/date-range, sorts by column, paginates,
   and exports **CSV** (server route, round-trips through the importer) and

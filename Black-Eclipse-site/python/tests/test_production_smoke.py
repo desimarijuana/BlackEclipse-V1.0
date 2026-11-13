@@ -34,6 +34,25 @@ def test_the_runtime_is_alive(client):
     assert payload.get("status") in ("ok", "healthy", "degraded") or payload
 
 
+def test_liveness_is_the_cheap_supervisor_probe(client):
+    """`/health/live` is the readiness route; it must stay small and constant-time.
+
+    The full `/health` document probes providers/browser/code-intel/security and
+    was measured at 20+ s under load, which made the supervisor kill a healthy
+    runtime. This test pins the contract the supervisor depends on.
+    """
+    response = client.get("/health/live")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["service"] == "harness-runtime"
+    assert isinstance(payload["startedAtMs"], int) and payload["startedAtMs"] > 0
+    assert isinstance(payload["pid"], int) and payload["pid"] > 0
+    assert isinstance(payload["activeRuns"], int)
+    # No diagnostic surface leaked into the liveness document.
+    assert set(payload) == {"ok", "service", "startedAtMs", "activeRuns", "pid"}
+
+
 def test_the_projects_surface_answers(client):
     response = client.get("/projects")
     assert response.status_code == 200, response.text

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, AsyncIterator, Optional
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -206,6 +207,29 @@ class StartRunResponse(BaseModel):
     success: bool
     runId: str
     status: str = "running"
+
+@app.get("/health/live")
+def health_live() -> dict[str, Any]:
+    """Cheap liveness only — the supervisor's readiness probe.
+
+    `/health` below is a DIAGNOSTIC document: it probes runtime providers,
+    browser availability, code-intel state and a security audit. Under load
+    that took 20+ seconds (measured 2026-11-13 while a build was running), so
+    the front door's 10 s probe declared a perfectly healthy runtime dead,
+    killed it, and respawned it in a loop — the "stuck at preparing analysis"
+    symptom.
+
+    This endpoint must stay constant-time: no I/O, no subsystem calls, no
+    registries. It answers exactly the fields the supervisor reasons about.
+    """
+    return {
+        "ok": True,
+        "service": "harness-runtime",
+        "startedAtMs": _STARTED_AT_MS,
+        "activeRuns": len(getattr(service, "_active", {}) or {}),
+        "pid": os.getpid(),
+    }
+
 
 @app.get("/health")
 def health() -> dict[str, Any]:

@@ -1,10 +1,15 @@
 ---
 title: Deployment — Production Container
-status: Current
+status: Retired
 last-verified: 2026-11-08
 ---
 
 # Deployment — Production Container
+
+> **Retired (2026-11-13):** the product is desktop-only. This container/browser
+> deployment is kept for a future web release and is not part of the daily
+> runtime. The desktop channels are documented in `docs/environments.md` and
+> `desktop/README.md`.
 
 **Who this is for:** anyone putting BlackEclipse on a server.
 
@@ -298,7 +303,7 @@ the production server up (no admin required):
 
 ```powershell
 npm run build
-powershell -ExecutionPolicy Bypass -File scripts/install-app-task.ps1 -Port 3100
+powershell -ExecutionPolicy Bypass -File scripts/install-app-task.ps1 -Port 3105
 ```
 
 `scripts/install-app-task.ps1` registers `BlackEclipse App` with a 2-minute
@@ -350,7 +355,7 @@ so the release process reads the real databases. `BE_DATA_DIR` moves
 
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts/install-health-task.ps1 `
-    -HealthUrl http://127.0.0.1:3100/login `
+    -HealthUrl http://127.0.0.1:3105/login `
     -AlertWebhookUrl https://hooks.slack.com/services/...
   ```
 

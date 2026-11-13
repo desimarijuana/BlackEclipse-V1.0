@@ -1,8 +1,8 @@
-# Install a recurring BlackEclipse health check as a Windows Task Scheduler task.
+﻿# Install a recurring BlackEclipse health check as a Windows Task Scheduler task.
 # The Linux equivalent is a cron entry or a systemd timer running health-watch.sh.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/install-health-task.ps1 `
-#     -HealthUrl http://127.0.0.1:3100/login `
+#     -HealthUrl http://127.0.0.1:3105/login `
 #     -AlertWebhookUrl https://hooks.slack.com/services/...
 #
 # Without -AlertWebhookUrl no remote human is paged. The wrapper still escalates

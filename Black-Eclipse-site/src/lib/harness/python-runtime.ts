@@ -62,6 +62,14 @@ const g = globalThis as unknown as RuntimeGlobal;
 // an actually-down runtime re-probes immediately after the TTL.
 const HEALTH_TTL_MS = 15_000;
 
+// Readiness uses the CONSTANT-TIME liveness route, never the diagnostic
+// `/health`. The diagnostic document probes providers, browser, code-intel and
+// a security audit; under load it was measured at 20+ seconds, which made the
+// old 10 s probe declare a healthy runtime dead and restart it forever.
+// The budget is generous because a starved machine can still be slow to accept.
+const LIVENESS_PATH = "/health/live";
+const READINESS_PROBE_TIMEOUT_MS = 30_000;
+
 /**
  * Cross-context cold-start lock. Next can evaluate this module in more than one
  * server context, so the in-memory `__harnessPyStart` promise is NOT enough to
@@ -185,8 +193,27 @@ export async function pythonRuntimeReachable(timeoutMs = 1_200): Promise<boolean
   return (await getHealth(timeoutMs)) !== null;
 }
 
-async function isHealthy(timeoutMs = 8_000): Promise<boolean> {
-  return (await getHealth(timeoutMs)) !== null;
+/**
+ * Liveness for readiness: the cheap `/health/live` route, with a fallback to
+ * the full document for an older runtime that predates it. Returns the same
+ * shape the supervisor reasons about (`startedAtMs`, `activeRuns`, `pid`).
+ */
+async function getLiveness(timeoutMs = READINESS_PROBE_TIMEOUT_MS): Promise<HealthInfo | null> {
+  try {
+    const res = await fetch(`${HARNESS_PY_URL}${LIVENESS_PATH}`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    // An older runtime has no liveness route: fall back to the full document.
+    if (res.status === 404) return getHealth(timeoutMs);
+    if (!res.ok) return null;
+    return (await res.json()) as HealthInfo;
+  } catch {
+    return null;
+  }
+}
+
+async function isHealthy(timeoutMs = READINESS_PROBE_TIMEOUT_MS): Promise<boolean> {
+  return (await getLiveness(timeoutMs)) !== null;
 }
 
 /**
@@ -260,7 +287,9 @@ export function parseListenerPids(netstat: string, port: number): string[] {
 /** Does this `/health` payload identify OUR detector service? Pure. */
 export function isHarnessHealth(health: HealthInfo | null): boolean {
   if (!health) return false;
-  if (health.service) return health.service === "eclipse-harness";
+  if (health.service) {
+    return health.service === "eclipse-harness" || health.service === "harness-runtime";
+  }
   // Older runtimes reported `{ok:true}` without a service name.
   return typeof health.ok === "boolean";
 }
@@ -311,7 +340,7 @@ async function waitForHealth(deadlineMs: number): Promise<boolean> {
     // start the process can be importing/initializing for minutes and may be
     // slow to answer /health. Aborting that answer counted a perfectly healthy
     // boot as "never came up" and triggered another spawn.
-    if (await isHealthy(10_000)) return true;
+    if (await isHealthy(READINESS_PROBE_TIMEOUT_MS)) return true;
     const waited = Date.now() - start;
     if (waited >= nextNoticeAt) {
       console.log(`[harness] Python runtime still starting (${Math.round(waited / 1000)}s elapsed)…`);
@@ -348,7 +377,9 @@ export async function ensurePythonRuntime(): Promise<boolean> {
 }
 
 async function ensurePythonRuntimeUncached(): Promise<boolean> {
-  const health = await getHealth();
+  // The liveness document carries startedAtMs/activeRuns/pid — everything the
+  // staleness policy needs — without the diagnostic endpoint's subsystem probes.
+  const health = await getLiveness();
   if (health) {
     // A healthy runtime that started before our source was last edited is an
     // orphan serving stale code (e.g. one left by a previous `npm run dev`).
@@ -386,7 +417,7 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   // runtime under load (only a still-silent LISTENER is cleared; a cold start with
   // nothing listening goes straight to the spawn).
   if (listenerPidsOnPort().length > 0) {
-    const recheck = await getHealth(10_000);
+    const recheck = await getLiveness(READINESS_PROBE_TIMEOUT_MS);
     if (recheck) {
       // The first probe missed but the port answered on the second: that is a
       // runtime that is UP (slow, or busy booting), not a zombie. ADOPT it.

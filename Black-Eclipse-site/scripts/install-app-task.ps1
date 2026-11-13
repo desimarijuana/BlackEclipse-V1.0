@@ -1,4 +1,4 @@
-# Keep BlackEclipse running as a production server on Windows, without admin.
+﻿# Keep BlackEclipse running as a production server on Windows, without admin.
 #
 # Why this shape: the soak exit gate needs one uninterrupted week, and a dev
 # server restarts on every edit (and dies with its terminal). This registers a
@@ -10,13 +10,13 @@
 # No elevation is required for a per-user task.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/install-app-task.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts/install-app-task.ps1 -Port 3100
+#   powershell -ExecutionPolicy Bypass -File scripts/install-app-task.ps1 -Port 3105
 #
 # Prerequisites: `npm run build` produced `.next` in this folder.
 [CmdletBinding()]
 param(
   [string]$HostName = "127.0.0.1",
-  [int]$Port = 3100,
+  [int]$Port = 3105,
   [string]$TaskName = "BlackEclipse App",
   [int]$IntervalMinutes = 2,
   [string]$AppPath = "",

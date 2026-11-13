@@ -1,7 +1,7 @@
 ---
 title: Native Desktop App — Tauri Shell Plan (hardened)
 status: Accepted
-last-verified: 2026-11-10
+last-verified: 2026-11-13
 ---
 
 # Native desktop app (Tauri shell)
@@ -105,6 +105,29 @@ It does **not** mean "trusted because it is local". See §5.
 check, the shell must **not** silently pick another port. It must explain:
 what is listening, why it is not BlackEclipse, and the available actions
 (stop it, or run the browser path instead).
+
+**Build isolation (added 2026-11-13).** 3100 is the desktop's own port; the
+browser/agent production profile moved to 3105 (dev stays 3000). A repository
+checkout never attaches to a website server, even one that identifies as Black
+Eclipse: it pins the newest *completed* `.next` build into
+`.black-eclipse/desktop-dist/.next` and runs `next start` with `NEXT_DIST_DIR`
+pointing there. Attach is allowed only to this install's own server, proven by
+`.runtime/desktop-owned.json` (pid + pinned build id). This is what makes the
+window immune to a concurrent `next build`; a packaged install already serves an
+immutable payload and keeps the identity-attach path.
+
+**Channels (2026-11-13).** The product is desktop-only. There are two channels,
+defined once in `scripts/lib/channels.js`: **Stable** (3100 / harness 8767) and
+**Dev** (3101 / harness 8768), with separate builds (`.next` /
+`.next-desktop-dev`), pins, versioned releases and data. Dev runs a second Tauri
+binary with its own identifier (`com.blackeclipse.desktop.dev`, built with a
+`TAURI_CONFIG` overlay into `target-dev`), so both windows can be open at once.
+Stable changes only through `desktop:promote` (stage → validate → `current.json`
+→ restart, keeping `previous.json`); `desktop:rollback` flips back. The browser
+lane (`npm run dev/up/start/proxy`, `start-eclipse.vbs`) is retired behind
+`BE_ALLOW_WEB=1`. Harness readiness uses a constant-time `/health/live` with a
+30 s budget, because the diagnostic `/health` measured 20+ s under a concurrent
+build and made a healthy runtime look dead.
 
 **DECISION 1.** Should the shell offer a one-click "use port 3101 instead" escape
 hatch, or is a hard stop with instructions the correct behaviour?
@@ -654,13 +677,18 @@ desktop window drift from `npm run dev` / `npm run up` — the same symptom as
    `chdir`s to this repository and requires the repo's own
    `scripts/desktop-server.js`.
 3. The shell's normal root discovery finds `app`, runs the bridge, and the
-   bridge starts `next start` from the repository against the same `.next`
-   build the web app uses.
+   bootstrap serves a **pinned copy** of the repository's last completed build
+   (`.black-eclipse/desktop-dist/.next`) on the desktop's own port 3100.
 
 The bridge stores no data of its own: `scripts/desktop-server.js` still
-resolves the repo root, so the desktop and web app share one data directory and
-one build. Re-run the command after a fresh desktop install (an installer
-restores the bundled `app`). It is Windows-only, matching the packaged shell.
+resolves the repo root, so the desktop and web app share one data directory.
+They do **not** share a build: the website/agent uses `.next` on 3105 (dev on
+3000), and the desktop reads its immutable pin, so an in-flight `next build`
+cannot break the open window. `npm run desktop:refresh` builds when needed,
+re-pins, and reopens the shell; a normal launch also re-pins when `.next`
+contains a newer completed build. Re-run the bridge command after a fresh
+desktop install (an installer restores the bundled `app`). It is Windows-only,
+matching the packaged shell.
 
 
 

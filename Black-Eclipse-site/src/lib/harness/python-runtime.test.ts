@@ -47,6 +47,9 @@ describe("parseListenerPids", () => {
 describe("isHarnessHealth", () => {
   it("accepts our own runtime", () => {
     expect(isHarnessHealth({ ok: true, service: "eclipse-harness" })).toBe(true);
+    // The runtime reports `harness-runtime`; the old allowlist only named the
+    // legacy spelling and would reject the live service.
+    expect(isHarnessHealth({ ok: true, service: "harness-runtime" })).toBe(true);
   });
 
   it("accepts an older runtime that reported only ok", () => {

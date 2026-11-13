@@ -4,11 +4,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // for the profile, so it must be operator-gated and map a failure honestly.
 
 const createTrade = vi.fn();
+const loadTrades = vi.fn(async (..._a: unknown[]) => [] as unknown[]);
 
 vi.mock("@/lib/journal/data", () => ({
   getOrCreateProfile: vi.fn(async () => "profile_1"),
   createTrade: (...a: unknown[]) => createTrade(...a),
-  loadTrades: vi.fn(async () => []),
+  loadTrades: (...a: unknown[]) => loadTrades(...a),
 }));
 
 import { GET, POST } from "@/app/api/journal/trades/route";
@@ -21,11 +22,50 @@ function req(body: unknown, origin = "http://localhost:3000"): Request {
   });
 }
 
+function getReq(query = ""): Request {
+  return new Request(`http://localhost:3000/api/journal/trades${query}`, { method: "GET" });
+}
+
 describe("GET /api/journal/trades", () => {
+  const trades = [
+    { id: "t1", symbol: "AAPL", status: "open" },
+    { id: "t2", symbol: "MSFT", status: "closed" },
+    { id: "t3", symbol: "AAPL", status: "closed" },
+  ];
+
+  beforeEach(() => {
+    loadTrades.mockReset();
+    loadTrades.mockResolvedValue(trades);
+  });
+
   it("lists trades for the profile", async () => {
-    const res = await GET();
+    const res = await GET(getReq());
     expect(res.status).toBe(200);
-    expect((await res.json()).trades).toEqual([]);
+    expect((await res.json()).trades).toEqual(trades);
+  });
+
+  it("honours limit and the take alias", async () => {
+    const limited = await (await GET(getReq("?limit=1"))).json();
+    expect(limited.trades).toHaveLength(1);
+    const taken = await (await GET(getReq("?take=2"))).json();
+    expect(taken.trades).toHaveLength(2);
+  });
+
+  it("filters by status before applying the limit", async () => {
+    const body = await (await GET(getReq("?status=open&limit=5"))).json();
+    expect(body.trades).toHaveLength(1);
+    expect(body.trades[0].id).toBe("t1");
+    expect(body.total).toBe(3);
+  });
+
+  it("filters by symbol", async () => {
+    const body = await (await GET(getReq("?symbol=AAPL"))).json();
+    expect(body.trades.map((t: { id: string }) => t.id)).toEqual(["t1", "t3"]);
+  });
+
+  it("ignores a nonsensical limit instead of returning nothing", async () => {
+    const body = await (await GET(getReq("?limit=0"))).json();
+    expect(body.trades).toHaveLength(3);
   });
 });
 

@@ -5,13 +5,18 @@
 //   development  `npm run dev`   Next dev (Turbopack) on 3000, no proxy,
 //                               harness on 8765, isolated runtime databases
 //                               under `.black-eclipse/dev/`.
-//   production   `npm run up`    built Next server on 3100 behind the local
+//   production   `npm run up`    built Next server on 3105 behind the local
 //                               proxy (http://blackeclipse), harness on 8766,
 //                               the real runtime databases.
 //
 // Why distinct ports: both can run at the same time. Before this split the
 // pre-hooks killed port 3000 and the harness port unconditionally, so starting
 // dev tore down the running production server (and vice versa).
+//
+// 3100 is deliberately NOT used here. It belongs to the native desktop app
+// (`scripts/desktop-server.js`), which serves an immutable pinned build so a
+// `next build` in this repository can never break the window mid-update. The
+// website and the agent work on 3000/3105; the desktop owns 3100.
 //
 // Every value is overridable from the environment. The profile-specific names
 // win over a generic PORT so a `.env` written for one environment can never
@@ -53,7 +58,7 @@ const PROD = {
   label: "production",
   // BE_PROD_PORT wins; PORT is honored for a caller that explicitly exports it
   // (containers), but the default stays off the dev port so both can coexist.
-  appPort: port(process.env.BE_PROD_PORT, port(process.env.PORT, 3100)),
+  appPort: port(process.env.BE_PROD_PORT, port(process.env.PORT, 3105)),
   harnessPort: port(process.env.BE_PROD_HARNESS_PORT, 8766),
   distDir: ".next",
   proxy: true,

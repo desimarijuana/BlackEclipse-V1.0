@@ -12,11 +12,12 @@ an explicit UNAVAILABLE state — never a fabricated value.
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
 from . import analytics
-from .accounting import AccountingResult, compute_accounting
+from .accounting import AccountingResult, compute_accounting, lot_selection_error
 from .analytics import _pct
 from .errors import (
     BASIS_UNAVAILABLE,
@@ -475,24 +476,40 @@ class PortfolioService:
         for tx in txs:
             cash += tx.cash_impact()
             if tx.transaction_type == TransactionType.DEPOSIT:
-                net_deposits += tx.computed_gross() or ZERO
+                net_deposits += tx.cash_impact()
             elif tx.transaction_type == TransactionType.WITHDRAWAL:
-                net_deposits -= tx.computed_gross() or ZERO
+                net_deposits -= abs(tx.cash_impact())
             elif tx.transaction_type in (TransactionType.DIVIDEND, TransactionType.INTEREST):
-                dividends += (tx.computed_gross() or ZERO)
+                dividends += tx.cash_impact()
             if tx.symbol and tx.transaction_type.value in {t.value for t in (ACQUISITIONS | DISPOSALS)} | {"ADJUSTMENT", "SPLIT", "REVERSE_SPLIT"}:
                 if tx.symbol not in symbols:
                     symbols.append(tx.symbol)
 
         all_positions: list[dict[str, Any]] = []
         missing_fx: list[str] = []
-        for symbol in symbols:
-            state = self._position_state(portfolio_id, symbol, method)
-            info = meta.get(symbol, {})
-            instr_currency = (info.get("currency") or _currency_of(txs, symbol) or base).upper()
-            mark = await adapter.mark(symbol)
-            fx_currency = (mark.currency or instr_currency).upper()
-            fx = Decimal("1") if fx_currency == base.upper() else await adapter.fx_per_base(fx_currency)
+
+        # Resolve quotes/FX CONCURRENTLY (bounded). A portfolio of N symbols used
+        # to pay one provider round-trip after another; a handful of slow symbols
+        # exceeded the tool's 20 s ceiling even though each lookup is independent.
+        # `gather` keeps the input order, so positions stay deterministic.
+        semaphore = asyncio.Semaphore(6)
+
+        async def resolve_position(symbol: str) -> tuple[Any, ...]:
+            async with semaphore:
+                state = self._position_state(portfolio_id, symbol, method)
+                info = meta.get(symbol, {})
+                instr_currency = (info.get("currency") or _currency_of(txs, symbol) or base).upper()
+                mark = await adapter.mark(symbol)
+                fx_currency = (mark.currency or instr_currency).upper()
+                fx = (
+                    Decimal("1")
+                    if fx_currency == base.upper()
+                    else await adapter.fx_per_base(fx_currency)
+                )
+                return symbol, state, info, fx_currency, mark, fx
+
+        resolved = await asyncio.gather(*(resolve_position(s) for s in symbols))
+        for symbol, state, info, fx_currency, mark, fx in resolved:
             if fx_currency != base.upper() and fx is None:
                 missing_fx.append(f"{base}/{fx_currency}")
             price = mark.price
@@ -619,9 +636,7 @@ class PortfolioService:
             "portfolioId": portfolio_id,
             "method": method.value,
             "symbols": out,
-            "totalRealizedPnl": money_str(sum((r.realized_pnl for r in [
-                self._symbol_accounting(portfolio_id, s, method) for s in symbols
-            ]), ZERO)) if symbols else "0",
+            "totalRealizedPnl": money_str(sum((D(row["realizedPnl"]) for row in out), ZERO)),
         }
 
     # ── Rebalancing ──────────────────────────────────────────────────────────
@@ -1512,7 +1527,7 @@ class PortfolioService:
             return PortfolioError(INVALID_TRANSACTION, "a split requires a positive ratio")
         if t == TransactionType.COST_BASIS_ADJUSTMENT and tx.basis_adjustment is None:
             return PortfolioError(INVALID_TRANSACTION, "COST_BASIS_ADJUSTMENT requires a basis_adjustment")
-        return None
+        return lot_selection_error(tx, self._method(portfolio))
 
     async def _mark_async(self, symbol: str, portfolio: dict[str, Any]) -> Optional[Decimal]:
         adapter = MarketAdapter(gateway=self.gateway, base_currency=portfolio.get("baseCurrency") or "USD")

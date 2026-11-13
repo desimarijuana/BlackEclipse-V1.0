@@ -31,6 +31,14 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path.startswith("/api/html-missing"):
+            body = b"<!DOCTYPE html><html><body>Not found</body></html>"
+            self.send_response(404)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -69,6 +77,15 @@ def test_a_4xx_is_an_answer_not_an_unreachable_app(app_server):
     _, data = _run(app_api_get_handler({"path": "/api/missing"}, _ctx()))
     assert data["status"] == 404
     assert data["body"] == {"error": "missing"}
+
+
+def test_a_missing_route_returns_a_short_final_answer_not_html(app_server):
+    text, data = _run(app_api_get_handler({"path": "/api/html-missing"}, _ctx()))
+    assert data["status"] == 404
+    assert data.get("routeMissing") is True
+    assert "<!DOCTYPE html>" not in text
+    assert "no such API route" in text
+    assert "Do not guess" in text
 
 
 def test_response_size_is_capped(app_server):

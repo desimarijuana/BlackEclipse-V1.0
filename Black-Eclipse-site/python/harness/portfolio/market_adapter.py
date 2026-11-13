@@ -12,6 +12,8 @@ concrete provider. Swapping Yahoo for another source changes nothing here.
 
 from __future__ import annotations
 
+import asyncio
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Optional
@@ -64,6 +66,27 @@ def classify_freshness(timestamp: Any, now: Optional[datetime] = None) -> Freshn
     return Freshness.VERY_STALE
 
 
+#: A single quote/FX lookup must never hang the whole portfolio read. The
+#: gateway can fall through several providers (and a network call) with no
+#: ceiling of its own; one slow PSX symbol used to consume the tool's entire
+#: 20 s budget and made `portfolio_get` fail with TOOL_TIMEOUT, which sent the
+#: agent off guessing unrelated endpoints. A missing mark is already an honest
+#: UNAVAILABLE state, so bound the lookup and report it as such.
+DEFAULT_MARK_TIMEOUT_S = 8.0
+
+
+def mark_timeout_s() -> float:
+    raw = (os.environ.get("PORTFOLIO_MARK_TIMEOUT_S") or "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return DEFAULT_MARK_TIMEOUT_S
+
+
 def _dec(value: Any) -> Optional[Decimal]:
     if value is None or value == "":
         return None
@@ -108,8 +131,15 @@ class MarketAdapter:
                         freshness=Freshness.MISSING,
                         warnings=["no market data source is configured"])
         record = None
+        timeout = mark_timeout_s()
         try:
-            record = await self.gateway.get_quote(symbol, market, freshness="any")
+            record = await asyncio.wait_for(
+                self.gateway.get_quote(symbol, market, freshness="any"), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            return Mark(price=None, symbol=symbol, status=DataQualityStatus.UNAVAILABLE,
+                        freshness=Freshness.MISSING,
+                        warnings=[f"market fetch timed out after {timeout:g}s"])
         except Exception as exc:  # noqa: BLE001 - a fetch failure is a MISSING mark
             return Mark(price=None, symbol=symbol, status=DataQualityStatus.UNAVAILABLE,
                         freshness=Freshness.MISSING, warnings=[f"market fetch failed: {exc}"])
@@ -176,7 +206,10 @@ class MarketAdapter:
         if self.gateway is None:
             return None
         try:
-            record = await self.gateway.get_fx_rate(base=self.base, quote=currency, freshness="any")
+            record = await asyncio.wait_for(
+                self.gateway.get_fx_rate(base=self.base, quote=currency, freshness="any"),
+                timeout=mark_timeout_s(),
+            )
         except Exception:  # noqa: BLE001 - missing FX is reported, never guessed
             return None
         if record is None or getattr(record, "code", None) is not None:
@@ -187,4 +220,4 @@ class MarketAdapter:
         return None
 
 
-__all__ = ["MarketAdapter", "classify_freshness", "parse_timestamp"]
+__all__ = ["MarketAdapter", "mark_timeout_s", "classify_freshness", "parse_timestamp"]

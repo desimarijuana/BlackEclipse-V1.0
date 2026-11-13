@@ -1,7 +1,7 @@
 ---
 title: General Ledger (double-entry book of record)
 status: Current
-last-verified: 2026-11-03
+last-verified: 2026-11-13
 ---
 
 # General Ledger
@@ -42,7 +42,9 @@ Chart of accounts ──▶ Journal entries ──▶ Postings ──▶ Trial b
 - **HTTP:** `python/harness/routers/ledger.py` (`/ledger/*`, operator-gated).
 - **Boot:** `python/harness/ledger/bootstrap.py`, called from
   `AgenticService.__init__`, exposed to each run as `LedgerBundle`.
-- **Tests:** `python/tests/test_ledger_{core,statements,imports,reconcile,tools,authorizer,api}.py`.
+- **Tests:** `python/tests/test_ledger_{core,statements,imports,reconcile,tools,authorizer,api}.py`,
+  plus the cross-book hardcore suite `python/tests/test_accounting_hardcore.py`
+  (prompts: `docs/accounting-hardcore-tests.md`).
 
 ## The five invariants
 

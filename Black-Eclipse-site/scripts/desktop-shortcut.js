@@ -22,6 +22,7 @@
 
 const { spawnSync } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -159,10 +160,19 @@ if (-not (Test-Path -LiteralPath $lnk)) {
   if ($found) { $lnk = $found.FullName }
 }
 $shortcut = $shell.CreateShortcut($lnk)
-$shortcut.TargetPath = $env:BE_LAUNCHER_EXE
+# Desktop-first: when the native app is installed, the icon opens IT, not the
+# retired browser launcher. The generated shim stays as a fallback for a
+# checkout that has no install yet.
+$target = $env:BE_LAUNCHER_EXE
+$workdir = $env:BE_ROOT
+if ($env:BE_TAURI_EXE -and (Test-Path -LiteralPath $env:BE_TAURI_EXE)) {
+  $target = $env:BE_TAURI_EXE
+  $workdir = Split-Path -Parent $target
+}
+$shortcut.TargetPath = $target
 $shortcut.Arguments = ''
-$shortcut.WorkingDirectory = $env:BE_ROOT
-$shortcut.IconLocation = "$($env:BE_LAUNCHER_EXE),0"
+$shortcut.WorkingDirectory = $workdir
+$shortcut.IconLocation = "$target,0"
 $shortcut.Description = 'Start Black Eclipse'
 $shortcut.WindowStyle = 1
 $shortcut.Save()
@@ -179,6 +189,12 @@ Write-Output $lnk
         BE_SHORTCUT_NAME: SHORTCUT_NAME,
         BE_LAUNCHER_EXE: LAUNCHER_EXE,
         BE_ROOT: ROOT,
+        BE_TAURI_EXE: path.join(
+          process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
+          "Programs",
+          "BlackEclipse",
+          "Black Eclipse.exe",
+        ),
       },
     }
   );

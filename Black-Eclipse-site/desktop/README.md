@@ -1,10 +1,43 @@
 # `desktop/` — native shell
 
-A Tauri 2 window around the existing application. **Nothing here is required for
-the browser front door.** Deleting this folder and reverting the five
-`desktop:*` script lines in `package.json` restores the previous state exactly.
+A Tauri 2 window around the existing application. **The desktop is the product.**
+The browser/website lane is retired (kept behind `BE_ALLOW_WEB=1` for a future
+web release); it is not part of the daily runtime.
 
 Plan and rationale: `docs/desktop-app-plan.md`.
+
+## Channels: Stable and Dev
+
+Two independent windows, defined once in `scripts/lib/channels.js`:
+
+| | **Stable** | **Dev** |
+| --- | --- | --- |
+| Binary | installed `Black Eclipse.exe` | `desktop/src-tauri/target-dev/debug/black-eclipse-desktop.exe` |
+| Identity | `com.blackeclipse.desktop` | `com.blackeclipse.desktop.dev` (own single-instance key) |
+| App port | 3100 | 3101 |
+| Harness | 8767 | 8768 |
+| Build | `.next` → versioned release | `.next-desktop-dev` |
+| Data | real data directory | `.black-eclipse/desktop-dev/` |
+| Changes | only via **promote** | every `npm run desktop:dev` |
+
+Commands: `desktop:dev`, `desktop:refresh`, `desktop:promote`,
+`desktop:rollback`, `desktop:doctor`, `desktop:build:dev`,
+`desktop:build:dev-shell`.
+
+Changing `main.rs` or `capabilities/default.json` needs a shell rebuild:
+`desktop:build:dev-shell` for Dev; `desktop:build` (+ package/install) for
+Stable. Changing the UI (`src/**`) needs only a payload build/promote.
+
+**Promotion.** `scripts/desktop-promote.js` copies the completed build into
+`releases/<channel>/<buildId>/.next`, validates it, writes `current.json`
+(keeping `previous.json`), then restarts that channel's window. A failed
+validation leaves `current` untouched. `desktop:rollback` swaps the pointers.
+`--from .next-desktop-dev` promotes a verified Dev build without a second
+identical compile; promote refuses while any build is running.
+
+**Liveness.** The supervisor probes `/health/live` (constant time) with a 30 s
+budget, not the diagnostic `/health` document — under load the latter measured
+20+ s and made a healthy runtime look dead.
 
 ## Layout
 
@@ -18,21 +51,43 @@ Plan and rationale: `docs/desktop-app-plan.md`.
 | `../scripts/desktop-server.js` | Server bootstrap; prints `@@BE:*@@` markers the shell reads |
 
 ## How it boots
-
 ```
 window shows instantly (bundled splash, no network)
   └─ scripts/desktop-server.js
-      ├─ server already there?  → verify IDENTITY (/api/updates)
-      │     ├─ ours      → @@BE:ATTACH@@   (never owned, never killed)
-      │     ├─ next-shaped → @@BE:ATTACH@@ (unverified, warns)
-      │     └─ anything else → @@BE:CONFLICT@@ (stop, explain, kill nothing)
-      └─ nothing there
-            ├─ canonical BE_DATA_DIR resolved (absolute)
-            ├─ start lock acquired (pid + TTL)
-            ├─ next start -H 127.0.0.1 -p 3100
-            └─ @@BE:READY@@ → window navigates to
-                              http://127.0.0.1:3100/
+      ├─ a packaged install (STANDALONE): identity attach as before
+      ├─ a repository checkout:
+      │     ├─ port 3100 live?
+      │     │     ├─ this install's own server (owner marker + same pinned
+      │     │     │   build) → @@BE:ATTACH@@  (never owned, never killed)
+      │     │     └─ anything else → @@BE:CONFLICT@@ (stop, explain, kill nothing)
+      │     └─ port free
+      │           ├─ canonical BE_DATA_DIR resolved (absolute)
+      │           ├─ pin the newest COMPLETED .next into
+      │           │   `.black-eclipse/desktop-dist/.next`
+      │           ├─ start lock acquired (pid + TTL)
+      │           ├─ next start -H 127.0.0.1 -p 3100 with
+      │           │   NEXT_DIST_DIR=<the pinned copy>
+      │           └─ @@BE:READY@@ → window navigates to
+      │                             http://127.0.0.1:3100/
 ```
+
+### Build isolation (why an update can no longer break the window)
+
+`.next` is mutable: `next build` deletes and rewrites it in place. Serving it
+directly meant every "update Eclipse" running in another tool (a build, a
+restart, `desktop:refresh`) could swap the window's client chunks mid-session
+and leave it unstyled with dead navigation.
+
+A repository checkout therefore serves an **immutable release or pinned copy**
+of the last completed build. Dev builds write `.next-desktop-dev`; Stable's
+`.next` is only staged by promotion. A new build is picked up on the next launch
+or via `npm run desktop:promote` / `desktop:refresh` — never underneath an open
+window. The copy excludes `cache`, so it is ~260 MB and takes seconds.
+
+**Port ownership.** Stable owns **3100**, Dev owns **3101**; their harnesses are
+**8767** and **8768**. A channel never attaches to the other, and moving one off
+its port would silently disable notifications (Tauri's capability allowlist
+names both ports explicitly).
 
 `127.0.0.1` is a secure context, so notifications, camera and microphone work
 without the TLS reverse proxy the browser path uses for `https://blackeclipse`.
@@ -107,17 +162,29 @@ directly. In a browser the bar renders nothing.
 
 ## Commands
 ```
-npm run desktop:dev        # cargo run (debug, keeps a console for logs)
-npm run desktop:check      # cargo check only
-npm run desktop:build      # cargo build --release
-npm run desktop:run        # launch the release binary
-npm run desktop:server     # the bootstrap alone, in a terminal
-npm run desktop:selftest   # prove the OS-toast path end to end (fires a real toast)
-npm run desktop:payload    # standalone Next payload -> .next-desktop
-npm run desktop:package    # assemble dist/BlackEclipse (app + bundled Node + shell)
-npm run desktop:brand      # re-apply the Black Eclipse icon/name to the bundled runtimes
-npm run desktop:installer  # NSIS installer + SHA256SUMS + winget manifests
+npm run desktop:dev          # build the Dev payload + launch the Dev window (3101)
+npm run desktop:refresh      # build if needed, promote, reopen Stable
+npm run desktop:promote      # stage + validate + switch Stable to the current build
+npm run desktop:rollback     # switch Stable back to the previous release
+npm run desktop:doctor       # one-screen health check
+npm run desktop:build:dev    # build .next-desktop-dev only
+npm run desktop:build:dev-shell  # build the separate Dev Tauri binary
+npm run desktop:check        # cargo check only
+npm run desktop:build        # cargo build --release
+npm run desktop:run          # launch the release binary
+npm run desktop:server       # the bootstrap alone, in a terminal
+npm run desktop:selftest     # prove the OS-toast path end to end (fires a real toast)
+npm run desktop:payload      # standalone Next payload -> .next-desktop
+npm run desktop:package      # assemble dist/BlackEclipse (app + bundled Node + shell)
+npm run desktop:brand        # re-apply the Black Eclipse icon/name to the bundled runtimes
+npm run desktop:installer    # NSIS installer + SHA256SUMS + winget manifests
 ```
+
+`desktop:refresh` is the stable fast path: build if needed → stage/validate the
+build → move `current.json` (keeping `previous.json`) → reopen Stable. It never
+races a running build and never touches the Dev channel. `desktop:dev` is the
+opposite lane: it rebuilds the Dev payload and relaunches the Dev window while
+Stable keeps running.
 
 Full release chain:
 
@@ -314,7 +381,8 @@ Decisions worth keeping:
 ## Known limits (documented, not hidden)
 
 - Code signing and an installer are not part of this shell yet.
-- The app is loaded from the local server, so a stale `.next` build is served
-  with a warning rather than rebuilt.
+- A checkout serves the **last completed** build, not unsaved source. Refresh it
+  with `npm run build` + `npm run desktop:refresh`; a launch refreshes the pin
+  automatically once `.next` contains a completed build.
 - Playwright/PDF features that expect a browser download are untested inside
   WebView2.

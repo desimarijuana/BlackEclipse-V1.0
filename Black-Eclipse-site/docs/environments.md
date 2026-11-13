@@ -1,84 +1,103 @@
 ---
 title: Development and production servers
 status: Current
-last-verified: 2026-11-04
+last-verified: 2026-11-13
 ---
 
-# Development and production servers
+# Desktop channels — Stable and Dev
 
-BlackEclipse runs as **two independent servers**. They can run at the same time
-without interfering with each other.
+BlackEclipse is a **desktop product**. There is no browser/website runtime in
+the daily loop. Two independent desktop channels can run at the same time:
 
-| | Development | Production |
+| | **Stable** | **Dev** |
 |---|---|---|
-| Start | `npm run dev` | `npm run up` (or `black eclipse`) |
-| Server | `next dev --turbopack` | `next start` (prebuilt) |
-| URL | <http://localhost:3000> | <http://blackeclipse> (proxy on `:80/:443`) |
-| App port | `3000` (`BE_DEV_PORT`) | `3100` (`BE_PROD_PORT`) |
-| Python harness | `http://127.0.0.1:8765` | `http://127.0.0.1:8766` |
-| Next build dir | `.next-dev` | `.next` |
-| Runtime state | `.black-eclipse/dev/` | repository root |
-| Canonical-host redirect | off | on (`BE_CANONICAL_HOST`) |
-| Reverse proxy / TLS | off | on |
+| Start | installed `Black Eclipse.exe` (or `npm run desktop:refresh`) | `npm run desktop:dev` |
+| Window | `Black Eclipse.exe` | `black-eclipse-desktop.exe` (`target-dev`, own identifier) |
+| URL | `http://127.0.0.1:3100` | `http://127.0.0.1:3101` |
+| Python harness | `http://127.0.0.1:8767` | `http://127.0.0.1:8768` |
+| Build | `.next` → versioned release | `.next-desktop-dev` |
+| Served artifact | `releases/stable/<buildId>/.next` (immutable) | `releases/dev/<buildId>/.next` or its pin |
+| Data | repository root (checkout) / `%LOCALAPPDATA%\BlackEclipse\data` (install) | `.black-eclipse/desktop-dev/` (isolated) |
+| Changes | only via `npm run desktop:promote` | every `npm run desktop:dev` |
+| Rollback | `npm run desktop:rollback` | re-run `desktop:dev` |
 
-The defaults live in `scripts/lib/profiles.js`. `scripts/local-host.js` applies
-them: it sets `PORT`, `HARNESS_PY_URL`, `HARNESS_PY_PORT`,
-`HARNESS_CALLBACK_URL` and `NEXT_DIST_DIR` on the child process, overriding any
-generic `PORT` in `.env`. The dev profile also points
-`AGENT_MEMORY_DB_PATH` and `ECLIPSE_MEMORY_DB_PATH` at `.black-eclipse/dev/`,
-and sets `BE_DB_PATH` to the repository `jdds.db` so the market/journal data is
-shared (see below).
+The channel table lives in **one file**: `scripts/lib/channels.js`. Ports are
+fixed because Tauri's IPC capability allowlist cannot wildcard a port; moving a
+channel would silently disable notifications.
 
-**Why separate ports is the point.** `predev`/`prestart` free only their own
-profile's ports (`scripts/kill-port.js dev|prod`). Before the split, both hooks
-killed `3000` and the single harness port, so starting dev tore down the running
-production server.
+**Why this split exists.** A build/test used to share `.next`, port 3100 and the
+harness port with the app the user was working in. That is why "I built it, then
+it broke" kept happening. Now a Dev build cannot rewrite Stable's artifact, the
+two harnesses are independent, and killing Dev cannot touch Stable.
+
+**Promotion is the only way Stable changes.** `npm run desktop:promote` copies
+the completed `.next` into `releases/stable/<buildId>/`, validates the copy,
+writes `current.json` (keeping `previous.json`), then restarts the Stable
+window. A build that fails validation never becomes current. `npm run
+desktop:rollback` flips back. `npm run desktop:refresh` is build-if-needed +
+promote + reopen.
+
+**Health is cheap.** The harness serves `/health/live` (constant time) for the
+supervisor's readiness probe; `/health` remains the diagnostic document. The
+probe budget is 30 s, because the full document was measured at 20+ s under a
+concurrent build and used to be mistaken for a dead runtime.
+
+**The website lane is retired, not deleted.** `npm run dev`, `npm run up`,
+`npm run start`, the proxy/TLS/hosts tooling and the browser shortcut all exit
+with a "desktop-only" message unless `BE_ALLOW_WEB=1`. The code is kept for a
+future browser release. Validation is `npm test`, `npx tsc --noEmit` and a
+build — no server.
+
+`scripts/lib/profiles.js` still defines the legacy web profiles for that future
+lane; the desktop no longer reads them. `scripts/local-host.js`,
+`scripts/start-desktop.js` and `scripts/local-proxy.js` are gated.
 
 ## What is shared, and what is not
 
 Shared on purpose:
 
-- `jdds.db` (market-data vault and settings). Dev reads the same snapshot as
-  production instead of copying a large database. Mechanically: the dev profile
-  sets `BE_DATA_DIR` only for the isolated runtime DBs, and pins
-  `BE_DB_PATH=<repo>/jdds.db`, which `src/lib/db.ts` honours ahead of
-  `BE_DATA_DIR/jdds.db` (as do `doctor.js` and `db-guard.js`). Without the pin,
-  dev would open an empty `.black-eclipse/dev/jdds.db` with no schema and every
-  Prisma-backed screen would fail with `P2021`.
-- The workspace tree and artifacts under `.black-eclipse/` (other than `dev/`).
-- `node_modules`, the Python interpreter, and the git worktree.
+- `node_modules`, the vendored Python interpreter, the source tree and the git
+  worktree.
+- The build lock (`.next-build.lock`), so only one build runs at a time on the
+  checkout even across channels.
 
 Isolated:
 
-- Agent memory, evolution history, recovery ledger and other Python runtime
-  databases (`.black-eclipse/dev/*.db`). Feature work cannot corrupt production
+- **Everything a channel serves.** Stable reads a versioned release or its pin;
+  Dev reads `.next-desktop-dev` / its own pin. Neither reads the other's build
+  while it is being written.
+- **Data.** Stable uses the real data directory. Dev uses
+  `.black-eclipse/desktop-dev/`, seeded once with a consistent `VACUUM INTO`
+  snapshot of `jdds.db`. A dev experiment can never write the real journals or
   memory.
-- Next build output: dev writes `.next-dev`, production keeps `.next`, so a dev
-  run never invalidates the cached production build.
-- Ports, so both servers can be up simultaneously.
+- **Processes and ports.** App 3100/3101, harness 8767/8768, owner markers and
+  start locks live under each channel's data directory.
 
-If you need a change to reach production, it must be built:
-`npm run up` rebuilds only when source changed (`scripts/lib/server.js`
-source hash). `npm run dev` never builds.
+Builds are **serialized**: `npm run build`, `desktop:build:dev`,
+`desktop:refresh`, `desktop:promote`, `black eclipse` and the desktop launcher
+all take `.next-build.lock` before running `next build`. A second build waits
+instead of wiping the same directory underneath it. The lock lives outside
+`.next` because the build deletes that directory; it is advisory, so a raw
+`npx next build` bypasses it.
 
-Production builds are **serialized**: `npm run build`, `npm run up`,
-`black eclipse` and the desktop launcher all take `.next-build.lock` before
-running `next build`, and a second build waits for the first instead of wiping
-the same `.next` directory underneath it. The lock lives outside `.next` because
-the build deletes that directory; it is advisory, so a raw `npx next build`
-bypasses it.
+Reaching Stable requires **promotion**, never an in-place rewrite:
+`desktop:promote` validates the staged copy, moves `current.json` (keeping
+`previous.json`), and restarts the window. See
+[`desktop/README.md`](../desktop/README.md#channels-stable-and-dev).
 
 ## Commands
 
 | Command | Effect |
 |---|---|
-| `npm run dev` | Development server on `3000` (doctor + kill-port `dev` first) |
-| `npm run up` | Production server on `3100` behind the proxy (rebuilds if needed) |
-| `npm start` | Same production launcher, without the build check |
-| `black eclipse` / `black dev` | The same two servers from anywhere after `npm link` |
-| `black status` | Reports both servers |
-| `black stop` | Stops production; `black stop --all` also stops development |
-| `npm run dev:next` / `npm run dev:local` | Raw `next dev` escape hatches: no profile env, no isolation |
+| `npm run desktop:dev` | Build/pin the Dev payload and launch the Dev window (3101) |
+| `npm run desktop:refresh` | Build if needed, promote, reopen Stable |
+| `npm run desktop:promote` | Stage + validate the current build, make it Stable, restart |
+| `npm run desktop:rollback` | Flip Stable back to the previous release |
+| `npm run desktop:doctor` | One-screen health: window, ports, build, harness, provider |
+| `npm run desktop:build:dev` | Build `.next-desktop-dev` only (no launch) |
+| `npm run desktop:build:dev-shell` | Build the separate Dev Tauri binary |
+| `npm run build` | Build Stable's `.next` (still the source for promotion) |
+| `npm run dev` / `npm run up` / `npm start` / `npm run proxy` | **Retired**; print a desktop-only message unless `BE_ALLOW_WEB=1` |
 
 ## Dev chunk caching, and the "module factory is not available" overlay
 

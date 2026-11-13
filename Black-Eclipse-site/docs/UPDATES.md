@@ -192,8 +192,9 @@ manifest on a `beta` release/tag and use the `beta` URL in
 
 ```bash
 black update --check            # read-only
-black update                    # prompt, then apply
-black update --yes --restart    # unattended
+black update                    # prompt, then apply (desktop refreshed first)
+black update --yes --restart    # unattended, desktop + browser production
+black update --no-desktop       # skip the native-app refresh (web-only machines)
 black update --channel beta
 ```
 
@@ -206,8 +207,19 @@ Order of operations (enforced in `scripts/update.js`):
 4. Back up `jdds.db` through `scripts/db-guard.js backup` (unless
    `--no-backup`, which is discouraged).
 5. Check out the tag (detached), `npm ci`, `npm run build`.
-6. Any failure → check out the previous commit, reinstall, rebuild. The DB
+6. **Desktop first:** re-pin the native app's immutable build and restart its
+   own server/reopen the window through `scripts/desktop-refresh.js`. It no-ops
+   with an explanation if the desktop is not installed or is a packaged
+   (non-bridged) install; `--no-desktop` skips it. The browser production server
+   on 3105 is **not** started (or restarted) unless `--restart` is passed.
+7. Any failure → check out the previous commit, reinstall, rebuild. The DB
    backup is left untouched and reported.
+
+**Desktop-first is a product rule, not a preference.** The native window is the
+primary front door; the browser build is secondary. An update that leaves the
+desktop on the previous build while the website is current is a failed update.
+The pinned copy makes this safe: the window can be restarted and re-pinned
+without any web server, and the reverse (a web only update) is opt-in.
 
 Updates never auto-apply from the browser. That is deliberate: the update path
 touches the user's local database and runs new code, so the person whose data it

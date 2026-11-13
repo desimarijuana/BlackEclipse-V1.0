@@ -34,7 +34,10 @@ RATCHET_PY: dict[str, int] = {
     # +2 for the quant system router include (2026-11-10).
     # Re-pinned 1245 -> 1253 (2026-11-11) for in-flight shared-tree routes.
     # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
-    "main.py": 1272,
+    # +24 (2026-11-13): `/health/live`, the constant-time supervisor readiness
+    # route. The diagnostic `/health` below it stays as-is. Split candidate: the
+    # health document itself.
+    "main.py": 1296,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research
@@ -447,7 +450,10 @@ RATCHET_PY: dict[str, int] = {
     # fund, `update_fund` merges user metadata, and the service-level lock gate
     # covers fund writes. The lock registry lives in `python/harness/sdk/locks.py`.
     # May only shrink.
-    "portfolio/service.py": 1623,
+    # +17 (2026-11-13): portfolio reads resolve quotes/FX concurrently so a
+    # handful of slow symbols cannot exceed the tool's 20 s ceiling and send the
+    # agent off guessing app routes. Pure orchestration; no new domain logic.
+    "portfolio/service.py": 1640,
     # The in-flight Plugin Platform manager (registry + runtime + event bridge +
     # hooks + config/secrets/storage + health). PROVISIONAL headroom: that stream
     # is still being written, so this is pinned above its measured size to keep the

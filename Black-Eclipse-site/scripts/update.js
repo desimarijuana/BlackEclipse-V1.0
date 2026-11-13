@@ -5,8 +5,15 @@
 //   black update              check, then ask before applying
 //   black update --check      check only (no changes)
 //   black update --yes        apply without prompting
-//   black update --restart    restart production after a successful build
+//   black update --restart    also restart the browser production server (3105)
+//   black update --no-desktop skip the desktop refresh (web-only machines)
 //   black update --channel beta
+//
+// Desktop first: after a successful build the native app is re-pinned and
+// restarted (scripts/desktop-refresh.js) BEFORE anything web-facing is
+// considered. The browser production server on 3105 is secondary and only
+// restarts when --restart is passed. The refresh is a safe no-op when the
+// desktop is not installed or is a packaged (non-bridged) install.
 //
 // Safety order (do not reorder):
 //   1. Manifest signature verifies against config/update-signing-key.pub.
@@ -44,6 +51,7 @@ const channel = argValue("channel", "stable");
 const checkOnly = hasFlag("check");
 const assumeYes = hasFlag("yes") || hasFlag("y");
 const restart = hasFlag("restart");
+const noDesktop = hasFlag("no-desktop");
 const skipBackup = hasFlag("no-backup");
 
 function log(message) {
@@ -109,6 +117,27 @@ function backupDatabase() {
   log("backing up jdds.db before touching anything…");
   run(process.execPath, [path.join(ROOT, "scripts", "db-guard.js"), "backup"]);
   return path.join(ROOT, "backups");
+}
+
+// Desktop first: the native window is the primary front door, so it gets the
+// new build before any web server is touched. `desktop-refresh.js` owns the
+// safe sequence (build if needed, re-pin the immutable copy, restart only the
+// server this install started, reopen the shell) and no-ops with an
+// explanation when the desktop is absent or a packaged install.
+function refreshDesktop() {
+  if (noDesktop) {
+    log("desktop refresh skipped (--no-desktop)");
+    return false;
+  }
+  log("desktop-first: re-pinning and restarting the native app…");
+  try {
+    run(process.execPath, [path.join(ROOT, "scripts", "desktop-refresh.js")]);
+    log("desktop is on the new build");
+    return true;
+  } catch {
+    log('desktop refresh did not complete — the build is still applied; run "npm run desktop:refresh" to retry');
+    return false;
+  }
 }
 
 function restartProduction() {
@@ -221,8 +250,13 @@ async function main() {
 
     log(`updated v${current} -> v${manifest.version}`);
     if (backupDir) log(`database backup: ${backupDir}`);
+    const desktopReady = refreshDesktop();
     if (restart) restartProduction();
-    else log('start it with "black" (or "npm run up") to load the new build');
+    else if (desktopReady) {
+      log('browser production server (3105) left alone — run "npm run up" only if you need it');
+    } else {
+      log('start it with "black" (or "npm run up") to load the new build');
+    }
   } catch (err) {
     console.error("");
     console.error(`[update] FAILED: ${err && err.message ? err.message : err}`);

@@ -32,11 +32,18 @@ const https = require("https");
 const path = require("path");
 const { tlsAvailable } = require("./lib/tls");
 const { killPort, needsBuild, buildInProgress } = require("./lib/server");
+const { PROD } = require("./lib/profiles");
 const { createSplash, findSplash, BUILD_HINTS } = require("./lib/desktop-splash");
 const { readTheme } = require("./lib/app-theme");
+const { refuseWebLane } = require("./lib/channels");
+
+// Retired browser shortcut. The native app is the front door now.
+if (refuseWebLane("start-eclipse.vbs / start-desktop.js")) process.exit(0);
 
 const ROOT = path.join(__dirname, "..");
-const APP_PORT = Number(process.env.BE_PROD_PORT) || 3100;
+// The browser front door follows the production profile (3105). 3100 belongs
+// to the native desktop app's own pinned server.
+const APP_PORT = Number(process.env.BE_PROD_PORT) || PROD.appPort;
 const PROBE_URL = `http://127.0.0.1:${APP_PORT}/`;
 // Match local-host.js: a certificate alone does not mean the proxy serves TLS;
 // BE_PROXY_TLS=0 switches it back to plain http, so the probe/open URL must

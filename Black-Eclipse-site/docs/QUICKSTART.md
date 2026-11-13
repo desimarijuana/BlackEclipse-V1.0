@@ -19,38 +19,40 @@ know what you are looking at.
 
 ## Run it
 
+The product is the **desktop app**. There is no browser/website runtime in the
+daily loop.
+
 ```bash
-npm install     # also runs prisma generate + python/global-link setup
-npm run dev     # boots the DEVELOPMENT server on http://localhost:3000
+npm install              # also runs prisma generate + the Python setup
+npm run desktop:dev      # build + launch the DEV window (port 3101)
+# or
+npm run desktop:refresh  # build + promote + open STABLE (port 3100)
 ```
 
-Open <http://localhost:3000>. That is genuinely all — `instrumentation.ts` starts
-the schedulers, seeds the US universe on first boot, and (in production) warms
-market prices in the background.
+First-time/package installs use the installed `Black Eclipse.exe`. `npm run
+desktop:doctor` prints one screen: window, port, served build, harness, provider
+and any running build.
 
-Development and production are separate servers on separate ports and can run at
-the same time: `npm run dev` is `3000` with isolated runtime state, while
-`npm run up` builds and serves production on `3100` at `http://blackeclipse`.
-See [`environments.md`](./environments.md).
+Two channels can run at once: **Stable** (3100, harness 8767) and **Dev** (3101,
+harness 8768). Dev has isolated data, so testing can never touch your real
+journals. See [`environments.md`](./environments.md).
+
+`npm run dev` / `npm run up` / `npm start` are **retired** and print a
+desktop-only message. Set `BE_ALLOW_WEB=1` only when deliberately working on a
+future browser release.
 
 ### Desktop shortcut (Windows)
 
-`start-eclipse.vbs` starts the **production** site (built Next on `3100`
-behind the local proxy) in a **hidden** window (boot/stop output goes to
-`.black-eclipse/desktop-launch.log`, the server's own output to
-`.black-eclipse/desktop-server.log`), waits until the app **and** the proxy
-answer, and opens `https://blackeclipse` (or `http://` when TLS is not
-configured). To get the desktop icon, run `npm run setup:desktop` (or
-`black desktop`) once. It builds `.black-eclipse/Black Eclipse.exe` — a tiny
-launcher that carries `public/branding/black-eclipse.ico` as its embedded icon —
-and creates/repairs the **Black Eclipse** desktop shortcut to point at it, then
-refreshes the shell icon cache. Re-run it after the icon changes.
+`npm run setup:desktop` (or `black desktop`) creates/repairs the **Black
+Eclipse** shortcut. When the native app is installed it points straight at
+`%LOCALAPPDATA%\Programs\BlackEclipse\Black Eclipse.exe`; otherwise it falls
+back to the old `.black-eclipse\Black Eclipse.exe` shim. Re-run after an icon
+change.
 
-The shortcut targets that exe rather than `wscript.exe` on purpose: Windows 11's
-right-click **Open** row draws the *target's* icon, so a shortcut to the script
-host shows the Script Host icon there no matter what its **IconLocation** says.
-The installer repairs an existing shortcut (any name) that still points at the
-VBS. `wscript start-eclipse.vbs` still works without a shortcut.
+**Legacy:** `start-eclipse.vbs` / `scripts/start-desktop.js` are the retired
+browser launcher (built Next + local proxy + `https://blackeclipse`). They now
+exit with a desktop-only message unless `BE_ALLOW_WEB=1`. The paragraph below
+describes that retired path and is kept for the future browser release.
 
 A click always shows something immediately. Before the app is ready the launcher
 opens a loopback **progress page** (`http://127.0.0.1:3197/`, next free port if
@@ -146,13 +148,14 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 
 | Script | What it does |
 |---|---|
-| `npm run dev` | **Development** server on `3000` (`predev` runs the doctor + frees the dev ports); Turbopack, no proxy, runtime state in `.black-eclipse/dev/` — see [`environments.md`](./environments.md) |
-| `npm run dev:next` | `next dev --turbopack` on all interfaces (raw; no profile env) |
-| `npm run dev:local` | Dev server on **Turbopack**, bound to `127.0.0.1` only (raw; no profile env) |
-| `npm run proxy` / `npm run proxy:stop` | Loopback reverse proxy on `:80` so `http://blackeclipse` reaches production on `:3100` — see [`local-hostname.md`](./local-hostname.md) |
-| `npm run setup:hostname` | Adds `127.0.0.1 blackeclipse` to the Windows hosts file (self-elevating) |
-| `npm run up` | **Production** server on `3100` behind the proxy (doctor + build-if-changed + start) |
-| `npm run build` / `npm start` | Production build / production serve |
+| `npm run desktop:dev` | Build/pin the Dev payload and launch the **Dev window** (3101) |
+| `npm run desktop:refresh` | Build if needed, promote, reopen **Stable** (3100) |
+| `npm run desktop:promote` | Stage + validate the current build, make it Stable, restart |
+| `npm run desktop:rollback` | Switch Stable back to the previous release |
+| `npm run desktop:doctor` | One-screen health check |
+| `npm run desktop:build:dev` | Build `.next-desktop-dev` only |
+| `npm run build` | Build Stable's `.next` (the source promotion stages) |
+| `npm run dev` / `npm run up` / `npm start` / `npm run proxy` | **Retired** browser lane; prints a desktop-only message unless `BE_ALLOW_WEB=1` |
 | `npm test` | Vitest unit tests |
 | `npm run lint` | ESLint |
 

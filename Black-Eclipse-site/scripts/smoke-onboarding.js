@@ -2,7 +2,7 @@
 /*
  * Onboarding smoke test — real browser, real server.
  *
- *   npm run smoke:onboarding                    # http://127.0.0.1:3100
+ *   npm run smoke:onboarding                    # http://127.0.0.1:3105
  *   SMOKE_URL=http://127.0.0.1:3000 npm run smoke:onboarding
  *
  * It opens ?setup=1, verifies the gate appears even after the app rewrites the
@@ -12,8 +12,9 @@
 "use strict";
 
 const { chromium } = require("playwright");
+const { PROD } = require("./lib/profiles");
 
-const BASE = (process.env.SMOKE_URL || "http://127.0.0.1:3100").replace(/\/$/, "");
+const BASE = (process.env.SMOKE_URL || `http://127.0.0.1:${PROD.appPort}`).replace(/\/$/, "");
 
 (async () => {
   const browser = await chromium.launch({ headless: true });

@@ -190,18 +190,30 @@ class Transaction:
         return ZERO
 
     def cash_impact(self) -> Decimal:
-        """Signed cash change to the account (positive = cash in)."""
+        """Signed cash change to the account (positive = cash in).
+
+        A transaction may carry an explicit `net_amount` — the cash actually
+        settled. When present it already includes fees/taxes, so it must not be
+        re-adjusted; ignoring it booked an imported net-only SELL as a pure fee
+        outflow and a net-only BUY as a zero-cost trade.
+        """
         t = self.transaction_type
-        gross = self.computed_gross()
+        gross = abs(self.computed_gross())
         if t in CASH_IN:
-            base = self.net_amount if self.net_amount is not None else gross - self.taxes
-            return base - self.fees
+            if self.net_amount is not None:
+                return self.net_amount
+            return gross - self.taxes - self.fees
         if t in CASH_OUT:
-            base = self.net_amount if self.net_amount is not None else abs(gross)
-            return -(base + self.fees + self.taxes)
+            if self.net_amount is not None:
+                return -abs(self.net_amount)
+            return -(gross + self.fees + self.taxes)
         if t in (TransactionType.BUY, TransactionType.RIGHTS_ISSUE):
+            if self.net_amount is not None:
+                return -abs(self.net_amount)
             return -(gross + self.fees + self.taxes)
         if t == TransactionType.SELL:
+            if self.net_amount is not None:
+                return abs(self.net_amount)
             return gross - self.fees - self.taxes
         if t == TransactionType.RETURN_OF_CAPITAL:
             return (self.net_amount if self.net_amount is not None else gross)

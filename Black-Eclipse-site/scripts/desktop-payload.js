@@ -218,4 +218,4 @@ console.log(`  copied ${manifestCount} top-level build file(s)`);
 console.log("\nSizes:");
 console.log(`  standalone payload : ${dirSizeMB(STANDALONE).toFixed(0)} MB`);
 console.log(`\nRun it with: node ${path.relative(ROOT, path.join(STANDALONE, "server.js"))}`);
-console.log("The live server on 3100 was not touched (it serves .next).");
+console.log("The website server (3105, serving .next) and the desktop pin (3100) were not touched.");

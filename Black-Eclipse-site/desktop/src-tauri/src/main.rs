@@ -30,8 +30,12 @@ use tauri::{
     WindowEvent,
 };
 
-/// The production port. Must match `PROD.appPort` in `scripts/lib/profiles.js`.
+/// Stable channel port.
 const APP_PORT: u16 = 3100;
+
+/// Dev channel port. Both ports are listed in `capabilities/default.json`, so
+/// notifications work in either window; other ports do not.
+const DEV_PORT: u16 = 3101;
 
 /// `BE_DESKTOP_PORT` lets a test (or an operator) move both the bootstrap and
 /// the window together; without it the shell and the bootstrap could disagree.
@@ -1441,10 +1445,10 @@ fn main() {
     // Tauri's capability URL patterns cannot wildcard the port, so IPC (and with
     // it desktop notifications) is only granted on the canonical port. Say so
     // instead of letting a non-default port fail silently.
-    if app_port() != APP_PORT {
+    if app_port() != APP_PORT && app_port() != DEV_PORT {
         log_line(&format!(
-            "[shell] WARNING: port {} is not the canonical {APP_PORT}; desktop notifications \
-             will not work because the app origin is not in the IPC allowlist",
+            "[shell] WARNING: port {} is not a channel port ({APP_PORT} stable / {DEV_PORT} dev); \
+             desktop notifications will not work because the app origin is not in the IPC allowlist",
             app_port()
         ));
     }

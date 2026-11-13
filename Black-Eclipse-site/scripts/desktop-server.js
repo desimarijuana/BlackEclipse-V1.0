@@ -31,14 +31,45 @@ const path = require("path");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
 
-const { needsBuild, nextBin, root: SERVER_ROOT } = require("./lib/server");
-const { PROD, childEnv } = require("./lib/profiles");
+const { nextBin, root: SERVER_ROOT } = require("./lib/server");
+const { channelFromEnv, channelEnv } = require("./lib/channels");
+const { prepareChannelData } = require("./lib/desktop-data");
 
 const ROOT = SERVER_ROOT || path.join(__dirname, "..");
-const PORT = Number(process.env.BE_DESKTOP_PORT || PROD.appPort);
+// The channel is fixed at launch (`BE_DESKTOP_CHANNEL`). Stable owns 3100,
+// Dev owns 3101; each has its own harness port, build, pin and runtime state.
+// Ports are literal (via the channel table) because Tauri's IPC allowlist
+// cannot wildcard a port — moving a channel would silently disable toasts.
+const CHANNEL = channelFromEnv();
+const PORT = Number(process.env.BE_DESKTOP_PORT || CHANNEL.appPort);
 const HOST = "127.0.0.1";
-const READY_TIMEOUT_MS = Number(process.env.BE_DESKTOP_READY_MS || 90_000);
+// Cold starts are slow on a loaded machine: Next measured 126 s while another
+// build was running, against the old 90 s budget — the bootstrap declared a
+// failure, left the (healthy) child running unowned, and the window showed a
+// failure panel. Five minutes survives the measured worst case with margin.
+const READY_TIMEOUT_MS = Number(process.env.BE_DESKTOP_READY_MS || 300_000);
 const LOCK_TTL_MS = 90_000;
+
+// ── immutable build pin ─────────────────────────────────────────────────────
+//
+// `.next` is a MUTABLE build directory: `next build` deletes and rewrites it in
+// place while any `next start` is serving it. The desktop window used to load
+// that live output, so an "update Eclipse" running in another tool (build,
+// restart, dev bridge) broke the open window: stale client chunks, missing
+// manifests, dead navigation.
+//
+// The desktop therefore serves a PINNED copy, taken only from a completed
+// build. Agent builds keep rewriting `.next`; the window keeps reading the pin.
+// It picks up a new build on the next launch/`npm run desktop:refresh`, never
+// mid-session.
+const PIN_ROOT = CHANNEL.pinDir;
+const PIN_DIST = path.join(PIN_ROOT, ".next");
+const PIN_MANIFEST = path.join(PIN_ROOT, "pin.json");
+// The channel's own build output. Stable uses `.next`; Dev uses its own dir so
+// a dev build can never rewrite the artifact stable pins from.
+const SOURCE_DIST = path.join(ROOT, CHANNEL.buildDir);
+// Never copy Next's multi-GB cache or diagnostics into the pin.
+const PIN_SKIP = new Set(["cache", "diagnostics", "standalone", "types", "trace", ".build-hash"]);
 
 // Packaged installs run the prebuilt Next standalone server (`server.js`) with a
 // bundled Node; the repository runs `next start` against `.next`. One bootstrap
@@ -69,12 +100,204 @@ function log(line) {
   process.stdout.write(`[desktop-server] ${line}\n`);
 }
 
-function buildExists() {
-  if (STANDALONE) return true;
-  return (
-    fs.existsSync(path.join(ROOT, ".next", "BUILD_ID")) ||
-    fs.existsSync(path.join(ROOT, ".next", "server", "app"))
-  );
+/* ------------------------------------------------- immutable build pin §6 */
+
+function readBuildId(dir) {
+  try {
+    return fs.readFileSync(path.join(dir, "BUILD_ID"), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** A build `next start` can actually serve: id + manifests + server + static. */
+function buildLooksComplete(dir) {
+  if (!readBuildId(dir)) return false;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "routes-manifest.json"), "utf8"));
+    if (!manifest || typeof manifest !== "object") return false;
+  } catch {
+    return false;
+  }
+  return fs.existsSync(path.join(dir, "server")) && fs.existsSync(path.join(dir, "static"));
+}
+
+/** A build written seconds ago may still be mid-flight; wait before pinning. */
+function buildLooksSettled(dir) {
+  if (!buildLooksComplete(dir)) return false;
+  const newest = ["BUILD_ID", "routes-manifest.json"]
+    .map((name) => {
+      try {
+        return fs.statSync(path.join(dir, name)).mtimeMs;
+      } catch {
+        return 0;
+      }
+    })
+    .reduce((a, b) => Math.max(a, b), 0);
+  return newest > 0 && Date.now() - newest > 2_500;
+}
+
+function copyBuild(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    if (PIN_SKIP.has(entry.name)) continue;
+    fs.cpSync(path.join(from, entry.name), path.join(to, entry.name), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
+/**
+ * Use the newest completed `.next` build as the desktop payload. Returns
+ * `{ dist, buildId, refreshed }` or null when there is no usable build and no
+ * previous pin. Never throws: a missing/in-progress build falls back to the
+ * last pinned one, which is what keeps the window alive during an update.
+ *
+ * A promoted, versioned release (written by `desktop:promote`) wins over the
+ * ad-hoc pin. It is already a complete, health-checked copy; nothing rebuilds
+ * or rewrites it, so it survives every dev build.
+ */
+function currentRelease() {
+  const pointer = path.join(CHANNEL.releasesDir, "current.json");
+  try {
+    const info = JSON.parse(fs.readFileSync(pointer, "utf8"));
+    const dist = path.resolve(ROOT, info && info.dir ? info.dir : "");
+    if (!buildLooksComplete(dist)) {
+      log(`release pointer ${info && info.dir} is not a complete build — ignoring it`);
+      return null;
+    }
+    return { dist, buildId: readBuildId(dist), refreshed: false, release: true };
+  } catch {
+    return null;
+  }
+}
+
+// Before channels existed, every install pinned into `.black-eclipse/desktop-dist`.
+// Carry that build forward instead of forcing a rebuild: the first launch after
+// this change would otherwise report "no completed build".
+const LEGACY_PIN = path.join(ROOT, ".black-eclipse", "desktop-dist");
+
+function migrateLegacyPin() {
+  // The legacy pin belongs to Stable; Dev must never consume it.
+  if (CHANNEL.id !== "stable") return;
+  if (buildLooksComplete(PIN_DIST)) return;
+  const legacyDist = path.join(LEGACY_PIN, ".next");
+  if (!buildLooksComplete(legacyDist)) return;
+  try {
+    // A rename is atomic and free; the old server is gone by the time a new
+    // bootstrap pins (the shell kills its owned tree on quit).
+    fs.rmSync(PIN_ROOT, { recursive: true, force: true });
+    fs.renameSync(LEGACY_PIN, PIN_ROOT);
+    log(`migrated the previous pin into ${path.relative(ROOT, PIN_ROOT)}`);
+  } catch (err) {
+    try {
+      copyBuild(legacyDist, PIN_DIST);
+      log(`copied the previous pin into ${path.relative(ROOT, PIN_ROOT)} (${err && err.message})`);
+    } catch (copyErr) {
+      log(`could not migrate the previous pin: ${copyErr && copyErr.message}`);
+    }
+  }
+}
+
+async function ensurePinnedBuild() {
+  migrateLegacyPin();
+  const release = currentRelease();
+  if (release) {
+    log(`serving promoted ${CHANNEL.id} release ${release.buildId}`);
+    return release;
+  }
+  const source = SOURCE_DIST;
+  const sourceId = readBuildId(source);
+  const pinnedId = readBuildId(PIN_DIST);
+  const pinUsable = buildLooksComplete(PIN_DIST);
+
+  if (sourceId && sourceId === pinnedId && pinUsable) {
+    log(`pinned build is current (${sourceId})`);
+    return { dist: PIN_DIST, buildId: pinnedId, refreshed: false };
+  }
+
+  if (sourceId && !buildLooksSettled(source)) {
+    log("a production build is still writing .next — keeping the last pinned build");
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+
+  if (buildLooksSettled(source)) {
+    const nextId = readBuildId(source);
+    const temp = path.join(PIN_ROOT, ".next-new");
+    const previous = path.join(PIN_ROOT, ".next-old");
+    try {
+      fs.rmSync(temp, { recursive: true, force: true });
+      fs.rmSync(previous, { recursive: true, force: true });
+      log(`pinning completed build ${nextId} for the desktop…`);
+      copyBuild(source, temp);
+      if (!buildLooksComplete(temp)) throw new Error("pinned copy is incomplete");
+      fs.mkdirSync(PIN_ROOT, { recursive: true });
+      // Swap by rename so a half-written copy can never become the pin.
+      if (fs.existsSync(PIN_DIST)) fs.renameSync(PIN_DIST, previous);
+      fs.renameSync(temp, PIN_DIST);
+      fs.rmSync(previous, { recursive: true, force: true });
+      fs.writeFileSync(
+        PIN_MANIFEST,
+        JSON.stringify({ buildId: nextId, pinnedAt: new Date().toISOString(), source }, null, 2),
+      );
+      log(`desktop build pinned: ${nextId} (${path.relative(ROOT, PIN_DIST)})`);
+      return { dist: PIN_DIST, buildId: nextId, refreshed: true };
+    } catch (err) {
+      log(`pin failed (${err && err.message}); using the previous pin`);
+      try {
+        fs.rmSync(temp, { recursive: true, force: true });
+      } catch {}
+      // Restore the previous pin if the swap failed between the two renames.
+      if (!fs.existsSync(PIN_DIST) && fs.existsSync(previous)) {
+        try {
+          fs.renameSync(previous, PIN_DIST);
+        } catch {}
+      }
+    }
+  }
+
+  if (pinUsable) {
+    log(`serving the last pinned build (${pinnedId}) — run npm run desktop:refresh after a build`);
+    return { dist: PIN_DIST, buildId: pinnedId, refreshed: false };
+  }
+  return null;
+}
+
+/* ---------------------------------------------------- desktop ownership */
+
+// Written by a bootstrap that started a desktop server. It lets the NEXT shell
+// attach to its own orphaned server after a crash, while refusing to attach to
+// a checkout/website server that a rebuild could break mid-session.
+function ownerFile() {
+  return path.join(RUNTIME_DIR, "desktop-owned.json");
+}
+
+function readOwner() {
+  try {
+    const info = JSON.parse(fs.readFileSync(ownerFile(), "utf8"));
+    if (!info || !Number.isFinite(info.pid) || !pidAlive(info.pid)) return null;
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+function writeOwner(buildId) {
+  try {
+    fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+    fs.writeFileSync(
+      ownerFile(),
+      JSON.stringify({ pid: process.pid, port: PORT, buildId, startedAt: Date.now() }),
+    );
+  } catch {}
+}
+
+function clearOwner() {
+  try {
+    const info = JSON.parse(fs.readFileSync(ownerFile(), "utf8"));
+    if (info && info.pid === process.pid) fs.rmSync(ownerFile(), { force: true });
+  } catch {}
 }
 
 function expectedVersion() {
@@ -226,7 +449,8 @@ function resolveDataDir() {
     process.env.BE_DATA_DIR = path.join(base, "BlackEclipse", "data");
   }
   const raw = process.env.BE_DATA_DIR;
-  const dir = raw ? path.resolve(raw) : path.resolve(ROOT);
+  // Stable keeps the historical checkout root; Dev is always isolated.
+  const dir = raw ? path.resolve(raw) : path.resolve(CHANNEL.dataDir);
   // Pass it to the child explicitly, always. This is what makes "one canonical
   // data directory" a construction guarantee instead of a coincidence: the
   // Python stores read the same variable, and its own default is derived from
@@ -476,7 +700,7 @@ async function waitForLive(timeoutMs) {
 }
 
 async function main() {
-  log(`root=${ROOT} host=${HOST} port=${PORT}`);
+  log(`channel=${CHANNEL.id} root=${ROOT} host=${HOST} port=${PORT} harness=${CHANNEL.harnessPort}`);
 
   // Runtime state and the data directory are resolved first: the lock and the
   // guard markers live beside the user data, not in the (possibly read-only)
@@ -485,60 +709,106 @@ async function main() {
   setRuntimeDir(dataDir);
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
   process.env.BE_DESKTOP_RUNTIME = RUNTIME_DIR;
+  // Dev gets its own JDdS snapshot on first launch, so a dev experiment can
+  // never write the journals or market rows the Stable channel is using.
+  try {
+    prepareChannelData(CHANNEL, ROOT);
+  } catch (err) {
+    log(`dev data preparation failed: ${err && err.message ? err.message : err}`);
+  }
   applySingleUserDefaults(dataDir);
   seedFirstRunDatabase(dataDir);
 
-  // 1. Is a server already there? If so, is it OURS? Identity is verified
-  //    BEFORE attaching, because an existing process might be anything.
-  const first = await classify(PORT);
-  if (first.kind === "ours") {
-    const want = expectedVersion();
-    if (want && first.version && want !== first.version) {
-      marker("WARN", `Attached to version ${first.version}, but this install is ${want}.`);
-    }
-    log(`attached to an identified server (version ${first.version || "unknown"})`);
-    marker("ATTACH", `v${first.version || "?"}`);
-    return;
-  }
-  if (first.kind === "tentative") {
-    log(`attached tentatively: ${first.detail}`);
-    marker("WARN", "Attached to a server that did not confirm its version.");
-    marker("ATTACH", "unverified");
-    return;
-  }
-  if (first.kind === "stale") {
-    // Identified as ours, but its build files are gone. Attaching would open a
-    // window that looks alive and does nothing, so refuse with an actionable
-    // message. Never kill it: the ownership rule still holds, even for a corpse.
-    log(`identified but unusable server: ${first.detail}`);
-    marker(
-      "CONFLICT",
-      `Port ${PORT} is held by a Black Eclipse server (version ${first.version || "unknown"}) whose build files ` +
-        `are missing or unreadable: ${first.detail}. Pages would load without styles or scripts. ` +
-        `Stop that leftover Node.js process in Task Manager (or restart the computer), then click Retry.`
-    );
-    process.exitCode = 5;
-    return;
-  }
-  if (first.kind === "other") {
-    log(`conflict: ${first.detail}`);
-    marker(
-      "CONFLICT",
-      `Port ${PORT} is used by another application (${first.detail}). ` +
-        `Black Eclipse will not kill it or take a different port. Stop that program, then retry.`
-    );
-    process.exitCode = 5;
-    return;
-  }
+  // 1. Is a server already there?
+  //
+  // STANDALONE (a packaged install) serves its own frozen payload, so the
+  // historical identity attach is safe. A repository checkout is different: its
+  // `.next` is rewritten by every build, so attaching to *any* website/agent
+  // server would put the window back on mutable output — exactly the bug this
+  // bootstrap exists to remove. In checkout mode we attach only to a server this
+  // install started itself (owner marker) and that serves the same pinned build.
+  let pin = null;
 
-  // 2. Nothing identified. Do we know how to start one?
-  if (!buildExists()) {
-    marker(
-      "ERROR",
-      "No production build yet. Run `npm run build` once in the project folder, then reopen Black Eclipse."
-    );
-    process.exitCode = 3;
-    return;
+  if (STANDALONE) {
+    const first = await classify(PORT);
+    if (first.kind === "ours") {
+      const want = expectedVersion();
+      if (want && first.version && want !== first.version) {
+        marker("WARN", `Attached to version ${first.version}, but this install is ${want}.`);
+      }
+      log(`attached to an identified server (version ${first.version || "unknown"})`);
+      marker("ATTACH", `v${first.version || "?"}`);
+      return;
+    }
+    if (first.kind === "tentative") {
+      log(`attached tentatively: ${first.detail}`);
+      marker("WARN", "Attached to a server that did not confirm its version.");
+      marker("ATTACH", "unverified");
+      return;
+    }
+    if (first.kind === "stale") {
+      // Identified as ours, but its build files are gone. Attaching would open a
+      // window that looks alive and does nothing, so refuse with an actionable
+      // message. Never kill it: the ownership rule still holds, even for a corpse.
+      log(`identified but unusable server: ${first.detail}`);
+      marker(
+        "CONFLICT",
+        `Port ${PORT} is held by a Black Eclipse server (version ${first.version || "unknown"}) whose build files ` +
+          `are missing or unreadable: ${first.detail}. Pages would load without styles or scripts. ` +
+          `Stop that leftover Node.js process in Task Manager (or restart the computer), then click Retry.`
+      );
+      process.exitCode = 5;
+      return;
+    }
+    if (first.kind === "other") {
+      log(`conflict: ${first.detail}`);
+      marker(
+        "CONFLICT",
+        `Port ${PORT} is used by another application (${first.detail}). ` +
+          `Black Eclipse will not kill it or take a different port. Stop that program, then retry.`
+      );
+      process.exitCode = 5;
+      return;
+    }
+  } else {
+    const live = await probeLiveness(PORT);
+    if (live.up) {
+      const owner = readOwner();
+      const pinnedId = readBuildId(PIN_DIST);
+      if (owner && pinnedId && owner.buildId === pinnedId && live.html) {
+        const health = await probeBuildHealth(PORT, live.html);
+        if (health.ok) {
+          log(`attached to this install's own desktop server (build ${pinnedId})`);
+          marker("ATTACH", `desktop ${pinnedId}`);
+          return;
+        }
+      }
+      const id = await probeIdentity(PORT);
+      const who =
+        id.kind === "ours"
+          ? "an older Black Eclipse server (a leftover desktop/website process)"
+          : "another application";
+      log(`port ${PORT} is held by ${who}`);
+      marker(
+        "CONFLICT",
+        `Port ${PORT} is used by ${who}. The ${CHANNEL.label} desktop app needs that port for its own frozen build. ` +
+          `The website lane is retired; this is a leftover process from before. ` +
+          `Stop it (end the Node.js process in Task Manager), then click Retry.`
+      );
+      process.exitCode = 5;
+      return;
+    }
+
+    // 2. Pin the newest COMPLETED build. `.next` is left to the website/agent.
+    pin = await ensurePinnedBuild();
+    if (!pin) {
+      marker(
+        "ERROR",
+        "No completed production build yet. Run `npm run build` once in the project folder, then reopen Black Eclipse."
+      );
+      process.exitCode = 3;
+      return;
+    }
   }
 
   const failed = previousGuardFailed();
@@ -567,11 +837,15 @@ async function main() {
     return;
   }
 
-  const onExit = () => releaseLock();
+  const onExit = () => {
+    releaseLock();
+    clearOwner();
+  };
   process.on("exit", onExit);
   for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK"]) {
     process.on(sig, () => {
       releaseLock();
+      clearOwner();
       process.exit(0);
     });
   }
@@ -581,12 +855,22 @@ async function main() {
   setRuntimeDir(dataDir);
   fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 
-  if (!STANDALONE && needsBuild()) {
-    marker("WARN", "Starting the last build — your source is newer. Run `npm run build` to refresh it.");
-  }
-
-  Object.assign(process.env, childEnv(PROD));
+  Object.assign(process.env, channelEnv(CHANNEL, { dataDir }));
   process.env.PORT = String(PORT);
+  if (pin) {
+    // Serve the pinned copy, never the live `.next`. A concurrent agent build
+    // can now rewrite `.next` from first file to last without touching the
+    // window. `pin.dist` is relative so `next start` resolves it from ROOT.
+    process.env.NEXT_DIST_DIR = path.relative(ROOT, pin.dist).split(path.sep).join("/");
+    if (pin.refreshed) {
+      marker("WARN", `Picked up build ${pin.buildId}.`);
+    } else if (!STANDALONE) {
+      marker(
+        "WARN",
+        `Serving the last completed build (${pin.buildId}). Run \`npm run build\` then \`npm run desktop:refresh\` to update it.`
+      );
+    }
+  }
 
   marker("WARN", "Starting the server…");
   startServerLoopback();
@@ -608,6 +892,9 @@ async function main() {
   }
 
   log(`server is up (HTTP ${live.status})`);
+  // Record ownership AFTER readiness: a later shell may attach to this server
+  // (crash recovery), but only because it is this install's pinned build.
+  if (pin) writeOwner(pin.buildId);
   marker("READY", String(PORT));
 
   // Only now, so it can never delay the first paint.

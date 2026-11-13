@@ -21,6 +21,11 @@ const {
 } = require("./lib/server");
 const { runLocalHost } = require("./local-host");
 const { PROD } = require("./lib/profiles");
+const { refuseWebLane } = require("./lib/channels");
+
+// Desktop-only product: the browser/website lane is retired. `BE_ALLOW_WEB=1`
+// re-enables it deliberately (the code is kept for a future web release).
+if (refuseWebLane("npm run up")) process.exit(0);
 
 const PORT = String(PROD.appPort);
 
