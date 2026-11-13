@@ -95,6 +95,7 @@ def register_tool_surface_tools(registry: Any) -> None:
 
     async def _search(args: dict[str, Any], ctx: Any) -> tuple[str, dict[str, Any]]:
         target = getattr(ctx, "tool_registry", None) or registry
+        surface = getattr(ctx, "allowed", None)
         query = str(args.get("query") or "").strip()
         limit = max(1, min(int(args.get("limit") or 8), MAX_SEARCH_RESULTS))
         if not query:
@@ -103,8 +104,12 @@ def register_tool_surface_tools(registry: Any) -> None:
                 {"status": "INVALID_INPUT"},
             )
 
+        names = [
+            name for name in getattr(target, "names", lambda: [])()
+            if surface is None or name in surface
+        ]
         tools = []
-        for name in getattr(target, "names", lambda: [])():
+        for name in names:
             tool = target.get(name)
             if tool is not None:
                 tools.append(tool)
@@ -122,9 +127,7 @@ def register_tool_surface_tools(registry: Any) -> None:
         payload["matchCount"] = len(ranked)
         payload["returned"] = len(selected)
         if not selected:
-            payload["availableSources"] = _available_sources(
-                list(getattr(target, "names", lambda: [])()), target,
-            )
+            payload["availableSources"] = _available_sources(names, target)
             payload["hint"] = (
                 "No match. Try a broader task word, or use `availableSources` to "
                 "pick a domain."
@@ -150,6 +153,13 @@ def register_tool_surface_tools(registry: Any) -> None:
                 "REFUSED: tool_invoke cannot call itself.",
                 {"status": "REFUSED", "reason": "recursive dispatch"},
             )
+        surface = getattr(ctx, "allowed", None)
+        if surface is not None and name not in surface:
+            return (
+                f"REFUSED: {name!r} is not in this run's surface. "
+                "Call tool_search for an allowed tool.",
+                {"status": "REFUSED", "name": name, "reason": "outside the surface"},
+            )
         tool = target.get(name) if hasattr(target, "get") else None
         if tool is None:
             return (
@@ -165,6 +175,7 @@ def register_tool_surface_tools(registry: Any) -> None:
             )
         result = await target.execute(
             name, f"invoke_{uuid.uuid4().hex[:10]}", call_args, ctx,
+            allowed=surface,
         )
         if not result.ok:
             error = getattr(result, "error", None)

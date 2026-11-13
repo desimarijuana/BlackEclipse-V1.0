@@ -117,6 +117,16 @@ def test_enabled_disclosure_keeps_effectful_and_interactive_and_saves_tokens(mon
     assert "tool_search" in plan.catalogue_block
 
 
+def test_auto_activates_above_the_threshold_and_reports_the_reason(monkeypatch):
+    monkeypatch.setenv("HARNESS_TOOL_DISCLOSURE", "auto")
+    reg = _registry()
+    plan = resolve_disclosure(set(reg.names()), reg, window=4_000)
+    assert plan.enabled
+    assert plan.reason == "active"
+    assert plan.window == 4_000
+    assert plan.threshold_pct == 8
+
+
 def test_discovery_pair_is_required_before_narrowing(monkeypatch):
     monkeypatch.setenv("HARNESS_TOOL_DISCLOSURE", "on")
     reg = _registry()

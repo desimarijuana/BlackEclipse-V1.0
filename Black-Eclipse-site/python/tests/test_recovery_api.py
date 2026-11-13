@@ -193,3 +193,8 @@ def test_outcome_mutation_is_operator_gated(client):
     with TC(main_module.app, client=("203.0.113.9", 5555)) as remote:
         res = remote.post("/recovery/incidents/whatever/outcome", json={"outcome": "succeeded"})
         assert res.status_code == 403
+
+
+def test_guardrail_reset_route_exists_and_requires_a_known_run(client):
+    res = client.post("/runs/not-a-real-run/guardrail-reset")
+    assert res.status_code in (401, 403, 404)

@@ -1,11 +1,11 @@
 ---
 title: W3 — Tool Execution (Detailed Plan)
-status: Proposed
+status: Implemented (core)
 last-verified: 2026-11-12
 owner: Agent runtime
 parent: docs/harness/roadmap/hermes-inspired-improvement-plan.md
 baseline: docs/harness/baselines/w0-0a7ec906-2026-11-12.json
-scope: planning only — no production code changed
+scope: implementation landed — see §15 for the live surface and deliberate gaps
 ---
 
 # W3 — Tool Execution
@@ -16,7 +16,7 @@ loop, registry, scheduler, approval path or event bus. `graph.tools_node`
 remains the only place a model-issued tool call is dispatched, and
 `ToolRegistry.execute` remains the only handler seam.
 
-**Current shape (measured 2026-11-12):**
+**Shape before W3 (measured 2026-11-12):**
 
 - sibling calls in one model turn run **sequentially** (`for call in calls`,
   `graph.py:996`);
@@ -159,7 +159,7 @@ interactive: bool = False
 parallel_safe: Optional[bool] = None
 ```
 
-Resolution (`tool_batches.resolve_parallel_safe(tool)`):
+Resolution (`tool_turn.resolve_parallel_safe(registry, name)`):
 
 1. `interactive` → **False**.
 2. `permission != "read"` or `effect` is set → **False**.
@@ -227,7 +227,7 @@ Effectful invariants that must remain true:
 
 ### 6.4 Guardrail controller
 
-New `python/harness/tools/guardrails.py` — **pure**, no I/O, no model, no
+New `python/harness/tool_guardrails.py` — **pure**, no I/O, no model, no
 registry access. It reuses `attempt_digest` from `recovery/progress.py` so the
 runtime has one canonical argument hash.
 
@@ -295,7 +295,7 @@ domain: str = ""               # e.g. "market", "browser", "quant"
 Both are additive, default-empty, and appear in neither `input_schema` nor the
 model-facing `schemas()` output.
 
-New `python/harness/tools/bm25.py`:
+New `python/harness/tool_bm25.py`:
 
 - pure Python, no dependency, no import of `eclipse_memory/hybrid.py`;
 - tokenise: lowercase, split non-alphanumerics, split `snake_case`/`camelCase`,
@@ -385,7 +385,7 @@ kill-switch test.
 
 ### W3.1 — Parallel read-only batch
 
-- `tool_batches.py`: partition, slot planning, per-call context clone.
+- `tool_turn.py`: partition, slot planning, per-call context clone.
 - `tools_node` executes batches with a semaphore, preserving slot order.
 - Explicit `parallel_safe=True` on the audited read tools (§9.2); all others
   remain serial.
@@ -398,7 +398,7 @@ batch never re-runs a completed call.
 
 ### W3.2 — Guardrail controller
 
-- `tools/guardrails.py` pure rules + per-run state on the context.
+- `tool_guardrails.py` pure rules + per-run state on the context.
 - `warn` appends the directive; `halt` stops the turn and sets
   `guardrail_halt`.
 - Emit `tool.guardrail` with `rule`, `count`, `tool`, `action`.
@@ -413,7 +413,7 @@ never execute the third; changed args are allowed; pollers are exempt;
 
 ### W3.3 — BM25 + tiered catalogue
 
-- `tools/bm25.py` + tags/domain fields.
+- `tool_bm25.py` + tags/domain fields.
 - Deterministic tier selection and the catalogue prompt block.
 - `tool_search` no-match `availableSources`.
 - Keep `tool_invoke` read-only.
@@ -445,10 +445,11 @@ eval tasks; rollback is a single flag.
 | `test_tool_guardrails.py` | identical/cycle/failure-streak, warn/halt/off, poller exemption, changed args, first-occurrence never halts, reset, resume fresh ledger |
 | `test_tool_disclosure_bm25.py` | recall@5 fixture, exact-name first, tags/domain weights, deterministic ties, no-match sources, schema cap |
 | `test_tool_surface.py` (extend) | search/invoke refusals, lazy alias precedence, effectful never hidden, no widening |
-| `test_tool_catalog.py` | tier budgets, byte-stable block, tier degradation, prompt token accounting |
+| `test_tool_disclosure_bm25.py` | tier budgets, byte-stable block, prompt token accounting (folded in) |
 | `test_flags.py` (extend) | new defaults, shadow enum, batch timeout clamp |
 | `test_graph.py` (extend) | shadow emits a plan without changing results; `guardrail_halt` routes to END; disclosure off is byte-identical |
 | `test_size_budget.py` | `graph.py` stays under its pin (new logic lives in modules) |
+| `test_recovery_api.py` | operator reset route exists and stays gated |
 
 Timing tests use a fake async handler with a deterministic `asyncio.sleep`,
 never a real provider or network call. The recall fixture is committed; it is
@@ -548,12 +549,12 @@ derived from these events; no new store.
 |---|---|
 | `python/harness/config/flags.py` | parallel shadow enum; batch timeout; disclosure/guardrail values |
 | `python/harness/tools.py` | `interactive`, `parallel_safe`, `tags`, `domain` fields; no execution change |
-| `python/harness/tool_batches.py` | **new**: partition, slots, context clone |
-| `python/harness/tools/guardrails.py` | **new**: pure rules + decision |
-| `python/harness/tools/bm25.py` | **new**: pure lexical ranker |
+| `python/harness/tool_turn.py` | **new**: the ONE preflight/dispatch/postflight flow, contiguous batches, per-call context clone |
+| `python/harness/tool_guardrails.py` | **new**: pure rules + decision (reuses `recovery.progress.attempt_digest`) |
+| `python/harness/tool_bm25.py` | **new**: pure lexical ranker |
 | `python/harness/tool_disclosure.py` | **new**: mode/threshold/tier + catalogue block |
 | `python/harness/tool_surface.py` | BM25 search, tags, `availableSources`, lazy alias |
-| `python/harness/graph.py` | batch execution in `tools_node`; disclosure event; guardrail halt route |
+| `python/harness/graph.py` | `tools_node` is wiring; disclosure decision + event; guardrail-halt route |
 | `python/harness/routers/recovery.py` | operator reset endpoint |
 | `python/harness/context_budget.py` | (no change; reuse `tool_schema_text` for measurement) |
 | `python/tests/*` | §8 |
@@ -603,39 +604,54 @@ W3 is done when:
 
 ## 15. Implementation status (2026-11-12)
 
-**Not started.** Planning only — no production code changed.
+**Landed (core).** W3.0–W3.4 are implemented behind their flags:
 
-Already present and reused (do not rebuild):
+- **Flags:** `HARNESS_PARALLEL_TOOLS` (`off|shadow|on`), `HARNESS_TOOL_CONCURRENCY`,
+  `HARNESS_TOOL_BATCH_TIMEOUT_S`, `HARNESS_TOOL_GUARDRAILS` (`warn|halt|off`),
+  `HARNESS_TOOL_DISCLOSURE` (`auto|on|off`),
+  `HARNESS_TOOL_DISCLOSURE_THRESHOLD_PCT`. `HARNESS_LAZY_TOOLS` is honoured as a
+  deprecated alias only when the registry flag is unset.
+- **One turn:** `tool_turn.py` owns preflight, dispatch and postflight for both
+  sequential and parallel modes. `graph.tools_node` is wiring only.
+- **Parallel:** contiguous `parallel_safe` batches with a semaphore, batch
+  deadline, per-call context clone and index-addressed results. Effectful and
+  interactive calls are serial; an effectful call breaks the batch.
+- **Read audit:** `parallel_safe=True` is explicit. The first audited set is
+  `tool_search` and the three response-contract read-back tools; `clarify` is
+  `interactive=True`. Everything else stays serial until audited.
+- **Guardrails:** pure `tool_guardrails.py` with a per-attempt ledger, identical
+  success calls, cycle detection, failure streak, poller exemption, warn-first
+  default and a controlled halt + `tool.guardrail` event. The operator reset is
+  `POST /runs/{run_id}/guardrail-reset` (operator-gated).
+- **Disclosure:** pure `tool_bm25.py` (name ×4, tags ×2, description ×1, domain
+  ×1, exact-name boost), tiered catalogue block (4k/2k/500 token budgets),
+  `availableSources` on no-match, `auto` threshold over a KNOWN window, and a
+  `tool.disclosure` event plus `surface.disclosure` provenance.
+- **Tests:** `test_parallel_tools.py`, `test_tool_guardrails.py`,
+  `test_tool_disclosure_bm25.py`, plus extended `test_tool_surface.py`,
+  `test_flags.py`, `test_run_effects.py`, `test_size_budget.py`,
+  `test_recovery_api.py`. Verified: 1,250 passed / 3 skipped on the
+  graph/context/tool/run/recovery group; 2,046 passed / 4 skipped on the
+  agent/prompt/plugin/skill/evaluation/persistence group; `audit:agent` 49/49;
+  offline eval gate ALL PASS; `npx tsc --noEmit` clean.
 
-- `tools_node` sequential loop, budget, per-turn duplicate suppression, resume
-  idempotency, effect at-most-once (`graph.py:961`);
-- `run_tool_with_recovery` + `ProgressTracker` (`recovery/hotpath.py`,
-  `recovery/progress.py`);
-- `tool_search`/`tool_invoke` and the opt-in lazy surface (`tool_surface.py`);
-- `tool_schema_text` for advertised-schema measurement
-  (`context_budget.py:102`).
+Deliberate gaps (rollout, not missing plumbing):
 
-Deliberate gaps:
-
-- `HARNESS_TOOL_DISCLOSURE`, `HARNESS_TOOL_DISCLOSURE_THRESHOLD_PCT`,
-  `HARNESS_TOOL_GUARDRAILS`, `HARNESS_PARALLEL_TOOLS` and
-  `HARNESS_TOOL_CONCURRENCY` are declared but have **no live consumer** today;
-  W3.0 must either wire or remove each one.
-- `HARNESS_LAZY_TOOLS` is the only live switch and is read with a raw env call,
-  not the flag registry.
-- No `tags`/`domain` on `ToolDefinition`; the lexical scorer reads name and
-  description only.
+- Parallel stays `off` by default; the `shadow` and `on` modes are implemented
+  and tested. Promotion is a canary decision, not a code change.
+- Disclosure `auto` is the flag default and only activates above the threshold
+  on a known window; the `HARNESS_LAZY_TOOLS` alias is removed after two green
+  weeks (W0 flag-removal rule).
+- The audited `parallel_safe` set is intentionally small. Adding a tool is a
+  one-line change backed by the §9.2 audit.
 
 ## 16. Open decisions
 
-1. **Parallel default for read tools.** Keep the explicit allowlist
-   indefinitely (safest), or flip `permission == "read"` to parallel-safe after
-   the audit? Recommendation: keep the allowlist through W3 and revisit with
-   the audit data.
-2. **Halt UX.** Deterministic stop notice vs. a final model turn that must
-   answer from gathered evidence. Recommendation: deterministic stop; a model
-   turn can still loop.
-3. **Catalogue tier budgets.** 4k/2k/500 tokens are starting values; confirm
-   against the real ECLIPSE_AGENT surface before W3.4.
-4. **Alias removal date.** Two green weeks after W3.4; the W0 flag matrix
-   carries the removal.
+1. **Parallel promotion.** Keep the explicit allowlist through the canary, then
+   decide with the `tool.batch` timing record whether any broader default is
+   justified. Recommendation: keep the allowlist.
+2. **Halt UX.** Deterministic stop notice (implemented) vs. a final model turn.
+   A model turn can loop, so the deterministic notice stays.
+3. **Catalogue tier budgets.** 4k/2k/500 tokens are the shipped starting values;
+   adjust only with a measured saved-token regression.
+4. **Alias removal date.** Two green weeks after the W3.4 canary.

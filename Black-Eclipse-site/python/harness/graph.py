@@ -1471,7 +1471,9 @@ async def execute_run(
             await emitter.emit("run.cancelled", {"reason": "cancelled"})
             return _result(request.runId, "cancelled", store, None)
     if research is not None:
-        return await _finish_research(request, store, emitter, research)
+        return await _finish_research(
+            request, store, emitter, research, runtime_id=runtime_id,
+        )
 
     # Retrieve relevant memory BEFORE the model sees the turn, and inject it as
     # clearly-labelled non-authoritative context. Memory is scoped to the user
@@ -1531,11 +1533,19 @@ async def execute_run(
     )
     # Trade surface first; a quantitative turn then gets the data/compute surface.
     disclosure_plan = None
+    # The bridge surface is the FINAL resolved surface BEFORE disclosure: a tool
+    # hidden by disclosure stays reachable, a tool removed by the surface does not.
+    bridge_surface = allowed
     if allowed:
         from .quant_intent import apply_intent_surfaces  # noqa: PLC0415
         allowed, surface_resolution = apply_intent_surfaces(
             request, allowed, surface_resolution
         )
+        # The tool bridge (`tool_search`/`tool_invoke`) must use the FINAL
+        # resolved surface, not the pre-intent agent allowlist. Hidden-by-
+        # disclosure tools stay in this set (that is what makes them reachable);
+        # tools removed by the surface are never discoverable or invokable.
+        bridge_surface = allowed
         # W3.3: progressive disclosure. Effectful/interactive tools stay bound;
         # the read-only long tail is listed in a bounded catalogue and reachable
         # through the existing tool_search/tool_invoke pair. `auto` needs a KNOWN
@@ -1550,6 +1560,10 @@ async def execute_run(
         disclosure_plan = resolve_disclosure(allowed, registry, window=_window)
         if disclosure_plan.enabled and disclosure_plan.allowed is not None:
             allowed = disclosure_plan.allowed
+    try:
+        ctx.allowed = bridge_surface
+    except Exception:  # noqa: BLE001 - a frozen context must not break a run
+        pass
     if disclosure_plan is not None and disclosure_plan.enabled:
         system_prompt = f"{system_prompt}\n\n{disclosure_plan.catalogue_block}"
     # Settings → Persona: a bounded user overlay appended to the authoritative
@@ -2317,6 +2331,8 @@ async def _finish_research(
     store: AgentMemoryStore,
     emitter: RunEmitter,
     research: dict[str, Any],
+    *,
+    runtime_id: Optional[str] = None,
 ) -> RunResult:
     """Persist and return a gated research run's terminal result exactly once.
 

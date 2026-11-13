@@ -99,6 +99,9 @@ def test_code_agent_has_no_finance_tool():
     assert not (set(CODE_AGENT.tools) & set(ECLIPSE_AGENT.tools) - {
         "memory", "skill_list", "skill_view", "session_search", "session_open",
         "delegate", "analysis_run", "scaffold_kit",
+        # W7 delegation lifecycle: shared, not finance tools (like `delegate`).
+        "delegate_async", "delegate_status", "delegate_wait", "delegate_result",
+        "delegate_cancel", "delegate_steer",
         # Round 5 / C3: shared discovery + full-output pager + confined code,
         # not finance tools.
         "tool_search", "tool_invoke", "read_tool_output", "tool_code",

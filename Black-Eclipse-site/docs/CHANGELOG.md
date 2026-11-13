@@ -16,8 +16,10 @@
   parallel tools: `tool_search` + the response-contract read-backs; `clarify`
   is interactive. Tests: `test_parallel_tools.py`, `test_tool_guardrails.py`,
   `test_tool_disclosure_bm25.py`, extended `test_flags.py`,
-  `test_run_effects.py`, `test_size_budget.py`. Targeted harness gate: 1,250
-  passed / 3 skipped; `tsc --noEmit` clean. Docs:
+  `test_run_effects.py`, `test_size_budget.py`. Harness gate: 1,250 passed /
+  3 skipped (graph/context/tool/run/recovery) plus 2,046 passed / 4 skipped
+  (agent/prompt/plugin/skill/evaluation/persistence group); `audit:agent`
+  49/49, offline eval gate ALL PASS, `tsc --noEmit` clean. Docs:
   `docs/harness/roadmap/w3-tool-execution-plan.md` (status + §15),
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
   `docs/harness/roadmap/w0-flags-and-review.md`.
@@ -105,8 +107,8 @@
   diagnostics expose component scores. `/learn` is an alias of the existing
   inert `skill-create` path. Additive migrations 36–37 (evaluation evidence,
   authored case spec, curator ledger). New tests: execution gate, curator,
-  BM25, hybrid rank; docs:
-  `docs/harness/roadmap/w5-learning-loop-plan.md` (§13 status/gaps).
+  BM25, hybrid rank; docs: `docs/harness/roadmap/w5-learning-loop-plan.md`
+  (§13 status/gaps), `docs/harness/architecture.md`.
 - **feat(autonomy): W4 goals, deterministic gates, judge and loops.** Adds the
   `HARNESS_GOAL_LOOP` flag (off/shadow/on; `HARNESS_AUTONOMY=off` still vetoes),
   extends `GoalContract` with `verification`/`boundaries`/`stop_when` and adds

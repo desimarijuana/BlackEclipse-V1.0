@@ -90,6 +90,23 @@ async def test_invoke_refuses_recursion_and_unknowns():
     assert missing.data["status"] == "NOT_FOUND"
 
 
+@pytest.mark.asyncio
+async def test_search_and_invoke_never_widen_beyond_the_run_surface():
+    reg = _registry()
+    ctx = _ctx(reg)
+    ctx.allowed = {"market_get_quote", "tool_search", "tool_invoke"}
+
+    searched = await reg.execute("tool_search", "c1", {"query": "portfolio"}, ctx)
+    payload = json.loads(searched.text)
+    assert all(row["name"] != "portfolio_write" for row in payload["tools"])
+
+    refused = await reg.execute(
+        "tool_invoke", "c2",
+        {"name": "portfolio_write", "arguments": {}}, ctx,
+    )
+    assert refused.data["status"] == "REFUSED"
+
+
 def test_lazy_surface_is_off_by_default_and_keeps_effectful_tools(monkeypatch):
     reg = _registry()
     allowed = {
