@@ -115,12 +115,13 @@ is ordinary composer text, so the operator reviews it before sending.
 
 ### Voice field (the composer catches fire)
 
-Tapping the mic in the full composer **morphs the composer into an ember field**
+Tapping the mic in **either composer** morphs that composer into an ember field
 (`data-voice="active"` on the form): an advected heat grid, additive embers, a
 warm rim, and the transcript typed above the flame. The composer owns the
-dictation session (`useVoiceInput` lives in `chat-input.tsx`), so the field and
-the control cannot disagree; `VoiceInputButtonView` is the controlled control,
-`VoiceInputButton` the self-contained one used by the floating dock.
+dictation session (`useVoiceInput` lives in `chat-input.tsx` / `chat-dock.tsx`),
+so the field and the control cannot disagree; `VoiceInputButtonView` is the
+controlled control, `VoiceInputButton` the self-contained one kept for any host
+that does not need the state.
 
 - **Amplitude.** `VoiceMeter` (`src/lib/voice/meter.ts`) attaches an
   AnalyserNode to the **same** stream the recorder owns and returns a smoothed

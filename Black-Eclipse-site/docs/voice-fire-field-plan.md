@@ -6,11 +6,11 @@ last-verified: 2026-11-13
 
 # Voice Field — Interactive Fire (plan)
 
-> **Shipped 2026-11-13 (P0 + P1 on the full composer).** `VoiceMeter`, the
+> **Shipped 2026-11-13 (P0 + P1 on both composers).** `VoiceMeter`, the
 > `fire-field` simulation, `VoiceFireField`, the controlled
-> `VoiceInputButtonView`, and the `data-voice` morph in `chat-input.tsx` are in
-> the tree (browser interim text included). Still open: the floating dock
-> (`chat-dock.tsx`), the settings toggle/intensity, and streaming Whisper (P3).
+> `VoiceInputButtonView`, and the `data-voice` morph in `chat-input.tsx` and
+> `chat-dock.tsx` are in the tree (browser interim text included). Still open:
+> the settings toggle/intensity (P2 polish) and streaming Whisper (P3).
 > Current behaviour is documented in `docs/voice.md`.
 
 **Supersedes:** `docs/voice-ascii-wave-plan.md` (ASCII seismograph — not the

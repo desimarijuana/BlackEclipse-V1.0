@@ -2,8 +2,9 @@
 
 ## 2026-11-13
 - **feat(voice): the composer catches fire when you dictate.** Tapping the mic
-  now morphs the full chat composer into an interactive ember field instead of
-  just starting a hidden recording. New `src/lib/voice/meter.ts` (AnalyserNode
+  now morphs **both** chat composers (full `chat-input` and floating
+  `chat-dock`) into an interactive ember field instead of just starting a hidden
+  recording. New `src/lib/voice/meter.ts` (AnalyserNode
   RMS + spectral centroid, pure `rmsToLevel`/`smoothLevel`/`spectralCentroid`),
   `src/lib/voice/fire-field.ts` (framework-free, seeded heat advection + ember
   pool + pointer wind), and `src/components/chat/voice-fire-field.tsx` (canvas
