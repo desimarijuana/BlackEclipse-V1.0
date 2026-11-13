@@ -14,6 +14,7 @@ callers/tests keep working while gaining the runtime's routing and accounting.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import random
@@ -26,6 +27,7 @@ from typing import Any, AsyncIterator, Callable, Deque, Optional
 from . import capability as _capability
 from .catalog import ALIASES
 from .errors import ErrorClass, ModelError, classify_exception
+from .fallback import fallback_quality_allowed
 from .health import CircuitBreaker, CircuitState, HealthManager, RateLimitManager
 from .providers import adapter_for
 from .providers.base import ProviderAdapter
@@ -39,8 +41,11 @@ from .registry import (
 from .routing import ModelRouter, RoutingDecision, RoutingPolicy, TaskProfiles
 from .structured import StructuredOutputManager
 from .types import (
+    Attempt,
+    Candidate,
     ChatRequest,
     CostEstimate,
+    GatewayResult,
     ModelInfo,
     ModelResponse,
     StreamEvent,
@@ -50,6 +55,7 @@ from .types import (
 )
 from .usage import (
     BudgetManager,
+    extract_usage,
     CostTracker,
     LatencyTracker,
     UsageRecord,
@@ -102,36 +108,6 @@ class Resolution:
         }
 
 
-def extract_usage(message: Any) -> Usage:
-    """Normalized usage from a LangChain response (or zeros, never invented)."""
-    usage = getattr(message, "usage_metadata", None)
-    if isinstance(usage, dict):
-        return Usage(
-            input_tokens=int(usage.get("input_tokens") or 0),
-            output_tokens=int(usage.get("output_tokens") or 0),
-            total_tokens=int(usage.get("total_tokens") or 0),
-            cached_tokens=int(
-                (usage.get("input_token_details") or {}).get("cache_read") or 0
-            ) if isinstance(usage.get("input_token_details"), dict) else 0,
-            estimated=bool(usage.get("estimated")),
-        )
-    metadata = getattr(message, "response_metadata", None)
-    if isinstance(metadata, dict):
-        for key in ("token_usage", "usage"):
-            raw = metadata.get(key)
-            if isinstance(raw, dict):
-                prompt = int(raw.get("prompt_tokens") or raw.get("input_tokens") or 0)
-                completion = int(raw.get("completion_tokens") or raw.get("output_tokens") or 0)
-                total = int(raw.get("total_tokens") or (prompt + completion))
-                return Usage(
-                    input_tokens=prompt,
-                    output_tokens=completion,
-                    total_tokens=total,
-                    cached_tokens=int(raw.get("cached_tokens") or 0),
-                )
-    return Usage()
-
-
 def _backoff_seconds(attempt: int, base: float = 0.5, cap: float = 8.0) -> float:
     """Exponential backoff with full jitter (spec §18)."""
     window = min(cap, base * (2 ** max(0, attempt)))
@@ -174,9 +150,23 @@ class ModelRuntime:
         self.structured = structured or StructuredOutputManager()
         self.costs = CostTracker(pricing)
         self.latency = LatencyTracker()
-        self.max_attempts = max_attempts if max_attempts is not None else int(
-            os.environ.get("HARNESS_MODEL_RETRIES", "1")
-        )
+        if max_attempts is not None:
+            self.max_attempts = int(max_attempts)
+        else:
+            # W1: one retry knob. HARNESS_MODEL_RETRIES is a legacy alias; the
+            # step policy and the runtime now agree on HARNESS_MODEL_ATTEMPTS.
+            raw_attempts = (os.environ.get("HARNESS_MODEL_ATTEMPTS") or "").strip()
+            if not raw_attempts and (os.environ.get("HARNESS_MODEL_RETRIES") or "").strip():
+                log.warning(
+                    "HARNESS_MODEL_RETRIES is deprecated; use HARNESS_MODEL_ATTEMPTS"
+                )
+                raw_attempts = os.environ.get("HARNESS_MODEL_RETRIES", "").strip()
+            try:
+                # Preserve the historical direct-call default (one attempt);
+                # the graph's gateway explicitly passes the operator policy.
+                self.max_attempts = max(1, min(10, int(raw_attempts or "1")))
+            except (TypeError, ValueError):
+                self.max_attempts = 1
         # Cross-provider fallback is default OFF: a run holds one resolved
         # credential set from the vault, so silently routing to a paid provider
         # the operator never configured would violate spec §31/§45. When enabled,
@@ -462,6 +452,14 @@ class ModelRuntime:
         task: Optional[str] = None,
         request_id: Optional[str] = None,
         raise_original: bool = True,
+        # W1: trace + credential rotation + caller retry policy
+        trace: Optional[list[Attempt]] = None,
+        run_id: str = "",
+        credential_pool: Any = None,
+        retryable: Optional[Callable[[BaseException], bool]] = None,
+        on_attempt: Optional[Callable[[Attempt], Any]] = None,
+        max_run_tokens: Optional[int] = None,
+        return_result: bool = False,
     ) -> Any:
         """Invoke the primary model, with same-provider fallback and retry.
 
@@ -469,28 +467,69 @@ class ModelRuntime:
         streaming helper). On failure the ORIGINAL exception is re-raised when
         `raise_original` is True, so existing caller error handling is intact;
         health/usage are recorded regardless.
+
+        W1 additions are additive: `trace` receives one `Attempt` per physical
+        request, `credential_pool` can rotate a provider key, and `retryable`
+        lets the caller refuse a retry after a token has streamed. The legacy
+        return value (the response) is unchanged unless `return_result=True`.
         """
+        from ..retry_policy import retry_after_seconds as _retry_after_seconds  # noqa: PLC0415
+
         attempts = max_attempts if max_attempts is not None else self.max_attempts
         request_id = request_id or uuid.uuid4().hex
         decision = resolution.decision
-        candidates: list[tuple[Any, Optional[ModelInfo]]] = [(primary_model, resolution.model)]
-        if self.fallback_enabled:
-            run_provider = getattr(resolution.settings, "provider", None)
-            for fb in decision.fallbacks:
-                if fb.model.provider_id == run_provider:
-                    candidates.append((None, fb.model))
+        run_provider = getattr(resolution.settings, "provider", None)
+        candidates: list[tuple[Any, Optional[ModelInfo], Any]] = [
+            (primary_model, resolution.model, None)
+        ]
+        # W1: the run's own key is one credential. If the pool has a different
+        # first key for the primary provider, rebuild the primary through
+        # `fallback_build` so the pool is authoritative.
+        primary_cred = None
+        if credential_pool is not None and run_provider:
+            primary_cred = credential_pool.acquire(run_provider)
+            run_key = getattr(resolution.settings, "api_key", None)
+            if primary_cred is not None and (not run_key or run_key != primary_cred.api_key):
+                candidates[0] = (None, resolution.model, primary_cred)
+            else:
+                candidates[0] = (primary_model, resolution.model, primary_cred)
+            for extra in credential_pool.credentials(run_provider):
+                if primary_cred is not None and extra.id == primary_cred.id:
                     continue
-                provider = self.providers.get_provider(fb.model.provider_id)
-                if provider is not None and provider.keyless:
-                    candidates.append((None, fb.model))
-                # A remote provider the run holds no credentials for is NOT a
-                # reachable fallback (spec §31/§45) and is skipped, not faked.
+                candidates.append((None, resolution.model, extra))
+        for fb in decision.fallbacks:
+            cred = None
+            if credential_pool is not None:
+                cred = credential_pool.acquire(fb.model.provider_id)
+            provider = self.providers.get_provider(fb.model.provider_id)
+            same_provider = fb.model.provider_id == run_provider
+            keyless = provider is not None and provider.keyless
+            # Same-provider and keyless fallbacks are always considered: they
+            # reuse the run's credentials and are the safe reliability win.
+            # Cross-provider needs BOTH the operator opt-in and a credential,
+            # and must pass the declared-quality guard.
+            if same_provider or keyless:
+                candidates.append((None, fb.model, cred))
+            elif self.fallback_enabled and cred is not None:
+                if fallback_quality_allowed(resolution.model, fb.model):
+                    candidates.append((None, fb.model, cred))
+                else:
+                    log.warning(
+                        "model fallback skipped: %s quality below %s (set "
+                        "HARNESS_MODEL_FALLBACK_ALLOW_DEGRADED=1 to allow)",
+                        fb.model.qualified_id,
+                        getattr(resolution.model, "qualified_id", "primary"),
+                    )
+            # A remote provider with no credential is NOT reachable and is
+            # skipped, never faked (spec A31/A45).
 
         last_error: Optional[ModelError] = None
-        for index, (model_obj, model_info) in enumerate(candidates):
+        used_attempts = trace if trace is not None else []
+        for index, (model_obj, model_info, credential) in enumerate(candidates):
             provider_id = model_info.provider_id if model_info else getattr(resolution.settings, "provider", None)
             model_id = model_info.id if model_info else getattr(resolution.settings, "model", None)
             key = f"{provider_id}/{model_id}"
+            credential_id = getattr(credential, "id", None)
             if not self.circuit.allow(key) or not self.circuit.allow(provider_id or ""):
                 last_error = ModelError(
                     error_class=ErrorClass.PROVIDER_UNAVAILABLE,
@@ -513,7 +552,20 @@ class ModelRuntime:
                 if fallback_build is None:
                     continue
                 try:
-                    candidate_model = fallback_build(fb_settings(self, resolution, model_info))
+                    settings = fb_settings(self, resolution, model_info)
+                    if credential is not None and model_info is not None:
+                        provider = self.providers.get_provider(model_info.provider_id)
+                        settings = settings.model_copy(update={
+                            "provider": model_info.provider_id,
+                            "model": model_info.id,
+                            "api_key": credential.api_key,
+                            "base_url": (
+                                credential.base_url
+                                or getattr(provider, "default_base_url", None)
+                                or getattr(settings, "base_url", None)
+                            ),
+                        })
+                    candidate_model = fallback_build(settings)
                 except Exception as exc:  # noqa: BLE001
                     last_error = classify_exception(exc, provider_id=provider_id, model_id=model_id)
                     continue
@@ -521,37 +573,178 @@ class ModelRuntime:
             self.rate_limits.acquire(key)
             try:
                 for attempt in range(max(1, attempts)):
+                    if max_run_tokens is not None and sum(
+                        a.total_tokens for a in used_attempts
+                    ) >= int(max_run_tokens):
+                        raise ModelError(
+                            error_class=ErrorClass.UNKNOWN_ERROR,
+                            message="MODEL_BUDGET_EXCEEDED",
+                            provider_id=provider_id,
+                            model_id=model_id,
+                            retryable=False,
+                        )
                     started = time.monotonic()
                     try:
                         response = await invoke_fn(candidate_model)
                     except BaseException as exc:  # noqa: BLE001 - classify + re-raise
+                        # A non-Exception BaseException is a process/interpreter
+                        # kill, not a provider failure. Let it propagate so the
+                        # run is left recoverable (resume tests rely on this).
+                        if not isinstance(exc, Exception):
+                            raise
                         latency_ms = (time.monotonic() - started) * 1000.0
                         error = classify_exception(exc, provider_id=provider_id, model_id=model_id)
-                        self._record_failure(key, model_info, error, latency_ms, request_id, task, retries=attempt, fallback=index > 0)
+                        retryable_flag = (
+                            bool(retryable(exc)) if retryable is not None
+                            else error.error_class in _RETRYABLE
+                        )
+                        will_retry = retryable_flag and attempt < attempts - 1
+                        will_fallback = (
+                            error.error_class in _FALLBACK_CLASSES
+                            and error.error_class is not ErrorClass.CONTEXT_OVERFLOW
+                            and index < len(candidates) - 1
+                        )
+                        self._record_failure(
+                            key, model_info, error, latency_ms, request_id, task,
+                            retries=attempt, fallback=index > 0, run_id=run_id,
+                        )
+                        if credential_pool is not None:
+                            credential_pool.record_failure(
+                                credential,
+                                status=error.status_code,
+                                retry_after_s=_retry_after_seconds(exc),
+                            )
                         last_error = error
                         if error.error_class is ErrorClass.RATE_LIMIT:
                             self.rate_limits.record_429(key)
-                        retryable = error.error_class in _RETRYABLE
-                        if retryable and attempt < attempts - 1:
+                        if trace is not None:
+                            record = Attempt(
+                                provider=str(provider_id or ""),
+                                model=str(model_id or ""),
+                                index=index,
+                                attempt=attempt + 1,
+                                outcome="failed",
+                                error_class=error.error_class.value,
+                                status_code=error.status_code,
+                                latency_ms=int(round(latency_ms)),
+                                retryable=bool(error.retryable),
+                                will_retry=will_retry,
+                                will_fallback=will_fallback,
+                                credential_id=credential_id,
+                            )
+                            trace.append(record)
+                            if on_attempt is not None:
+                                notified = on_attempt(record)
+                                if inspect.isawaitable(notified):
+                                    await notified
+                        self._emit("model.attempt.failed", {
+                            "provider": provider_id, "model": model_id,
+                            "index": index, "attempt": attempt + 1,
+                            "fallback": index > 0,
+                            "errorClass": error.error_class.value,
+                            "statusCode": error.status_code,
+                            "retryable": bool(error.retryable),
+                            "willRetry": will_retry,
+                            "willFallback": will_fallback,
+                            "credentialId": credential_id,
+                        })
+                        if will_retry:
                             await asyncio.sleep(_backoff_seconds(attempt))
                             continue
                         break
                     latency_ms = (time.monotonic() - started) * 1000.0
-                    self._record_success(key, model_info, response, latency_ms, request_id, task, retries=attempt, fallback=index > 0)
+                    self._record_success(
+                        key, model_info, response, latency_ms, request_id, task,
+                        retries=attempt, fallback=index > 0, run_id=run_id,
+                    )
+                    if credential_pool is not None:
+                        credential_pool.record_success(credential)
+                    usage = extract_usage(response)
+                    cost = self.costs.estimate(model_info, usage) if model_info else None
+                    if trace is not None:
+                        record = Attempt(
+                            provider=str(provider_id or ""),
+                            model=str(model_id or ""),
+                            index=index,
+                            attempt=attempt + 1,
+                            outcome="completed",
+                            latency_ms=int(round(latency_ms)),
+                            prompt_tokens=usage.input_tokens,
+                            completion_tokens=usage.output_tokens,
+                            total_tokens=usage.total_tokens or (usage.input_tokens + usage.output_tokens),
+                            cost_usd=(cost.total_cost if cost is not None else None),
+                            priced=(cost is not None and cost.total_cost is not None),
+                            credential_id=credential_id,
+                        )
+                        trace.append(record)
+                        if on_attempt is not None:
+                            notified = on_attempt(record)
+                            if inspect.isawaitable(notified):
+                                await notified
+                    self._emit("model.attempt.completed", {
+                        "provider": provider_id, "model": model_id,
+                        "index": index, "attempt": attempt + 1,
+                        "fallback": index > 0, "latencyMs": round(latency_ms, 2),
+                        "tokens": usage.total_tokens or (usage.input_tokens + usage.output_tokens),
+                        "costUsd": (cost.total_cost if cost is not None else None),
+                        "priced": bool(cost is not None and cost.total_cost is not None),
+                        "credentialId": credential_id,
+                    })
+                    if return_result:
+                        totals = sum(a.total_tokens for a in (trace or []))
+                        costed = [
+                            a for a in (trace or [])
+                            if a.total_tokens > 0 or a.cost_usd is not None
+                        ]
+                        priced_attempts = [a for a in costed if a.priced]
+                        cost_total = (
+                            sum(a.cost_usd or 0.0 for a in priced_attempts)
+                            if costed and len(priced_attempts) == len(costed)
+                            else None
+                        )
+                        return GatewayResult(
+                            response=response,
+                            attempts=tuple(trace or ()),
+                            fallback_used=index > 0,
+                            total_tokens=totals,
+                            cost_usd=cost_total,
+                            priced=cost_total is not None,
+                        )
                     return response
             finally:
                 self.rate_limits.release(key)
 
-            if last_error is not None and last_error.error_class in _FALLBACK_CLASSES:
+            if last_error is not None and last_error.error_class is ErrorClass.CONTEXT_OVERFLOW:
+                # Context overflow is not a provider outage: the graph's bounded
+                # context recovery owns it. Never try a different model here.
+                break
+            if (
+                last_error is not None
+                and last_error.error_class in _FALLBACK_CLASSES
+            ):
                 continue
             if last_error is not None and not last_error.retryable:
                 break
 
         if last_error is not None:
+            if trace is not None:
+                last_error.detail = str([a.to_dict() for a in trace])
             if raise_original and last_error.cause is not None:
                 raise last_error.cause
             raise last_error
         raise ModelError(error_class=ErrorClass.PROVIDER_UNAVAILABLE, message="no model available")
+
+    async def invoke_traced(self, **kwargs: Any) -> GatewayResult:
+        """Compatibility alias: invoke with a trace and return GatewayResult."""
+        kwargs["return_result"] = True
+        kwargs.setdefault("trace", [])
+        result = await self.invoke(**kwargs)
+        if isinstance(result, GatewayResult):
+            return result
+        raise ModelError(
+            error_class=ErrorClass.UNKNOWN_ERROR,
+            message="model gateway returned no result",
+        )
 
     async def generate(
         self,

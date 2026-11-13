@@ -76,17 +76,27 @@ def find_stalled(
     rows: list[dict[str, Any]],
     now_epoch: float,
     threshold_for: Callable[[Optional[str]], float] = stall_threshold_s,
+    live_run_ids: Optional[set[str]] = None,
 ) -> list[str]:
-    """The pure detector: run ids whose last activity exceeds their silence budget."""
+    """The pure detector: run ids whose last activity exceeds their silence budget.
+
+    A run with a live lease is skipped even when its event log is silent: another
+    runtime is executing it, and failing it here would steal the run from its
+    owner. `live_run_ids is None` preserves the old signature for callers that
+    do not have lease information.
+    """
     stalled: list[str] = []
     for row in rows:
+        run_id = str(row.get("id"))
+        if live_run_ids is not None and run_id in live_run_ids:
+            continue
         if row.get("lastEventType") in APPROVAL_EVENTS:
             continue  # waiting on the user; bounded by the approval timeout
         last = _epoch(row.get("lastEventAt")) or _epoch(row.get("started"))
         if last is None:
             continue
         if now_epoch - last > threshold_for(row.get("agentId")):
-            stalled.append(str(row["id"]))
+            stalled.append(run_id)
     return stalled
 
 
@@ -127,12 +137,45 @@ def _last_assistant_text(db: Any, run_id: str) -> Optional[str]:
     return None
 
 
+def _append_event(store: Any, db: Any, run_id: str, event_type: str, data: Any) -> None:
+    """Append a durable event through the W6 allocator (legacy fallback)."""
+    try:
+        from .event_sequence import get_event_sequence  # noqa: PLC0415
+
+        sequence = get_event_sequence(store)
+        if sequence is not None:
+            sequence.append(run_id, event_type, data if isinstance(data, dict) else json.loads(data))
+            return
+    except Exception:  # noqa: BLE001 - fall through to the legacy insert
+        log.warning("sequenced watchdog event failed", exc_info=True)
+    max_seq = db.execute(
+        "SELECT COALESCE(MAX(seq), 0) AS s FROM HarnessEvent WHERE runId = ?", (run_id,)
+    ).fetchone()["s"]
+    db.execute(
+        "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, ?, ?, ?, ?)",
+        (new_id("evt"), run_id, event_type, max_seq + 1, now_iso(),
+         data if isinstance(data, str) else json.dumps(data)),
+    )
+    db.commit()
+
+
 def sweep_stalled_runs(service: Any, now_epoch: Optional[float] = None) -> list[str]:
     """Fail every currently stalled run; returns the run ids. Never raises."""
     try:
         db = service.store._db  # noqa: SLF001 - the one shared connection
         rows = [dict(r) for r in db.execute(_STALLED_SQL).fetchall()]
-        stalled = find_stalled(rows, now_epoch if now_epoch is not None else time.time())
+        now_ms = int((now_epoch if now_epoch is not None else time.time()) * 1000)
+        try:
+            live = {
+                str(r["runId"]) for r in db.execute(
+                    "SELECT runId FROM RunLease WHERE expiresAtMs >= ?", (now_ms,)
+                ).fetchall()
+            }
+        except Exception:  # noqa: BLE001 - no lease table means no live owner
+            live = set()
+        stalled = find_stalled(
+            rows, now_epoch if now_epoch is not None else time.time(), live_run_ids=live,
+        )
     except Exception:  # noqa: BLE001 - the watch must never break the runtime
         log.warning("run watchdog sweep failed", exc_info=True)
         return []
@@ -156,20 +199,13 @@ def sweep_stalled_runs(service: Any, now_epoch: Optional[float] = None) -> list[
             )
             if not cur.rowcount:
                 continue  # finished between the scan and the update
-            max_seq = db.execute(
-                "SELECT COALESCE(MAX(seq), 0) AS s FROM HarnessEvent WHERE runId = ?", (run_id,)
-            ).fetchone()["s"]
-            db.execute(
-                "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, 'run.failed', ?, ?, ?)",
-                (new_id("evt"), run_id, max_seq + 1, now, error),
-            )
-            if partial:
-                db.execute(
-                    "INSERT INTO HarnessEvent (id, runId, type, seq, at, data) VALUES (?, ?, 'run.partial', ?, ?, ?)",
-                    (new_id("evt"), run_id, max_seq + 2, now,
-                     json.dumps({"chars": len(partial), "reason": "stalled"})),
-                )
             db.commit()
+            _append_event(service.store, db, run_id, "run.failed", error)
+            if partial:
+                _append_event(
+                    service.store, db, run_id, "run.partial",
+                    json.dumps({"chars": len(partial), "reason": "stalled"}),
+                )
             service.bus.end_stream(run_id)
             service.cancel(run_id)  # cooperative; the hard deadlines do the rest
             log.warning("watchdog failed stalled run %s", run_id)

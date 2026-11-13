@@ -96,6 +96,13 @@ class DelegationChild(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     tool_subset: Optional[list[str]] = None       # must be ⊆ the parent's allowlist
     workspace_id: Optional[str] = None            # writing children only
+    # W7: a bounded JSON Schema (data, never code) that this part's answer must
+    # satisfy. A miss gets ONE repair turn; the raw text is always preserved.
+    output_schema: Optional[dict[str, Any]] = Field(default=None)
+    schema_repair: bool = True
+    # W7: a writing part gets its own disposable worktree. The parent receives a
+    # diff handle, never an automatic merge.
+    isolated: bool = False
 
 
 Aggregate = Literal["list", "compare", "merge_claims"]
@@ -137,6 +144,16 @@ class ChildOutcome(BaseModel):
     status: ChildStatus
     summary: str = ""                          # the child's own words — UNTRUSTED
     tokens: int = 0                            # REAL usage the child reported
+    # W7: the raw answer is kept even when it fails a schema, so nothing the
+    # child actually said is silently discarded.
+    raw_summary: str = ""
+    schema_valid: Optional[bool] = None
+    schema_errors: list[str] = Field(default_factory=list)
+    repair_attempted: bool = False
+    repair_run_id: Optional[str] = None
+    # W7: an isolated child's worktree + diff handle (no auto-merge).
+    workspace_id: Optional[str] = None
+    diff: Optional[dict[str, Any]] = None
     # What the UI needs to re-draw this row after a reload. Bounded; the same
     # values the started/progress events carried.
     goal: str = ""

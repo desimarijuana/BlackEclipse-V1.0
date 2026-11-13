@@ -1116,6 +1116,18 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - skill maintenance must never block boot
             log.warning("startup skill maintenance failed", exc_info=True)
             result["skillMaintenance"] = {"ok": False, "error": "maintenance failed"}
+        # W5.2 curator: report-only by default, never blocks boot, never enables.
+        try:
+            from .skills.curator import CuratorPolicy, maybe_run_curator  # noqa: PLC0415
+
+            policy = CuratorPolicy.from_flags()
+            if policy.mode != "off":
+                result["skillCurator"] = maybe_run_curator(
+                    self.skill_store, self.skill_registry, policy=policy,
+                )
+        except Exception:  # noqa: BLE001 - the curator must never block boot
+            log.warning("startup skill curator failed", exc_info=True)
+            result["skillCurator"] = {"ok": False, "error": "curator failed"}
         # Learning queue hygiene: legacy/nonconforming candidates are retained as
         # rejected, so they cannot masquerade as a ready backlog.
         try:
@@ -1145,13 +1157,15 @@ class AgenticService:
         try:
             from .skills.draft import evaluate_drafted_skills  # noqa: PLC0415
 
+            execution_invoker = self.build_execution_eval_invoker()
             result["learnedSkillEvaluation"] = evaluate_drafted_skills(
-                self.skill_registry, limit=50,
+                self.skill_registry, limit=50, execution_invoker=execution_invoker,
             )
             from .skills.draft import evaluate_used_skills  # noqa: PLC0415
 
             result["learnedSkillUsageEvaluation"] = evaluate_used_skills(
                 self.skill_registry, min_uses=3, limit=50,
+                execution_invoker=execution_invoker,
             )
         except Exception:  # noqa: BLE001 - evaluation must never block boot
             log.warning("learned skill evaluation failed", exc_info=True)
@@ -1264,6 +1278,47 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - forensics must never block boot
             pass
         return result
+
+    def build_execution_eval_invoker(self) -> Any:
+        """The W5.1 execution runner, only when an eval model is configured.
+
+        Zero-config is preserved: with no ``ECLIPSE_SKILL_EVAL_MODEL`` this returns
+        ``None``, and the evaluator records ``needs_review`` (no behavioural
+        evidence) rather than fabricating a model. Format:
+        ``provider:model`` (e.g. ``openai:gpt-4o-mini``); credentials come from
+        ``ECLIPSE_SKILL_EVAL_API_KEY`` / ``ECLIPSE_SKILL_EVAL_BASE_URL``.
+        """
+        import os  # noqa: PLC0415
+
+        raw = (os.environ.get("ECLIPSE_SKILL_EVAL_MODEL") or "").strip()
+        if not raw or ":" not in raw:
+            return None
+        provider, model = raw.split(":", 1)
+        provider, model = provider.strip(), model.strip()
+        if not provider or not model:
+            return None
+        try:
+            from .schemas import ModelSettings  # noqa: PLC0415
+            from .skills.execution_eval import RuntimeSkillInvoker  # noqa: PLC0415
+
+            settings = ModelSettings(
+                provider=provider,
+                model=model,
+                api_key=os.environ.get("ECLIPSE_SKILL_EVAL_API_KEY"),
+                base_url=os.environ.get("ECLIPSE_SKILL_EVAL_BASE_URL"),
+            )
+            return RuntimeSkillInvoker(
+                registry=self.skill_registry,
+                tool_registry=self.registry,
+                data_bridge=self.server_bridge(),
+                memory_store=self.store,
+                model_settings=settings,
+                bus=self.bus,
+                memory_service=self.memory,
+            )
+        except Exception:  # noqa: BLE001 - an eval runner is optional, never boot-critical
+            log.warning("skill execution eval runner unavailable", exc_info=True)
+            return None
 
     def run_skill_maintenance(self) -> dict[str, Any]:
         """One skill-maintenance pass (report-only unless policy opts in).
@@ -1468,6 +1523,7 @@ class AgenticService:
                         return RunResult(runId=request.runId, status="failed")
                     return await execute_run(
                         request, self.registry, bridge, self.store, self.bus,
+                        runtime_id=(lease.manager.runtime_id if lease.manager else None),
                         **self._run_kwargs(),
                     )
             finally:
@@ -1929,6 +1985,7 @@ class AgenticService:
                         getattr(self, "_run_slots", None),
                         lambda: execute_run(
                             request, self.registry, bridge, self.store, self.bus,
+                            runtime_id=(lease.manager.runtime_id if lease.manager else None),
                             **self._run_kwargs(),
                         ),
                     )
@@ -1963,12 +2020,12 @@ class AgenticService:
             return None
         from .run_cost import with_cost  # noqa: PLC0415
 
-        return with_cost(run)
+        return with_cost(run, self.store)
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         from .run_cost import with_cost  # noqa: PLC0415
 
-        return [with_cost(run) for run in self.store.list_runs(limit)]
+        return [with_cost(run, self.store) for run in self.store.list_runs(limit)]
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:
         return self.store.list_events(run_id)

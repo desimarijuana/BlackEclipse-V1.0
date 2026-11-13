@@ -211,3 +211,46 @@ def test_the_security_authorizer_mints_the_bound_token(tmp_path):
         args={"path": "src/other.py"},
     ).ok
 
+
+def test_missing_gateway_refuses_effectful_calls_under_enforce(monkeypatch):
+    """W6: enforce cannot be satisfied without the gateway; fail closed."""
+    from types import SimpleNamespace
+
+    import harness.security.bootstrap as bootstrap
+    from harness.code.authorizers import _wrap_with_security
+
+    monkeypatch.setattr(bootstrap, "get_gateway", lambda: None)
+    monkeypatch.setattr(
+        "harness.security.effect_tokens.token_mode", lambda: "enforce",
+    )
+    authorizer = _wrap_with_security(None, "run-gw", None)
+
+    import asyncio
+
+    effectful = SimpleNamespace(name="write_file", permission="write", effect="write")
+    readonly = SimpleNamespace(name="read_file", permission="read", effect=None)
+    assert asyncio.run(authorizer(effectful, {"path": "x"}, None)) is False
+    assert asyncio.run(authorizer(readonly, {"path": "x"}, None)) is True
+
+
+def test_shadow_mode_keeps_the_legacy_fallback_without_a_gateway(monkeypatch):
+    from types import SimpleNamespace
+
+    import harness.security.bootstrap as bootstrap
+    from harness.code.authorizers import _wrap_with_security
+
+    monkeypatch.setattr(bootstrap, "get_gateway", lambda: None)
+    monkeypatch.setattr(
+        "harness.security.effect_tokens.token_mode", lambda: "shadow",
+    )
+
+    async def inner(tool, args, ctx=None):  # noqa: ARG001
+        return True
+
+    authorizer = _wrap_with_security(inner, "run-gw", None)
+    effectful = SimpleNamespace(name="write_file", permission="write", effect="write")
+    import asyncio
+
+    assert asyncio.run(authorizer(effectful, {"path": "x"}, None)) is True
+
+

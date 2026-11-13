@@ -49,7 +49,16 @@ def request_promotion(
     if evaluation is None:
         return {"ok": False, "error": "no evaluation exists for this version; evaluate before promotion"}
 
-    gate = promotion_gate({"status": evaluation["status"], "dimensions": evaluation["dimensions"]})
+    from ..config.flags import get_bool  # noqa: PLC0415
+    from .evaluation import execution_gate_applies  # noqa: PLC0415
+
+    gate = promotion_gate(
+        evaluation,
+        require_execution=(
+            get_bool("HARNESS_SKILL_EXEC_EVAL") and execution_gate_applies(manifest)
+        ),
+        store=registry.store,
+    )
     if not gate["passed"]:
         registry.store.save_review(
             skill_id=skill_id, version=resolved_version, actor=actor.id,

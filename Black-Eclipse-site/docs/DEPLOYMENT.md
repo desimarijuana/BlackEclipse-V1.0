@@ -319,9 +319,13 @@ so the release process reads the real databases. `BE_DATA_DIR` moves
   `docs/harness/observability.md` — `/observability/status`, `health`, `metrics`,
   `slos`, `diagnostics`, and the Prometheus exposition at
   `/observability/metrics/prometheus`.
-- **Rules:** `deploy/prometheus/blackeclipse.rules.yml` ships two
-  token-free rules (app scrape down, health probe failing) plus commented
-  templates for runtime metrics. Scrape the app with a job named
+- **Rules:** `deploy/prometheus/blackeclipse.rules.yml` ships two token-free
+  availability rules (app scrape down, health probe failing), the W8 SLO rules
+  (run p95, TTFT p95, fallback rate, context overflow, guardrail halts, blocked
+  goals) and the zero-tolerance integrity rules (unknown effect, lost lease,
+  checkpoint write failure, file-checkpoint failures, hardline blocks). The
+  conformance case `contract.alert_metric_names` fails CI if a rule references
+  a metric the runtime does not record. Scrape the app with a job named
   `blackeclipse` and probe `/login` with a blackbox exporter named
   `blackeclipse-health`.
 - **Route to a human.** A rules file with no Alertmanager route is not an alert.

@@ -28,6 +28,10 @@ class RunScope:
     registry: Any
     data_bridge: Any
     store: Any
+    # W6: the runtime identity that owns the run lease. `None` means the
+    # embedded/test path and `fenced_update_run` falls back to the process
+    # default, which is the same identity `RunLeaseGuard` uses.
+    runtime_id: Optional[str] = None
     bus: Any = None
     cancel_event: Optional[asyncio.Event] = None
     retrieval_cache: Any = None

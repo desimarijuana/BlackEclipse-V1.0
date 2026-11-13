@@ -682,7 +682,7 @@ export function normalizeHarnessEvent(
     };
   }
 
-  if (event === 'delegation.aggregated') {
+  if (event === 'delegation.aggregated' || event === 'delegation.completed') {
     const delegationId = str(payload.delegationId);
     if (!delegationId) return null;
     const droppedClaims = num(payload.droppedClaims);

@@ -1,6 +1,249 @@
 # Change Log
 
 ## 2026-11-12
+- **feat(harness): W8 observability, SLOs and conformance (implemented).** Adds
+  `observability/signals.py` (bounded W8 aggregates + stable metric mapping),
+  `observability/bridge.py` (the same projector for subsystems with no
+  `RunEmitter`), eager objective registration with `measured:false` /
+  `healthy:null` / `unmeasured` (and `ensure`, fixing the per-event counter
+  reset), report schema v2 (`capabilities`, model/context/goals/learning/
+  integrity/fileCheckpoints/delegation sections, TTFT, resume success), and
+  projection for gateway attempts/TTFT/fallback, context pressure/compression,
+  tool batches/guardrails, goal verdicts, skill evaluation, curator runs,
+  effect-unknown, lease-loss, checkpoint writes, event-sequence collisions,
+  hardline blocks, file checkpoints and delegation. The gate is now
+  declarative (`path`/`kind`/`samplesPath`/`minSamples`/`requires`/
+  `requireSamples`/`enforce`) with `skipped`/`unmeasured`/`observed`, path
+  validation and zero-tolerance invariants; `slo-budgets.json` is version 2.
+  The probe emits every W8 signal; the dashboard has a third `unmeasured`
+  state and new model/context/integrity cards; the Prometheus rules file has
+  real SLO + integrity rules; conformance grows to 28 cases including the
+  alert-metric contract. Tests: `test_w8_observability.py` (14), conformance
+  28/28, `gate:slo` 19/19. Docs:
+  `docs/harness/observability.md`, `docs/harness/conformance.md`,
+  `docs/DEPLOYMENT.md`, `docs/harness/decisions.md` (ADR-H360),
+  `docs/harness/roadmap/w8-observability-and-slos-plan.md`,
+  `docs/NAVIGATION.md`.
+- **test(harness): W2 closeout verification.** W2-focused suite 159 passed; full
+  tree vitest 4,749 passed and pytest 10,718 passed / 35 skipped. Seven pytest
+  failures during the 42-minute shared-tree run were concurrent-edit artifacts
+  (the other stream changed `eclipse_memory/*`, `main.py`, flags and the
+  registry mid-run); each failed file passed on immediate rerun (30 passed).
+  tsc clean, audit 46/46, conformance 16/16, SLO 8/8, live NOT MEASURED.
+  Docs: `docs/harness/roadmap/w2-context-economics-plan.md` §15.
+- **feat(harness): W7 async delegation, schema repair, steering, worktrees and
+  file checkpoints.** `delegation_store.py` adds the durable
+  `HarnessDelegation`/steer rows; `delegation_lifecycle.py` runs one child as a
+  Fabric `delegation` job, validates `output_schema`, performs at most one
+  tool-less repair, drains steering only at a step boundary, supports isolated
+  per-child worktrees with diff handles, and persists one terminal outcome.
+  `delegation_async_tools.py` adds `delegate_async/status/result/cancel/steer/
+  wait`; `delegation_repair.py` implements bounded schema validation.
+  `code/checkpoints.py` adds a shadow-git snapshot store (one per run/turn,
+  protected-path excludes, size/retention caps, pre-restore snapshots), hooked
+  into `FileSystemService`, `shell_run` and promotion, with `checkpoint_*`
+  tools, `/code/checkpoints*` routes, `/rollback`, and a Code-screen panel.
+  Flags: `HARNESS_FILE_CHECKPOINTS` is now `off|warn|enforce`; async/schema/
+  steer/completion flags added. Tests: `test_delegation_lifecycle.py`,
+  `test_file_checkpoints.py`. Docs: `docs/harness/code-filesystem.md`,
+  `docs/harness/roadmap/w7-delegation-and-file-safety-plan.md`.
+- **feat(harness): W6 run-kernel integrity and safety.** Adds
+  `fenced_progress`/`LeaseLost` and threads `runtime_id` through
+  `RunScope`/`execute_run` so every progress/terminal write proves the caller
+  still owns the lease (`RUN_LEASE_LOST` otherwise); `RunLineage.save_boundary`
+  commits the message cursor and checkpoint in one transaction
+  (`CHECKPOINT_WRITE_FAILED` on a persistent failure); pre-dispatch
+  `ToolExecutionIdempotency.state` (`started|done|unknown`) with
+  `mark_tool_started`/`done`/`unknown` and guaranteed effect
+  `finish`/`mark_unknown`; `event_sequence.EventSequence` for a durable
+  per-run seq inside `BEGIN IMMEDIATE` plus a unique `(runId, seq)` index and
+  legacy duplicate repair; a lease-aware watchdog; `security/hardline.py` for
+  always-on destructive-command denial; `SECURITY_UNAVAILABLE` under enforce;
+  and `code/shell.py` routed through `code/sandbox.run` /
+  `terminal.spawn.spawn_process` (tree kill, scrubbed env, named refusal).
+  Tests: `test_events_sequence.py`, `test_hardline.py`,
+  `test_shell_sandbox_parity.py`, `test_run_kernel_faults.py` plus extensions
+  to lease/lineage/watchdog/effect-token suites. Deliberate gap: effect-token
+  default stays `shadow` pending ADR + canary. Also re-pins the Python size
+  ratchet to the measured shared-tree lines (pre-existing W3/W5 growth). Docs:
+  `docs/harness/roadmap/w6-run-kernel-integrity-plan.md`,
+  `docs/NAVIGATION.md`.
+- **feat(harness): W5 learning loop (core).** Adds
+  `skills/execution_eval.py` (real execution tier through
+  `ExecutionMode="evaluation"`, existing graders, `ExecutionEvalResult`,
+  `RuntimeSkillInvoker`) and wires `HARNESS_SKILL_EXEC_EVAL` into
+  `evaluate_skill`, `promotion_gate`, `request_promotion`, `activate_version`,
+  `_enable_skill` and the boot draft/usage sweeps: a learned skill cannot enable
+  on a static-only pass, and the named execution run ids must exist. Adds
+  `skills/curator.py` (deterministic duplicate/near-duplicate/eval-debt/tag-drift
+  scan, pinned/compliance/external skips, intersection permissions, inert merge
+  drafts, cadence + lock) with `SkillCuratorRun`/`SkillCuratorProposal` tables,
+  startup hook, `/skills/curator*` routes and `HARNESS_SKILL_CURATOR` modes.
+  Adds `eclipse_memory/bm25.py` (corpus IDF) and the
+  `HARNESS_MEMORY_HYBRID` bounded ranking branch with unchanged safety gate;
+  diagnostics expose component scores. `/learn` is an alias of the existing
+  inert `skill-create` path. Additive migrations 36–37 (evaluation evidence,
+  authored case spec, curator ledger). New tests: execution gate, curator,
+  BM25, hybrid rank; docs:
+  `docs/harness/roadmap/w5-learning-loop-plan.md` (§13 status/gaps).
+- **feat(autonomy): W4 goals, deterministic gates, judge and loops.** Adds the
+  `HARNESS_GOAL_LOOP` flag (off/shadow/on; `HARNESS_AUTONOMY=off` still vetoes),
+  extends `GoalContract` with `verification`/`boundaries`/`stop_when` and adds
+  `GoalGate`; migration `2026-11-12-006-goal-autonomy` adds the goal
+  contract/turn/session columns plus `GoalVerdict`, `GoalGateRun` and
+  `AutonomyLoop`. New `goals/gates.py` runs ONLY closed `COMMAND_CLASSES`
+  through `build_argv` + `decide_command` + `sandbox.run` (tail-only output; a
+  failing exit is definitive, infrastructure only is retried);
+  `goals/judge.py` is advisory, strict-JSON, one repair, and never turns a red
+  gate green; `goals/goal_runtime.py` creates a durable task per turn, evaluates
+  gates before the judge, continues with a compact brief, and enforces
+  turn/no-progress caps; `goals/loop_runtime.py` runs session loops/heartbeats
+  on the EXISTING automation tick (idle-only, coalesced, digest-suppressed,
+  capped); `goals/bootstrap.py` bridges terminal task events and health.
+  Adds operator-gated `/goals` and `/loops` routes, the Next.js front door and
+  typed client, `/goal` `/loop` `/heartbeat` commands, and the chat goal bar.
+  Tests: `test_w4_autonomy.py`, `test_w4_autonomy_api.py`; existing
+  goal/task/automation/flag suites stay green. Docs:
+  `docs/harness/autonomy.md`, `docs/harness/roadmap/w4-autonomy-plan.md`,
+  `docs/harness/roadmap/w0-flags-and-review.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/NAVIGATION.md`, `.env.example`.
+- **docs(roadmap): complete W8 observability, SLOs and conformance plan.** Adds
+  `docs/harness/roadmap/w8-observability-and-slos-plan.md`: grounded
+  current-state ledger (W1 attempt/TTFT and W2 context events are emitted but
+  dropped by the projector; objectives are registered lazily so missing work is
+  silently absent; `gate.py` hardcodes five checks), the normative per-workstream
+  signal dictionary, the SLO vs invariant split with targets/minimum samples,
+  report schema v2 + `capabilities`, eager objectives with an honest
+  `unmeasured` state, the data-driven budgets/gate design, real Prometheus
+  rules, eleven conformance cases (including an alert-metric contract), slices
+  W8.0–W8.7, test matrix, rollout and exit criteria. Planning only — no
+  production code changed. Docs:
+  `docs/harness/roadmap/w8-observability-and-slos-plan.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **docs(roadmap): complete W7 delegation & file safety plan.** Adds
+  `docs/harness/roadmap/w7-delegation-and-file-safety-plan.md`: grounded
+  current-path evidence (synchronous `delegate`, no schema/steer, in-memory
+  `FileTransaction`, direct writes), the Fabric-backed `delegate_async`/
+  status/result/cancel/wait lifecycle with durable `HarnessDelegation`/steer
+  rows, the bounded `output_schema` + one-repair contract, step-boundary
+  steering, per-child worktrees with diff handles, the shadow-git checkpoint
+  store with protected-path excludes, `checkpoint_*` tools and the operator-gated
+  `/rollback`, slices W7.0–W7.6, fault matrix, flags, rollout and exit criteria.
+  Parent plan, flag matrix and NAVIGATION now point at it. Planning only — no
+  production code changed. Docs:
+  `docs/harness/roadmap/w7-delegation-and-file-safety-plan.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/harness/roadmap/w0-flags-and-review.md`, `docs/NAVIGATION.md`.
+- **docs(roadmap): complete W6 run-kernel integrity plan.** Adds
+  `docs/harness/roadmap/w6-run-kernel-integrity-plan.md`: grounded current-state
+  audit (W6 flags have no consumers, progress counters unfenced, checkpoint and
+  message cursor commit separately, idempotency is post-execution, event seq is
+  per emitter with no unique constraint, watchdog ignores leases, no command
+  hardline, `code/shell.py` bypasses the sandbox, effect tokens default to
+  shadow), the contracts (`fenced_progress`/`RUN_LEASE_LOST`,
+  `RunLineage.save_boundary`, `started|done|unknown` idempotency,
+  `append_event_sequenced` + duplicate-seq repair, lease-aware `find_stalled`,
+  `security/hardline.py`, shell via `code.sandbox`/`terminal.spawn`, staged
+  effect-token enforce), slices W6.1–W6.7, fault matrix, test plan, rollout,
+  risks and exit criteria. Planning only — no production code changed. Docs:
+  `docs/harness/roadmap/w6-run-kernel-integrity-plan.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/NAVIGATION.md`.
+- **fix(harness): overflow recovery reaches the graph, and effect `unknown`
+  blocks it.** `model_stream.ainvoke_streaming` used to catch every stream
+  failure as "streaming unsupported" and silently re-invoke the model, which
+  hid a provider `CONTEXT_OVERFLOW` and made an extra call; it now re-raises a
+  classified overflow. `run_recovery.recoverable_state` uses
+  `RunEffects.has_unconfirmed` (started **or** unknown), so a reconciled
+  unknown effect cannot be replayed. Tests: `test_context_overflow.py` (17),
+  `test_context_recovery.py` (4), `test_prompt_segments.py` cache-plan cases.
+  Docs: `docs/harness/roadmap/w2-context-economics-plan.md` §15.
+- **feat(harness): W2 closeout — unified ladder, cache markers, tool-bearing
+  recovery.** `context/compression_ladder.py` now owns prune → summary →
+  skeleton (protected tail/last user turn/assistant-tool pairs, persisted
+  cooldown, `/compact` force, shadow/on/off) and is used by the tool turn, the
+  hard/emergency pre-call gate and overflow recovery. `prompt_segments.py` adds
+  `PromptCachePlan`/`build_cache_plan`/`apply_cache_markers`: one Anthropic
+  `ephemeral` marker on the stable system block, prefix ordering for
+  OpenAI-compatible providers, none elsewhere; `step.invoke_model_step` applies
+  it at request time and `prompt.cache` is emitted. `run_recovery` accepts a
+  completed-work (`tool_results`/`replan`) checkpoint with no
+  `started`/`unknown` effect, so a tool-bearing step>1 overflow recovers once
+  without re-running a tool. Tests: `test_compression_ladder.py`,
+  `test_prompt_cache_plan.py`, updated `test_context_overflow.py`. Docs:
+  `docs/harness/roadmap/w2-context-economics-plan.md`,
+  `docs/harness/observability.md`.
+- **docs(roadmap): complete W3 tool execution plan.** Adds
+  `docs/harness/roadmap/w3-tool-execution-plan.md`: the current sequential
+  loop, contiguous read-only batching (effectful/interactive never overlap),
+  per-call context cloning, the success-signature guardrail contract (warn
+  first, controlled halt, poller exemption), BM25 + tags/domain + tiered
+  catalogue disclosure, the read-tool concurrency audit, slices W3.0–W3.4,
+  fault matrix, rollback and exit criteria. Parent plan, flag matrix and
+  NAVIGATION now point at it. Planning only — no production code changed.
+  Docs: `docs/harness/roadmap/w3-tool-execution-plan.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
+  `docs/harness/roadmap/w0-flags-and-review.md`, `docs/NAVIGATION.md`.
+- **docs(roadmap): W4 autonomy detailed implementation plan.** Adds
+  `docs/harness/roadmap/w4-autonomy-plan.md`: the goal contract extension
+  (`verification`/`boundaries`/`stop_when`), additive `GoalRecord`/`GoalVerdict`/
+  `GoalGateRun`/`AutonomyLoop` migration, the closed gate vocabulary over
+  `code/commands.py` + `code/sandbox.py`, the advisory judge schema and
+  gate-first ordering, continuation as a durable task per turn with a compact
+  brief, no-progress and turn/budget caps, session loop/heartbeat rules
+  (idle-only, coalescing, digest, max ticks), routes/commands/goal bar, the
+  `HARNESS_GOAL_LOOP` flag split from the existing `HARNESS_AUTONOMY` kill
+  switch, tests, risks and rollout. Planning only — no production code changed.
+  Docs: `docs/harness/roadmap/w4-autonomy-plan.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
+- **docs(roadmap): complete W5 learning-loop plan.** Adds
+  `docs/harness/roadmap/w5-learning-loop-plan.md`: grounded current-state ledger
+  (flags have no consumers, `_run_cases` is schema-only, no curator,
+  `hybrid.py` unwired, W5.4 lesson feedback already landed), the execution-eval
+  contract (`ExecutionEvalResult`, case kinds, `ExecutionMode="evaluation"`,
+  additive evaluation columns, promotion/enable gates requiring existing run
+  ids), the curator design (deterministic + optional LLM pass, new run/proposal
+  tables, dry_run/propose/apply/off, pinned/compliance/external skips, inert
+  drafts only), BM25 hybrid retrieval with unchanged safety gates and the
+  labelled-eval acceptance, slices, test matrix, rollout, risks and file map.
+  Planning only — no production code changed. Docs:
+  `docs/harness/roadmap/w5-learning-loop-plan.md`, `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
+- **test(harness): W2 verification + baseline.** Full suite PASS (15,444 passed
+  = 4,749 vitest + 10,696 pytest; 35 skipped; 0 failed; offline eval gates ALL
+  PASS), `tsc` clean, audit 46/46, conformance 16/16, SLO 8/8; live evals NOT
+  MEASURED (no provider). W2 baseline:
+  `docs/harness/baselines/w2-8f79bed4-2026-11-12.json` / `.md` (74/74 terminal,
+  962 events, same schema as W0/W1). Docs:
+  `docs/harness/roadmap/w2-context-economics-plan.md`,
+  `docs/harness/observability.md`, `docs/NAVIGATION.md`.
+- **feat(harness): W2 context economics (core).** Adds `context/usage_anchor.py`
+  (one provider-usage row per session, fingerprint + appended-history estimate),
+  anchor-driven pressure/gates in `context_budget.py`
+  (`continue|soft|hard|emergency|unknown`, 50/70/85 defaults),
+  `context/pruning.py` (bounded old-tool-result pruning with evidence
+  protection), `context/compression_state.py` (persisted 60/300/900 s cooldown
+  for the model narrative), `context/retry.py` (tighter-budget retry moved out
+  of `graph.py` for the size ratchet), and `run_recovery.recover_overflow_state`
+  (one checkpoint retry only when no effect is `started` and no tool ran).
+  `graph.py` wires the anchor into the budget, runs the prune stage in the tool
+  node, and moves `runtime_context` after history so the reusable prefix stays
+  cacheable. Dead `HARNESS_USAGE_ANCHOR`/`HARNESS_COMPRESSION_LADDER` flags now
+  have live consumers; `HARNESS_CONTEXT_GATE_PCT` (default 50) is the single
+  soft-gate knob. Tests: `test_usage_anchor.py`, `test_context_gates.py`,
+  `test_context_prune.py`, updated `test_context_overflow.py`,
+  `test_graph.py`, `test_size_budget.py`. Docs:
+  `docs/harness/roadmap/w2-context-economics-plan.md` (status + §15 live
+  surface and deliberate gaps).
+- **docs(roadmap): complete W2 context economics plan.** Adds
+  `docs/harness/roadmap/w2-context-economics-plan.md`: usage-anchor schema,
+  50/70/85 budget gates, prune→summary→skeleton ladder, tail/evidence
+  protection, cache-stable prompt tiers, any-step overflow recovery, slices
+  W2.1–W2.7, fault matrix, rollout and exit criteria. Planning only — no
+  production code changed. Docs: `docs/harness/roadmap/w2-context-economics-plan.md`,
+  `docs/NAVIGATION.md`, `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
 - **feat(harness): W1 live model gateway.** Adds `model_runtime/gateway.py`
   (candidate plan + stream), `model_runtime/credential_pool.py` (per-provider
   key rotation/cooldown), traced invocation in `ModelRuntime.invoke`
@@ -13,10 +256,11 @@
   `HARNESS_MODEL_GATEWAY=on`. Opt-in live test:
   `test_model_gateway_live.py` (`HARNESS_LIVE_MODEL_TEST=1`).
   Tests: `test_model_gateway.py`, extended `test_model_runtime.py`,
-  `test_step_retry.py`, `test_graph.py`, `test_run_cost.py`. Baseline:
-  `docs/harness/baselines/w1-0a7ec906-2026-11-12.*` (74/74 terminal; offline,
-  SLO, audit, conformance, tsc PASS; live NOT MEASURED). No prompt/tool/schema/
-  financial semantics changed.
+  `test_step_retry.py`, `test_graph.py`, `test_run_cost.py`; opt-in
+  `test_model_gateway_live.py`. Baseline:
+  `docs/harness/baselines/w1-8f79bed4-2026-11-12.*` (74/74 terminal; full suite
+  11,687 passed, 35 skipped; offline, SLO, audit, conformance, tsc PASS; live
+  NOT MEASURED). No prompt/tool/schema/financial semantics changed.
 - **test(harness): the context-budget assertion now targets the budget keys, not
   the whole blob.** `test_run_keeps_more_history_on_a_large_declared_window`
   asserted `result.context is None`, but every run result also carries the

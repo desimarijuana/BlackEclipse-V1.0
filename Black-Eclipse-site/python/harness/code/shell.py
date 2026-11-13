@@ -22,7 +22,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 MAX_OUTPUT_CHARS = 200_000
 DEFAULT_TIMEOUT_S = 120
@@ -77,39 +77,59 @@ def run(
     env_extra: Optional[dict[str, str]] = None,
     stdin: Optional[str] = None,
 ) -> ShellResult:
+    """Run one command string through the SAME isolation primitive as a program.
+
+    W6: this used to call `subprocess.run` directly, which gave the shell the
+    scrubbed environment but none of the process-tree isolation. It now builds a
+    sandbox `RunSpec` (argv shell + command, scrubbed env, timeout, output cap,
+    no network) and uses `sandbox.run`, so a timeout/cancel kills the whole tree
+    through the Windows Job Object / POSIX process group.
+
+    `stdin` is accepted for compatibility; the sandbox runs with DEVNULL.
+    """
+    from .sandbox import RunSpec as SandboxSpec  # noqa: PLC0415
+    from .sandbox import SandboxUnavailable  # noqa: PLC0415
+    from .sandbox import run as sandbox_run  # noqa: PLC0415
+
     argv = detect_shell() + [command]
-    # Round 3 / W9 (ADR-H297): the shell gets the SAME scrubbed environment a
-    # sandboxed command gets - `policy.SECRET_ENV_ALLOWLIST` keys ONLY. It used
-    # to inherit `os.environ` in full, so a single `shell_run` could read the
-    # provider keys, the callback token and the vault, and print them into the
-    # conversation. A shell must never see more of the environment than a
-    # sandboxed command does.
     env = _scrubbed_env()
     if env_extra:
         env.update(env_extra)
     timeout = max(1, min(int(timeout_s or DEFAULT_TIMEOUT_S), MAX_TIMEOUT_S))
-    started = time.monotonic()
+    spec = SandboxSpec(
+        argv=argv,
+        cwd=Path(cwd),
+        env=env,
+        timeout_s=timeout,
+        output_cap_bytes=MAX_OUTPUT_CHARS,
+        network=False,
+    )
     try:
-        proc = subprocess.run(
-            argv, cwd=str(cwd), env=env, input=stdin,
-            capture_output=True, text=True, timeout=timeout,
+        raw = sandbox_run(spec)
+    except SandboxUnavailable as exc:
+        # Honest refusal: never run the command unsandboxed.
+        return ShellResult(
+            command, str(cwd), None, "", f"SANDBOX_UNAVAILABLE: {exc}", 0,
+            False, False, "failed",
         )
-        duration = int((time.monotonic() - started) * 1000)
-        out, err = proc.stdout or "", proc.stderr or ""
-        truncated = False
-        if len(out) > MAX_OUTPUT_CHARS:
-            out = out[-MAX_OUTPUT_CHARS:]
-            truncated = True
-        if len(err) > MAX_OUTPUT_CHARS:
-            err = err[-MAX_OUTPUT_CHARS:]
-            truncated = True
-        return ShellResult(command, str(cwd), proc.returncode, out, err, duration, False, truncated,
-                           "success" if proc.returncode == 0 else "failed")
-    except subprocess.TimeoutExpired as exc:
-        duration = int((time.monotonic() - started) * 1000)
-        out = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
-        err = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
-        return ShellResult(command, str(cwd), None, out, err, duration, True, False, "timeout")
+    if raw.launch_error:
+        return ShellResult(
+            command, str(cwd), None, "", raw.launch_error, raw.duration_ms,
+            False, False, "failed",
+        )
+    status = "timeout" if raw.timed_out else ("killed" if raw.killed else
+                                             ("success" if raw.exit_code == 0 else "failed"))
+    return ShellResult(
+        command=command,
+        cwd=str(cwd),
+        exit_code=raw.exit_code,
+        stdout=raw.output,
+        stderr="",
+        duration_ms=raw.duration_ms,
+        timed_out=raw.timed_out,
+        truncated=raw.truncated,
+        status=status,
+    )
 
 
 @dataclass
@@ -124,6 +144,9 @@ class ProcessHandle:
     exit_code: Optional[int] = None
     status: str = "running"  # running | exited | killed
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    # W6: the isolation handle (Job Object / process group). When present,
+    # `kill()` uses it so the WHOLE tree dies, not just the shell parent.
+    _spawned: Optional[Any] = None
 
     def output(self) -> tuple[str, str]:
         with self._lock:
@@ -141,18 +164,40 @@ _PROCESSES_LOCK = threading.Lock()
 
 
 def spawn(command: str, *, cwd: Path, env_extra: Optional[dict[str, str]] = None) -> ProcessHandle:
+    """Start a background shell under the SAME isolation as a spawned program.
+
+    W6: reuses `terminal.spawn.spawn_process` (per-process Job Object on
+    Windows, its own process group on POSIX) so `process_kill` kills the tree
+    and harness death cannot orphan a child. The `ProcessHandle` facade stays the
+    same for the tools.
+    """
+    from .sandbox import RunSpec as SandboxSpec  # noqa: PLC0415
+    from .sandbox import SandboxUnavailable  # noqa: PLC0415
+
     argv = detect_shell() + [command]
-    # Round 3 / W9 (ADR-H297): the same scrubbed environment as `run` - a
-    # background process must not be a way around the scrub.
     env = _scrubbed_env()
     if env_extra:
         env.update(env_extra)
-    proc = subprocess.Popen(
-        argv, cwd=str(cwd), env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, errors="replace",
+    spec = SandboxSpec(
+        argv=argv,
+        cwd=Path(cwd),
+        env=env,
+        timeout_s=MAX_TIMEOUT_S,
+        output_cap_bytes=MAX_OUTPUT_CHARS,
+        network=False,
     )
-    handle = ProcessHandle(pid=uuid.uuid4().hex[:8], command=command, cwd=str(cwd),
-                           started=time.time(), proc=proc)
+    from ..terminal.spawn import spawn_process  # noqa: PLC0415
+
+    try:
+        spawned = spawn_process(spec)
+    except SandboxUnavailable:
+        raise
+    proc = spawned.proc
+    handle = ProcessHandle(
+        pid=uuid.uuid4().hex[:8], command=command, cwd=str(cwd),
+        started=time.time(), proc=proc, _spawned=spawned,
+    )
+
     def _pump(stream, buf):
         try:
             for line in iter(stream.readline, ""):
@@ -160,6 +205,7 @@ def spawn(command: str, *, cwd: Path, env_extra: Optional[dict[str, str]] = None
                     buf.append(line)
         except Exception:  # noqa: BLE001
             pass
+
     threading.Thread(target=_pump, args=(proc.stdout, handle.stdout_buf), daemon=True).start()
     threading.Thread(target=_pump, args=(proc.stderr, handle.stderr_buf), daemon=True).start()
     with _PROCESSES_LOCK:
@@ -177,9 +223,15 @@ def kill(pid: str) -> bool:
     if handle is None:
         return False
     try:
-        handle.proc.kill()
+        if handle._spawned is not None:
+            handle._spawned.kill_tree()
+        else:  # pragma: no cover - only a handle built without isolation
+            handle.proc.kill()
         handle.status = "killed"
-        handle.exit_code = handle.proc.wait(timeout=5)
+        try:
+            handle.exit_code = handle.proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001 - tree kill already reaped it
+            handle.exit_code = None
         return True
     except Exception:  # noqa: BLE001
         return False

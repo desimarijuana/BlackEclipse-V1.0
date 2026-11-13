@@ -41,6 +41,13 @@ HOOKS: frozenset[str] = frozenset({
     "onApproval", "onSecurityEvent",
     "onAnomaly", "onSLOViolation", "onLoopDetected",
     "onError", "onSpan",
+    # W8 — cross-workstream signal contract. These are recorded by the bus
+    # projection, never emitted directly by feature code.
+    "onModelAttempt", "onModelFirstToken", "onModelFallback",
+    "onContextPressure", "onContextCompaction",
+    "onToolBatch", "onToolGuardrail",
+    "onGoalCreated", "onGoalVerdict", "onSkillEvaluation", "onCuratorRun",
+    "onIntegrityEvent", "onFileCheckpoint", "onDelegation",
 })
 
 _STATUSES = frozenset({"OK", "ERROR", "CANCELLED", "TIMEOUT", "DEGRADED", "UNSET"})

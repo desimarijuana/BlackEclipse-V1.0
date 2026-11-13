@@ -42,6 +42,23 @@ declared case is missing, `2` bad invocation/interpreter.
 | `contract.tool_manifest` | manifest version, digest, and permission/effect honesty |
 | `contract.slo_report` | release report carries runs/latency/cost/slos |
 | `contract.plugin_sdk` | the plugin SDK declares a version |
+| `signal.model_attempt` | attempts, fallback numerator and TTFT reach the report |
+| `signal.model_ttft` | first token becomes a TTFT observation |
+| `signal.context_compression` | pressure, summary and skeleton outcomes are distinguishable |
+| `signal.tool_batch` | batch size, concurrency and guardrail outcome are recorded |
+| `signal.integrity_unknown_effect` | an unknown effect is counted and fails the invariant gate |
+| `signal.integrity_lease_lost` | a lost lease reaches the integrity section |
+| `signal.file_checkpoint` | created, failed and restored are distinguishable |
+| `signal.goal_verdict` | verdicts roll up into completion/blocked rates |
+| `signal.skill_evaluation` | evaluation outcomes reach the learning section |
+| `contract.slo_report_v2` | schema v2, capabilities and unmeasured objectives |
+| `contract.unmeasured_gate` | missing samples fail only when required |
+| `contract.alert_metric_names` | every alert metric exists in the shipped exposition |
+
+The manifest has 28 cases. `contract.alert_metric_names` parses
+`deploy/prometheus/blackeclipse.rules.yml` and compares every `eclipse_*`
+metric (bucket/sum/count suffixes normalised) with the exposition the shipped
+probe records, so a renamed metric cannot silently disarm an alert.
 
 The manifest (`docs/harness/conformance.json`) is authoritative: a case that
 disappears or an undeclared case that appears fails the gate. Add a case by

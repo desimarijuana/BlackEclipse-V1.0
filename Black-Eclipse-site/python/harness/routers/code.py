@@ -862,4 +862,80 @@ def list_post_landing(
     }
 
 
+# ── W7: file checkpoints + /rollback ─────────────────────────────────────────
+
+
+class CheckpointRestoreRequest(BaseModel):
+    paths: Optional[list[str]] = Field(default=None, max_length=500)
+    all: bool = False
+
+
+def _checkpoint_root() -> Path:
+    from ..code.workspace import default_root  # noqa: PLC0415
+
+    root = default_root()
+    if root is None:
+        raise HTTPException(status_code=409, detail={
+            "code": "WORKSPACE_ROOT_UNAVAILABLE",
+            "message": "There is no project folder to restore into.",
+        })
+    return root
+
+
+@router.get("/code/checkpoints")
+def list_checkpoints(
+    limit: int = 50, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..code import checkpoints  # noqa: PLC0415
+
+    return {"success": True, "checkpoints": checkpoints.list_checkpoints(_checkpoint_root(), limit=limit)}
+
+
+@router.get("/code/checkpoints/{checkpoint_id}/diff")
+def diff_checkpoint(
+    checkpoint_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..code import checkpoints  # noqa: PLC0415
+
+    try:
+        return {"success": True, **checkpoints.diff(_checkpoint_root(), checkpoint_id)}
+    except checkpoints.CheckpointError as exc:
+        raise HTTPException(status_code=404, detail={"code": exc.code, "message": exc.reason}) from exc
+
+
+@router.post("/code/checkpoints/{checkpoint_id}/restore/preview")
+def preview_checkpoint_restore(
+    checkpoint_id: str, body: CheckpointRestoreRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..code import checkpoints  # noqa: PLC0415
+
+    try:
+        return {
+            "success": True,
+            **checkpoints.preview_restore(
+                _checkpoint_root(), checkpoint_id, paths=body.paths, all=body.all,
+            ),
+        }
+    except checkpoints.CheckpointError as exc:
+        raise HTTPException(status_code=404, detail={"code": exc.code, "message": exc.reason}) from exc
+
+
+@router.post("/code/checkpoints/{checkpoint_id}/restore")
+def restore_checkpoint(
+    checkpoint_id: str, body: CheckpointRestoreRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..code import checkpoints  # noqa: PLC0415
+
+    try:
+        return {
+            "success": True,
+            **checkpoints.restore(
+                _checkpoint_root(), checkpoint_id, paths=body.paths, all=body.all,
+                turn_key=f"manual-{checkpoint_id}",
+            ),
+        }
+    except checkpoints.CheckpointError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.reason}) from exc
+
+
 __all__ = ["router"]

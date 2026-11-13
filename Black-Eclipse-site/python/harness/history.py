@@ -190,30 +190,31 @@ async def _compaction_block(
 ) -> str:
     """The compaction of the dropped turns, or "" when it cannot be built.
 
-    Never raises: a compaction is a convenience, and the run continues without
-    one. The event records what happened, including the model's absence.
+    The decision (skeleton vs model narrative, and the persisted cooldown) lives
+    in `context/compression_ladder.py`; this function only supplies the run's
+    policy and store. Never raises: a compaction is a convenience, and the run
+    continues without one.
     """
-    from .compaction import compact_dropped, render_compaction_block  # noqa: PLC0415
+    from .context.compression_ladder import (  # noqa: PLC0415
+        _settings_for,
+        _state_store_for,
+        compact_turns,
+    )
 
-    settings: dict[str, Any] = {}
-    if memory_service is not None:
-        try:
-            settings = memory_service.policy.get_all()
-        except Exception:  # noqa: BLE001 - a policy read failure is not fatal
-            settings = {}
+    settings = _settings_for(memory_service)
+    state_store = _state_store_for(memory_service)
+    session_id = str(getattr(request, "sessionId", "") or getattr(request, "runId", "") or "")
     try:
-        result = await compact_dropped(dropped, request=request, settings=settings)
-        block = render_compaction_block(result)
+        block, _result = await compact_turns(
+            dropped, request=request, settings=settings, emitter=emitter,
+            state_store=state_store, session_id=session_id,
+        )
     except Exception as exc:  # noqa: BLE001 - a compaction must never break a run
         try:
             await emitter.emit("memory.history_compaction_failed", {"error": str(exc)})
         except Exception:  # noqa: BLE001
             pass
         return ""
-    try:
-        await emitter.emit("memory.history_compacted", result.to_dict())
-    except Exception:  # noqa: BLE001
-        pass
     return block
 
 
@@ -253,12 +254,60 @@ async def _model_extract_dropped(
     return parsed.items if parsed.ok else []
 
 
+def _history_bounded_data(
+    budget: Any,
+    *,
+    kept_turns: int,
+    dropped_turns: list[Any],
+    retried: bool = False,
+) -> dict[str, Any]:
+    """The bounded, content-free payload for `memory.history_bounded`.
+
+    Counts and estimated tokens only - never memory content or the dropped text.
+    """
+    from .eclipse_memory.profile import estimate_tokens  # noqa: PLC0415
+
+    dropped_tokens = sum(estimate_tokens(t.content) for t in dropped_turns)
+    return {
+        "keptTurns": kept_turns,
+        "droppedTurns": len(dropped_turns),
+        "droppedTokensEstimate": dropped_tokens,
+        "window": budget.window,
+        "windowKnown": bool(budget.window_known),
+        "tighterRetry": bool(retried),
+        # W8: the measured pressure and gate are what the context SLOs consume.
+        # Both are counts/ratios, never content.
+        "usageRatio": None if getattr(budget, "pressure", None) is None else round(float(budget.pressure), 4),
+        "gate": getattr(budget, "gate", "unknown"),
+    }
+
+
+def _context_budget_blob(
+    budget: Any, request: RunRequest, *, kind: str, retried: bool = False,
+) -> Optional[dict[str, Any]]:
+    """The additive `RunResult.context` blob for a completed/overflowed run.
+
+    Present only when history was actually trimmed or the run overflowed, so an
+    ordinary short run leaves `context` absent (old clients unaffected).
+    """
+    kept, dropped = _bounded_history(request, budget)
+    if not dropped and kind != "overflow":
+        return None
+    data = _history_bounded_data(
+        budget, kept_turns=len(kept), dropped_turns=dropped, retried=retried,
+    )
+    data["status"] = kind
+    return data
+
+
 __all__ = [
     "MAX_HISTORY_CHARS",
     "MAX_HISTORY_TURNS",
     "_bounded_history",
+    "_context_budget_blob",
     "_compaction_block",
     "_dropped_context_block",
+    "_history_bounded_data",
     "_history_messages",
     "_model_extract_dropped",
 ]

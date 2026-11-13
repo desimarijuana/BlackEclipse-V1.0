@@ -22,6 +22,36 @@ def _monotonic() -> float:
     return time.monotonic()
 
 
+def extract_usage(message: Any) -> Usage:
+    """Normalized usage from a LangChain response (or zeros, never invented)."""
+    usage = getattr(message, "usage_metadata", None)
+    if isinstance(usage, dict):
+        return Usage(
+            input_tokens=int(usage.get("input_tokens") or 0),
+            output_tokens=int(usage.get("output_tokens") or 0),
+            total_tokens=int(usage.get("total_tokens") or 0),
+            cached_tokens=int(
+                (usage.get("input_token_details") or {}).get("cache_read") or 0
+            ) if isinstance(usage.get("input_token_details"), dict) else 0,
+            estimated=bool(usage.get("estimated")),
+        )
+    metadata = getattr(message, "response_metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("token_usage", "usage"):
+            raw = metadata.get(key)
+            if isinstance(raw, dict):
+                prompt = int(raw.get("prompt_tokens") or raw.get("input_tokens") or 0)
+                completion = int(raw.get("completion_tokens") or raw.get("output_tokens") or 0)
+                total = int(raw.get("total_tokens") or (prompt + completion))
+                return Usage(
+                    input_tokens=prompt,
+                    output_tokens=completion,
+                    total_tokens=total,
+                    cached_tokens=int(raw.get("cached_tokens") or 0),
+                )
+    return Usage()
+
+
 @dataclass
 class UsageRecord:
     request_id: str

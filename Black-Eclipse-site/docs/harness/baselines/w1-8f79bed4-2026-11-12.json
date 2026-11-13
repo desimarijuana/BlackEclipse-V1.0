@@ -1,0 +1,364 @@
+{
+  "gates": {
+    "audit": {
+      "detail": "46 checks passed",
+      "source": "npm run audit:agent",
+      "status": "PASS"
+    },
+    "conformance": {
+      "detail": "16/16",
+      "source": "npm run gate:conformance",
+      "status": "PASS"
+    },
+    "fullTest": {
+      "detail": "11,687 passed, 35 skipped, 0 failed (full suite)",
+      "source": "npm run test",
+      "status": "PASS"
+    },
+    "live": {
+      "detail": "no live provider configured (BLACK_ECLIPSE_PROVIDER unset); opt-in test_model_gateway_live.py is available",
+      "source": "node scripts/run-live-evals.js --suite benchmark --limit 30",
+      "status": "NOT MEASURED"
+    },
+    "offline": {
+      "detail": "eval gates: ALL PASS",
+      "source": "node scripts/test-evals.js",
+      "status": "PASS"
+    },
+    "slo": {
+      "detail": "8 checks passed",
+      "source": "npm run gate:slo",
+      "status": "PASS"
+    },
+    "tsc": {
+      "detail": "clean",
+      "source": "npx tsc --noEmit",
+      "status": "PASS"
+    }
+  },
+  "generatedAt": "2026-11-12T22:23:11Z",
+  "label": "w1-baseline",
+  "metrics": {
+    "effects": {
+      "started": {
+        "measured": true,
+        "sample": 0,
+        "source": "RunEffect",
+        "unit": "effects",
+        "value": 0
+      },
+      "states": {
+        "measured": true,
+        "sample": 0,
+        "source": "RunEffect",
+        "unit": "effects",
+        "value": {}
+      },
+      "total": {
+        "measured": true,
+        "sample": 0,
+        "source": "RunEffect",
+        "unit": "effects",
+        "value": 0
+      },
+      "unknown": {
+        "measured": true,
+        "sample": 0,
+        "source": "RunEffect",
+        "unit": "effects",
+        "value": 0
+      }
+    },
+    "eval": {
+      "live": {
+        "measured": true,
+        "sample": 1,
+        "source": "node scripts/run-live-evals.js --suite benchmark --limit 30",
+        "unit": "verdict",
+        "value": "NOT MEASURED"
+      },
+      "offline": {
+        "measured": true,
+        "sample": 1,
+        "source": "node scripts/test-evals.js",
+        "unit": "verdict",
+        "value": "PASS"
+      }
+    },
+    "events": {
+      "contextOverflow": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": 0
+      },
+      "contextRetry": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": 0
+      },
+      "counts": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": {
+          "model.attempt.completed": 74,
+          "model.candidate_plan": 74,
+          "model.completed": 74,
+          "model.first_token": 74,
+          "model.requested": 74,
+          "prompt.plan": 74,
+          "run.completed": 74,
+          "run.created": 74,
+          "run.flags": 74,
+          "run.started": 74,
+          "session.indexed": 74,
+          "step.completed": 74,
+          "step.started": 74
+        }
+      },
+      "failedCodes": {
+        "measured": true,
+        "sample": 0,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": {}
+      },
+      "historyBounded": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": 0
+      },
+      "runFlags": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": 74
+      },
+      "runPartial": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": 0
+      },
+      "runResumed": {
+        "measured": true,
+        "sample": 962,
+        "source": "HarnessEvent",
+        "unit": "events",
+        "value": 0
+      }
+    },
+    "model": {
+      "attempts": {
+        "measured": true,
+        "sample": 74,
+        "source": "ModelRequest",
+        "unit": "attempts",
+        "value": 74
+      },
+      "cost": {
+        "measured": true,
+        "sample": 74,
+        "source": "ModelRequest.costTotal",
+        "unit": "usd",
+        "value": {
+          "estimated": 0,
+          "pricedCoverage": 1.0,
+          "total": 0.0
+        }
+      },
+      "errorClasses": {
+        "measured": true,
+        "sample": 0,
+        "source": "ModelRequest",
+        "unit": "attempts",
+        "value": {}
+      },
+      "fallbacks": {
+        "measured": true,
+        "sample": 74,
+        "source": "ModelRequest",
+        "unit": "attempts",
+        "value": 0
+      },
+      "latencyMs": {
+        "measured": true,
+        "sample": 74,
+        "source": "ModelRequest.latencyMs",
+        "unit": "ms",
+        "value": {
+          "p50": 0.0,
+          "p95": 77.9999999977008
+        }
+      },
+      "retries": {
+        "measured": true,
+        "sample": 74,
+        "source": "ModelRequest",
+        "unit": "retries",
+        "value": 0
+      },
+      "tokens": {
+        "measured": true,
+        "sample": 74,
+        "source": "ModelRequest",
+        "unit": "tokens",
+        "value": {
+          "input": 0,
+          "output": 0,
+          "total": 0
+        }
+      },
+      "ttftMs": {
+        "measured": false,
+        "sample": 0,
+        "source": "ModelRequest.ttftMs",
+        "unit": "ms",
+        "value": null
+      }
+    },
+    "runs": {
+      "byStatus": {
+        "measured": true,
+        "sample": 74,
+        "source": "HarnessRun",
+        "unit": "runs",
+        "value": {
+          "completed": 74
+        }
+      },
+      "interrupted": {
+        "measured": false,
+        "sample": 74,
+        "source": "HarnessRun",
+        "unit": "runs",
+        "value": null
+      },
+      "latencyMs": {
+        "measured": true,
+        "sample": 74,
+        "source": "HarnessRun.startedAt/finishedAt",
+        "unit": "ms",
+        "value": {
+          "p50": 78.99999618530273,
+          "p95": 1646.9998359680176,
+          "p99": 1815.000057220459
+        }
+      },
+      "promptTokens": {
+        "measured": false,
+        "sample": 74,
+        "source": "HarnessRun.promptTokens",
+        "unit": "tokens",
+        "value": null
+      },
+      "terminalCorrectness": {
+        "measured": true,
+        "sample": 74,
+        "source": "HarnessRun",
+        "unit": "ratio",
+        "value": 1.0
+      },
+      "total": {
+        "measured": true,
+        "sample": 74,
+        "source": "HarnessRun",
+        "unit": "runs",
+        "value": 74
+      }
+    },
+    "tools": {
+      "calls": {
+        "measured": true,
+        "sample": 0,
+        "source": "HarnessToolExecution",
+        "unit": "calls",
+        "value": 0
+      }
+    }
+  },
+  "notes": [
+    "Read-only baseline. Missing tables/columns are measured=false, never zero.",
+    "Run `node scripts/test-evals.js`, `npm run gate:slo`, `npm run audit:agent` and `node scripts/run-live-evals.js` separately to fill gate/eval results.",
+    "Soak uses a scripted model: model latency/token/cost metrics measure wiring, not a provider."
+  ],
+  "provenance": {
+    "commit": "8f79bed4",
+    "dirty": null,
+    "flags": {
+      "HARNESS_ASYNC_DELEGATION": "off",
+      "HARNESS_AUTONOMY": "off",
+      "HARNESS_CHECKPOINT_ATOMIC": "on",
+      "HARNESS_COMPRESSION_LADDER": "shadow",
+      "HARNESS_CREDENTIAL_POOL": "on",
+      "HARNESS_EFFECT_TOKENS": "shadow",
+      "HARNESS_EVENT_SEQ": "on",
+      "HARNESS_EVIDENCE_ENFORCE": "off",
+      "HARNESS_FENCED_PROGRESS": "on",
+      "HARNESS_FILE_CHECKPOINTS": "off",
+      "HARNESS_FLAG_STRICT": "off",
+      "HARNESS_MEMORY_HYBRID": "off",
+      "HARNESS_MODEL_ATTEMPTS": "3",
+      "HARNESS_MODEL_FALLBACK_ALLOW_DEGRADED": "off",
+      "HARNESS_MODEL_FIRST_TOKEN_S": "45",
+      "HARNESS_MODEL_GATEWAY": "on",
+      "HARNESS_PARALLEL_TOOLS": "off",
+      "HARNESS_SKILL_CURATOR": "dry_run",
+      "HARNESS_SKILL_EXEC_EVAL": "on",
+      "HARNESS_TOOL_CONCURRENCY": "6",
+      "HARNESS_TOOL_DISCLOSURE": "auto",
+      "HARNESS_TOOL_DISCLOSURE_THRESHOLD_PCT": "8",
+      "HARNESS_TOOL_GUARDRAILS": "warn",
+      "HARNESS_USAGE_ANCHOR": "on"
+    },
+    "flagsHash": "sha256:d0c83eabc433b68580db1397e3781a4e56f85eb4e72d6198b7390a03deb2a854",
+    "platform": "nt",
+    "python": "3.12.8"
+  },
+  "soak": {
+    "byStatus": {
+      "completed": 74
+    },
+    "concurrent": 24,
+    "crashed": [],
+    "model": "scripted (no network, no provider tokens or cost)",
+    "runs": 74,
+    "sequential": 50
+  },
+  "unmeasured": [
+    {
+      "metric": "interrupted",
+      "reason": "HarnessRun"
+    },
+    {
+      "metric": "promptTokens",
+      "reason": "HarnessRun.promptTokens"
+    },
+    {
+      "metric": "ttftMs",
+      "reason": "ModelRequest.ttftMs"
+    },
+    {
+      "metric": "offline",
+      "reason": "not run by collector"
+    },
+    {
+      "metric": "live",
+      "reason": "not run by collector"
+    }
+  ],
+  "version": 1,
+  "window": {
+    "db": "C:\\Users\\MSI\\AppData\\Local\\Temp\\be-w0-soak-b0t5iof1\\agent-memory.db",
+    "source": "w0-soak"
+  }
+}

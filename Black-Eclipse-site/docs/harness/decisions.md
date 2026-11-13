@@ -11599,3 +11599,38 @@ install smoke and the installed conformance/ACP self-test are the release
 evidence. The ACP surface is intentionally minimal; broader methods remain a
 follow-up. Tagging and PyPI upload are operator steps (credentials never live in
 the repo).
+
+## ADR-H360 - W8 signals are a contract: objectives are eager, invariants are zero-tolerance
+
+**Decision.** Every workstream signal enters the ONE observability hub through
+the existing bus projector (`observability/integration.py`) or, for a subsystem
+that owns no `RunEmitter`, the fail-open `observability/bridge.py`. The W8
+hooks (`onModelAttempt`, `onModelFirstToken`, `onModelFallback`,
+`onContextPressure`, `onContextCompaction`, `onToolBatch`, `onToolGuardrail`,
+`onGoalCreated`, `onGoalVerdict`, `onSkillEvaluation`, `onCuratorRun`,
+`onIntegrityEvent`, `onFileCheckpoint`, `onDelegation`) carry closed-vocabulary
+attributes only. Objectives are registered eagerly at hub construction; an
+objective with no samples reports `measured:false`, `healthy:null` and appears
+in `slos.unmeasured`, never as green. Correctness events (unknown effect, lost
+lease, checkpoint write failure, event-seq collision, batch ordering violation,
+skill enabled without evaluation) are invariants, not error budgets: any
+occurrence fails the gate. The release report is schema v2 (additive over v1)
+and carries `capabilities`, so a check whose feature is off is `skipped`, not
+`pass`. `docs/harness/slo-budgets.json` is declarative (`path`/`kind`/
+`minSamples`/`requires`/`enforce`), and the gate validates paths. Eleven new
+conformance cases include a contract that every metric named in
+`deploy/prometheus/blackeclipse.rules.yml` exists in the shipped exposition.
+
+**Why.** The Hermes comparison found that Eclipse emitted the new seams but
+dropped them at projection, and that lazy `define()` both hid missing work and
+silently reset counters. A dashboard that cannot distinguish "unmeasured" from
+"healthy", or a correctness bug averaged into a 99.9% budget, is worse than no
+dashboard: it manufactures confidence.
+
+**Consequences.** Adding an objective is a budgets-file change, not gate code.
+A disabled capability cannot fail a release, and a required-but-missing sample
+cannot pass one. Metric labels stay bounded; ids, paths, arguments and prompt
+text never become labels. Alert rules are real rules, not commented templates,
+and a renamed metric fails CI. The probe synthesises every workstream's signal
+and advertises all capabilities for the synthetic report; live reports use the
+actual flags.

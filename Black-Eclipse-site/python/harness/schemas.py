@@ -31,6 +31,9 @@ HarnessErrorCode = Literal[
     "CHECKPOINT_NOT_FOUND",
     "RESUME_CONFLICT",
     "CANCELLED",
+    # W6: a durable boundary failed, or this worker no longer owns the run.
+    "CHECKPOINT_WRITE_FAILED",
+    "RUN_LEASE_LOST",
     "PERSISTENCE_ERROR",
     # Surface guardrails (v3 P3): the finished answer broke a rule the
     # activated surface set. The run fails instead of shipping the answer.

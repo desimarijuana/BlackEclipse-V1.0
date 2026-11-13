@@ -196,6 +196,7 @@ def register_clarify_tools(registry: ToolRegistry) -> None:
                 "required": ["question"],
             },
             handler=_clarify,
+            interactive=True,
             permission="read",
             risk="none",
             # A human answer is slow and must not be cut off by the agent's

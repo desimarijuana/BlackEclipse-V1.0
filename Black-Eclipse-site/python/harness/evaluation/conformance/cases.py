@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,7 +22,7 @@ from ...observability.config import ObservabilityConfig
 from ...observability.core import ObservabilityHub
 from ...observability.events import HOOKS
 from ...observability.integration import RunEventProjector
-from ...observability.probe import run_probe
+from ...observability.probe import probe_metric_names, run_probe
 from ...retry_policy import RetryPolicy, RunDeadline, is_retryable, retry_async
 
 
@@ -343,6 +344,251 @@ def contract_plugin_sdk() -> CaseResult:
                       "plugin SDK declares a version", {"sdkVersion": SDK_VERSION})
 
 
+# ── W8 signal contract ──────────────────────────────────────────────────────
+_W8_CAPABILITIES = {
+    "modelGateway": True, "contextLadder": True, "parallelTools": True,
+    "autonomy": True, "learningEval": True, "runKernelIntegrity": True,
+    "fileCheckpoints": True, "asyncDelegation": True,
+}
+
+
+def _w8_hub():
+    hub = ObservabilityHub(
+        ObservabilityConfig(jsonl_dir="", otel_enabled=False, langfuse_enabled=False, sentry_enabled=False),
+        capture_inmemory=False, start_exporters=False,
+    )
+    return hub, RunEventProjector(hub)
+
+
+def _w8_report(events: list[dict[str, Any]]) -> dict[str, Any]:
+    hub, projector = _w8_hub()
+    for event in events:
+        projector.handle(event)
+    return hub.release_report(capabilities_override=_W8_CAPABILITIES)
+
+
+def signal_model_attempt() -> CaseResult:
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "model.candidate_plan", "runId": "r1", "at": 1.1,
+         "data": {"candidates": [{"provider": "a", "model": "m"}], "excluded": [], "fallbackDepth": 1}},
+        {"type": "model.attempt.completed", "runId": "r1", "at": 1.2,
+         "data": {"outcome": "completed", "latencyMs": 10, "ttftMs": 4, "priced": True}},
+        {"type": "model.attempt.failed", "runId": "r1", "at": 1.3,
+         "data": {"outcome": "failed", "errorClass": "SERVER_ERROR", "willFallback": True}},
+        {"type": "model.fallback", "runId": "r1", "at": 1.4, "data": {"attempts": 2}},
+        {"type": "run.completed", "runId": "r1", "at": 2.0, "data": {}},
+    ])
+    model = report["model"]
+    ok = (
+        model["attempts"] == 2 and model["fallbacks"] == 1
+        and model["fallbackSuccessRate"] == 1.0
+        and report["latency"]["ttft"]["samples"] == 1
+    )
+    return CaseResult("signal.model_attempt", "signal", ok,
+                      "attempts, fallback numerator and TTFT reach the report",
+                      {"model": model, "ttft": report["latency"]["ttft"]})
+
+
+def signal_model_ttft() -> CaseResult:
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "model.requested", "runId": "r1", "at": 1.1, "data": {"step": 1}},
+        {"type": "model.first_token", "runId": "r1", "at": 1.2, "data": {"ttftMs": 123}},
+        {"type": "run.completed", "runId": "r1", "at": 2.0, "data": {}},
+    ])
+    ttft = report["latency"]["ttft"]
+    ok = ttft["samples"] == 1 and ttft["p95"] == 123.0
+    return CaseResult("signal.model_ttft", "signal", ok,
+                      "first token becomes a TTFT observation, not a generic event",
+                      {"ttft": ttft})
+
+
+def signal_context_compression() -> CaseResult:
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "memory.history_bounded", "runId": "r1", "at": 1.1,
+         "data": {"window": 200000, "windowKnown": True, "usageRatio": 0.42, "gate": "continue"}},
+        {"type": "context.compressed", "runId": "r1", "at": 1.2,
+         "data": {"stage": "summary", "ok": True, "usedModel": True}},
+        {"type": "context.compressed", "runId": "r1", "at": 1.3,
+         "data": {"stage": "skeleton", "ok": False, "reason": "timeout"}},
+        {"type": "run.completed", "runId": "r1", "at": 2.0, "data": {}},
+    ])
+    context = report["context"]
+    ok = (
+        context["usageRatio"]["samples"] == 1
+        and context["compactions"]["samples"] == 2
+        and context["compactions"]["failures"] == 1
+        and context["compactions"]["failureRate"] == 0.5
+    )
+    return CaseResult("signal.context_compression", "signal", ok,
+                      "pressure, summary and skeleton outcomes are distinguishable",
+                      {"context": context})
+
+
+def signal_tool_batch() -> CaseResult:
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "tool.batch_plan", "runId": "r1", "at": 1.1,
+         "data": {"calls": 2, "batches": [[0, 1]], "parallelSafe": [True, True]}},
+        {"type": "tool.batch", "runId": "r1", "at": 1.2,
+         "data": {"calls": 2, "batches": 1, "maxConcurrency": 2,
+                  "orderingViolations": 0, "durationMs": 40}},
+        {"type": "tool.guardrail", "runId": "r1", "at": 1.3,
+         "data": {"rule": "identical_call", "count": 3, "action": "warn"}},
+        {"type": "run.completed", "runId": "r1", "at": 2.0, "data": {}},
+    ])
+    batches = report["tools"]["batches"]
+    guardrails = report["tools"]["guardrails"]
+    ok = batches["count"] == 1 and batches["orderingViolations"] == 0 and guardrails["warn"] == 1
+    return CaseResult("signal.tool_batch", "signal", ok,
+                      "batch size, concurrency and guardrail outcome are recorded",
+                      {"batches": batches, "guardrails": guardrails})
+
+
+def signal_integrity_unknown_effect() -> CaseResult:
+    from ...observability.gate import evaluate_gate
+
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "effect.unknown", "runId": "r1", "at": 1.1,
+         "data": {"name": "broker_order", "reason": "outcome_unknown"}},
+        {"type": "run.completed", "runId": "r1", "at": 2.0, "data": {}},
+    ])
+    gate = evaluate_gate(report, {"checks": [{
+        "name": "effect_unknown", "path": "integrity.effectUnknown",
+        "kind": "invariant", "max": 0, "requires": "runKernelIntegrity",
+    }]})
+    ok = report["integrity"]["effectUnknown"] == 1 and gate.ok is False
+    return CaseResult("signal.integrity_unknown_effect", "signal", ok,
+                      "an unknown effect is counted and fails the invariant gate",
+                      {"integrity": report["integrity"], "gate": gate.to_dict()})
+
+
+def signal_integrity_lease_lost() -> CaseResult:
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "run.lease_lost", "runId": "r1", "at": 1.1, "data": {"runtimeId": "other"}},
+    ])
+    ok = report["integrity"]["leaseLost"] == 1
+    return CaseResult("signal.integrity_lease_lost", "signal", ok,
+                      "a lost lease reaches the integrity section",
+                      {"integrity": report["integrity"]})
+
+
+def signal_file_checkpoint() -> CaseResult:
+    report = _w8_report([
+        {"type": "run.created", "runId": "r1", "at": 1.0, "data": {}},
+        {"type": "checkpoint.created", "runId": "r1", "at": 1.1,
+         "data": {"op": "created", "files": 2, "bytes": 2048}},
+        {"type": "checkpoint.failed", "runId": "r1", "at": 1.2,
+         "data": {"op": "failed", "reason": "CHECKPOINT_STORE_FULL"}},
+        {"type": "checkpoint.restored", "runId": "r1", "at": 1.3,
+         "data": {"op": "restored", "restored": 2}},
+        {"type": "run.completed", "runId": "r1", "at": 2.0, "data": {}},
+    ])
+    files = report["fileCheckpoints"]
+    ok = (
+        files["created"] == 1 and files["failed"] == 1 and files["restored"] == 1
+        and files["failureRate"] == 0.5
+    )
+    return CaseResult("signal.file_checkpoint", "signal", ok,
+                      "created, failed and restored are distinguishable",
+                      {"fileCheckpoints": files})
+
+
+def signal_goal_verdict() -> CaseResult:
+    report = _w8_report([
+        {"type": "goal.verdict", "at": 1.0, "data": {"verdict": "done", "turn": 1}},
+        {"type": "goal.verdict", "at": 1.1, "data": {"verdict": "done", "turn": 2}},
+        {"type": "goal.verdict", "at": 1.2, "data": {"verdict": "blocked", "turn": 3}},
+    ])
+    goals = report["goals"]
+    ok = (
+        goals["samples"] == 3 and goals["verdicts"]["done"] == 2
+        and goals["completionRate"] == round(2 / 3, 6)
+        and goals["blockedRate"] == round(1 / 3, 6)
+    )
+    return CaseResult("signal.goal_verdict", "signal", ok,
+                      "verdicts roll up into completion and blocked rates",
+                      {"goals": goals})
+
+
+def signal_skill_evaluation() -> CaseResult:
+    report = _w8_report([
+        {"type": "skill.evaluation_completed", "at": 1.0,
+         "data": {"ok": True, "status": "passed", "cases": 3}},
+        {"type": "skill.evaluation_completed", "at": 1.1,
+         "data": {"ok": False, "status": "needs_review", "cases": 0}},
+    ])
+    evals = report["learning"]["executionEvals"]
+    ok = evals["total"] == 2 and evals["passed"] == 1 and evals["needsReview"] == 1
+    return CaseResult("signal.skill_evaluation", "signal", ok,
+                      "behavioural evaluation outcomes reach the learning section",
+                      {"executionEvals": evals})
+
+
+def contract_slo_report_v2() -> CaseResult:
+    report = run_probe(runs=6)
+    required = {"schema", "capabilities", "runs", "latency", "model", "context",
+                "tools", "goals", "learning", "integrity", "slos"}
+    objectives = (report.get("slos") or {}).get("objectives") or []
+    ok = (
+        required <= set(report)
+        and report.get("schema") == 2
+        and bool(report.get("capabilities"))
+        and "unmeasured" in (report.get("slos") or {})
+        and bool(objectives)
+        and all("measured" in item for item in objectives)
+    )
+    return CaseResult("contract.slo_report_v2", "contract", ok,
+                      "release report carries schema v2, capabilities and unmeasured objectives",
+                      {"keys": sorted(report), "objectives": len(objectives)})
+
+
+def contract_unmeasured_gate() -> CaseResult:
+    from ...observability.gate import evaluate_gate
+
+    hub, _ = _w8_hub()
+    report = hub.release_report(capabilities_override=_W8_CAPABILITIES)
+    required = evaluate_gate(report, {"checks": [{
+        "name": "ttft_p95", "path": "latency.ttft.p95", "kind": "percentile",
+        "thresholdMs": 15000, "samplesPath": "latency.ttft.samples",
+        "minSamples": 50, "requireSamples": True,
+    }]})
+    optional = evaluate_gate(report, {"checks": [{
+        "name": "ttft_p95", "path": "latency.ttft.p95", "kind": "percentile",
+        "thresholdMs": 15000, "samplesPath": "latency.ttft.samples",
+        "minSamples": 50, "requireSamples": False,
+    }]})
+    ok = (
+        required.ok is False and required.checks[0].status == "unmeasured"
+        and optional.ok is True and optional.checks[0].status == "skipped"
+    )
+    return CaseResult("contract.unmeasured_gate", "contract", ok,
+                      "missing samples fail only when the check requires them",
+                      {"required": required.to_dict(), "optional": optional.to_dict()})
+
+
+def contract_alert_metric_names() -> CaseResult:
+    rules_path = Path(__file__).resolve().parents[4] / "deploy" / "prometheus" / "blackeclipse.rules.yml"
+    if not rules_path.exists():
+        return CaseResult("contract.alert_metric_names", "contract", False,
+                          "the shipped alert rules file is missing", {"path": str(rules_path)})
+    text = rules_path.read_text(encoding="utf-8")
+    referenced: set[str] = set()
+    for match in re.findall(r"\beclipse_[a-zA-Z0-9_]+", text):
+        base = re.sub(r"_(bucket|sum|count)$", "", match)
+        referenced.add(base)
+    available = probe_metric_names(runs=6)
+    missing = sorted(referenced - available)
+    ok = bool(referenced) and not missing
+    return CaseResult("contract.alert_metric_names", "contract", ok,
+                      "every alert metric exists in the shipped exposition",
+                      {"referenced": sorted(referenced), "missing": missing})
+
+
 CASES: tuple[Callable[[], CaseResult], ...] = (
     fault_retry_429,
     fault_retry_500,
@@ -360,6 +606,18 @@ CASES: tuple[Callable[[], CaseResult], ...] = (
     contract_tool_manifest,
     contract_slo_report,
     contract_plugin_sdk,
+    signal_model_attempt,
+    signal_model_ttft,
+    signal_context_compression,
+    signal_tool_batch,
+    signal_integrity_unknown_effect,
+    signal_integrity_lease_lost,
+    signal_file_checkpoint,
+    signal_goal_verdict,
+    signal_skill_evaluation,
+    contract_slo_report_v2,
+    contract_unmeasured_gate,
+    contract_alert_metric_names,
 )
 
 

@@ -101,6 +101,9 @@ class AutomationEngine:
         self._worker_id = worker_id or f"worker_{uuid.uuid4().hex[:8]}"
         self._bus = getattr(service, "bus", None)
         self._task: Optional[asyncio.Task[Any]] = None
+        # W4: heartbeat hooks ride THIS tick. A hook is a coroutine taking the
+        # current UTC datetime; a failure is logged and never breaks scheduling.
+        self._tick_hooks: list[Any] = []
         self._active: dict[str, asyncio.Task[Any]] = {}
         self._loop_ref: Optional[asyncio.AbstractEventLoop] = None
         self._unsubscribe: Optional[Callable[[], None]] = None
@@ -273,6 +276,16 @@ class AutomationEngine:
                 definition, trigger_type=definition.trigger.type,
                 trigger_ref=None, scheduled_for=to_utc_iso(now),
             )
+        for hook in list(self._tick_hooks):
+            try:
+                await hook(now)
+            except Exception:  # noqa: BLE001 - a heartbeat must never break automation
+                log.warning("automation tick hook failed", exc_info=True)
+
+    def add_tick_hook(self, hook: Any) -> None:
+        """Register a coroutine hook called once per scheduling pass (W4)."""
+        if hook not in self._tick_hooks:
+            self._tick_hooks.append(hook)
 
     async def _file_watch_tick(self) -> None:
         for definition in self._store.event_subscribers(FILE_CHANGED_EVENT):

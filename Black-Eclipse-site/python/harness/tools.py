@@ -458,6 +458,17 @@ class ToolDefinition:
     # budget), and the graph additionally caps it at the run's remaining time. Use
     # only for a tool that owns an internal deadline + returns bounded partials.
     long_running: bool = False
+    # ── Tool execution (W3) ────────────────────────────────────────────────
+    # A tool that waits for a human (clarify, approval, ask_user). Always serial.
+    interactive: bool = False
+    # Whether this tool may share a read-only batch with other parallel-safe
+    # calls. None means "not audited" and therefore serial: `permission == read`
+    # is not proof of concurrency safety (caches, stores, rate-limited sources).
+    parallel_safe: Optional[bool] = None
+    # Discovery metadata (W3.3). Additive and never part of the model-facing
+    # schema; `tags` are synonyms/task words, `domain` groups the catalogue.
+    tags: tuple[str, ...] = ()
+    domain: str = ""
 
 
 def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:

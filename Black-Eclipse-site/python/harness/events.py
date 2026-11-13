@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any, Callable, Optional
 
+from .config.flags import get_bool
 from .execution_log import ExecutionEventLog
 from .persistence import AgentMemoryStore, now_iso
 
@@ -91,6 +93,52 @@ class RunEmitter:
         self._log = log
 
     async def emit(self, event_type: str, data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        event = self._durable_event(event_type, data)
+        if self._bus:
+            self._bus.publish(event)
+        if self._log is not None:
+            try:
+                self._log.append("run", self.run_id, event_type, event["data"])
+            except Exception:  # noqa: BLE001 - the canonical log is fail-open
+                pass
+        return event
+
+    def emit_sync(self, event_type: str, data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Persist + publish an event from a SYNC seam (no await).
+
+        Used for a low-frequency advisory signal that originates in synchronous
+        registry code (e.g. a one-per-run deprecation warning). It shares the same
+        sequence/persistence/bus path as `emit`; a persistence failure is
+        swallowed (an advisory must never break a tool call).
+        """
+        event = self._durable_event(event_type, data)
+        if self._bus:
+            self._bus.publish(event)
+        if self._log is not None:
+            try:
+                self._log.append("run", self.run_id, event_type, event["data"])
+            except Exception:  # noqa: BLE001 - the canonical log is fail-open
+                pass
+        return event
+
+    def _durable_event(
+        self, event_type: str, data: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Allocate the durable sequence (W6) or fall back to the local counter.
+
+        The store allocator runs inside `BEGIN IMMEDIATE`, so two emitters for
+        one run cannot allocate the same seq. When `HARNESS_EVENT_SEQ=off` the
+        legacy per-emitter behaviour is restored exactly.
+        """
+        if get_bool("HARNESS_EVENT_SEQ"):
+            from .event_sequence import get_event_sequence  # noqa: PLC0415
+
+            sequence = get_event_sequence(self._store)
+            if sequence is not None:
+                try:
+                    return sequence.append(self.run_id, event_type, data)
+                except Exception:  # noqa: BLE001 - losing an event must not kill the run
+                    log.error("failed to persist sequenced event %s", event_type, exc_info=True)
         self._seq += 1
         event = {
             "id": f"evt_{self.run_id}_{self._seq}",
@@ -104,43 +152,7 @@ class RunEmitter:
             self._store.append_event(self.run_id, event_type, event["seq"], event["data"])
         except Exception:  # noqa: BLE001 - losing an event must not kill the run
             log.error("failed to persist event %s", event_type, exc_info=True)
-        if self._bus:
-            self._bus.publish(event)
-        if self._log is not None:
-            try:
-                self._log.append("run", self.run_id, event_type, event["data"])
-            except Exception:  # noqa: BLE001 - the canonical log is fail-open
-                pass
         return event
-
-    def emit_sync(self, event_type: str, data: Optional[dict[str, Any]] = None) -> None:
-        """Persist + publish an event from a SYNC seam (no await).
-
-        Used for a low-frequency advisory signal that originates in synchronous
-        registry code (e.g. a one-per-run deprecation warning). It shares the same
-        sequence/persistence/bus path as `emit`; a persistence failure is
-        swallowed (an advisory must never break a tool call).
-        """
-        self._seq += 1
-        event = {
-            "id": f"evt_{self.run_id}_{self._seq}",
-            "runId": self.run_id,
-            "type": event_type,
-            "seq": self._seq,
-            "at": now_iso(),
-            "data": data or {},
-        }
-        try:
-            self._store.append_event(self.run_id, event_type, event["seq"], event["data"])
-        except Exception:  # noqa: BLE001 - losing an advisory event must not kill the run
-            log.error("failed to persist event %s", event_type, exc_info=True)
-        if self._bus:
-            self._bus.publish(event)
-        if self._log is not None:
-            try:
-                self._log.append("run", self.run_id, event_type, event["data"])
-            except Exception:  # noqa: BLE001 - the canonical log is fail-open
-                pass
 
     def emit_transient(self, event_type: str, data: Optional[dict[str, Any]] = None) -> None:
         """Publish a live-only event (no persistence, no sequence).
@@ -152,10 +164,13 @@ class RunEmitter:
         """
         self._seq += 1
         event = {
-            "id": f"evt_{self.run_id}_{self._seq}",
+            # A transient event is never persisted, so it lives outside the
+            # durable `(runId, seq)` space: a unique id and a NEGATIVE seq avoid
+            # colliding with (or being mistaken for) a durable event.
+            "id": f"evt_{self.run_id}_t_{uuid.uuid4().hex[:12]}",
             "runId": self.run_id,
             "type": event_type,
-            "seq": self._seq,
+            "seq": -self._seq,
             "at": now_iso(),
             "data": data or {},
             "transient": True,

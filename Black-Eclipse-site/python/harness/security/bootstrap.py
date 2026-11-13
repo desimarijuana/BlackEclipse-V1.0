@@ -10,9 +10,11 @@ per-subsystem authorizers remain the authority (never an implicit allow).
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Optional
 
 from .config import SecurityConfig
+from .effect_tokens import token_mode
 from .gateway import SecurityGateway
 from .network import NetworkPolicyEngine, default_network_engine
 from .policy import PolicyEngine
@@ -21,10 +23,32 @@ from .secrets import build_default_secrets_manager
 log = logging.getLogger("harness.security.bootstrap")
 
 _GATEWAY: Optional[SecurityGateway] = None
+_SHADOW_WARNED = False
+
+
+def warn_if_shadow() -> None:
+    """Say plainly when effect tokens are recording but not blocking (W6).
+
+    `HARNESS_EFFECT_TOKENS=shadow` is a migration window, not a safe default for
+    production. One warning per process; a development profile is exempt.
+    """
+    global _SHADOW_WARNED
+    if _SHADOW_WARNED or token_mode() != "shadow":
+        return
+    _SHADOW_WARNED = True
+    profile = (os.environ.get("BE_PROFILE") or os.environ.get("BLACK_ECLIPSE_ENVIRONMENT")
+               or os.environ.get("NODE_ENV") or "prod").strip().lower()
+    if profile in ("dev", "development", "test", "testing"):
+        return
+    log.warning(
+        "HARNESS_EFFECT_TOKENS=shadow: replayed or widened effectful calls are "
+        "recorded, not blocked. Set HARNESS_EFFECT_TOKENS=enforce for production."
+    )
 
 
 def install_security_layer(service: Any, *, config: Optional[SecurityConfig] = None) -> Optional[SecurityGateway]:
     """Construct and attach the process-wide security gateway (idempotent)."""
+    warn_if_shadow()
     existing = getattr(service, "_security_gateway", None)
     if existing is not None:
         _set_gateway(existing)
@@ -115,4 +139,5 @@ __all__ = [
     "set_gateway",
     "start_security",
     "stop_security",
+    "warn_if_shadow",
 ]

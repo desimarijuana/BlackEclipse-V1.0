@@ -27,6 +27,8 @@ import {
   type HandlerOutput,
 } from "./command-handler-kit";
 import { workspaceHandlers } from "./command-handlers-workspace";
+import { autonomyHandlers } from "./command-handlers-autonomy";
+import { devHandlers } from "./command-handlers-dev";
 import { summarizeCommandAudit } from "./command-audit";
 
 export { fail, frontDoorError };
@@ -111,6 +113,8 @@ function renderCommandDetail(spec: CommandSpec): ResponseBlock[] {
 
 export const handlers: Record<string, Handler> = {
   ...workspaceHandlers,
+  ...autonomyHandlers,
+  ...devHandlers,
 
   "native.help": async (_ctx, _spec, args, _deps) => {
     const topic = (Array.isArray(args.positionals.command) ? (args.positionals.command as string[]) : [])
@@ -792,6 +796,7 @@ export const handlers: Record<string, Handler> = {
     };
   },
 
+  
   "code.task": async (_ctx, _spec, args, deps) => {
     const query = (Array.isArray(args.positionals.task) ? (args.positionals.task as string[]) : [])
       .join(" ")

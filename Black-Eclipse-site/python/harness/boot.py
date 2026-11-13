@@ -84,6 +84,12 @@ async def _boot() -> None:
         log.info("[harness-py] boot %-22s %6d ms", step, int((now - _t) * 1000))
         _t = now
 
+    # W0: strict flag validation is opt-in. When enabled, a typo in a known
+    # feature flag fails boot instead of silently running the default path.
+    from .config.flags import assert_valid  # noqa: PLC0415
+
+    assert_valid()
+
     # Deployment guard (end-to-end): the Python bind AND the front door's auth
     # posture, so a public bind that is reachable without a login — or a required
     # login that cannot work — is named here, not discovered later. A public bind

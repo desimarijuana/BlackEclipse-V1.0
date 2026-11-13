@@ -42,6 +42,19 @@ MANDATORY_DIMENSIONS = frozenset(
     }
 )
 
+# W5.1: the behavioural gate applies to skills the system authored or learned.
+# A bundled skill is already trusted and enabled; forcing it to re-execute on
+# every upgrade would break zero-config and is not what "learned skill" means.
+_EXECUTION_GATED_ORIGINS = frozenset({"learning"})
+
+
+def execution_gate_applies(manifest: SkillManifest) -> bool:
+    """Whether this skill version must prove behaviour before it can enable."""
+    return (
+        str(manifest.id or "").startswith("learned.")
+        or str(manifest.origin or "") in _EXECUTION_GATED_ORIGINS
+    )
+
 
 def _json_schema_ok(schema: Any) -> tuple[bool, str]:
     if not isinstance(schema, dict):
@@ -249,6 +262,8 @@ def evaluate_skill(
     base_version: Optional[str] = None,
     metrics: Optional[dict[str, Any]] = None,
     base_metrics: Optional[dict[str, Any]] = None,
+    require_execution: Optional[bool] = None,
+    execution_invoker: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Run the deterministic evaluation for one skill version and persist it."""
     manifest = registry.manifest(skill_id)
@@ -271,6 +286,23 @@ def evaluate_skill(
 
     fingerprint = evaluation_fingerprint(manifest, registry, resolved_version)
     stored_version = registry.store.get_version(skill_id, resolved_version) or {}
+    execution_required = bool(require_execution) and execution_gate_applies(manifest)
+    execution_cached = True
+    if execution_required:
+        # A static-only pass must never be "held" as if behaviour had run. The
+        # cache key includes execution evidence: same fingerprint AND a stored
+        # execution record for that fingerprint.
+        try:
+            prior = registry.store.list_evaluations(skill_id, limit=5)
+        except Exception:  # noqa: BLE001
+            prior = []
+        execution_cached = any(
+            str(row.get("version")) == str(resolved_version)
+            and str(row.get("status")) == "passed"
+            and row.get("executionFingerprint") == fingerprint
+            and row.get("executionRunIds")
+            for row in prior
+        )
     if (
         # An explicit regression re-check must actually re-run: the whole point
         # is to compare against the declared base again, not to return a held
@@ -278,6 +310,7 @@ def evaluate_skill(
         not run_regression
         and stored_version.get("evaluationStatus") == "passed"
         and stored_version.get("evalFingerprint") == fingerprint
+        and execution_cached
     ):
         # An unchanged passed version is held. No row is appended and the
         # previous evaluation is not superseded.
@@ -325,7 +358,13 @@ def evaluate_skill(
 
     # 7. Attached test cases (schema cases run deterministically).
     cases = registry.store.list_evaluation_cases(skill_id, resolved_version)
-    case_results = _run_cases(manifest, cases)
+    from .execution_eval import EXECUTION_KINDS  # noqa: PLC0415
+
+    deterministic_cases = [
+        case for case in cases
+        if str(case.get("kind") or "") not in EXECUTION_KINDS
+    ]
+    case_results = _run_cases(manifest, deterministic_cases)
     case_failures = [c for c in case_results if c["status"] == "failed"]
     dimensions.append({
         "name": "test_cases",
@@ -333,6 +372,34 @@ def evaluate_skill(
         "detail": f"{len(case_results) - len(case_failures)}/{len(case_results)} cases passed" if case_results else "no cases attached",
         "mandatory": False,
     })
+
+    # 7b. Behavioural execution tier (W5.1). Opt-in per caller: the production
+    # promotion/enable paths pass the flag, while a direct static evaluation keeps
+    # its historical shape. Absence of execution cases is `needs_review`, never a
+    # pass; absence of a runner is honest, never simulated.
+    execution_needed = execution_required
+    execution_result = None
+    if execution_needed:
+        from .execution_eval import EXECUTION_KINDS, evaluate_skill_execution  # noqa: PLC0415
+
+        execution_cases = [
+            case for case in cases
+            if str(case.get("kind") or "") in EXECUTION_KINDS
+        ]
+        execution_result = evaluate_skill_execution(
+            manifest, execution_cases,
+            invoker=execution_invoker, fingerprint=fingerprint,
+        )
+        execution_status = execution_result.status
+        dimensions.append({
+            "name": "execution_eval",
+            "status": execution_status,
+            "detail": execution_result.reason,
+            "mandatory": False,
+            "blocking": True,
+            "executionRunIds": list(execution_result.runIds),
+            "graderScores": dict(execution_result.graderScores),
+        })
 
     # 8. Evidence & reporting shape.
     evidence_ok, evidence_detail = _evidence_shape(manifest)
@@ -394,6 +461,11 @@ def evaluate_skill(
         summary=summary,
         cases=None,
         fingerprint=fingerprint,
+        execution_run_ids=list(execution_result.runIds) if execution_result else None,
+        execution_scores=dict(execution_result.graderScores) if execution_result else None,
+        execution_fingerprint=(
+            execution_result.fingerprint if execution_result else None
+        ),
     )
     try:
         registry.store.supersede_evaluations(
@@ -403,6 +475,20 @@ def evaluate_skill(
         pass
     registry.store.append_event("skill.evaluation_completed", skill_id=skill_id, version=resolved_version,
                                 data={"evaluationId": evaluation_id, "status": status})
+    # W8: a durable SkillEvent row is not visible to the observability projector,
+    # so publish the same outcome through the bridge.
+    try:
+        from ..observability.bridge import publish  # noqa: PLC0415
+
+        publish("skill.evaluation_completed", {
+            "status": status,
+            "ok": bool(execution_result.ok) if execution_result is not None else status == "passed",
+            "cases": len(cases or []),
+            "executionCases": len(execution_cases) if execution_result is not None else 0,
+            "executionStatus": execution_result.status if execution_result is not None else None,
+        })
+    except Exception:  # noqa: BLE001 - telemetry must not fail an evaluation
+        pass
 
     return {
         "ok": True,
@@ -414,6 +500,7 @@ def evaluate_skill(
         "dimensions": dimensions,
         "cases": case_results,
         "fingerprint": fingerprint,
+        "execution": execution_result.to_dict() if execution_result else None,
     }
 
 
@@ -622,12 +709,40 @@ def promotion_gate(
     evaluation: dict[str, Any],
     *,
     allow_needs_review: bool = False,
+    require_execution: bool = False,
+    store: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Decide whether an evaluation clears the promotion gate.
 
     A `blocked` evaluation never promotes. A `needs_review` evaluation promotes
     only when the operator explicitly allows soft issues.
+
+    When ``require_execution`` is on, a static-only evaluation is not enough:
+    the record must carry execution run ids, and (when a ``store`` is supplied)
+    those executions must exist for the same skill/version. This is the W5.1
+    gate; it can never be satisfied by a schema-only pass.
     """
+    if require_execution:
+        run_ids = list(evaluation.get("executionRunIds") or [])
+        if not run_ids:
+            return {
+                "passed": False,
+                "reason": "execution evaluation required: no execution run ids on this evaluation",
+            }
+        if store is not None:
+            try:
+                executions = store.list_executions(
+                    evaluation.get("skillId"), limit=500,
+                )
+            except Exception:  # noqa: BLE001 - store lookup failure is not a pass
+                executions = []
+            existing = {str(row.get("runId")) for row in executions}
+            missing = [str(run_id) for run_id in run_ids if str(run_id) not in existing]
+            if missing:
+                return {
+                    "passed": False,
+                    "reason": f"execution evaluation required: run ids do not exist ({', '.join(missing)})",
+                }
     status = evaluation.get("status")
     if status == "passed":
         return {"passed": True, "reason": "all mandatory checks passed"}
@@ -641,4 +756,9 @@ def promotion_gate(
     return {"passed": False, "reason": f"unknown evaluation status {status!r}"}
 
 
-__all__ = ["MANDATORY_DIMENSIONS", "evaluate_skill", "promotion_gate"]
+__all__ = [
+    "MANDATORY_DIMENSIONS",
+    "evaluate_skill",
+    "execution_gate_applies",
+    "promotion_gate",
+]

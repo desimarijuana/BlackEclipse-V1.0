@@ -121,6 +121,78 @@ def test_idempotency_key_is_stable_and_scoped():
     assert a != idempotency_key("other", 1, "c1")
 
 
+def test_save_boundary_commits_messages_and_checkpoint_together(store):
+    from langchain_core.messages import HumanMessage
+
+    store.create_run("r_boundary", "a", {"query": "x"})
+    lineage = RunLineage(store)
+    checkpoint = lineage.save_boundary(
+        "r_boundary", "agent_step", {"step": 1},
+        [HumanMessage(content="hello")],
+    )
+    assert checkpoint["seq"] == 0
+    assert checkpoint["payload"]["messageSeq"] == 0
+    assert lineage.message_cursor("r_boundary") == 0
+    assert lineage.load_messages("r_boundary")[0].content == "hello"
+
+
+def test_save_boundary_rolls_back_the_cursor_when_the_checkpoint_fails(store, monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    from harness.run_lineage import CheckpointWriteFailed
+
+    store.create_run("r_atomic", "a", {"query": "x"})
+    lineage = RunLineage(store)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("checkpoint insert failed")
+
+    monkeypatch.setattr(lineage, "_insert_checkpoint_locked", boom)
+    with pytest.raises(CheckpointWriteFailed):
+        lineage.save_boundary(
+            "r_atomic", "agent_step", {"step": 1},
+            [HumanMessage(content="should not persist")],
+        )
+    assert lineage.message_cursor("r_atomic") is None
+    assert lineage.list_checkpoints("r_atomic") == []
+
+
+def test_predispatch_idempotency_states(store):
+    from types import SimpleNamespace
+
+    store.create_run("r_idem", "a", {"query": "x"})
+    lineage = RunLineage(store)
+
+    lineage.mark_tool_started("r_idem", 2, "call_1", "write_file")
+    started = lineage.was_tool_executed("r_idem", 2, "call_1")
+    assert started["state"] == "started"
+
+    lineage.mark_tool_unknown("r_idem", 2, "call_1")
+    assert lineage.was_tool_executed("r_idem", 2, "call_1")["state"] == "unknown"
+
+    result = SimpleNamespace(name="write_file", ok=True, text="done", error=None)
+    lineage.mark_tool_done("r_idem", 2, "call_1", result)
+    done = lineage.was_tool_executed("r_idem", 2, "call_1")
+    assert done["state"] == "done" and done["text"] == "done"
+
+    # A late re-start must never downgrade a completed call.
+    lineage.mark_tool_started("r_idem", 2, "call_1", "write_file")
+    assert lineage.was_tool_executed("r_idem", 2, "call_1")["state"] == "done"
+
+
+def test_mark_tool_executed_remains_a_done_alias(store):
+    from types import SimpleNamespace
+
+    store.create_run("r_alias", "a", {"query": "x"})
+    lineage = RunLineage(store)
+    lineage.mark_tool_executed(
+        "r_alias", 1, "call_old",
+        SimpleNamespace(name="read_file", ok=True, text="ok", error=None),
+    )
+    assert lineage.was_tool_executed("r_alias", 1, "call_old")["state"] == "done"
+
+
+
 # ── End-to-end: a child run records its parent ───────────────────────────────
 
 

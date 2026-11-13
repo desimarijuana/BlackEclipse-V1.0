@@ -108,6 +108,7 @@ def auto_draft_ready_candidates(
 
 def evaluate_used_skills(
     registry: Any, *, min_uses: int = 3, limit: int = 50,
+    execution_invoker: Any = None,
 ) -> dict[str, Any]:
     """Evaluate learned skills after enough real uses; retire if non-discriminating.
 
@@ -136,7 +137,13 @@ def evaluate_used_skills(
             continue
         if registry.load_stored(skill_id) is None:
             continue
-        result = evaluate_skill(skill_id, row.get("latestVersion"), registry)
+        from ..config.flags import get_bool  # noqa: PLC0415
+
+        result = evaluate_skill(
+            skill_id, row.get("latestVersion"), registry,
+            require_execution=get_bool("HARNESS_SKILL_EXEC_EVAL"),
+            execution_invoker=execution_invoker,
+        )
         retired = retire_non_discriminating(
             store, skill_id, str(row.get("latestVersion") or ""), result,
         )
@@ -149,7 +156,9 @@ def evaluate_used_skills(
     return {"ok": True, "minUses": min_uses, "evaluated": evaluated}
 
 
-def evaluate_drafted_skills(registry: Any, *, limit: int = 50) -> dict[str, Any]:
+def evaluate_drafted_skills(
+    registry: Any, *, limit: int = 50, execution_invoker: Any = None,
+) -> dict[str, Any]:
     """Run the deterministic evaluation for every learned draft (never enable).
 
     This closes the creation → evaluation step automatically. Promotion remains
@@ -170,8 +179,12 @@ def evaluate_drafted_skills(registry: Any, *, limit: int = 50) -> dict[str, Any]
             skipped.append({"skillId": skill_id, "reason": "manifest_unreadable"})
             continue
         try:
+            from ..config.flags import get_bool  # noqa: PLC0415
+
             result = evaluate_skill(
                 skill_id, row.get("latestVersion"), registry,
+                require_execution=get_bool("HARNESS_SKILL_EXEC_EVAL"),
+                execution_invoker=execution_invoker,
             )
         except Exception as error:  # noqa: BLE001 - one bad draft never stops the sweep
             skipped.append({"skillId": skill_id, "reason": f"{type(error).__name__}: {error}"})
@@ -429,6 +442,34 @@ def propose_draft(
         {"caseId": "no_fabrication", "name": "Output states limitations/missing data",
          "kind": "schema", "input": {"objective": "example objective"},
          "expected": {"requiresReportedDerivedEvidence": True}},
+        # W5.1 behavioural cases: the draft must actually run and report gaps
+        # honestly. The honesty grader requires the output to name limitations,
+        # so a skill that silently invents a result cannot pass.
+        {
+            "caseId": "execution_basic", "name": "Executes the procedure and reports limitations",
+            "kind": "execution", "input": {"objective": "Run the documented procedure on a typical input."},
+            "graders": [{"name": "honesty", "config": {
+                "require_markers": ["limitation", "limitations", "missing"],
+                "forbid_markers": ["guaranteed", "risk-free"],
+            }}],
+        },
+        {
+            "caseId": "execution_missing_data", "name": "Names missing data instead of inventing it",
+            "kind": "execution", "input": {"objective": "Run the procedure when a required input is unavailable."},
+            "graders": [{"name": "honesty", "config": {
+                "require_markers": ["limitation", "missing"],
+                "forbid_markers": ["guaranteed", "risk-free"],
+            }}],
+            "envState": {"dataAvailable": False},
+        },
+        {
+            "caseId": "execution_evidence", "name": "Keeps evidence attached to the result",
+            "kind": "execution", "input": {"objective": "Run the procedure and return its evidence."},
+            "graders": [{"name": "honesty", "config": {
+                "require_markers": ["limitation", "evidence"],
+                "forbid_markers": ["guaranteed", "risk-free"],
+            }}],
+        },
     ]
 
     # Persist the draft onto the candidate and store as an inert version.

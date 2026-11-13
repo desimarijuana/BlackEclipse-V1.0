@@ -103,14 +103,19 @@ class SLO:
         p50 = self.percentile(0.50)
         p95 = self.percentile(0.95)
         p99 = self.percentile(0.99)
-        if self.kind == "percentile":
+        measured = self.total > 0
+        if not measured:
+            # No samples is UNMEASURED, never healthy and never breaching. The
+            # gate decides whether a required objective may be missing.
+            healthy: Optional[bool] = None
+        elif self.kind == "percentile":
             healthy = p95 is None or self.threshold is None or p95 <= float(self.threshold)
         elif self.kind == "rate":
             allowed = float(self.threshold if self.threshold is not None else 0.0)
             healthy = (self._failure_ratio is None) or (self._failure_ratio <= allowed)
         else:
             healthy = compliance is None or compliance >= self.target
-        if not healthy:
+        if healthy is False:
             self.violations += 1
         return {
             "name": self.name,
@@ -119,6 +124,7 @@ class SLO:
             "threshold": self.threshold,
             "unit": self.unit,
             "compliance": None if compliance is None else round(compliance, 5),
+            "measured": measured,
             "healthy": healthy,
             "total": self.total,
             "good": self.good,
@@ -169,6 +175,31 @@ class SLORegistry:
         self._slos[name] = slo
         return slo
 
+    def ensure(
+        self,
+        name: str,
+        target: float,
+        *,
+        description: str = "",
+        window: int = 1000,
+        kind: str = "ratio",
+        threshold: Optional[float] = None,
+        unit: str = "",
+    ) -> SLO:
+        """Register an objective once and keep its counters.
+
+        `define` replaces (tests and reconfiguration); `ensure` is the runtime
+        seam. The pre-W8 code called `define` on every event, which silently
+        reset the objective's samples each time.
+        """
+        existing = self._slos.get(name)
+        if existing is not None:
+            return existing
+        return self.define(
+            name, target, description=description, window=window,
+            kind=kind, threshold=threshold, unit=unit,
+        )
+
     def get(self, name: str) -> Optional[SLO]:
         return self._slos.get(name)
 
@@ -188,10 +219,12 @@ class SLORegistry:
 
     def report(self) -> dict[str, Any]:
         evaluations = [slo.evaluate() for slo in self._slos.values()]
-        violating = [e for e in evaluations if not e["healthy"]]
+        violating = [e for e in evaluations if e["healthy"] is False]
+        unmeasured = [e["name"] for e in evaluations if not e["measured"]]
         return {
             "objectives": evaluations,
             "violations": violating,
+            "unmeasured": unmeasured,
             "allHealthy": not violating,
         }
 

@@ -30,6 +30,7 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px}
 .bar{height:6px;background:#1d2329;border-radius:99px;overflow:hidden;margin-top:10px}
 .bar>span{display:block;height:100%;background:#6ee7a8}
 .bar.warn>span{background:#f6c177}.bar.crit>span{background:#ff8f8f}
+.bar.muted>span{background:#4b5563}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #1d2329;font-variant-numeric:tabular-nums}
 th{color:#9aa0a6;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
@@ -51,15 +52,22 @@ def _num(value: Any, digits: int = 2, suffix: str = "") -> str:
         return _e(value)
 
 
-def _status(healthy: bool) -> str:
+def _status(healthy: Any) -> str:
+    if healthy is None:
+        return '<span class="muted">unmeasured</span>'
     return '<span class="ok">healthy</span>' if healthy else '<span class="bad">breaching</span>'
 
 
 def _slo_card(slo: dict[str, Any]) -> str:
     remaining = slo.get("errorBudgetRemaining")
-    health = bool(slo.get("healthy"))
+    healthy = slo.get("healthy")
+    measured = bool(slo.get("measured", healthy is not None))
+    health = bool(healthy)
     remaining_pct = 100.0 if remaining is None else max(0.0, min(1.0, float(remaining))) * 100.0
-    bar_class = "" if remaining_pct > 50 else ("warn" if remaining_pct > 10 else "crit")
+    bar_class = "" if measured and health else "muted"
+    state_class = "muted" if healthy is None else ("ok" if health else "bad")
+    if measured and remaining_pct <= 50:
+        bar_class = "warn" if remaining_pct > 10 else "crit"
     kind = str(slo.get("kind") or "ratio")
     detail = ""
     if kind == "percentile":
@@ -78,13 +86,13 @@ def _slo_card(slo: dict[str, Any]) -> str:
     return (
         '<div class="card">'
         f'<h2>{_e(slo.get("name"))}</h2>'
-        f'<div class="big {("ok" if health else "bad")}">'
-        f'{_status(health)}</div>'
+        f'<div class="big {state_class}">'
+        f'{_status(healthy)}</div>'
         f'<div class="row"><span>compliance</span><span>{_num(None if compliance is None else float(compliance) * 100, 2, "%")}</span></div>'
         f'<div class="row"><span>samples</span><span>{_e(slo.get("total"))}</span></div>'
         f'{detail}'
-        f'<div class="row"><span>error budget</span><span>{_num(remaining_pct, 1, "%")}</span></div>'
-        f'<div class="row"><span>burn rate</span><span>{_num(slo.get("burnRate"), 2, "×")}</span></div>'
+        f'<div class="row"><span>error budget</span><span>{_num(remaining_pct, 1, "%") if measured else "—"}</span></div>'
+        f'<div class="row"><span>burn rate</span><span>{_num(slo.get("burnRate"), 2, "×") if measured else "—"}</span></div>'
         f'<div class="bar {bar_class}"><span style="width:{remaining_pct:.1f}%"></span></div>'
         f'<div class="foot">{_e(slo.get("description") or "")}</div>'
         "</div>"
@@ -97,6 +105,9 @@ def render_dashboard(report: dict[str, Any], *, refresh_s: int = 15) -> str:
     resume = report.get("resume") or {}
     cost = report.get("cost") or {}
     tools = report.get("tools") or {}
+    model = report.get("model") or {}
+    context = report.get("context") or {}
+    integrity = report.get("integrity") or {}
     failures = report.get("failures") or {}
     slos = (report.get("slos") or {})
     objectives = slos.get("objectives") or []
@@ -139,12 +150,37 @@ def render_dashboard(report: dict[str, Any], *, refresh_s: int = 15) -> str:
 <div class="card"><h2>Tools</h2>
 <div class="row"><span>calls</span><span>{_e(tools.get("calls"))}</span></div>
 <div class="row"><span>errors</span><span>{_e(tools.get("errors"))}</span></div>
+<div class="row"><span>batches</span><span>{_e((tools.get("batches") or {}).get("count"))}</span></div>
+<div class="row"><span>ordering violations</span><span>{_e((tools.get("batches") or {}).get("orderingViolations"))}</span></div>
+<div class="row"><span>guardrail halts</span><span>{_e((tools.get("guardrails") or {}).get("halt"))}</span></div>
+</div>
+<div class="card"><h2>Model</h2>
+<div class="row"><span>attempts</span><span>{_e(model.get("attempts"))}</span></div>
+<div class="row"><span>fallbacks</span><span>{_e(model.get("fallbacks"))}</span></div>
+<div class="row"><span>fallback success</span><span>{_num(None if model.get("fallbackSuccessRate") is None else float(model["fallbackSuccessRate"]) * 100, 2, "%")}</span></div>
+<div class="row"><span>attempts / run p95</span><span>{_num((model.get("attemptsPerRun") or {}).get("p95"), 2)}</span></div>
+<div class="row"><span>TTFT p95</span><span>{_num((latency.get("ttft") or {}).get("p95"), 1, " ms")}</span></div>
+<div class="row"><span>TTFT timeouts</span><span>{_e(model.get("ttftTimeouts"))}</span></div>
+</div>
+<div class="card"><h2>Context</h2>
+<div class="row"><span>usage p95</span><span>{_num(None if (context.get("usageRatio") or {}).get("p95") is None else float(context["usageRatio"]["p95"]) * 100, 1, "%")}</span></div>
+<div class="row"><span>overflows</span><span>{_e(context.get("overflow"))}</span></div>
+<div class="row"><span>recovered</span><span>{_e(context.get("recovered"))}</span></div>
+<div class="row"><span>compactions</span><span>{_e((context.get("compactions") or {}).get("samples"))}</span></div>
+<div class="row"><span>compression failures</span><span>{_e((context.get("compactions") or {}).get("failures"))}</span></div>
+</div>
+<div class="card"><h2>Integrity</h2>
+<div class="row"><span>unknown effects</span><span>{_e(integrity.get("effectUnknown"))}</span></div>
+<div class="row"><span>leases lost</span><span>{_e(integrity.get("leaseLost"))}</span></div>
+<div class="row"><span>checkpoint write failures</span><span>{_e(integrity.get("checkpointWriteFailures"))}</span></div>
+<div class="row"><span>event-seq collisions</span><span>{_e(integrity.get("eventSeqCollisions"))}</span></div>
+<div class="row"><span>hardline blocks</span><span>{_e(integrity.get("hardlineBlocked"))}</span></div>
 </div>
 <div class="card"><h2>Failures by class</h2>
 <table><thead><tr><th>class</th><th>count</th></tr></thead>
 <tbody>{failure_rows}</tbody></table></div>
 </div>
-<p class="foot">Generated {_e(report.get("generatedAt"))} · report schema v1 · gate: <code>npm run gate:slo</code></p>
+<p class="foot">Generated {_e(report.get("generatedAt"))} · report schema v{_e(report.get("schema", 1))} · gate: <code>npm run gate:slo</code></p>
 </body></html>"""
 
 

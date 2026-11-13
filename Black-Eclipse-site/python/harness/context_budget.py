@@ -72,6 +72,11 @@ class ContextBudget:
     policy: str
     components: dict[str, int] = field(default_factory=dict)
     tighter: bool = False
+    # W2: measured pressure from the provider usage anchor, when available.
+    anchor_used_tokens: Optional[int] = None
+    anchor_anchored: bool = False
+    pressure: Optional[float] = None
+    gate: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +91,10 @@ class ContextBudget:
             "maxHistoryChars": self.max_history_chars,
             "policy": self.policy,
             "tighterRetry": self.tighter,
+            "anchorUsedTokens": self.anchor_used_tokens,
+            "anchorAnchored": self.anchor_anchored,
+            "pressure": self.pressure,
+            "gate": self.gate,
             "components": dict(self.components),
         }
 
@@ -123,6 +132,11 @@ def compute_history_budget(
     reserved_output_tokens: int = DEFAULT_RESERVED_OUTPUT_TOKENS,
     tighter: bool = False,
     window_override: Optional[int] = None,
+    anchor: Optional[Any] = None,
+    history_chars: int = 0,
+    gate_soft: float = 0.50,
+    gate_hard: float = 0.70,
+    gate_emergency: float = 0.85,
 ) -> ContextBudget:
     """Derive the history allowance from the measured request and the window.
 
@@ -163,9 +177,33 @@ def compute_history_budget(
             policy=UNKNOWN_WINDOW_POLICY,
             components=components,
             tighter=tighter,
+            anchor_used_tokens=None,
+            anchor_anchored=False,
+            pressure=None,
+            gate="unknown",
         )
 
-    usable = window - overhead - reserved_output_tokens
+    anchor_used: Optional[int] = None
+    anchor_anchored = bool(getattr(anchor, "anchored", False))
+    if anchor_anchored and getattr(anchor, "model_key", "") == f"{provider}/{model}":
+        try:
+            anchor_used = int(anchor.estimated_used(history_chars=int(history_chars)))
+        except Exception:  # noqa: BLE001 - a bad anchor falls back to the estimate
+            anchor_used = None
+    used = overhead if anchor_used is None else max(0, anchor_used)
+    pressure = (used / window) if window else None
+    if pressure is None:
+        gate = "unknown"
+    elif pressure >= gate_emergency:
+        gate = "emergency"
+    elif pressure >= gate_hard:
+        gate = "hard"
+    elif pressure >= gate_soft:
+        gate = "soft"
+    else:
+        gate = "continue"
+
+    usable = window - used - reserved_output_tokens
     usable = max(0, usable)
     usable = int(usable * (1.0 - SAFETY_MARGIN_RATIO))
     if tighter:
@@ -190,6 +228,10 @@ def compute_history_budget(
         policy=KNOWN_WINDOW_POLICY,
         components=components,
         tighter=tighter,
+        anchor_used_tokens=anchor_used,
+        anchor_anchored=anchor_anchored,
+        pressure=pressure,
+        gate=gate,
     )
 
 

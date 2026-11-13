@@ -73,6 +73,15 @@ def _verdict(command: str):
     text = str(command or "").strip()
     if not text:
         return terminal_mod.CommandVerdict("deny", "", "There was no command to run.")
+    # W6: the always-on command hardline runs before the allow/ask/deny
+    # classifier. It cannot be overridden by a grant, YOLO or approval.
+    from ..security.hardline import evaluate as _hardline  # noqa: PLC0415
+
+    fatal = _hardline(text)
+    if fatal is not None:
+        return terminal_mod.CommandVerdict(
+            "deny", "", f"That command is blocked ({fatal.rule}): {fatal.reason}."
+        )
     lowered = text.casefold()
     if any(bad in lowered for bad in terminal_mod._DENY_ARGS):
         return terminal_mod.CommandVerdict("deny", "", "That command could damage the computer, so I did not run it.")
@@ -112,10 +121,30 @@ async def shell_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     cwd = _resolve_cwd(ctx, model.cwd)
     if cwd is None:
         return _command_refusal("WORKSPACE_ESCAPE", "cwd must stay inside the workspace", command_class="shell")
+    # W7: a command that can write gets one shadow snapshot before it runs.
+    # A read-only command never pays for one.
+    try:
+        from .checkpoints import CheckpointError, command_may_write, snapshot  # noqa: PLC0415
+
+        if command_may_write(model.command):
+            snapshot(
+                getattr(resolved, "root", None) or cwd,
+                reason="before-terminal", run_id=str(getattr(ctx, "run_id", "") or ""),
+                turn_key=str(getattr(ctx, "run_id", "") or ""),
+            )
+    except CheckpointError as exc:
+        from ..config.flags import get_flag  # noqa: PLC0415
+
+        if get_flag("HARNESS_FILE_CHECKPOINTS") in ("on", "enforce"):
+            return _command_refusal(exc.code, exc.reason, command_class="shell")
+    except Exception:  # noqa: BLE001 - best-effort in warn/off
+        pass
     await emit_code_event(ctx, "command.started", {
         "commandClass": "shell", "program": verdict.program, "verdict": verdict.kind, "timeoutS": model.timeoutS,
     })
     result = shell_mod.run(model.command, cwd=cwd, timeout_s=model.timeoutS)
+    if result.status == "failed" and result.stderr.startswith("SANDBOX_UNAVAILABLE"):
+        return _command_refusal("SANDBOX_UNAVAILABLE", result.stderr, command_class="shell")
     event = "command.killed" if result.timed_out else "command.completed"
     await emit_code_event(ctx, event, {
         "commandClass": "shell", "program": verdict.program, "exitCode": result.exit_code,
@@ -176,7 +205,14 @@ async def shell_spawn(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
     cwd = _resolve_cwd(ctx, model.cwd)
     if cwd is None:
         return _command_refusal("WORKSPACE_ESCAPE", "cwd must stay inside the workspace", command_class="shell")
-    handle = shell_mod.spawn(model.command, cwd=cwd)
+    try:
+        handle = shell_mod.spawn(model.command, cwd=cwd)
+    except Exception as exc:  # noqa: BLE001 - a missing primitive is a named refusal
+        from .sandbox import SandboxUnavailable  # noqa: PLC0415
+
+        if isinstance(exc, SandboxUnavailable):
+            return _command_refusal("SANDBOX_UNAVAILABLE", str(exc), command_class="shell")
+        raise
     await emit_code_event(ctx, "command.started", {"commandClass": "shell", "program": verdict.program, "pid": handle.pid})
     return (f"Spawned process {handle.pid} (status=running). Use process_output/{handle.pid} to inspect.",
             {"status": "running", "pid": handle.pid, "command": model.command, "cwd": str(cwd)})

@@ -20,11 +20,14 @@ is returned unchanged — never a permissive stub.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Optional
 
+from . import hardline
 from .bootstrap import get_gateway
 from .classification import classify_tool
+from .effect_tokens import token_mode
 from .models import (
     ACTION_CODE_EXECUTE,
     ACTION_DEPLOY_PRODUCTION,
@@ -35,6 +38,29 @@ from .models import (
     Environment,
 )
 from .permissions import canonicalize_resource
+
+log = logging.getLogger("harness.security.integration")
+
+
+def _is_effectful(tool: Any) -> bool:
+    if getattr(tool, "effect", None):
+        return True
+    return str(getattr(tool, "permission", "read")) != "read"
+
+
+def _audit_hardline(active: Any, *, name: str, verdict: Any, tenant: Optional[str],
+                    session_id: str) -> None:
+    if active is None:
+        return
+    try:
+        active.audit_event(
+            type="security.hardline.blocked", category="hardline",
+            tool=name, action="shell.execute", decision=Decision.DENY.value,
+            result="denied", error=f"{verdict.rule}: {verdict.reason}",
+            tenant_id=tenant, session_id=session_id,
+        )
+    except Exception:  # noqa: BLE001 - audit is best effort; the denial stands
+        pass
 
 # The deploy actions whose very name implies an environment.
 _ENV_BY_ACTION = {
@@ -143,13 +169,36 @@ def make_security_authorizer(
     async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
         active = gateway or get_gateway()
         name = str(getattr(tool, "name", ""))
+        tenant = _tenant_for(ctx)
+        resolved_session = session_id or getattr(ctx, "session_id", None) or run_id
+
+        # W6: the always-on command hardline is evaluated FIRST, before the
+        # floor/policy/approval chain. No grant, YOLO or profile can override it.
+        verdict = hardline.evaluate(
+            hardline.command_from_args(args or {}), tool=name,
+        )
+        if verdict is not None:
+            _audit_hardline(
+                active, name=name, verdict=verdict, tenant=tenant,
+                session_id=str(resolved_session or run_id),
+            )
+            return False
+
         classification = classify_tool(name, args or {})
-        if active is None or classification is None:
+        if active is None:
+            # W6: under `enforce` an effectful call must not run without the
+            # gateway that mints its token. Shadow keeps today's behaviour.
+            if _is_effectful(tool) and token_mode() == "enforce":
+                log.error(
+                    "security gateway unavailable; refusing effectful tool %s "
+                    "(HARNESS_EFFECT_TOKENS=enforce)", name,
+                )
+                return False
+            return bool(await inner(tool, args, ctx)) if inner is not None else True
+        if classification is None:
             return bool(await inner(tool, args, ctx)) if inner is not None else True
         action, resource, permission = classification
         environment = _ENV_BY_ACTION.get(action, _environment_for(ctx))
-        tenant = _tenant_for(ctx)
-        resolved_session = session_id or getattr(ctx, "session_id", None) or run_id
         # Sandbox non-bypass: when a backend is required but absent, refuse the
         # execution BEFORE it can run, and record why.
         refusal = sandbox_requirement(action)

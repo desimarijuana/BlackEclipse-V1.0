@@ -1,7 +1,7 @@
 {
-  "digest": "b1048f03f32b6208",
+  "digest": "8e314b7245ccf458",
   "manifestVersion": "1",
-  "toolCount": 1091,
+  "toolCount": 1100,
   "tools": [
     {
       "deprecated": false,
@@ -5908,6 +5908,86 @@
     },
     {
       "deprecated": false,
+      "description": "Show what changed since a file snapshot, or between snapshots. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpointId": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "checkpointId"
+        ],
+        "type": "object"
+      },
+      "name": "checkpoint_diff",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the file snapshots Eclipse has taken for this project (newest first). Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "checkpoint_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Restore files from a snapshot. Effectful: requires an approval. Restores the named paths by default; `all` restores every tracked change. A pre-restore snapshot is always taken first.",
+      "effect": "write",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "all": {
+            "type": "boolean"
+          },
+          "checkpointId": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "checkpointId"
+        ],
+        "type": "object"
+      },
+      "name": "checkpoint_restore",
+      "permission": "write",
+      "replacement": null,
+      "risk": "medium",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Record a durable resume boundary for a long-running task.",
       "effect": null,
       "inputSchema": {
@@ -9611,9 +9691,21 @@
                   "description": "The one independent sub-question for this part.",
                   "type": "string"
                 },
+                "isolated": {
+                  "description": "Give a writing part its own disposable worktree. The parent gets a diff, never an automatic merge.",
+                  "type": "boolean"
+                },
                 "model": {
                   "description": "Run this part with a different model on the SAME provider (optional).",
                   "type": "string"
+                },
+                "output_schema": {
+                  "description": "Optional bounded JSON Schema this part's answer must satisfy. A miss gets one repair turn; the raw answer is kept.",
+                  "type": "object"
+                },
+                "schema_repair": {
+                  "description": "Allow one bounded repair turn when the output schema is missed (default true).",
+                  "type": "boolean"
                 },
                 "temperature": {
                   "description": "Sampling temperature for this part (optional; the parent's setting otherwise).",
@@ -9657,12 +9749,20 @@
             "description": "best_of only: the one task every attempt should try.",
             "type": "string"
           },
+          "isolated": {
+            "description": "best_of only: give each attempt its own worktree.",
+            "type": "boolean"
+          },
           "models": {
             "description": "best_of only: optional models to try per attempt. They must be on the SAME provider as this task; the provider and its credential do not change.",
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "output_schema": {
+            "description": "best_of only: optional JSON Schema every attempt must satisfy.",
+            "type": "object"
           },
           "strategy": {
             "description": "split: independent sub-questions (use children). best_of: the SAME task tried several ways, then the strongest verified result is chosen (use goal + count).",
@@ -9692,6 +9792,284 @@
       "permission": "read",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Start 1-4 independent parts in the BACKGROUND over the durable Execution Fabric and keep working. Returns a delegation id + job ids. Use delegate_status/result/cancel/steer to manage them. `delegate` is the synchronous variant.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_ids": {
+            "description": "best_of only: optional agents to use per attempt (they must be ones this task may use).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "aggregate": {
+            "description": "split only: how to combine the results.",
+            "enum": [
+              "list",
+              "compare",
+              "merge_claims"
+            ],
+            "type": "string"
+          },
+          "approaches": {
+            "description": "best_of only: optional different angles per attempt (e.g. 'retry with backoff', 'mock the API'). Guidance, never a claimed result.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "children": {
+            "description": "split only: the independent sub-questions to work on at once (1-4).",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "agent_id": {
+                  "description": "Run this part with a different agent (optional; defaults to this task's agent).",
+                  "type": "string"
+                },
+                "approach": {
+                  "description": "A short angle for this part (e.g. 'add a retry', 'mock the API'). Used as guidance and shown as the row label.",
+                  "type": "string"
+                },
+                "context": {
+                  "description": "Background ONLY this part needs.",
+                  "type": "string"
+                },
+                "goal": {
+                  "description": "The one independent sub-question for this part.",
+                  "type": "string"
+                },
+                "isolated": {
+                  "description": "Give a writing part its own disposable worktree. The parent gets a diff, never an automatic merge.",
+                  "type": "boolean"
+                },
+                "model": {
+                  "description": "Run this part with a different model on the SAME provider (optional).",
+                  "type": "string"
+                },
+                "output_schema": {
+                  "description": "Optional bounded JSON Schema this part's answer must satisfy. A miss gets one repair turn; the raw answer is kept.",
+                  "type": "object"
+                },
+                "schema_repair": {
+                  "description": "Allow one bounded repair turn when the output schema is missed (default true).",
+                  "type": "boolean"
+                },
+                "temperature": {
+                  "description": "Sampling temperature for this part (optional; the parent's setting otherwise).",
+                  "maximum": 2,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "tool_subset": {
+                  "description": "Limit this part to these tools (must be a subset of this task's tools).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "workspace_id": {
+                  "description": "A folder this task already has, for a part that writes.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "goal"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "contexts": {
+            "description": "best_of only: optional background per attempt (bounded), for tries that should work from different evidence.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "count": {
+            "description": "best_of only: how many attempts (2-4). Defaults to 3.",
+            "maximum": 4,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "goal": {
+            "description": "best_of only: the one task every attempt should try.",
+            "type": "string"
+          },
+          "isolated": {
+            "description": "best_of only: give each attempt its own worktree.",
+            "type": "boolean"
+          },
+          "models": {
+            "description": "best_of only: optional models to try per attempt. They must be on the SAME provider as this task; the provider and its credential do not change.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output_schema": {
+            "description": "best_of only: optional JSON Schema every attempt must satisfy.",
+            "type": "object"
+          },
+          "strategy": {
+            "description": "split: independent sub-questions (use children). best_of: the SAME task tried several ways, then the strongest verified result is chosen (use goal + count).",
+            "enum": [
+              "split",
+              "best_of"
+            ],
+            "type": "string"
+          },
+          "temperatures": {
+            "description": "best_of only: optional temperature per attempt, so the samples differ. Providers that ignore temperature are unaffected.",
+            "items": {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": {
+            "description": "A short label for the whole fan-out (optional; best_of defaults to the goal).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "delegate_async",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Ask a background delegation (or one job) to stop at its next safe boundary.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "delegationId": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "delegate_cancel",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read a background delegation's typed results, schema validity and diff handles. Idempotent; never re-runs a child.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "delegationId": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "delegate_result",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the durable status/progress of a background delegation. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "delegationId": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "delegate_status",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Add guidance to a RUNNING background part. It is delivered at the child's next step boundary, never in the middle of a tool call.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "delegationId": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "name": "delegate_steer",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Wait up to `timeoutS` for a delegation to finish, then return its status.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "delegationId": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "timeoutS": {
+            "maximum": 300,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "name": "delegate_wait",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {

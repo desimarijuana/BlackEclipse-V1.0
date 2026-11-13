@@ -170,3 +170,49 @@ def test_skill_manifest_survives_registry_error():
 def test_no_previous_plan_reports_no_previous():
     changes = compare_plans(None, _plan())
     assert changes == [{"segment": "all", "reason": "no previous plan"}]
+
+
+def test_cache_plan_is_provider_gated():
+    anthropic = _plan(provider="anthropic")
+    assert anthropic.cache_plan.marker_kind == "anthropic_ephemeral"
+    assert anthropic.cache_plan.marker_count == 1
+    assert "system_policy" in anthropic.cache_plan.stable_segment_ids
+
+    openai = _plan(provider="openai")
+    assert openai.cache_plan.marker_kind == "openai_prefix"
+    assert openai.cache_plan.marker_count == 0
+
+    unknown = _plan(provider="some-future-provider")
+    assert unknown.cache_plan.marker_kind == "none"
+    assert unknown.cache_plan.marker_count == 0
+
+
+def test_anthropic_cache_marker_is_applied_once_and_only_to_the_system_head():
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from harness.prompt_segments import apply_cache_markers
+
+    plan = _plan(provider="anthropic")
+    messages = [SystemMessage(content="stable policy"), HumanMessage(content="hi")]
+    marked = apply_cache_markers(messages, plan.cache_plan)
+    assert isinstance(marked[0].content, list)
+    assert marked[0].content[0]["text"] == "stable policy"
+    assert marked[0].content[0]["cache_control"] == {"type": "ephemeral"}
+    assert marked[1].content == "hi"
+
+    # Idempotent: an already-marked system message is left alone.
+    again = apply_cache_markers(marked, plan.cache_plan)
+    assert again[0].content == marked[0].content
+    assert len(again[0].content) == 1
+
+
+def test_openai_and_unknown_providers_get_no_cache_marker():
+    from langchain_core.messages import SystemMessage
+
+    from harness.prompt_segments import apply_cache_markers
+
+    for provider in ("openai", "some-future-provider"):
+        plan = _plan(provider=provider)
+        messages = [SystemMessage(content="stable policy")]
+        marked = apply_cache_markers(messages, plan.cache_plan)
+        assert marked[0].content == "stable policy"

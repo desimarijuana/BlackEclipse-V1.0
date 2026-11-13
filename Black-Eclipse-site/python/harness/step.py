@@ -66,8 +66,70 @@ async def invoke_model_step(
     step: int = 0,
     provider_id: Optional[str] = None,
     model_id: Optional[str] = None,
+    resolution: Any = None,
+    fallback_build: Any = None,
+    run_id: str = "",
+    first_token_timeout_s: Optional[float] = None,
+    max_run_tokens: Optional[int] = None,
+    credential_pool: Any = None,
+    usage_anchor_store: Any = None,
+    anchor_id: str = "",
+    history_chars: int = 0,
+    gateway: Any = None,
 ) -> Any:
-    """Invoke the model for one agent step, with the shared retry policy."""
+    """Invoke the model for one agent step.
+
+    W1: when a `resolution` is supplied the call goes through the one
+    `ModelGateway`/`ModelRuntime` path. The legacy retry path remains for tests
+    and direct callers that have no resolution.
+
+    W2.6: the provider cache marker is applied here, immediately before the
+    request, so the state/message log keeps plain text and every attempt gets
+    the same marker.
+    """
+    from .prompt_segments import apply_cache_markers  # noqa: PLC0415
+
+    _provider = str(
+        provider_id
+        or getattr(getattr(resolution, "settings", None), "provider", "")
+        or ""
+    )
+    messages = apply_cache_markers(list(messages or []), provider=_provider)
+    if resolution is not None:
+        from .config import flags as _flags  # noqa: PLC0415
+        from .model_runtime.gateway import GatewayRequest, ModelGateway  # noqa: PLC0415
+
+        request = GatewayRequest(
+            model=model,
+            messages=messages,
+            timeout_s=timeout_s,
+            finalizing=finalizing,
+            emitter=emitter,
+            resolution=resolution,
+            run_id=run_id,
+            step=step,
+            task="agent",
+            first_token_timeout_s=first_token_timeout_s,
+            fallback_build=fallback_build,
+            max_attempts=(policy or RetryPolicy.from_env()).attempts,
+            max_run_tokens=max_run_tokens,
+            credential_pool=credential_pool,
+            usage_anchor_store=usage_anchor_store,
+            anchor_id=anchor_id,
+            history_chars=history_chars,
+        )
+        mode = _flags.get_flag("HARNESS_MODEL_GATEWAY")
+        if mode == "off":
+            pass  # fall through to the legacy path below
+        else:
+            active = gateway or ModelGateway()
+            if mode == "shadow":
+                # W1.1: record the plan only. The legacy call remains authoritative.
+                await active.plan(request)
+            else:
+                result = await active.stream(request)
+                return result.response
+
     retry_policy = policy or RetryPolicy.from_env()
     counted = _CountingEmitter(emitter)
 

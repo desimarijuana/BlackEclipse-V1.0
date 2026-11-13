@@ -57,6 +57,40 @@ MAX_SKILLS_IN_MANIFEST = 8
 MAX_LESSON_MANIFEST_CHARS = 800
 MAX_LESSONS_IN_MANIFEST = 3
 
+# Providers whose API documents an explicit prompt-cache marker. Anything else
+# gets NO marker: guessing one can turn a harmless request into a 400.
+ANTHROPIC_CACHE_PROVIDERS = frozenset({"anthropic"})
+
+# OpenAI-compatible providers cache a stable PREFIX automatically. No marker is
+# sent; the ordering is what matters.
+OPENAI_PREFIX_PROVIDERS = frozenset({
+    "openai", "mistral", "groq", "ollama", "lmstudio", "deepseek", "xai",
+    "openrouter", "opencode", "together", "perplexity", "fireworks", "custom",
+})
+
+
+@dataclass(frozen=True)
+class PromptCachePlan:
+    """How the reusable prefix is made cacheable for one provider.
+
+    `marker_kind` is `anthropic_ephemeral` (an explicit `cache_control` marker),
+    `openai_prefix` (automatic prefix caching, ordering only) or `none` (no
+    documented mechanism — send nothing).
+    """
+
+    provider: str
+    stable_segment_ids: tuple[str, ...] = ()
+    marker_count: int = 0
+    marker_kind: str = "none"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "stableSegmentIds": list(self.stable_segment_ids),
+            "markerCount": self.marker_count,
+            "markerKind": self.marker_kind,
+        }
+
 
 def _token_estimate(text: str) -> int:
     return (len(text) + 3) // 4 if text else 0
@@ -137,6 +171,8 @@ class PromptPlan:
     # Round 3 / W4 (ADR-H287): the repo map's content hash. It is the cache
     # key's witness that the project shape has not changed.
     repo_map_version: Optional[str] = None
+    # W2: how the reusable prefix is made cacheable for this provider.
+    cache_plan: Optional[PromptCachePlan] = None
 
     def by_id(self, segment_id: str) -> Optional[PromptSegment]:
         for segment in self.segments:
@@ -159,6 +195,7 @@ class PromptPlan:
             "repoMapVersion": self.repo_map_version,
             "providerContextVersion": self.provider_context_version,
             "reusableTokens": self.reusable_total_tokens(),
+            "cachePlan": self.cache_plan.to_dict() if self.cache_plan else None,
             "segments": [s.to_dict() for s in self.segments],
         }
 
@@ -262,6 +299,7 @@ def build_prompt_plan(
     user_message: str = "",
     repo_map: str = "",
     repo_map_version: Optional[str] = None,
+    provider: str = "",
 ) -> PromptPlan:
     """Assemble the segment set and compute the stable cache key.
 
@@ -303,7 +341,83 @@ def build_prompt_plan(
     plan.cache_key = prompt_cache_key(plan)
     for segment in segments:
         segment.cache_key = plan.cache_key
+    if provider:
+        plan.cache_plan = build_cache_plan(provider, plan)
     return plan
+
+
+def build_cache_plan(provider: str, plan: PromptPlan) -> PromptCachePlan:
+    """The provider's cache mechanics for this plan's stable segments.
+
+    Anthropic gets ONE `ephemeral` marker at the end of the stable prefix (the
+    system policy), which covers the system block and the bound tool schemas.
+    OpenAI-compatible providers get prefix ordering only. Every other provider
+    gets nothing — an invented marker is a request failure, not an optimisation.
+    """
+    normalized = str(provider or "").strip().lower()
+    stable = tuple(s.id for s in plan.segments if s.id in STATIC_SEGMENTS)
+    has_stable = any(s.content for s in plan.segments if s.id in STATIC_SEGMENTS)
+    if normalized in ANTHROPIC_CACHE_PROVIDERS:
+        return PromptCachePlan(
+            provider=normalized, stable_segment_ids=stable,
+            marker_count=1 if has_stable else 0, marker_kind="anthropic_ephemeral",
+        )
+    if normalized in OPENAI_PREFIX_PROVIDERS:
+        return PromptCachePlan(
+            provider=normalized, stable_segment_ids=stable,
+            marker_count=0, marker_kind="openai_prefix",
+        )
+    return PromptCachePlan(
+        provider=normalized or "unknown", stable_segment_ids=stable,
+        marker_count=0, marker_kind="none",
+    )
+
+
+def apply_cache_markers(
+    messages: list[Any], cache_plan: Optional[PromptCachePlan] = None, *,
+    provider: str = "",
+) -> list[Any]:
+    """Return a copy of `messages` with the provider cache marker applied.
+
+    Only Anthropic's explicit marker mutates anything. The marker is placed on
+    the FIRST system message: Anthropic caches tools + system + messages up to
+    the marker, so one marker at the end of the stable head covers the whole
+    reusable prefix. Idempotent — a message already marked is left alone.
+    """
+    plan = cache_plan
+    if plan is None and provider:
+        normalized = str(provider or "").strip().lower()
+        if normalized in ANTHROPIC_CACHE_PROVIDERS:
+            plan = PromptCachePlan(
+                provider=normalized, marker_count=1,
+                marker_kind="anthropic_ephemeral",
+            )
+        elif normalized in OPENAI_PREFIX_PROVIDERS:
+            plan = PromptCachePlan(
+                provider=normalized, marker_count=0, marker_kind="openai_prefix",
+            )
+        else:
+            plan = PromptCachePlan(provider=normalized or "unknown")
+    if plan is None or plan.marker_kind != "anthropic_ephemeral" or plan.marker_count <= 0:
+        return list(messages or [])
+    out = list(messages or [])
+    for index, message in enumerate(out):
+        if str(getattr(message, "type", "") or "") != "system":
+            continue
+        content = getattr(message, "content", "")
+        if isinstance(content, str):
+            if not content:
+                return out
+            out[index] = type(message)(
+                content=[{
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                **({"id": message.id} if getattr(message, "id", None) else {}),
+            )
+        return out
+    return out
 
 
 def _tool_schema_digest(tool_names: list[str]) -> str:
@@ -357,16 +471,21 @@ def compare_plans(previous: Optional[PromptPlan], current: PromptPlan) -> list[d
 
 __all__ = [
     "AGENT_VERSION",
+    "ANTHROPIC_CACHE_PROVIDERS",
     "MAX_SKILLS_IN_MANIFEST",
     "MAX_SKILL_MANIFEST_CHARS",
     "MAX_LESSON_MANIFEST_CHARS",
     "MAX_LESSONS_IN_MANIFEST",
+    "OPENAI_PREFIX_PROVIDERS",
+    "PromptCachePlan",
     "PromptPlan",
     "PromptSegment",
     "RUN_FROZEN_SEGMENTS",
     "STATIC_SEGMENTS",
     "SYSTEM_POLICY_VERSION",
     "TOOL_SCHEMA_VERSION",
+    "apply_cache_markers",
+    "build_cache_plan",
     "build_prompt_plan",
     "build_lesson_manifest",
     "build_skill_manifest",

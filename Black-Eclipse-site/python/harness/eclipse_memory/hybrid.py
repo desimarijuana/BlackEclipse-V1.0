@@ -1,10 +1,11 @@
-"""Hybrid memory ranking with separate namespaces (Milestone 7).
+"""Explainable hybrid memory ranking with separate namespaces.
 
-**STATUS: experimental / deferred.** This module is NOT wired into the
-production retrieval path — `retrieval.retrieve_memories` uses its own
-deterministic `_score`. It exists as a reviewable candidate for a future hybrid
-ranker and is exercised by `python/tests/test_memory_hybrid.py` only. Do not
-infer that it influences recall.
+**STATUS: helper for the W5.3 hybrid path.** Production ranking now lives in
+`retrieval.retrieve_memories`, which uses `bm25.BM25Index` (corpus-level IDF)
+behind `HARNESS_MEMORY_HYBRID`. This module remains the namespace/weight
+explanation seam and the bounded single-document scorer; it does not authorize
+recall on its own. When the flag is off, `retrieval` uses its original
+deterministic `_score` and this module does not influence anything.
 
 This module adds an EXPLICIT, deterministic hybrid score and a namespace model to
 memory retrieval. It does not authorize anything: it reorders only memories that

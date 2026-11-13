@@ -56,6 +56,7 @@ import { EffortControl } from './effort-control';
 import { ApprovalCard } from './approval-card';
 import { ClarificationCard } from './clarification-card';
 import { MessageQueue } from './message-queue';
+import { GoalBar } from './goal-bar';
 import { useMessageQueue } from '@/lib/chat/use-message-queue';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
@@ -750,6 +751,9 @@ export function ChatDock({
           onRunNow={runQueuedNext}
           onClear={messageQueue.clear}
         />
+
+        {/* W4: the active goal / loop status strip, above the composer. */}
+        <GoalBar sessionId={dockSessionId} />
 
         {/* Composer — always visible, bottom-centre. */}
         <div

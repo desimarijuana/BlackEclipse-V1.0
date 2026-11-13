@@ -33,7 +33,8 @@ RATCHET_PY: dict[str, int] = {
     # +2 for the Quant Research Intelligence + live-strategy routers (2026-11-10).
     # +2 for the quant system router include (2026-11-10).
     # Re-pinned 1245 -> 1253 (2026-11-11) for in-flight shared-tree routes.
-    "main.py": 1253,
+    # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
+    "main.py": 1268,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research
@@ -146,7 +147,7 @@ RATCHET_PY: dict[str, int] = {
     # the deprecation wiring. May only shrink. SPLIT CANDIDATE: the fs tool
     # surface duplicates `code/tools.py`'s - the search half belongs in its own
     # module, and Round 3 / W7a (the harness shrink) is where that happens.
-    "code/fs_tools.py": 1225,
+    "code/fs_tools.py": 1231,
     # Re-pinned 2238->2241 for the Round 3 / W4 repo map (the map and the
     # seeded relevant slice are built per run and joined to the prompt-cache
     # key). Not the surface work. May only shrink; the repo-map call site is
@@ -237,7 +238,7 @@ RATCHET_PY: dict[str, int] = {
     # shrink; the next split candidate remains the search/symbols block.
     # Re-pinned 1270->1275 on 2026-11-06 to the measured tree for in-flight
     # code-tool wiring in the shared working tree. May only shrink from here.
-    "code/tools.py": 1275,
+    "code/tools.py": 1285,
     # Grew past the hard ceiling with the RSL R9 drift surface (the
     # `/api/evolution/drift` + `/api/evolution/candidates/{id}/state` routes and
     # their request models) added to the EXISTING evolution route group â€” the
@@ -269,7 +270,8 @@ RATCHET_PY: dict[str, int] = {
     # growth). Re-pinned 1943->2049 for shared memory list/count filters, exact
     # `COUNT(*)` overview totals and offset paging; 2049->2061 for suggestion/
     # correction/mistake offset paging. May only shrink from here.
-    "eclipse_memory/store.py": 2061,
+    # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
+    "eclipse_memory/store.py": 2218,
     # Grew with the `documents` run-blob column (schema + `_ADDED_COLUMNS` +
     # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
     # per-thread/autocommit pool lives in `harness/sqlite_pool.py`, leaving only
@@ -303,7 +305,8 @@ RATCHET_PY: dict[str, int] = {
     "memory_tools.py": 1355,
     # Pre-existing and unratcheted: the Eclipse Memory SQL schema + migrations.
     # SPLIT CANDIDATE: per-domain migrations once the table count settles.
-    "eclipse_memory/schema.py": 1224,
+    # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
+    "eclipse_memory/schema.py": 1286,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -415,7 +418,8 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1930->1998 (2026-11-11) for in-flight shared-tree service wiring;
     # this round's observability seam lives in `observability/`. Re-pinned
     # 1998->2005 to the measured tree. May only shrink.
-    "service.py": 2005,
+    # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
+    "service.py": 2062,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

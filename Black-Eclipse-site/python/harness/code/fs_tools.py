@@ -457,7 +457,10 @@ def _read_service(ctx: ToolContext) -> FileSystemService:
     if ws is None:
         raise FsError(WORKSPACE_UNBOUND, "There is no project folder to work in.")
     actor = _make_actor(ws.id, getattr(ctx, "autonomy", None))
-    service = FileSystemService(ws, ws.binding, actor, config=_fs_config(ctx))
+    service = FileSystemService(
+        ws, ws.binding, actor, config=_fs_config(ctx),
+        run_id=getattr(ctx, "run_id", None),
+    )
     try:
         setattr(ctx, _READ_CACHE, service)
     except Exception:  # noqa: BLE001 - a frozen ctx must not break the call
@@ -474,7 +477,10 @@ def _write_service(ctx: ToolContext) -> FileSystemService:
         # this guard a write would allocate a workspace against the built-in repo.
         raise FsError(WORKSPACE_UNBOUND, "There is no project folder to work in.")
     _cw, binding, resolved, actor = _ensure_code_workspace(ctx)
-    service = FileSystemService(resolved, binding, actor, config=_fs_config(ctx))
+    service = FileSystemService(
+        resolved, binding, actor, config=_fs_config(ctx),
+        run_id=getattr(ctx, "run_id", None),
+    )
     try:
         setattr(ctx, _WRITE_CACHE, service)
     except Exception:  # noqa: BLE001

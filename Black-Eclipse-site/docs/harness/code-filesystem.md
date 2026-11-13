@@ -1,7 +1,7 @@
 ---
 title: Code File System Subsystem
 status: Current
-last-verified: 2026-10-06
+last-verified: 2026-11-12
 ---
 
 # Code File System Subsystem
@@ -93,6 +93,36 @@ whole file → rewrite whole file".
   trees) before mutation; `multi_file_patch` validates ALL patches before writing
   ANY, and rolls back on failure — a half-applied multi-file change never
   survives. Safety does NOT depend on Git.
+
+## File checkpoints (`code/checkpoints.py`, W7)
+
+`FileTransaction` protects one operation and discards its snapshot on success.
+W7 adds a *turn-level* undo surface on top of it:
+
+- **Shadow-git store.** One bare repo at
+  `<project>/.black-eclipse/checkpoints/store`; snapshots are commits under
+  `refs/eclipse/<project-hash>/<stamp>-<checkpoint-id>`. `.black-eclipse/` is
+  already self-ignored, so nothing appears in the user's `git status`.
+- **One snapshot per run/turn.** The first mutating `FileSystemService` call,
+  a write-shaped terminal command, or a promotion apply takes it; later changes
+  reuse it. A temporary `GIT_INDEX_FILE` means the user's index is never read or
+  written.
+- **Excludes/protected.** `.git`, `.black-eclipse`, dependency/build dirs,
+  databases, `.env*`, secrets, artifacts, symlinks outside the root and files
+  over 10 MB are never captured or restored. `policy.is_protected` /
+  `policy.is_ignored` remain the authority.
+- **Modes.** `HARNESS_FILE_CHECKPOINTS=off|warn|enforce` (`on` aliases
+  `enforce`). `warn` records a failed snapshot and lets the write proceed;
+  `enforce` refuses the write rather than lose the undo point.
+- **Restore.** `checkpoint_list` / `checkpoint_diff` are read-only;
+  `checkpoint_restore` is effectful and approval-gated. A restore takes a
+  `pre-restore` snapshot first, defaults to the named paths, and `all` is
+  explicit. Untracked files created after the snapshot are never deleted.
+- **Routes and `/rollback`.** `/code/checkpoints*` is operator-gated; the
+  routed `/rollback [id] [--all]` command never opens an agent turn.
+- **Bounded.** Store size (`HARNESS_FILE_CHECKPOINT_MAX_MB`) and retention
+  (`HARNESS_FILE_CHECKPOINT_RETENTION`) are enforced; a full store refuses a
+  new snapshot rather than filling the disk.
 
 ## Search, symbols and the index
 

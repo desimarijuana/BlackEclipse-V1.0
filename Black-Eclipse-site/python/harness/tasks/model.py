@@ -287,13 +287,23 @@ class GoalContract(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     acceptance: list[str] = Field(default_factory=list)
     budgets: Optional[TaskBudget] = None
+    # ── W4 autonomy (all additive/defaulted: an old contract still validates) ──
+    #: Named deterministic gates that must pass before a goal may complete.
+    verification: list[str] = Field(default_factory=list)
+    #: Out-of-scope paths/actions the work must not touch.
+    boundaries: list[str] = Field(default_factory=list)
+    #: Conditions the advisory judge must honour (never overrides a gate).
+    stop_when: list[str] = Field(default_factory=list)
 
     @field_validator("objective")
     @classmethod
     def _strip_objective(cls, value: str) -> str:
         return value.strip()
 
-    @field_validator("deliverables", "constraints", "acceptance", mode="before")
+    @field_validator(
+        "deliverables", "constraints", "acceptance",
+        "verification", "boundaries", "stop_when", mode="before",
+    )
     @classmethod
     def _strip_lines(cls, value: Any) -> Any:
         if isinstance(value, list):
@@ -308,7 +318,40 @@ class GoalContract(BaseModel):
             raise ValueError(f"too many constraints (max {MAX_GOAL_CONSTRAINTS})")
         if len(self.acceptance) > MAX_GOAL_ACCEPTANCE:
             raise ValueError(f"too many acceptance tests (max {MAX_GOAL_ACCEPTANCE})")
+        for name in ("verification", "boundaries", "stop_when"):
+            if len(getattr(self, name)) > 24:
+                raise ValueError(f"too many {name} lines (max 24)")
         return self
+
+
+class GoalGate(BaseModel):
+    """One deterministic gate on a goal (W4).
+
+    A gate names a CLOSED `code/commands.py` command class rather than a shell
+    string, so `build_argv` pins an absolute executable and validates every
+    argument. `workspace_id` is required to execute; a goal may carry gates only
+    when a workspace is bound.
+    """
+
+    model_config = _CAMEL
+
+    id: str = Field(..., min_length=1, max_length=120)
+    check: str = Field(..., min_length=1, max_length=40)
+    args: dict[str, Any] = Field(default_factory=dict)
+    workspace_id: Optional[str] = Field(None, max_length=200)
+    timeout_seconds: int = Field(600, ge=10, le=3600)
+    retries: int = Field(0, ge=0, le=5)
+
+    @field_validator("check")
+    @classmethod
+    def _known_check(cls, value: str) -> str:
+        allowed = (
+            "unit_test", "python_test", "typecheck", "lint", "build", "format_check",
+        )
+        text = str(value or "").strip().lower()
+        if text not in allowed:
+            raise ValueError(f"unknown gate check {value!r}; expected one of {allowed}")
+        return text
 
 
 class TaskAcceptanceCriterion(BaseModel):
@@ -563,6 +606,7 @@ __all__ = [
     "ExecutionStatus",
     "FailurePolicy",
     "GoalContract",
+    "GoalGate",
     "MAX_BACKOFF_MS",
     "MAX_CHILDREN_PER_TASK",
     "MAX_CRITERIA_PER_TASK",

@@ -342,6 +342,22 @@ def _wrap_with_security(inner: Any, run_id: str, workspace_id: Optional[str]) ->
 
         gateway = get_gateway()
         if gateway is None:
+            # W6: under effect-token enforce there is no token minter without
+            # the gateway, so an effectful call must be refused rather than
+            # silently running on the capability authorizer alone.
+            try:
+                from ..security.effect_tokens import token_mode  # noqa: PLC0415
+
+                if token_mode() == "enforce":
+                    async def _refuse_effectful(tool: Any, args: Any, ctx: Any = None) -> bool:
+                        return not (
+                            bool(getattr(tool, "effect", None))
+                            or str(getattr(tool, "permission", "read")) != "read"
+                        )
+
+                    return _refuse_effectful
+            except Exception:  # noqa: BLE001 - never weaken the chain
+                pass
             return inner
         from ..security.integration import make_security_authorizer  # noqa: PLC0415
 

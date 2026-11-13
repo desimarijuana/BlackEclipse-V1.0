@@ -10,6 +10,8 @@
 
 import type { TranslationKey } from "@/lib/i18n/types";
 import { APP_TABS } from "@/lib/app-tabs";
+import { autonomyCommandSpecs } from "./command-specs-autonomy";
+import { devCommandSpecs } from "./command-specs-dev";
 
 export type CommandCategory =
   | "runtime"
@@ -513,7 +515,7 @@ const SKILL_DISABLE: CommandSpec = {
 const SKILL_CREATE: CommandSpec = {
   id: "skill.create",
   name: "skill-create",
-  aliases: [],
+  aliases: ["learn"],
   summary: "Create a new skill from a task or objective.",
   description:
     "Create an inert skill draft through the existing learning engine: from a completed task `--from-task`, " +
@@ -538,6 +540,7 @@ const SKILL_CREATE: CommandSpec = {
   idempotent: false,
   output: { type: "response", summary: "The created draft's id, version, and status." },
   examples: [
+    "/learn --from-task task_123",
     "/skill-create crypto-onchain-research",
     "/skill-create --from-task task_123",
     "/skill-create --from-workflow crypto-research",
@@ -953,50 +956,6 @@ const CODE: CommandSpec = {
   examples: ["/code add a loading state to the watchlist widget"],
 };
 
-const TERMINAL: CommandSpec = {
-  id: "runtime.terminal",
-  name: "terminal",
-  aliases: ["run", "sh"],
-  summary: "Run a shell command.",
-  description:
-    "Execute a shell command through the terminal subsystem (operator-gated, effect-gated) and show its output. Never run untrusted content as a command.",
-  category: "dev",
-  tags: ["dev", "terminal", "shell"],
-  version: V,
-  status: "available",
-  args: [{ name: "command", description: "The command to run.", variadic: true }],
-  flags: [
-    {
-      name: "shell",
-      description: "Which shell to run in. Defaults to the host shell.",
-      type: "string",
-      values: ["powershell", "cmd", "wsl", "bash"],
-    },
-    {
-      name: "cwd",
-      description: "Working directory, relative to the workspace root.",
-      type: "string",
-    },
-    {
-      name: "confirm",
-      description: "Single-use confirmation token from the first invocation.",
-      type: "string",
-    },
-  ],
-  handler: { type: "native", target: "runtime.terminal" },
-  permissions: { approval: "operator" },
-  risk: "high",
-  executionMode: "sync",
-  timeoutMs: 900_000,
-  output: { type: "response", summary: "stdout/stderr, the exit code, the shell and the working directory." },
-  examples: [
-    "/terminal ls -la",
-    "/run git status",
-    "/terminal --shell cmd dir /s",
-    "/terminal --shell powershell --cwd src npm run test",
-  ],
-};
-
 const ALERTS: CommandSpec = {
   id: "markets.alerts",
   name: "alerts",
@@ -1294,6 +1253,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   HELP,
   STATUS,
   COMPACT,
+  ...autonomyCommandSpecs(V),
   SKILLS,
   SKILL,
   SKILL_EXPLAIN,
@@ -1322,7 +1282,7 @@ export const COMMAND_REGISTRY: readonly CommandSpec[] = [
   READ,
   BACKTEST,
   CODE,
-  TERMINAL,
+  ...devCommandSpecs(V),
   JOBS,
   ARTIFACTS,
   SESSIONS,

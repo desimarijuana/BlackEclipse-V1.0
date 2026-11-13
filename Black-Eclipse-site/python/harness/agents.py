@@ -531,6 +531,10 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
         # these five companies"). A research capability, not only a code one.
         "delegate",
+        # W7: the durable background lifecycle. The flag gates execution; the
+        # tools stay registered so the model can see why it is unavailable.
+        "delegate_async", "delegate_status", "delegate_result",
+        "delegate_cancel", "delegate_steer", "delegate_wait",
         # Durable Task / Plan runtime: create and steer a tracked, hierarchical
         # plan (tasks, subtasks, dependencies, acceptance criteria, priorities,
         # retries). The scheduler dispatches runnable tasks through the normal run
@@ -895,8 +899,12 @@ CODE_AGENT_TOOLS = [
     "vcs_create_branch", "vcs_create_pull_request", "vcs_update_pull_request",
     "vcs_close_pull_request", "vcs_merge_pull_request", "vcs_request_review",
     "vcs_reply_review_comment", "vcs_rerun_workflow", "vcs_cancel_workflow",
-    # Bounded fan-out (Phase 7) â€” independent sub-tasks in parallel.
+    # Bounded fan-out (Phase 7) — independent sub-tasks in parallel.
     "delegate",
+    # W7: durable background lifecycle + file checkpoints (restore is effectful).
+    "delegate_async", "delegate_status", "delegate_result",
+    "delegate_cancel", "delegate_steer", "delegate_wait",
+    "checkpoint_list", "checkpoint_diff", "checkpoint_restore",
     # Durable Task / Plan runtime: track a multi-step build as a hierarchical plan
     # whose tasks are dispatched through the normal run path. Create/steer only.
     *TASK_TOOLS,
@@ -1054,6 +1062,9 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "code_find_related_tests", "code_rename_symbol",
     # parallel read-only explore children for large codebases
     "delegate",
+    "delegate_async", "delegate_status", "delegate_result",
+    "delegate_cancel", "delegate_steer", "delegate_wait",
+    "checkpoint_list", "checkpoint_diff", "checkpoint_restore",
     # Git / Version-Control subsystem: read + LOCAL mutation only. External
     # actions (fetch/pull/push/PR/CI) stay on the Code Tasks surface beside the
     # approval panel, exactly like `code_commit`/`code_push`.

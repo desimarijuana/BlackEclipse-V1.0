@@ -142,6 +142,14 @@ def fork_session(session_id: str, payload: Optional[dict[str, Any]] = None, _: b
 
 @router.delete("/sessions/{session_id}")
 def delete_session(session_id: str, hard: bool = False, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    # W4: a deleted session must not leave an active loop firing runs into it.
+    # Cancellation is best-effort and never blocks the delete.
+    try:
+        autonomy = getattr(service, "autonomy", None)
+        if autonomy is not None:
+            autonomy.loops.cancel_for_session(session_id)
+    except Exception:  # noqa: BLE001 - a loop cleanup must not break deletion
+        pass
     return {"success": True, **service.store.delete_chat_session(session_id, hard=hard)}
 
 

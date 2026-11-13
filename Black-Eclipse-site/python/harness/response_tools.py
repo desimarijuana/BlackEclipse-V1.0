@@ -264,6 +264,7 @@ def register_response_contract_tools(registry: ToolRegistry) -> None:
             permission="read",
             risk="low",
             timeout_ms=10_000,
+            parallel_safe=True,
         )
     )
     registry.register(
@@ -290,6 +291,7 @@ def register_response_contract_tools(registry: ToolRegistry) -> None:
             permission="read",
             risk="low",
             timeout_ms=10_000,
+            parallel_safe=True,
         )
     )
     registry.register(
@@ -315,6 +317,7 @@ def register_response_contract_tools(registry: ToolRegistry) -> None:
             handler=response_validate,
             permission="read",
             risk="low",
+            parallel_safe=True,
             timeout_ms=15_000,
         )
     )

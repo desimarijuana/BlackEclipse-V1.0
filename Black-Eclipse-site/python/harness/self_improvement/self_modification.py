@@ -363,6 +363,25 @@ class SelfModificationExecutor:
                 "evaluationStatus": (evaluations or [{}])[0].get("status"),
             })
             return None
+        # W5.1: a static-only pass is not behavioural evidence. When the gate is
+        # on, the latest evaluation must name existing execution runs for this
+        # skill/version. Old rows read `[]` and are therefore refused.
+        from ..config.flags import get_bool  # noqa: PLC0415
+
+        if get_bool("HARNESS_SKILL_EXEC_EVAL"):
+            evaluation = evaluations[0]
+            run_ids = list(evaluation.get("executionRunIds") or [])
+            executions = self.store.list_executions(skill_id, limit=500)
+            existing = {str(row.get("runId")) for row in executions}
+            missing = [str(run_id) for run_id in run_ids if str(run_id) not in existing]
+            if not run_ids or missing:
+                self._skip("enable_skill", skill_id, "execution_required")
+                self._non_activation(skill_id, "execution_required", {
+                    "evaluationId": evaluation.get("id"),
+                    "executionRunIds": run_ids,
+                    "missingRunIds": missing,
+                })
+                return None
         if not apply:
             self._non_activation(skill_id, "shadow_mode", {"version": version})
             self.audit.record(

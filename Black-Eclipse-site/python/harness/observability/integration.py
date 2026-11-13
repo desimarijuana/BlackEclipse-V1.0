@@ -90,10 +90,97 @@ class RunEventProjector:
             self._llm_runtime(str(run_id), etype, data)
         elif etype == "model.completed" and run_id:
             self._llm_end(str(run_id), data, ts, ok=True)
+        # ── W8 model gateway signals (W1) ──
+        elif etype in ("model.attempt.completed", "model.attempt.failed"):
+            self.hub.emit(
+                "onModelAttempt", context=self._ctx(run_id),
+                attributes={**data, "eventType": etype},
+            )
+        elif etype == "model.first_token":
+            state = self._runs.get(str(run_id)) if run_id else None
+            provider = (state["llm"][-1].attributes.get("provider") if state and state.get("llm") else None)
+            self.hub.emit(
+                "onModelFirstToken", context=self._ctx(run_id),
+                provider=provider, attributes={**data, "eventType": etype, "provider": provider},
+            )
+        elif etype == "model.first_token_timeout":
+            self.hub.emit(
+                "onModelFirstToken", context=self._ctx(run_id),
+                attributes={**data, "eventType": etype, "timeout": True},
+            )
+        elif etype == "model.fallback":
+            self.hub.emit("onModelFallback", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype == "model.retry":
+            self.hub.emit("onEventPublished", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype == "model.candidate_plan":
+            self.hub.emit("onEventPublished", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        # ── W8 context signals (W2) ──
+        elif etype == "context.compressed":
+            self.hub.emit("onContextCompaction", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype == "memory.history_bounded":
+            self.hub.emit(
+                "onContextPressure", context=self._ctx(run_id),
+                attributes={**data, "eventType": etype,
+                            "overflow": str(data.get("status") or "") == "overflow"},
+            )
         elif etype == "tool.requested" and run_id:
             self._tool_start(str(run_id), data, ts)
+        # ── W8 tool execution signals (W3) ──
+        elif etype == "tool.batch_plan":
+            self.hub.emit("onToolBatch", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype, "planOnly": True})
+        elif etype == "tool.batch":
+            self.hub.emit("onToolBatch", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype == "tool.guardrail":
+            self.hub.emit("onToolGuardrail", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
         elif etype.startswith("tool.") and run_id:
             self._tool_end(str(run_id), etype, data, ts)
+        # ── W8 autonomy + learning signals (W4/W5) ──
+        elif etype == "goal.created":
+            self.hub.emit("onGoalCreated", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype == "goal.verdict":
+            self.hub.emit("onGoalVerdict", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype in ("skill.evaluation_completed", "skill.execution_eval"):
+            self.hub.emit("onSkillEvaluation", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        elif etype in ("skill.curator_run", "skill.curator.run"):
+            self.hub.emit("onCuratorRun", context=self._ctx(run_id),
+                          attributes={**data, "eventType": etype})
+        # ── W8 integrity signals (W6) ──
+        elif etype == "run.lease_lost":
+            self.hub.emit("onIntegrityEvent", context=self._ctx(run_id),
+                          attributes={"kind": "lease_lost", **data, "eventType": etype})
+        elif etype == "effect.unknown":
+            self.hub.emit("onIntegrityEvent", context=self._ctx(run_id),
+                          attributes={"kind": "effect_unknown", "tool": data.get("name"),
+                                      **data, "eventType": etype})
+        elif etype == "checkpoint.write":
+            kind = "checkpoint_write" if data.get("ok", True) else "checkpoint_write_failed"
+            self.hub.emit("onIntegrityEvent", context=self._ctx(run_id),
+                          attributes={"kind": kind, **data, "eventType": etype})
+        elif etype in ("event.seq_retry", "event.seq_collision"):
+            self.hub.emit("onIntegrityEvent", context=self._ctx(run_id),
+                          attributes={"kind": etype.replace(".", "_"), **data, "eventType": etype})
+        elif etype.startswith("security.hardline."):
+            self.hub.emit("onIntegrityEvent", context=self._ctx(run_id),
+                          attributes={"kind": "hardline_blocked", **data, "eventType": etype})
+        # ── W8 file checkpoint + delegation signals (W7) ──
+        elif etype.startswith("checkpoint.") and etype != "checkpoint.write":
+            op = etype.rsplit(".", 1)[-1]
+            self.hub.emit("onFileCheckpoint", context=self._ctx(run_id),
+                          attributes={"op": op, **data, "eventType": etype})
+        elif etype.startswith("delegation."):
+            op = etype.rsplit(".", 1)[-1]
+            self.hub.emit("onDelegation", context=self._ctx(run_id),
+                          attributes={"op": op, **data, "eventType": etype})
         elif etype == "prompt.plan" and run_id:
             self.hub.emit("onPlanEnd", context=self._ctx(run_id), attributes={"segments": len(data.get("segments") or [])})
         # ── fabric jobs ──
@@ -110,8 +197,10 @@ class RunEventProjector:
         elif etype.startswith(("schedule.", "automation.", "workflow.")):
             self.hub.emit("onEventPublished", context=self._ctx(run_id), attributes={"eventType": etype})
         # ── recovery / replan / context ──
-        elif etype in ("run.replanned", "context.retry"):
+        elif etype in ("run.replanned", "context.retry", "context.recovered"):
             self.hub.emit("onRecoveryStart", context=self._ctx(run_id), attributes={"eventType": etype, **{k: v for k, v in data.items() if isinstance(v, (str, int, float, bool))}})
+        elif etype in ("context.pruned", "context.compressed", "prompt.cache"):
+            self.hub.emit("onEventPublished", context=self._ctx(run_id), attributes={"eventType": etype, **{k: v for k, v in data.items() if isinstance(v, (str, int, float, bool))}})
         # ── research / memory / skills ──
         elif etype.startswith("research."):
             hook = "onResearchEnd"
@@ -272,6 +361,11 @@ class RunEventProjector:
         if etype == "run.failed":
             self.hub.emit("onError", context=ctx, error_type=(error or {}).get("code") or "RUN_FAILED",
                           error_message=(error or {}).get("message") or "run failed")
+        code = str((error or {}).get("code") or "")
+        if code in ("CONTEXT_OVERFLOW", "CONTEXT_EXHAUSTED"):
+            self.hub.emit("onContextPressure", context=ctx,
+                          attributes={"overflow": True, "exhausted": code == "CONTEXT_EXHAUSTED",
+                                      "eventType": etype, "code": code})
         self._runs.pop(run_id, None)
 
     # ── LLM ─────────────────────────────────────────────────────────────────

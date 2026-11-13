@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from typing import Annotated, Any, Optional
@@ -71,6 +72,8 @@ from .surface import (
 )
 from .tools import DataBridge, ToolContext, ToolRegistry
 
+log = logging.getLogger("harness.graph")
+
 # The tool surface resolution lives in `surface.py` (Round 3 / W2, ADR-H280) so
 # this execution graph stays under its size ratchet. The names are re-exported
 # here because they are the public surface of this module: `effective_allowlist`
@@ -120,10 +123,13 @@ class GraphState(TypedDict, total=False):
     # counters, the failure the model was shown, and the answer seam's word for
     # how the repair ended. Plain data, so it survives a checkpoint.
     repair: dict[str, Any]
-
-
-def _stable_key(name: str, args: dict[str, Any]) -> str:
-    return f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+    # W3: a deterministic guardrail halt (rule/count/message). The tools node
+    # sets `final` too, so the graph ends with a controlled notice, not a loop.
+    guardrail_halt: dict[str, Any]
+    # W7: steering messages and delegated completions already injected into
+    # this run. Consumed at the next durable checkpoint, so a crash re-delivers
+    # at most once and a normal step never duplicates them.
+    w7_pending: list[dict[str, Any]]
 
 
 async def _run_plugin_hook(name: str, payload: dict[str, Any]) -> Optional[str]:
@@ -430,6 +436,22 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     registry = scope.registry
     data_bridge = scope.data_bridge
     store = scope.store
+    # W6: the identity that owns this run's lease. `None` means the embedded
+    # path; the fenced write falls back to the process default, which is the
+    # same identity `RunLeaseGuard` uses.
+    runtime_id = scope.runtime_id
+    from .run_lease import LeaseLost, fenced_progress  # noqa: PLC0415
+
+    def _write_progress(**fields: Any) -> None:
+        """Write run progress only while this runtime owns the lease.
+
+        `LeaseLost` is deliberately NOT swallowed: a stale worker that keeps
+        writing can clobber the new owner's counters and terminal status.
+        """
+        fenced_progress(store, request.runId, runtime_id=runtime_id, **fields)
+    from .context.usage_anchor import prepare_anchor  # noqa: PLC0415
+
+    anchor_store, anchor_id, _anchor, history_chars = prepare_anchor(store, request)
     from .run_effects import RunEffects  # noqa: PLC0415
 
     effects = RunEffects(store)
@@ -490,6 +512,18 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
     max_tool_calls: Optional[int] = agent.maxToolCalls
+    # W3: tool execution flags resolved ONCE per run/attempt. A guardrail ledger
+    # is per attempt (a resume starts clean); parallel planning is read-only and
+    # can never widen the surface.
+    from .config import flags as _tool_flags  # noqa: PLC0415
+    from .tool_guardrails import ToolGuardrail  # noqa: PLC0415
+
+    tool_guard = ToolGuardrail(
+        mode=_tool_flags.get_flag("HARNESS_TOOL_GUARDRAILS"),
+    )
+    parallel_mode = _tool_flags.get_flag("HARNESS_PARALLEL_TOOLS")
+    tool_concurrency = _tool_flags.get_int("HARNESS_TOOL_CONCURRENCY")
+    tool_batch_timeout_s = _tool_flags.get_int("HARNESS_TOOL_BATCH_TIMEOUT_S")
     # Phase 11: bounded replanning is FLAG-GATED and DEFAULT OFF. When enabled, a
     # failed or stalled tool step routes through ONE `replan` node (a revised
     # approach) before the agent continues â€” never a second loop or registry.
@@ -524,6 +558,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         requirements=_runtime_requirements(request),
         policy_overrides=_runtime_policy_overrides(request),
     )
+    from .model_runtime.credential_pool import CredentialPool  # noqa: PLC0415
+
+    credential_pool = CredentialPool.from_settings(request.modelSettings)
     model = runtime.build(
         resolution.settings, builder=build_chat_model, adapter=resolution.adapter
     )
@@ -686,20 +723,69 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             payload.update(plan.checkpoint_fields(state.get("plan_step_id")))
         return payload
 
+    def _consume_w7(state: GraphState) -> None:
+        """Mark injected steers/completions consumed at the durable boundary.
+
+        Called only after the checkpoint is written. A crash before this point
+        leaves them pending, so a resume re-injects them; a normal step marks
+        them exactly once.
+        """
+        pending = [item for item in (state.get("w7_pending") or []) if isinstance(item, dict)]
+        if not pending:
+            return
+        try:
+            from .delegation_lifecycle import mark_inbox_consumed  # noqa: PLC0415
+            from .delegation_store import DelegationStore  # noqa: PLC0415
+
+            store_view = DelegationStore(store)
+            steer_seqs = [
+                int(item.get("seq") or 0) for item in pending
+                if item.get("kind") == "steer" and _w7_delegation_id
+            ]
+            if steer_seqs and _w7_delegation_id:
+                store_view.consume_steers(_w7_delegation_id, [s for s in steer_seqs if s])
+            inbox_keys = [
+                (str(item.get("delegationId")), int(item.get("childIndex") or 0))
+                for item in pending if item.get("kind") == "inbox"
+            ]
+            if inbox_keys:
+                mark_inbox_consumed(store, inbox_keys)
+        except Exception:  # noqa: BLE001 - consumption is best-effort, never fatal
+            pass
+
     async def _write_checkpoint(kind: str, state: GraphState) -> None:
         if lineage is None:
             return
+        payload = _checkpoint_payload(state)
+        from .config.flags import get_bool  # noqa: PLC0415
+
+        if get_bool("HARNESS_CHECKPOINT_ATOMIC"):
+            # W6: one transaction for the message cursor and the checkpoint.
+            # `save_boundary` serializes before the lock and retries once; a
+            # persistent failure must stop the run, never continue without a
+            # durable boundary.
+            from .run_lineage import CheckpointWriteFailed  # noqa: PLC0415
+
+            try:
+                lineage.save_boundary(
+                    request.runId, kind, payload, state.get("messages", []), retries=1,
+                )
+            except Exception as exc:  # noqa: BLE001 - surfaced as a run failure
+                raise CheckpointWriteFailed(
+                    f"could not write the {kind!r} boundary for {request.runId!r}: {exc}"
+                ) from exc
+            _consume_w7(state)
+            return
+        # Rollback path: the legacy two-commit write. A checkpoint remains
+        # best-effort only when the operator explicitly turns atomicity off.
         try:
-            payload = _checkpoint_payload(state)
-            # Round 5 / C2: the full conversation goes to the durable message log;
-            # the checkpoint stores only the cursor. The bounded `messages` tail
-            # stays for older readers (rollback-safe, additive).
             cursor = lineage.save_messages(request.runId, state.get("messages", []))
             if cursor is not None:
                 payload["messageSeq"] = cursor
             lineage.save_checkpoint(request.runId, kind, payload)
         except Exception:  # noqa: BLE001 - a checkpoint must never break a run
             pass
+        _consume_w7(state)
 
     # Round 5 / C7: one step span per loop iteration. The step id is stable and
     # carries the run id so a trace tree is reconstructable from the bus alone.
@@ -736,7 +822,68 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     # before its first check has not earned an hour of repair.
     _repair_started = time.monotonic()
 
+    # W7: a delegated child (or an operator steering one) gets new context only
+    # at a STEP BOUNDARY. This is the one drain point; tools never see a steer
+    # mid-batch. `_write_checkpoint` consumes what was injected.
+    _w7_delegation_id = str(
+        (getattr(request.input, "context", None) or {}).get("delegationId") or ""
+    )
+
+    def _apply_w7_context(state: GraphState) -> GraphState:
+        applied = {
+            str(item.get("key"))
+            for item in (state.get("w7_pending") or [])
+            if isinstance(item, dict)
+        }
+        new_items: list[dict[str, Any]] = []
+        extra: list[BaseMessage] = []
+        if _w7_delegation_id:
+            try:
+                from .delegation_store import DelegationStore  # noqa: PLC0415
+
+                steers = DelegationStore(store).peek_steers(_w7_delegation_id)
+            except Exception:  # noqa: BLE001 - steering must never break a run
+                steers = []
+            fresh = [row for row in steers if f"steer:{row.get('seq')}" not in applied]
+            if fresh:
+                text = "\n".join(str(row.get("message") or "") for row in fresh).strip()
+                if text:
+                    extra.append(HumanMessage(content=(
+                        "<operator_steer>\n"
+                        "The operator added this guidance for the current work. Apply it "
+                        "at this step; it is not a new task.\n\n"
+                        f"{text[:4_000]}\n</operator_steer>"
+                    )))
+                for row in fresh:
+                    new_items.append({"key": f"steer:{row.get('seq')}", "kind": "steer",
+                                      "seq": int(row.get("seq") or 0)})
+        try:
+            from .delegation_lifecycle import peek_inbox  # noqa: PLC0415
+
+            inbox_text, inbox_keys = peek_inbox(store, request.runId)
+        except Exception:  # noqa: BLE001 - a completion display must not break a run
+            inbox_text, inbox_keys = "", []
+        fresh_keys = [
+            (delegation_id, index) for delegation_id, index in inbox_keys
+            if f"inbox:{delegation_id}:{index}" not in applied
+        ]
+        if fresh_keys and inbox_text:
+            extra.append(HumanMessage(content=inbox_text))
+            for delegation_id, index in fresh_keys:
+                new_items.append({
+                    "key": f"inbox:{delegation_id}:{index}", "kind": "inbox",
+                    "delegationId": delegation_id, "childIndex": index,
+                })
+        if not extra:
+            return state
+        return {
+            **state,
+            "messages": [*(state.get("messages") or []), *extra],
+            "w7_pending": [*(state.get("w7_pending") or []), *new_items],
+        }
+
     async def agent_node(state: GraphState) -> GraphState:
+        state = _apply_w7_context(state)
         step = state.get("step", 0) + 1
         await _emit_step_started(step)
         step_now = plan.current_step if plan is not None else None
@@ -770,6 +917,17 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             if finalizing
             else state["messages"]
         )
+
+        def _fallback_build(settings: Any) -> Any:
+            """Build a fallback model through the runtime, preserving tools."""
+            built = runtime.build(
+                settings, builder=build_chat_model, adapter=resolution.adapter,
+            )
+            built = runtime.prepare_model(built, resolution)
+            return built.bind_tools(lc_tools) if (not finalizing and lc_tools) else built
+
+        from .config import flags as _flags  # noqa: PLC0415
+
         _step_started = time.monotonic()
         try:
             response = await invoke_model_step(
@@ -782,19 +940,25 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 step=step,
                 provider_id=request.modelSettings.provider,
                 model_id=request.modelSettings.model,
+                resolution=resolution,
+                fallback_build=_fallback_build,
+                run_id=request.runId,
+                first_token_timeout_s=float(_flags.get_int("HARNESS_MODEL_FIRST_TOKEN_S")),
+                max_run_tokens=(
+                    int(token_budget) - tokens_spent
+                    if token_budget is not None and not finalizing and tokens_spent < token_budget
+                    else None
+                ),
+                credential_pool=credential_pool,
+                usage_anchor_store=anchor_store,
+                anchor_id=anchor_id,
+                history_chars=history_chars,
             )
         except asyncio.TimeoutError:
             timed_out_message = (
                 f"Run exceeded its {int(run_timeout_s)}s deadline."
                 if deadline.expired()
                 else "model call timed out"
-            )
-            runtime.record_step(
-                resolution,
-                latency_ms=(time.monotonic() - _step_started) * 1000.0,
-                ok=False,
-                error=ModelError(error_class=ErrorClass.TIMEOUT, message=timed_out_message),
-                run_id=request.runId,
             )
             code = "RUN_TIMEOUT" if deadline.expired() else "PROVIDER_TIMEOUT"
             await _emit_step_completed(step, status="failed", error={"code": code, "message": timed_out_message})
@@ -820,29 +984,12 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 if window is None:
                     window = resolve_context_window(provider, model_name)
                 code, message = context_overflow_error(provider, model_name, window)
-                runtime.record_step(
-                    resolution,
-                    latency_ms=(time.monotonic() - _step_started) * 1000.0,
-                    ok=False,
-                    error=ModelError(
-                        error_class=ErrorClass.CONTEXT_OVERFLOW, message=message,
-                        provider_id=provider, model_id=model_name,
-                    ),
-                    run_id=request.runId,
-                )
                 await emitter.emit(
                     "context.overflow",
                     {"step": step, "provider": provider, "windowKnown": window is not None},
                 )
                 await _emit_step_completed(step, status="failed", error={"code": code, "message": message})
                 return {**state, "step": step, "error": {"code": code, "message": message}}
-            runtime.record_step(
-                resolution,
-                latency_ms=(time.monotonic() - _step_started) * 1000.0,
-                ok=False,
-                error=classify_exception(exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model),
-                run_id=request.runId,
-            )
             # Name the local server and the remedy, not a bare "Connection error.".
             failure_message = provider_failure_message(
                 exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model,
@@ -851,13 +998,6 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             await _emit_step_completed(step, status="failed", error={"code": "PROVIDER_ERROR", "message": failure_message})
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": failure_message}}
 
-        runtime.record_step(
-            resolution,
-            response=response,
-            latency_ms=(time.monotonic() - _step_started) * 1000.0,
-            ok=True,
-            run_id=request.runId,
-        )
         tool_calls = getattr(response, "tool_calls", None) or []
         # On the final step we do NOT execute tools â€” the model must answer. If a
         # provider still returned tool calls, drop them so routing falls through
@@ -881,8 +1021,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 "totalTokens": step_prompt + step_completion,
             },
         )
-        store.update_run(
-            request.runId,
+        _write_progress(
             modelSteps=step,
             promptTokens=total_prompt,
             completionTokens=total_completion,
@@ -914,8 +1053,12 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                     message = f"Reached the maximum of {max_steps} steps without a final answer."
                     code = "MAX_STEPS_EXCEEDED"
                 try:
-                    store.append_event(request.runId, "skill.tool_budget_exceeded", 0,
-                                       {"maxToolCalls": max_tool_calls, "toolCalls": state.get("tool_calls", 0)})
+                    from .event_sequence import append_durable  # noqa: PLC0415
+
+                    append_durable(request.runId, "skill.tool_budget_exceeded", {
+                        "maxToolCalls": max_tool_calls,
+                        "toolCalls": state.get("tool_calls", 0),
+                    })
                 except Exception:  # noqa: BLE001 - audit must not break the run
                     pass
                 await emitter.emit("run.failed", {"error": {"code": code, "message": message}})
@@ -960,263 +1103,24 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         return tool_state
 
     async def tools_node(state: GraphState) -> GraphState:
-        # Round 5 / C1: a tool turn may not start after the run deadline. The
-        # per-tool timeout still bounds each call; this bounds the whole run.
-        if deadline.expired():
-            message = f"Run exceeded its {int(run_timeout_s)}s deadline."
-            await emitter.emit("run.failed", {"error": {"code": "RUN_TIMEOUT", "message": message}})
-            return {**state, "error": {"code": "RUN_TIMEOUT", "message": message}}
-        last = state["messages"][-1]
-        calls = getattr(last, "tool_calls", None) or []
-        tool_calls = state.get("tool_calls", 0)
-        tool_errors = state.get("tool_errors", 0)
-        out_messages: list[BaseMessage] = []
-        # The agent step that issued these calls â€” the resume idempotency key
-        # scopes a call to (runId, stepIndex, toolCallId).
-        step_index = state.get("step", 0)
-        # Phase 11 replanning signals: the keys of THIS turn, the failures in it,
-        # and (compared against the prior turn) whether the agent is stalling.
-        prev_keys = list(state.get("last_turn_keys") or [])
-        turn_keys: list[str] = []
-        failure_details: list[dict[str, Any]] = []
+        # W3: the turn body lives in `tool_turn.py` so this file keeps wiring
+        # only. It is the SAME preflight/dispatch/postflight contract as before;
+        # parallel mode batches only CONTIGUOUS parallel-safe calls.
+        from .tool_turn import ToolTurn, ToolTurnDeps  # noqa: PLC0415
 
-        # Duplicate suppression is scoped to THIS agent step (one model turn),
-        # not the whole run. The guard exists to stop one turn from issuing the
-        # same call twice; a run-scoped map also blocked a legitimate re-issue in
-        # a later turn â€” the next page of a listing, re-polling a price after new
-        # evidence, a retry after a transient failure. Keying on
-        # `(name, canonical-args)` within a single `tools_node` invocation keeps
-        # the intra-turn refusal exactly as before while letting a later turn
-        # repeat a call. Do NOT key on the assistant message id: the same model
-        # message can legitimately recur across steps, which would reintroduce
-        # the bug. A cross-turn re-issue does not multiply upstream calls â€” the
-        # retrieval layer still deduplicates identical data fetches per run via
-        # the shared `retrieval_cache` passed into `build_graph`.
-        seen_calls: dict[str, int] = {}
-
-        for call in calls:
-            name = call.get("name", "")
-            args = call.get("args", {}) or {}
-            call_id = call.get("id") or f"call_{name}"
-
-            # Enforce the manifest's hard tool-call budget. Once exhausted, no
-            # further tool executes: the model is told plainly (so it answers
-            # from gathered evidence) and the refusal is auditable. The budget is
-            # a runtime limit, not a prompt suggestion.
-            if max_tool_calls is not None and tool_calls >= max_tool_calls:
-                result_text = (
-                    f"Tool call refused: the maximum of {max_tool_calls} tool calls for this run "
-                    "has been reached. Answer using the information already gathered."
-                )
-                await emitter.emit("tool.failed", {"name": name, "toolCallId": call_id, "code": "TOOL_BUDGET_EXCEEDED"})
-                try:
-                    store.append_event(request.runId, "skill.tool_budget_exceeded", 0,
-                                       {"maxToolCalls": max_tool_calls, "toolCalls": tool_calls, "tool": name})
-                except Exception:  # noqa: BLE001 - audit must not break the run
-                    pass
-                tool_errors += 1
-                failure_details.append({"name": name, "code": "TOOL_BUDGET_EXCEEDED"})
-                out_messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
-                continue
-
-            tool_calls += 1
-            # A safe, bounded "what" for the live stream â€” never file content.
-            from .code.activity import tool_code_preview, tool_detail  # noqa: PLC0415
-
-            safe_args = args if isinstance(args, dict) else {}
-            detail = tool_detail(name, safe_args)
-            code_preview = tool_code_preview(name, safe_args)
-            await emitter.emit("tool.requested", {
-                "name": name, "toolCallId": call_id, "step": state.get("step"),
-                **({"detail": detail} if detail else {}),
-                **({"codePreview": code_preview} if code_preview else {}),
-            })
-
-            key = _stable_key(name, args)
-            turn_keys.append(key)
-            # Resume idempotency: if this exact call already executed in a prior
-            # attempt of this run, REUSE its recorded result instead of running it
-            # again. This is what makes resume safe for a side-effecting tool.
-            already = (
-                lineage.was_tool_executed(request.runId, step_index, call_id)
-                if lineage is not None else None
-            )
-            if already is not None:
-                result_text = already["text"]
-                if not already["ok"]:
-                    tool_errors += 1
-                    failure_details.append({"name": name, "code": "TOOL_ERROR"})
-                await emitter.emit(
-                    "tool.completed" if already["ok"] else "tool.failed",
-                    {"name": name, "toolCallId": call_id, "resumed": True,
-                     "code": None if already["ok"] else "TOOL_ERROR"},
-                )
-            elif seen_calls.get(key, 0) > 0:
-                result_text = (
-                    f"Duplicate call to {name!r} with identical arguments was not executed again. "
-                    "Use the earlier result."
-                )
-                await emitter.emit("tool.failed", {"name": name, "toolCallId": call_id, "code": "TOOL_FORBIDDEN"})
-                tool_errors += 1
-                failure_details.append({"name": name, "code": "TOOL_FORBIDDEN"})
-            else:
-                seen_calls[key] = seen_calls.get(key, 0) + 1
-                # Plugin hook: a plugin may observe or veto a tool call. The hook
-                # phase is bounded and a failing `continue` hook never blocks.
-                veto = await _run_plugin_hook(
-                    "before_tool_call",
-                    {"tool": name, "arguments": args if isinstance(args, dict) else {},
-                     "runId": request.runId},
-                )
-                if veto:
-                    from .tools import ToolResult  # noqa: PLC0415
-
-                    result = ToolResult(
-                        tool_call_id=call_id, name=name, ok=False,
-                        text=f"Tool {name!r} was blocked by a plugin hook: {veto}",
-                    )
-                else:
-                    from .recovery.hotpath import run_tool_with_recovery  # noqa: PLC0415
-
-                    # At-most-once guard: an effectful call is marked BEFORE it
-                    # runs. If a previous attempt started it and never recorded a
-                    # result, the outcome is unknown — do not run it again.
-                    tool_def = registry.get(name)
-                    effect_kind = getattr(tool_def, "effect", None) if tool_def is not None else None
-                    effectful = bool(effect_kind) or (
-                        tool_def is not None
-                        and str(getattr(tool_def, "permission", "read")) != "read"
-                    )
-                    prior_effect = (
-                        effects.state(request.runId, step_index, call_id)
-                        if effectful and effects is not None else None
-                    )
-                    if prior_effect == "started":
-                        from .tools import ToolResult  # noqa: PLC0415
-
-                        result = ToolResult(
-                            tool_call_id=call_id, name=name, ok=False,
-                            text=(
-                                f"{name!r} was started by a previous attempt but its outcome "
-                                "was never recorded. It was NOT run again. Reconcile the "
-                                "external state (broker terminal / git status / file hash) "
-                                "before retrying."
-                            ),
-                        )
-                        if effects is not None:
-                            effects.mark_unknown(request.runId, step_index, call_id)
-                    else:
-                        if effectful and effects is not None:
-                            effects.begin(
-                                request.runId, step_index, call_id, name,
-                                str(effect_kind) if effect_kind else None,
-                            )
-                        effect_started = effectful
-                        result = await run_tool_with_recovery(
-                            registry, name, call_id, args, ctx, allowed, tool_timeout_ms, request,
-                        )
-                        if effect_started and effects is not None:
-                            effects.finish(
-                                request.runId, step_index, call_id, ok=result.ok,
-                            )
-                result_text = result.text
-                # C4: every handle this result carries belongs to the current
-                # plan step. No plan => no-op.
-                if plan is not None:
-                    try:
-                        plan.record_tool_result(result, request.runId)
-                    except Exception:  # noqa: BLE001 - evidence must not break the run
-                        pass
-                await _run_plugin_hook(
-                    "after_tool_call",
-                    {"tool": name, "ok": result.ok, "runId": request.runId},
-                )
-                # Record the executed call so a resume never re-runs it.
-                if lineage is not None:
-                    lineage.mark_tool_executed(request.runId, step_index, call_id, result)
-                if result.ok:
-                    from .code.activity import tool_result_summary  # noqa: PLC0415
-
-                    gaps.record_result(
-                        request.runId, tool=name, result=result,
-                        result_text=result_text, need=gap_need,
-                        task_id=str(getattr(request, "taskId", "") or ""),
-                    )
-                    summary = tool_result_summary(name, result.data)
-                    await emitter.emit(
-                        "tool.completed",
-                        {
-                            "name": name,
-                            "toolCallId": call_id,
-                            "durationMs": result.duration_ms,
-                            "truncated": result.truncated,
-                            "shownChars": result.shown_chars,
-                            "totalChars": result.total_chars,
-                            **({"summary": summary} if summary else {}),
-                        },
-                    )
-                    # A trimmed result is its own honest signal (Phase 3): emitted
-                    # once, carrying sizes only, so the stream shows the model got
-                    # a partial result without re-parsing the text marker.
-                    if result.truncated:
-                        await emitter.emit(
-                            "tool.truncated",
-                            {
-                                "name": name,
-                                "toolCallId": call_id,
-                                "shownChars": result.shown_chars,
-                                "totalChars": result.total_chars,
-                            },
-                        )
-                else:
-                    tool_errors += 1
-                    failure_details.append(
-                        {"name": name, "code": result.error.code if result.error else "TOOL_ERROR"}
-                    )
-                    gaps.record_result(
-                        request.runId, tool=name, result=result,
-                        result_text=result_text, need=gap_need,
-                        task_id=str(getattr(request, "taskId", "") or ""),
-                    )
-                    await emitter.emit(
-                        "tool.failed",
-                        {
-                            "name": name,
-                            "toolCallId": call_id,
-                            "code": result.error.code if result.error else "TOOL_ERROR",
-                            "durationMs": result.duration_ms,
-                        },
-                    )
-                try:
-                    store.record_tool_execution(request.runId, result)
-                except Exception:  # noqa: BLE001
-                    pass
-
-            out_messages.append(ToolMessage(content=result_text, tool_call_id=call_id))
-
-        store.update_run(request.runId, toolCalls=tool_calls, toolErrors=tool_errors)
-        step_failures = tool_errors - int(state.get("tool_errors", 0) or 0)
-        turn_set = sorted(set(turn_keys))
-        stalled = bool(turn_set) and turn_set == sorted(set(prev_keys))
-        tool_done: GraphState = {
-            **state, "messages": [*state["messages"], *out_messages],
-            "tool_calls": tool_calls, "tool_errors": tool_errors,
-            "step_failures": step_failures,
-            "stalled": stalled,
-            "last_turn_keys": turn_set,
-            "step_failure_details": failure_details,
-        }
-        # Durable boundary: a checkpoint after the tool results are recorded.
-        await _write_checkpoint("tool_results", tool_done)
-        await _emit_step_completed(
-            int(state.get("step", 0) or 0),
-            status="failed" if step_failures else "ok",
-            tool_calls=tool_calls,
-            tool_errors=tool_errors,
-            error={"code": (failure_details[-1].get("code") if failure_details else "TOOL_ERROR")}
-            if step_failures else None,
+        deps = ToolTurnDeps(
+            request=request, store=store, emitter=emitter, registry=registry,
+            ctx=ctx, effects=effects, lineage=lineage, plan=plan, gaps=gaps,
+            gap_need=gap_need, deadline=deadline, run_timeout_s=run_timeout_s,
+            max_tool_calls=max_tool_calls, tool_timeout_ms=tool_timeout_ms,
+            allowed=allowed, guard=tool_guard, hook=_run_plugin_hook,
+            write_checkpoint=_write_checkpoint,
+            write_progress=_write_progress,
+            emit_step_completed=_emit_step_completed,
+            parallel_mode=parallel_mode, concurrency=tool_concurrency,
+            batch_timeout_s=tool_batch_timeout_s,
         )
-        return tool_done
+        return await ToolTurn(deps).run(state)
 
     def route_after_agent(state: GraphState) -> str:
         if state.get("error"):
@@ -1234,6 +1138,10 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
 
     def route_after_tools(state: GraphState) -> str:
         if state.get("error"):
+            return END
+        # W3.2: a guardrail halt is a controlled stop; the tools node already
+        # wrote the deterministic `final`, so do not run verify/repair or replan.
+        if state.get("guardrail_halt"):
             return END
         if state.get("step", 0) >= max_steps:
             return "exhausted"
@@ -1406,9 +1314,10 @@ async def execute_run(
     artifact_service: Optional[Any] = None,
     ui_service: Optional[Any] = None,
     task_manager: Optional[Any] = None,
+    runtime_id: Optional[str] = None,
 ) -> RunResult:
     """Run the graph and write the terminal status exactly once."""
-    from .run_lineage import RunLineage  # noqa: PLC0415
+    from .run_lineage import CheckpointWriteFailed, RunLineage  # noqa: PLC0415
 
     agent = resolve_agent(request)
     if getattr(request, "liveSurface", True):
@@ -1426,7 +1335,34 @@ async def execute_run(
     except Exception:  # noqa: BLE001 - plan wiring must never break a run
         plan_runtime = None
     lineage = RunLineage(store)
-    from .run_lease import fenced_update_run  # noqa: PLC0415
+    from .run_lease import LeaseLost, fenced_progress, fenced_update_run  # noqa: PLC0415
+
+    def _owner_write(**fields: Any) -> bool:
+        """Fence a run mutation to the live lease; False means we lost the run."""
+        return fenced_update_run(store, request.runId, runtime_id=runtime_id, **fields)
+
+    def _lease_lost_result() -> RunResult:
+        # Never write a terminal row here: the new owner owns it. The bus event
+        # is live-only so a stale worker cannot pollute the durable log.
+        try:
+            if bus is not None:
+                bus.publish({
+                    "id": f"evt_{request.runId}_lease_lost",
+                    "runId": request.runId, "type": "run.lease_lost",
+                    "seq": -1, "at": now_iso(), "data": {"runtimeId": runtime_id},
+                    "transient": True,
+                })
+        except Exception:  # noqa: BLE001 - telemetry only
+            pass
+        log.warning("run %s lease was lost; stopping without a terminal write", request.runId)
+        return RunResult(
+            runId=request.runId, status="failed",
+            error=HarnessError(
+                code="RUN_LEASE_LOST",
+                message="another live runtime owns this run; this worker stopped",
+            ),
+            toolCalls=0, toolErrors=0, modelSteps=0,
+        )
     # Capability gaps: one durable record per offerable dead end. Recording is
     # fail-open; this never changes a tool decision.
     from .gaps.runtime import GapRuntime  # noqa: PLC0415
@@ -1468,7 +1404,8 @@ async def execute_run(
         resume_from = checkpoint
         # Re-enter the SAME run: keep its identity, re-mark it running.
         lineage.set_run_parent(request.runId, request.parentRunId)
-        store.update_run(request.runId, status="running", startedAt=started)
+        if not _owner_write(status="running", startedAt=started):
+            return _lease_lost_result()
         await emitter.emit("run.resumed", {"checkpointId": checkpoint["id"], "step": (checkpoint.get("payload") or {}).get("step")})
     else:
         # A caller (the code-task route) may have pre-created the run row so it
@@ -1495,11 +1432,22 @@ async def execute_run(
         # Record lineage AFTER the row exists (columns owned by the lineage module).
         lineage.set_run_parent(request.runId, request.parentRunId, request.workflowId)
         await emitter.emit("run.created", {"agentId": agent.id})
-        store.update_run(request.runId, status="running", startedAt=started)
+        if not _owner_write(status="running", startedAt=started):
+            return _lease_lost_result()
         # The effective budget: a session profile may raise `request.maxSteps`.
         await emitter.emit("run.started", {"maxSteps": int(getattr(request, "maxSteps", 0) or 0)
                                            or chat_step_budget(agent, request),
                                            "provider": request.modelSettings.provider})
+
+    # W0: record the effective feature-flag snapshot once per run/resume. This is
+    # additive and fail-open; it never changes the prompt, tools or model.
+    from .run_flags import record_run_flags, with_flags  # noqa: PLC0415
+
+    flags_snapshot = await record_run_flags(
+        emitter, store, request.runId,
+        existing_context=(_prior_run or {}).get("context"),
+        runtime_id=runtime_id,
+    )
 
     # Phase 4: an unambiguous supported financial comparison runs the evidence gate
     # BEFORE the agent graph (no duplicate tool loop); uncertain inputs fall through.
@@ -1510,7 +1458,7 @@ async def execute_run(
         try:
             research = await _maybe_research(request, data_bridge, store, emitter, retrieval_cache, cancel_event)
         except asyncio.CancelledError:
-            fenced_update_run(store, request.runId, status="cancelled", finishedAt=now_iso())
+            fenced_update_run(store, request.runId, runtime_id=runtime_id, status="cancelled", finishedAt=now_iso())
             await emitter.emit("run.cancelled", {"reason": "cancelled"})
             return _result(request.runId, "cancelled", store, None)
     if research is not None:
@@ -1573,16 +1521,28 @@ async def execute_run(
         else None
     )
     # Trade surface first; a quantitative turn then gets the data/compute surface.
+    disclosure_plan = None
     if allowed:
         from .quant_intent import apply_intent_surfaces  # noqa: PLC0415
         allowed, surface_resolution = apply_intent_surfaces(
             request, allowed, surface_resolution
         )
-        # Round 5 / C3: opt-in lazy surface. Effectful tools stay bound; the
-        # read-only long tail becomes discoverable through tool_search.
-        from .tool_surface import lazy_tool_surface  # noqa: PLC0415
+        # W3.3: progressive disclosure. Effectful/interactive tools stay bound;
+        # the read-only long tail is listed in a bounded catalogue and reachable
+        # through the existing tool_search/tool_invoke pair. `auto` needs a KNOWN
+        # window; unknown stays eager.
+        from .models import resolve_context_window  # noqa: PLC0415
+        from .tool_disclosure import resolve_disclosure  # noqa: PLC0415
 
-        allowed = lazy_tool_surface(allowed, registry)
+        _declared_window = getattr(request.modelSettings, "context_window", None)
+        _window = int(_declared_window) if _declared_window else resolve_context_window(
+            request.modelSettings.provider, request.modelSettings.model,
+        )
+        disclosure_plan = resolve_disclosure(allowed, registry, window=_window)
+        if disclosure_plan.enabled and disclosure_plan.allowed is not None:
+            allowed = disclosure_plan.allowed
+    if disclosure_plan is not None and disclosure_plan.enabled:
+        system_prompt = f"{system_prompt}\n\n{disclosure_plan.catalogue_block}"
     # Settings → Persona: a bounded user overlay appended to the authoritative
     # prompt for the ordinary chat agent. It is style/emphasis only — the tool
     # allowlist above was already resolved, so the block cannot widen it. Read
@@ -1604,8 +1564,14 @@ async def execute_run(
     surface_payload = surface_resolution.to_dict()
     if persona_meta is not None:
         surface_payload["persona"] = persona_meta
-    store.update_run(
-        request.runId,
+    if disclosure_plan is not None:
+        surface_payload["disclosure"] = disclosure_plan.to_dict()
+        if disclosure_plan.enabled:
+            await emitter.emit("tool.disclosure", {
+                **disclosure_plan.to_dict(),
+                "runId": request.runId,
+            })
+    _owner_write(
         surface=surface_payload,
         autonomy=surface_resolution.autonomy,
         workspaceId=request.workspaceId,
@@ -1764,8 +1730,26 @@ async def execute_run(
         runtime_context=runtime_context,
         user_message=request.input.query,
         repo_map=repo_map_block, repo_map_version=repo_map_digest,
+        provider=request.modelSettings.provider,
     )
     await emitter.emit("prompt.plan", {**prompt_plan.to_dict(), "surface": surface_summary(agent.id, allowed)})
+    if prompt_plan.cache_plan is not None:
+        # W2.6: the provider's cache decision is observable even when it is
+        # "none" — the operator can see that no marker was available rather
+        # than inferring it from a flat cache-hit rate.
+        _cache = prompt_plan.cache_plan
+        _stable_chars = sum(
+            len(s.content) for s in prompt_plan.segments
+            if s.id in _cache.stable_segment_ids
+        )
+        await emitter.emit("prompt.cache", {
+            "cacheKey": prompt_plan.cache_key,
+            "provider": _cache.provider,
+            "stableChars": _stable_chars,
+            "markerCount": _cache.marker_count,
+            "markerKind": _cache.marker_kind,
+            "stableSegmentIds": list(_cache.stable_segment_ids),
+        })
 
     # Measure the request and derive the history budget from the RESOLVED model's
     # declared context window. When the window is unknown the budget is inert and
@@ -1775,9 +1759,13 @@ async def execute_run(
     # measured with it present. We derive it once with the conservative bound to
     # extract the dropped context, then re-derive so the final bound accounts for
     # the block's own size. Two passes, no loop.
+    from .context.usage_anchor import prepare_anchor  # noqa: PLC0415
+
+    anchor_store, anchor_id, usage_anchor, history_chars = prepare_anchor(store, request)
     budget = _history_budget(
         request, allowed, registry, system_prompt, profile_block, skill_manifest,
         memory_block, "", runtime_context=runtime_context, overrides=budget_overrides,
+        anchor=usage_anchor, history_chars=history_chars,
     )
     history_messages, dropped_block, dropped_turns = await _dropped_context_block(
         request, memory_service, emitter, budget,
@@ -1785,6 +1773,7 @@ async def execute_run(
     budget = _history_budget(
         request, allowed, registry, system_prompt, profile_block, skill_manifest,
         memory_block, dropped_block, runtime_context=runtime_context, overrides=budget_overrides,
+        anchor=usage_anchor, history_chars=history_chars,
     )
     if budget.effective:
         # Re-derive the trimmed set under the measured bound (re-extraction is
@@ -1792,6 +1781,22 @@ async def execute_run(
         history_messages, dropped_block, dropped_turns = await _dropped_context_block(
             request, memory_service, emitter, budget, emit=False,
         )
+
+    # W2 ladder: at a hard/emergency gate the assembled prompt is pruned and,
+    # if still under pressure, summarised before the first call. The decision and
+    # cooldown live in `context/compression_ladder.py`; a short run is untouched.
+    from .context.compression_ladder import compress as _compress_run  # noqa: PLC0415
+
+    async def _compress_if_needed(run_messages: list[BaseMessage]) -> list[BaseMessage]:
+        gate = str(getattr(budget, "gate", "unknown") or "unknown")
+        if not getattr(budget, "effective", False) or gate not in ("hard", "emergency"):
+            return run_messages
+        ladder = await _compress_run(
+            run_messages, budget=budget, request=request, emitter=emitter,
+            memory_service=memory_service,
+            session_id=str(getattr(request, "sessionId", "") or request.runId),
+        )
+        return ladder.messages if ladder.ok else run_messages
 
     # Ordinary-run source collection: retrieval tools hand their results to this
     # collector so the answer can show a Sources panel built ONLY from what was
@@ -1869,8 +1874,11 @@ async def execute_run(
 
     async def _invoke_with_history(
         history_msgs: list[BaseMessage], dropped: Optional[str] = None,
+        resume_override: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        if resume_state is not None and resume_state.get("messages"):
+        if resume_override is not None and resume_override.get("messages"):
+            initial_state: dict[str, Any] = dict(resume_override)
+        elif resume_state is not None and resume_state.get("messages"):
             initial_state: dict[str, Any] = dict(resume_state)
         else:
             run_messages = _assemble_run_messages(
@@ -1880,6 +1888,7 @@ async def execute_run(
                 dropped_block=dropped if dropped is not None else dropped_block,
                 runtime_context=runtime_context,
             )
+            run_messages = await _compress_if_needed(run_messages)
             initial_state = {
                 "messages": run_messages,
                 "step": 0,
@@ -1891,6 +1900,7 @@ async def execute_run(
             }
         scope = RunScope(
             registry=registry, data_bridge=data_bridge, store=store,
+            runtime_id=runtime_id,
             bus=bus, cancel_event=cancel_event,
             retrieval_cache=retrieval_cache, memory_service=memory_service,
             skill_registry=skill_registry, memory_router=memory_router,
@@ -1920,10 +1930,13 @@ async def execute_run(
         app = build_graph(spec, scope)
         return await app.ainvoke(initial_state)
 
+    from .context.retry import retry_with_tighter_budget as _retry_with_tighter_budget  # noqa: PLC0415
+    from .run_recovery import is_context_overflow  # noqa: PLC0415
+
     retry_budget: Optional[Any] = None
     try:
         final_state = await _invoke_with_history(history_messages)
-        if _is_context_overflow(final_state.get("error")):
+        if is_context_overflow(final_state.get("error")):
             final_state, retry_budget = await _retry_with_tighter_budget(
                 request, emitter, final_state, base_budget=budget,
                 overrides=budget_overrides,
@@ -1932,14 +1945,27 @@ async def execute_run(
                 runtime_context=runtime_context,
                 memory_service=memory_service, allowed=allowed,
                 registry=registry, invoke=_invoke_with_history,
+                anchor=usage_anchor, history_chars=history_chars,
+                recover_context=(store, request.runId, emitter, _invoke_with_history),
+                budget_fn=_history_budget,
             )
     except asyncio.CancelledError:
-        fenced_update_run(store, request.runId, status="cancelled", finishedAt=now_iso())
+        fenced_update_run(store, request.runId, runtime_id=runtime_id, status="cancelled", finishedAt=now_iso())
         await emitter.emit("run.cancelled", {"reason": "cancelled"})
         return _result(request.runId, "cancelled", store, None)
+    except LeaseLost:
+        return _lease_lost_result()
+    except CheckpointWriteFailed as exc:
+        error = HarnessError(code="CHECKPOINT_WRITE_FAILED", message=str(exc))
+        _owner_write(status="failed", error=error.model_dump(), finishedAt=now_iso())
+        await emitter.emit("run.failed", {"error": error.model_dump()})
+        return RunResult(
+            runId=request.runId, status="failed", error=error,
+            toolCalls=0, toolErrors=0, modelSteps=0,
+        )
     except Exception as exc:  # noqa: BLE001
         error = HarnessError(code="INTERNAL_ERROR", message=str(exc))
-        fenced_update_run(store, request.runId, status="failed", error=error.model_dump(), finishedAt=now_iso())
+        fenced_update_run(store, request.runId, runtime_id=runtime_id, status="failed", error=error.model_dump(), finishedAt=now_iso())
         await emitter.emit("run.failed", {"error": error.model_dump()})
         return RunResult(runId=request.runId, status="failed", error=error, toolCalls=0, toolErrors=0, modelSteps=0)
 
@@ -1959,7 +1985,8 @@ async def execute_run(
             retry_budget or budget, request, kind="overflow",
             retried=retry_budget is not None,
         )
-        if _is_context_overflow(err):
+        context_blob = with_flags(context_blob, flags_snapshot)
+        if is_context_overflow(err):
             from .models import context_overflow_error  # noqa: PLC0415
 
             window = getattr(retry_budget or budget, "window", None)
@@ -1969,12 +1996,12 @@ async def execute_run(
             )
             err["message"] = message
             fenced_update_run(
-                store, request.runId, status="failed", error=err, finishedAt=now_iso(),
-                context=context_blob,
+                store, request.runId, runtime_id=runtime_id, status="failed",
+                error=err, finishedAt=now_iso(), context=context_blob,
             )
             await emitter.emit("run.failed", {"error": err})
         else:
-            fenced_update_run(store, request.runId, status="failed", error=err, finishedAt=now_iso())
+            fenced_update_run(store, request.runId, runtime_id=runtime_id, status="failed", error=err, finishedAt=now_iso())
         await _post_run_analysis(request.runId, store, memory_service, skill_registry)
         result = _result(request.runId, "failed", store, err)
         result.context = context_blob
@@ -2019,7 +2046,7 @@ async def execute_run(
             code_verification_blob["autonomy"] = request.autonomy
         if request.workspaceId:
             code_verification_blob["workspaceId"] = request.workspaceId
-    store.update_run(request.runId, codeVerification=code_verification_blob)
+    _owner_write(codeVerification=code_verification_blob)
     # Universal financial-fact enforcement (finance_facts.enforce): if the answer
     # asserts a metric the run's own analysis EXCLUDED (ambiguous definition, no
     # period, superseded), or states one side of a cross-source conflict, append the
@@ -2084,6 +2111,7 @@ async def execute_run(
     context_blob = _context_budget_blob(
         final_budget, request, kind="completed", retried=retry_budget is not None,
     )
+    context_blob = with_flags(context_blob, flags_snapshot)
     # Provenance collected from this run's retrieval tool calls (None when the
     # run consulted no sources, so an empty panel is never shown). An ordinary
     # run's collected blob carries status `collected`, distinct from a gated
@@ -2113,8 +2141,8 @@ async def execute_run(
     guardrail_violation = _guardrail_failure(agent, output, store, request.runId)
     if guardrail_violation is not None:
         fenced_update_run(
-            store, request.runId, status="failed", error=guardrail_violation,
-            finishedAt=now_iso(),
+            store, request.runId, runtime_id=runtime_id, status="failed",
+            error=guardrail_violation, finishedAt=now_iso(),
         )
         try:
             await emitter.emit("run.failed", guardrail_violation)
@@ -2131,8 +2159,8 @@ async def execute_run(
         need=gap_need, task_id=str(getattr(request, "taskId", "") or ""),
     )
     fenced_update_run(
-        store, request.runId, status="completed", output=output, finishedAt=now_iso(),
-        context=context_blob,
+        store, request.runId, runtime_id=runtime_id, status="completed",
+        output=output, finishedAt=now_iso(), context=context_blob,
         **( {"research": research_blob} if research_blob else {} ),
         **( {"vision": vision_blob} if vision_blob else {} ),
         **( {"documents": documents_blob} if documents_blob else {} ),
@@ -2180,7 +2208,7 @@ async def execute_run(
     analysis = await _post_run_analysis(request.runId, store, memory_service, skill_registry)
     memory_blob = _memory_blob(memory_outcome, eligibility, analysis)
     if memory_blob:
-        store.update_run(request.runId, memory=memory_blob)
+        _owner_write(memory=memory_blob)
     # Index the run's meaningful messages into the bounded session-history search
     # index so later sessions can ask "what did we decide?". Best-effort; never
     # affects this result.
@@ -2314,6 +2342,7 @@ async def _finish_research(
     fenced_update_run(
         store,
         request.runId,
+        runtime_id=runtime_id,
         status="completed",
         output=output,
         promptTokens=prompt_tokens,
@@ -2402,7 +2431,9 @@ async def _post_run_analysis(
         return analysis
     except Exception:  # noqa: BLE001
         try:
-            store.append_event(run_id, "memory.analysis_failed", 0, {})
+            from .event_sequence import append_durable  # noqa: PLC0415
+
+            append_durable(run_id, "memory.analysis_failed", {})
         except Exception:  # noqa: BLE001
             pass
         return None
@@ -2425,6 +2456,8 @@ def _history_budget(
     *,
     overrides: Optional[dict[str, Any]] = None,
     tighter: bool = False,
+    anchor: Optional[Any] = None,
+    history_chars: int = 0,
 ) -> Any:
     """Compute the per-run history budget from the resolved model + real request.
 
@@ -2433,9 +2466,11 @@ def _history_budget(
     back to the module constants. `overrides` is the test/operator seam â€” it may
     supply a known window or a reserved-output value, never fabricate one.
     """
+    from .config import flags  # noqa: PLC0415
     from .context_budget import DEFAULT_RESERVED_OUTPUT_TOKENS, compute_history_budget  # noqa: PLC0415
 
     overrides = overrides or {}
+    soft_gate = flags.get_int("HARNESS_CONTEXT_GATE_PCT") / 100.0
     reserved = int(overrides.get("reserved_output_tokens", DEFAULT_RESERVED_OUTPUT_TOKENS))
     # Window precedence: an explicit override (test seam) wins, else the
     # operator-declared `ModelSettings.contextWindow` (used when the catalog
@@ -2469,6 +2504,11 @@ def _history_budget(
         reserved_output_tokens=reserved,
         tighter=tighter,
         window_override=window_override,
+        anchor=anchor,
+        history_chars=history_chars,
+        gate_soft=soft_gate,
+        gate_hard=min(0.95, soft_gate + 0.20),
+        gate_emergency=min(0.98, soft_gate + 0.35),
     )
 
 
@@ -2493,122 +2533,23 @@ def _assemble_run_messages(
     """
     return [
         SystemMessage(content=system_prompt),
-        *([SystemMessage(content=runtime_context)] if runtime_context else []),
         *history_messages,
         *([SystemMessage(content=profile_block)] if profile_block else []),
         *([SystemMessage(content=skill_manifest)] if skill_manifest else []),
         *([SystemMessage(content=lesson_manifest)] if lesson_manifest else []),
         *([SystemMessage(content=memory_block)] if memory_block else []),
         *([SystemMessage(content=dropped_block)] if dropped_block else []),
+        # W2: run date/time is volatile. It must sit AFTER history so the
+        # reusable prefix (system + tools + early history) stays cacheable; it
+        # still precedes the user turn so the model reads it as context.
+        *([SystemMessage(content=runtime_context)] if runtime_context else []),
         HumanMessage(content=_user_message(request)),
     ]
 
 
-def _is_context_overflow(error: Optional[dict[str, Any]]) -> bool:
-    return bool(error) and error.get("code") == "CONTEXT_OVERFLOW"
-
-
-def _history_bounded_data(
-    budget: Any,
-    *,
-    kept_turns: int,
-    dropped_turns: list[Any],
-    retried: bool = False,
-) -> dict[str, Any]:
-    """The bounded, content-free payload for `memory.history_bounded`.
-
-    Counts and estimated tokens only â€” never memory content or the dropped text.
-    """
-    from .eclipse_memory.profile import estimate_tokens  # noqa: PLC0415
-
-    dropped_tokens = sum(estimate_tokens(t.content) for t in dropped_turns)
-    return {
-        "keptTurns": kept_turns,
-        "droppedTurns": len(dropped_turns),
-        "droppedTokensEstimate": dropped_tokens,
-        "window": budget.window,
-        "windowKnown": bool(budget.window_known),
-        "tighterRetry": bool(retried),
-    }
-
-
-def _context_budget_blob(
-    budget: Any, request: RunRequest, *, kind: str, retried: bool = False,
-) -> Optional[dict[str, Any]]:
-    """The additive `RunResult.context` blob for a completed/overflowed run.
-
-    Present only when history was actually trimmed or the run overflowed, so an
-    ordinary short run leaves `context` absent (old clients unaffected).
-    """
-    kept, dropped = _bounded_history(request, budget)
-    if not dropped and kind != "overflow":
-        return None
-    data = _history_bounded_data(
-        budget, kept_turns=len(kept), dropped_turns=dropped, retried=retried,
-    )
-    data["status"] = kind
-    return data
-
-
-async def _retry_with_tighter_budget(
-    request: RunRequest,
-    emitter: RunEmitter,
-    final_state: dict[str, Any],
-    *,
-    base_budget: Any,
-    overrides: dict[str, Any],
-    system_prompt: str,
-    profile_block: str,
-    skill_manifest: str,
-    memory_block: str,
-    runtime_context: str,
-    memory_service: Optional[Any],
-    allowed: Optional[set[str]],
-    registry: ToolRegistry,
-    invoke: Any,
-) -> tuple[dict[str, Any], Optional[Any]]:
-    """Retry ONCE with a materially tighter history allowance.
-
-    Only the history allowance changes: the system prompt, tools, per-run blocks
-    and side-effecting tools are NOT re-run differently. An unknown-window budget
-    (inert) is unaffected by `tighter`, so overflow on an unknown window fails
-    honestly with no pointless second attempt. Returns
-    `(final_state, retry_budget_or_None)`.
-    """
-    if not base_budget.effective:
-        return final_state, None
-    # Only recover when the overflow happened on the FIRST model call, before any
-    # tool executed. Rebuilding the graph would otherwise re-run side-effecting
-    # tools already executed this run.
-    if int(final_state.get("step") or 1) > 1:
-        return final_state, None
-    tighter_budget = _history_budget(
-        request, allowed, registry, system_prompt, profile_block, skill_manifest,
-        memory_block, "", runtime_context=runtime_context, overrides=overrides, tighter=True,
-    )
-    kept, _dropped = _bounded_history(request, tighter_budget)
-    base_kept_count = len(_bounded_history(request, base_budget)[0])
-    # Nothing left to remove: a second attempt would be identical, so do not make
-    # one. The honest CONTEXT_OVERFLOW stands.
-    if len(kept) >= base_kept_count:
-        return final_state, None
-    kept_messages = [
-        HumanMessage(content=t.content) if t.role == "user" else AIMessage(content=t.content)
-        for t in kept
-    ]
-    # Re-extract the (now larger) dropped window and carry it in the retry so the
-    # attempt is materially smaller than the first, not merely a re-ask.
-    _msgs, tighter_dropped_block, _dt = await _dropped_context_block(
-        request, memory_service, emitter, tighter_budget, emit=False,
-    )
-    await emitter.emit("context.retry", {
-        "reason": "context_overflow",
-        "windowKnown": bool(tighter_budget.window_known),
-        "keptTurns": len(kept),
-        "maxHistoryChars": tighter_budget.max_history_chars,
-    })
-    retried_state = await invoke(kept_messages, tighter_dropped_block)
-    return retried_state, tighter_budget
+# Context retry lives in `context/retry.py` (size ratchet); re-exported for
+# existing callers and tests that import it from this module.
+from .context.retry import retry_with_tighter_budget as _retry_with_tighter_budget  # noqa: E402,F401
 
 # History bounding + dropped-context extraction live in `history.py` (size
 # ratchet) and are re-exported here so existing callers/tests are unchanged.
@@ -2616,7 +2557,9 @@ from .history import (  # noqa: E402,F401
     MAX_HISTORY_CHARS,
     MAX_HISTORY_TURNS,
     _bounded_history,
+    _context_budget_blob,
     _dropped_context_block,
+    _history_bounded_data,
     _history_messages,
     _model_extract_dropped,
 )

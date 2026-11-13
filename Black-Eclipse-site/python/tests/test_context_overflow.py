@@ -238,15 +238,17 @@ async def test_side_effecting_tool_is_not_re_executed_across_retry(store, monkey
             executed["count"] += 1
             return {"status": "OK", "symbol": "AAPL", "priceSource": "scraper", "price": {"price": 1.0, "changePct": 0.0}}
 
-    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: ToolThenOverflow())
+    model = ToolThenOverflow()
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
     result = await graph_module.execute_run(
         _req("run_tool", _history(30)), _registry(), CountingBridge(), store
     )
     events = [e["type"] for e in store.list_events("run_tool")]
     assert result.status == "failed"
     assert result.error.code == "CONTEXT_OVERFLOW"
-    # The overflow happened on step 2; no retry is attempted, so the tool ran once.
-    assert "context.retry" not in events
+    # The step>1 overflow retries once from the completed tool checkpoint; the
+    # retry overflows again, so the honest CONTEXT_OVERFLOW stands.
+    assert events.count("context.recovered") == 1
     # The property is that the TOOL was not re-executed — not that the bridge was
     # called once. A single `get_market_snapshot` now consults several capabilities
     # (the vault snapshot plus the arbitrated price route), so counting bridge
@@ -304,3 +306,44 @@ def test_unknown_window_overflow_does_not_attempt_a_retry():
         absolute_max_chars=graph_module.MAX_HISTORY_CHARS,
     )
     assert budget.effective is False
+
+
+@pytest.mark.asyncio
+async def test_tool_bearing_overflow_recovers_once_and_completes(store, monkeypatch):
+    """A completed tool checkpoint can recover a step>1 overflow without re-running it."""
+
+    class ToolThenOverflowThenAnswer:
+        def __init__(self):
+            self.calls = 0
+
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                return AIMessage(
+                    content="",
+                    tool_calls=[{"id": "c1", "name": "get_market_snapshot", "args": {"symbol": "AAPL"}}],
+                )
+            if self.calls == 2:
+                raise RuntimeError("This model's maximum context length is 4096 tokens.")
+            return AIMessage(content="AAPL is 1.0.")
+
+        async def astream(self, messages):
+            yield await self.ainvoke(messages)
+
+    class CountingBridge(FakeBridge):
+        async def fetch(self, capability, params):
+            return {"status": "OK", "symbol": "AAPL", "priceSource": "scraper",
+                    "price": {"price": 1.0, "changePct": 0.0}}
+
+    model = ToolThenOverflowThenAnswer()
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+    result = await graph_module.execute_run(
+        _req("run_tool_ok", _history(30)), _registry(), CountingBridge(), store
+    )
+    events = [e["type"] for e in store.list_events("run_tool_ok")]
+    assert result.status == "completed"
+    assert events.count("context.recovered") == 1
+    assert len(store.list_tool_executions("run_tool_ok")) == 1

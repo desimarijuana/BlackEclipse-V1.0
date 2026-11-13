@@ -1055,8 +1055,10 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     from .edit_tools import register_edit_tools  # noqa: PLC0415
     from .fs_tools import register_fs_tools  # noqa: PLC0415
     from .project_memory import register_project_memory_tools  # noqa: PLC0415
+    from .checkpoint_tools import register_checkpoint_tools  # noqa: PLC0415
 
     fs_names = register_fs_tools(registry)
+    checkpoint_names = register_checkpoint_tools(registry)
     # Round 3 / W3 (ADR-H282): the ONE text-edit tool.
     register_edit_tools(registry)
     # Phase 22 / S1: the project's own rules, read-only.
@@ -1208,6 +1210,11 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         handler=delegate_handler,
         permission="read", risk="low", timeout_ms=600_000,
     ))
+    # W7: the durable background lifecycle over the ONE Fabric. `delegate`
+    # remains the synchronous wrapper; the flag gates the async surface.
+    from ..delegation_async_tools import register_delegation_async_tools  # noqa: PLC0415
+
+    async_names = register_delegation_async_tools(registry)
     from ..analysis_tools import analysis_run, recipe_catalogue_text as _RECIPE_CATALOG  # noqa: PLC0415
 
     registry.register(ToolDefinition(
@@ -1256,7 +1263,10 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     from .intel_tools import register_intel_tools  # noqa: PLC0415
 
     intel_names = register_intel_tools(registry)
-    return list(_CODE_TOOL_NAMES) + list(fs_names) + list(intel_names)
+    return (
+        list(_CODE_TOOL_NAMES) + list(async_names) + list(checkpoint_names)
+        + list(fs_names) + list(intel_names)
+    )
 
 
 __all__ = [

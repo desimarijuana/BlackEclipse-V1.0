@@ -344,6 +344,24 @@ def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:
     if not checkout or not worktree_root or not files:
         raise PromotionError("PROMOTION_NO_CHANGE", "There's nothing to put into your project.")
 
+    # W7: a landed change is undoable too. One pre-promotion snapshot; `enforce`
+    # refuses the landing rather than applying an un-undoable change.
+    try:
+        from .checkpoints import CheckpointError, snapshot  # noqa: PLC0415
+
+        snapshot(
+            checkout, reason="before-promote",
+            run_id=str(preview.get("runId") or preview.get("taskId") or ""),
+            turn_key=str(preview.get("previewDigest") or "promote"),
+        )
+    except CheckpointError as exc:
+        from ..config.flags import get_flag  # noqa: PLC0415
+
+        if get_flag("HARNESS_FILE_CHECKPOINTS") in ("on", "enforce"):
+            raise PromotionError(exc.code, exc.reason) from exc
+    except Exception:  # noqa: BLE001 - best-effort in warn/off
+        pass
+
     ops: list[PatchOp] = []
     for f in files:
         rel = str(f.get("path") or "")

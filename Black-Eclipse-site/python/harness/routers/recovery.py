@@ -346,3 +346,21 @@ def record_outcome(
     if attempt is None:
         raise HTTPException(status_code=404, detail="incident not found")
     return {"attempt": attempt}
+
+@router.post("/runs/{run_id}/guardrail-reset")
+def reset_tool_guardrail(
+    run_id: str,
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Clear a run's tool-loop guardrail ledger before its next decision.
+
+    Process-local by design: the ledger is per attempt, never durable. A resume
+    already starts clean; this endpoint lets an operator unstick a live run
+    without restarting the process. Nothing about a tool result is changed.
+    """
+    from ..tool_guardrails import request_reset
+
+    if not service.get_run(run_id):
+        raise HTTPException(status_code=404, detail="Run not found")
+    request_reset(run_id)
+    return {"success": True, "runId": run_id, "reset": True}

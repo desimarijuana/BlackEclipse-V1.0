@@ -30,6 +30,15 @@ orphan rate, cost per task) have error budgets; `npm run gate:slo` fails CI on a
 budget breach or a committed regression; and `/observability/dashboard` renders
 one card per SLO.
 
+**W8 makes it a contract.** Every workstream seam (model attempts/TTFT, context
+pressure/compression, tool batches/guardrails, goals, skill evaluation, run-kernel
+integrity, file checkpoints, delegation) now has a projection, a metric, a
+report field and either an SLO or a zero-tolerance invariant. Objectives are
+registered eagerly, so an objective with no samples reports `measured:false`
+and `healthy:null` — it is never silently absent and never green. The release
+report is schema v2 (additive) and carries `capabilities`; the gate resolves a
+declarative budgets file and marks a check `skipped` when its capability is off.
+
 ## The one rule
 
 > Telemetry must never become a single point of failure. Every backend call is
@@ -105,9 +114,30 @@ error tracking; Prometheus is a scrape endpoint.
    - `plugin.*` → `eclipse.plugin` span + `onPluginStart`/`onPluginEnd`/`onPluginError`
    - `agent.spawned`/`delegation.*` → `onA2AMessageSent`
    - `schedule.*`/`automation.*`/`workflow.*` → `onEventPublished`
-   - `run.replanned`/`context.retry` → `onRecoveryStart`
+   - `run.replanned`/`context.retry`/`context.recovered` → `onRecoveryStart`; `context.pruned`/`context.compressed`/`prompt.cache` → `onEventPublished`
    - `research.*`, `memory.*`, `skill.*` → the matching hooks
+   - **W8, model**: `model.candidate_plan`/`model.retry` → recorded event;
+     `model.attempt.completed|failed` → `onModelAttempt`; `model.first_token`
+     → `onModelFirstToken`; `model.first_token_timeout` → a timeout signal;
+     `model.fallback` → `onModelFallback`
+   - **W8, context**: `memory.history_bounded` → `onContextPressure` (usage
+     ratio + gate); `context.compressed` → `onContextCompaction`;
+     `CONTEXT_OVERFLOW`/`CONTEXT_EXHAUSTED` run failures → an overflow signal
+   - **W8, tools**: `tool.batch_plan`/`tool.batch` → `onToolBatch`;
+     `tool.guardrail` → `onToolGuardrail`
+   - **W8, autonomy/learning**: `goal.created` → `onGoalCreated`;
+     `goal.verdict` → `onGoalVerdict`; `skill.evaluation_completed` →
+     `onSkillEvaluation`; `skill.curator_run` → `onCuratorRun`
+   - **W8, integrity**: `effect.unknown`, `run.lease_lost`,
+     `checkpoint.write`, `event.seq_retry|collision`,
+     `security.hardline.blocked` → `onIntegrityEvent`
+   - **W8, files/delegation**: `checkpoint.created|failed|restored|pruned` →
+     `onFileCheckpoint`; `delegation.*` → `onDelegation`
    - any `*.failed` and `run.failed` → `onError` + error sink
+   A subsystem that owns no `RunEmitter` (skill evaluation, curator, the
+   shadow-git checkpoint store) publishes through
+   `observability/bridge.py::publish`, which hands the event to the SAME
+   projector. It is not a second bus.
 2. **Model observer bridge** (`ModelObserverBridge`) — the `model_runtime`'s single
    observer is chained so both the hub and the legacy bus forwarding receive it.
 3. **Explicit API** — any subsystem may call `get_hub().emit(hook, **fields)` or
@@ -140,6 +170,24 @@ the families the platform records: `eclipse_runs_total`, `eclipse_run_duration_m
 `eclipse_research_total`, `eclipse_evidence_total`, `eclipse_recovery_total`,
 `eclipse_security_events_total`, `eclipse_response_blocks_total`,
 `eclipse_telemetry_dropped_total`.
+
+W8 adds: `eclipse_model_attempts_total{provider,outcome}`,
+`eclipse_model_attempt_duration_ms{provider}`, `eclipse_model_fallbacks_total`,
+`eclipse_model_ttft_ms{provider}`, `eclipse_model_ttft_timeouts_total`,
+`eclipse_context_usage_ratio`, `eclipse_context_overflow_total{recovered}`,
+`eclipse_context_compactions_total{stage,outcome}`, `eclipse_tool_batches_total`,
+`eclipse_tool_batch_plans_total`, `eclipse_tool_batch_size`,
+`eclipse_tool_batch_ordering_violations_total`,
+`eclipse_tool_guardrail_total{rule,action}`, `eclipse_goals_total`,
+`eclipse_goal_verdicts_total{verdict}`, `eclipse_skill_exec_eval_total{outcome}`,
+`eclipse_curator_runs_total{mode,outcome}`, `eclipse_effect_unknown_total{tool}`,
+`eclipse_lease_lost_total`, `eclipse_checkpoint_write_ms`,
+`eclipse_checkpoint_write_failures_total{kind}`,
+`eclipse_event_seq_retries_total`, `eclipse_event_seq_collisions_total`,
+`eclipse_hardline_blocked_total{pattern}`, `eclipse_file_checkpoint_total{event}`,
+`eclipse_file_checkpoint_failures_total{reason}`,
+`eclipse_file_checkpoint_bytes`, `eclipse_delegations_total{event}`,
+`eclipse_delegation_worktrees_total`.
 
 C7 adds: `eclipse_steps_total{step,status}`, `eclipse_step_duration_ms`,
 `eclipse_step_cost_usd`, `eclipse_run_cost_usd`, `eclipse_run_cost_usd_total`,
@@ -181,13 +229,39 @@ report exposes `cost.perTaskP50/P95`, `totalUsd` and `unpricedRuns`.
 ## SLOs v2 and the release gate
 
 `SLORegistry` supports three kinds: `ratio` (success), `percentile` (p95 must be
-≤ threshold) and `rate` (failure ratio ≤ max). The runtime objectives are
-`agent_success_rate`, `tool_success_rate`, `terminal_correctness`,
-`run_p95_latency`, `resume_p95`, `cost_per_task`, `orphan_rate`.
+≤ threshold) and `rate` (failure ratio ≤ max). Objectives are registered eagerly
+at hub construction and survive every event (`ensure`), so counts are not reset
+by the next event. An objective with no samples reports `measured:false`,
+`healthy:null` and is listed in `slos.unmeasured`; it is neither healthy nor
+breaching.
 
-Budgets live in `docs/harness/slo-budgets.json`; the committed baseline is
-`docs/harness/slo-baseline.json`. `npm run gate:slo` runs the deterministic
-probe (`observability/probe.py`) through the shipped event projector, writes
+The objectives are `agent_success_rate`, `tool_success_rate`,
+`terminal_correctness`, `run_p95_latency`, `resume_p95`, `cost_per_task`,
+`orphan_rate`, `ttft_p95`, `model_fallback_success_rate`,
+`context_overflow_rate`, `compression_failure_rate`, `resume_success_rate`,
+`goal_completion_rate`, `goal_blocked_rate` and
+`file_checkpoint_failure_rate`. `terminal_correctness` and `orphan_rate` are
+recomputed for the report from `runs.created`/`runs.terminal`/`runs.orphaned`,
+so a dashboard cannot show green while those disagree.
+
+**Invariants are separate from SLOs.** Any occurrence of an unknown effect, a
+lost lease, a checkpoint write failure, an unresolved event-sequence collision,
+a tool-batch ordering violation or a skill enabled without a behavioural
+evaluation is a defect with a zero budget. They are counters in
+`report.integrity`, the gate fails on any non-zero value, and the alert is
+immediate rather than burn-rate based.
+
+Budgets are data in `docs/harness/slo-budgets.json` (version 2): each check
+declares `path`, `kind`, `samplesPath`, `minSamples`, `requires`,
+`requireSamples`, `maxRegression` and `enforce`. `requires` turns a check into
+`skipped` when its capability is off; `enforce:false` reports `observed`
+without failing; a required check with too few samples fails as `unmeasured`.
+The gate validates every path against a known list, so a typo is exit 2 rather
+than a silent pass. The committed baseline is `docs/harness/slo-baseline.json`.
+
+`npm run gate:slo` runs the deterministic probe (`observability/probe.py`)
+through the shipped event projector — the probe emits every W8 signal and
+advertises all capabilities for the synthetic report — writes
 `docs/harness/slo-report.json`, and fails on a budget breach or a regression
 beyond the configured allowance. `npm run probe:slo` only writes the report.
 CI and `check-all.js` run the gate.
@@ -195,9 +269,16 @@ CI and `check-all.js` run the gate.
 ## Dashboard
 
 `GET /observability/dashboard` is an operator-gated, self-contained HTML page:
-one card per SLO (compliance, p95, error budget, burn), plus runs, latency,
-cost, tools and failures by class. It refreshes every 15 s and escapes every
-value; it adds no front-end dependency.
+one card per SLO with three states — `healthy`, `breaching`, `unmeasured` — plus
+runs, latency, cost, tools, model attempts/fallbacks/TTFT, context pressure,
+integrity invariants and failures by class. It refreshes every 15 s and escapes
+every value; it adds no front-end dependency.
+
+`GET /observability/release-report` returns schema v2: `capabilities`,
+`runs`, `latency` (with `ttft`), `resume` (with `successRate`), `cost`,
+`model`, `context`, `tools` (with `batches`/`guardrails`), `goals`, `learning`,
+`integrity`, `fileCheckpoints`, `delegation`, `failures` and `slos` (with
+`measured`, `unmeasured`). Every v1 key is preserved.
 
 ## Failure investigation & trajectory
 
@@ -242,6 +323,14 @@ state. `GET /observability/slos` reports objectives, error budget and burn rate.
 | `ECLIPSE_SLO_RESUME_P95_MS` | `10000` | Resume p95 budget |
 | `ECLIPSE_SLO_COST_PER_TASK_USD` | `1.0` | Cost per task budget |
 | `ECLIPSE_SLO_ORPHAN_RATE` | `0.0` | Max orphan ratio |
+| `ECLIPSE_SLO_TTFT_P95_MS` | `15000` | Time-to-first-token p95 budget |
+| `ECLIPSE_SLO_FALLBACK_SUCCESS` | `0.90` | Fallback success-rate target |
+| `ECLIPSE_SLO_CONTEXT_OVERFLOW_RATE` | `0.01` | Max context-overflow ratio |
+| `ECLIPSE_SLO_COMPRESSION_FAILURE_RATE` | `0.05` | Max compression-failure ratio |
+| `ECLIPSE_SLO_RESUME_SUCCESS` | `0.99` | Resumed-run success target |
+| `ECLIPSE_SLO_GOAL_COMPLETION` | `0.80` | Goal completion target |
+| `ECLIPSE_SLO_GOAL_BLOCKED_RATE` | `0.15` | Max blocked-goal ratio |
+| `ECLIPSE_SLO_FILE_CHECKPOINT_FAILURE` | `0.05` | Max file-checkpoint failure ratio |
 | `ECLIPSE_ORPHAN_AFTER_S` | `1800` | Age before a run is orphaned |
 | `HARNESS_MAX_CONCURRENCY` | `4` | USE utilization denominator |
 
@@ -270,6 +359,12 @@ secret leakage, cross-worker/queue/A2A trace integrity, overhead bounds, and the
 C7 adds `test_c7_{spans,slo_gate,dashboard_api,usage}.py`: step-tree parentage,
 failure classes, run/step cost, SLO ratio/percentile/rate, probe invariants,
 gate pass/breach/regression/malformed, dashboard escaping and USE/orphan sweeps.
+
+W8 adds `test_w8_observability.py`: eager registration, `unmeasured` semantics,
+counter preservation across events, run-derived terminal/orphan overrides,
+model/context/integrity projection, probe coverage, the declarative gate
+(pass/breach/invariant/skip/observed/unknown path), the alert-metric contract
+and the dashboard's unmeasured state.
 
 ## Adding a subsystem to the trace
 

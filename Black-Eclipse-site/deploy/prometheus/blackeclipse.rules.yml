@@ -8,13 +8,16 @@
 # The runtime's Prometheus exposition is operator-gated:
 #   GET /observability/metrics/prometheus
 # Scrape it with an operator token (or from loopback with the runtime's loopback
-# allowance). The `up` rules below need no token; the app rules are templates -
-# uncomment and match the metric names reported by your live runtime, because the
-# harness records names dynamically.
+# allowance).
 #
 # Alertmanager routes these to a channel a human reads (pager, chat webhook or
 # email). A rules file with no route is not an alert; see
 # docs/DEPLOYMENT.md "Monitoring & alerts".
+#
+# W8 contract: every metric below is recorded by `observability/signals.py`
+# (`record_metrics`) and the W1/W3/W4/W6/W7 event projection. The conformance
+# case `contract.alert_metric_names` parses this file and fails CI if a name
+# here is not in the shipped exposition.
 
 groups:
   - name: blackeclipse-availability
@@ -41,19 +44,102 @@ groups:
           description: "GET /login has failed for 5 minutes on {{ $labels.instance }}."
           runbook: "docs/DEPLOYMENT.md#health--operations"
 
-  # ── Runtime SLO templates (enable once the metric names are confirmed) ──────
-  # The harness exposes counters/histograms named by the code that records them
-  # (see GET /observability/metrics and docs/harness/observability.md). Do not
-  # guess a name in an alert you rely on; copy it from the live exposition.
-  #
-  # - alert: BlackEclipseAgentErrorsHigh
-  #   expr: sum(rate(eclipse_agent_errors_total[5m])) > 0.1
-  #   for: 10m
-  #   labels: { severity: warning, owner: maintainers }
-  #   annotations:
-  #     summary: "Agent error rate above 0.1/s"
-  #
-  # - alert: BlackEclipseRunLatencyHigh
-  #   expr: histogram_quantile(0.95, rate(eclipse_run_duration_ms_bucket[10m])) > 30000
-  #   for: 15m
-  #   labels: { severity: warning, owner: maintainers }
+  - name: blackeclipse-slos
+    rules:
+      - alert: BlackEclipseRunLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(eclipse_run_duration_ms_bucket[10m]))) > 120000
+        for: 15m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "Run p95 latency above budget"
+          description: "p95 run latency has exceeded 120s for 15 minutes."
+          runbook: "docs/harness/observability.md#slos-v2-and-the-release-gate"
+
+      - alert: BlackEclipseTTFTHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(eclipse_model_ttft_ms_bucket[10m]))) > 15000
+        for: 10m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "Time-to-first-token p95 above budget"
+          description: "p95 TTFT has exceeded 15s for 10 minutes; check provider stalls."
+          runbook: "docs/harness/observability.md#slos-v2-and-the-release-gate"
+
+      - alert: BlackEclipseFallbackRateHigh
+        expr: sum(rate(eclipse_model_fallbacks_total[10m])) / clamp_min(sum(rate(eclipse_model_attempts_total[10m])), 0.001) > 0.10
+        for: 15m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "Fallback rate above 10%"
+          description: "More than 10% of model attempts are escalating to a fallback provider."
+          runbook: "docs/harness/observability.md#slos-v2-and-the-release-gate"
+
+      - alert: BlackEclipseContextOverflow
+        expr: sum(rate(eclipse_context_overflow_total[15m])) > 0.01
+        for: 15m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "Context overflow rate above 1%"
+          description: "The context budget is refusing or recovering calls more than the 1% budget."
+          runbook: "docs/harness/observability.md#slos-v2-and-the-release-gate"
+
+      - alert: BlackEclipseGuardrailHaltSpike
+        expr: sum(rate(eclipse_tool_guardrail_total{action="halt"}[15m])) > 0.05
+        for: 15m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "Tool guardrail halts spiking"
+          description: "A tool loop is being stopped more often than normal; inspect the rule label."
+          runbook: "docs/harness/observability.md#slos-v2-and-the-release-gate"
+
+      - alert: BlackEclipseGoalBlockedSpike
+        expr: sum(rate(eclipse_goal_verdicts_total{verdict="blocked"}[1h])) > 0.05
+        for: 30m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "Goals ending blocked"
+          description: "The blocked-goal rate has exceeded the 15% objective for 30 minutes."
+          runbook: "docs/harness/observability.md#slos-v2-and-the-release-gate"
+
+  - name: blackeclipse-integrity
+    # Invariants. Any occurrence is a defect; these have no burn-rate window.
+    rules:
+      - alert: BlackEclipseUnknownEffect
+        expr: increase(eclipse_effect_unknown_total[5m]) > 0
+        labels: { severity: critical, owner: maintainers }
+        annotations:
+          summary: "An effect outcome is unknown"
+          description: "A side effect could not be proven done or not done. Reconcile before resuming."
+          runbook: "docs/DEPLOYMENT.md#incident-response"
+
+      - alert: BlackEclipseLeaseLost
+        expr: increase(eclipse_lease_lost_total[5m]) > 0
+        labels: { severity: critical, owner: maintainers }
+        annotations:
+          summary: "A run lost its lease"
+          description: "A second runtime owns the run; the stale worker stopped without a terminal write."
+          runbook: "docs/DEPLOYMENT.md#incident-response"
+
+      - alert: BlackEclipseCheckpointWriteFailed
+        expr: increase(eclipse_checkpoint_write_failures_total[5m]) > 0
+        labels: { severity: critical, owner: maintainers }
+        annotations:
+          summary: "A durable checkpoint boundary failed"
+          description: "Checkpoint + message cursor did not commit atomically; resume may be unsafe."
+          runbook: "docs/DEPLOYMENT.md#incident-response"
+
+      - alert: BlackEclipseFileCheckpointFailing
+        expr: increase(eclipse_file_checkpoint_failures_total[15m]) > 0
+        for: 1m
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "File checkpoint snapshots failing"
+          description: "Undo coverage is degraded; inspect the reason label."
+          runbook: "docs/DEPLOYMENT.md#incident-response"
+
+      - alert: BlackEclipseHardlineBlocked
+        expr: increase(eclipse_hardline_blocked_total[10m]) > 0
+        labels: { severity: warning, owner: maintainers }
+        annotations:
+          summary: "The always-on hardline denied a command"
+          description: "Blocking is the desired outcome; a spike means an attack or a broken workflow."
+          runbook: "docs/DEPLOYMENT.md#incident-response"

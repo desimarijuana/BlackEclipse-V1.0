@@ -66,6 +66,8 @@ class RetrievalDiagnostics:
     durationMs: int = 0
     ok: bool = True
     error: Optional[str] = None
+    hybrid: bool = False
+    bm25ByMemory: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -79,6 +81,8 @@ class RetrievalDiagnostics:
             "durationMs": self.durationMs,
             "ok": self.ok,
             "error": self.error,
+            "hybrid": self.hybrid,
+            "bm25ByMemory": self.bm25ByMemory,
         }
 
 
@@ -368,9 +372,37 @@ def retrieve_memories(
 
         # ── Rank ────────────────────────────────────────────────────────────
         terms = _terms(query)
+        # W5.3: hybrid ranking is an additive, bounded tie-break over the SAME
+        # eligible set. It cannot admit a memory: `has_signal` and the relevance
+        # gate below are unchanged, and scope/status/privacy already ran.
+        from ..config.flags import get_bool  # noqa: PLC0415
+
+        hybrid_on = get_bool("HARNESS_MEMORY_HYBRID")
+        bm25_by_id: dict[str, float] = {}
+        if hybrid_on and eligible and terms:
+            from .bm25 import bm25_scores  # noqa: PLC0415
+
+            bm25_by_id = bm25_scores(
+                query,
+                {
+                    str(memory.get("id")): " ".join(
+                        str(memory.get(key) or "") for key in ("content", "subject")
+                    )
+                    for memory in eligible
+                },
+            )
+        diagnostics.hybrid = bool(hybrid_on)
+        diagnostics.bm25ByMemory = dict(bm25_by_id)
         ranked: list[tuple[float, dict[str, Any], list[str], bool]] = []
         for memory in eligible:
             score, reasons, has_signal = _score(memory, terms, subject)
+            if hybrid_on:
+                bm25 = float(bm25_by_id.get(str(memory.get("id")), 0.0))
+                if bm25 > 0.0:
+                    # 3.0 keeps lexical/safety dominance (a keyword match is 2.0
+                    # per term) while letting a denser multi-term match win a tie.
+                    score += 3.0 * bm25
+                    reasons.append(f"bm25 {bm25:.2f}")
             ranked.append((score, memory, reasons, has_signal))
         ranked.sort(key=lambda item: (-item[0], item[1]["id"]))
 

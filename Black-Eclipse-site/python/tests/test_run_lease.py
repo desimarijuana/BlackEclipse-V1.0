@@ -134,3 +134,42 @@ def test_unleased_run_remains_writable_for_compatibility(store):
     store.update_run("run_plain", status="running")
     assert fenced_update_run(store, "run_plain", status="completed", output="ok") is True
     assert store.get_run("run_plain")["status"] == "completed"
+
+
+def test_fenced_progress_stops_a_stale_worker(store):
+    from harness.run_lease import LeaseLost, fenced_progress
+
+    a = _manager(store, "rt-a")
+    store.create_run("run_progress", "eclipse-agent", {"query": "x"})
+    store.update_run("run_progress", status="running")
+    assert a.claim("run_progress") == 1
+
+    fenced_progress(store, "run_progress", runtime_id="rt-a", modelSteps=1)
+    assert store.get_run("run_progress")["modelSteps"] == 1
+
+    with pytest.raises(LeaseLost):
+        fenced_progress(store, "run_progress", runtime_id="rt-b", modelSteps=99)
+    assert store.get_run("run_progress")["modelSteps"] == 1
+
+
+def test_fenced_progress_flag_off_restores_update_run(store, monkeypatch):
+    from harness.run_lease import fenced_progress
+
+    monkeypatch.setenv("HARNESS_FENCED_PROGRESS", "off")
+    a = _manager(store, "rt-a")
+    store.create_run("run_legacy", "eclipse-agent", {"query": "x"})
+    store.update_run("run_legacy", status="running")
+    assert a.claim("run_legacy") == 1
+
+    # The rollback path is deliberately unfenced (today's behaviour).
+    fenced_progress(store, "run_legacy", runtime_id="rt-b", modelSteps=7)
+    assert store.get_run("run_legacy")["modelSteps"] == 7
+
+
+def test_fenced_progress_allows_an_unleased_run(store):
+    from harness.run_lease import fenced_progress
+
+    store.create_run("run_free", "eclipse-agent", {"query": "x"})
+    fenced_progress(store, "run_free", modelSteps=3)
+    assert store.get_run("run_free")["modelSteps"] == 3
+

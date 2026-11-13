@@ -19,17 +19,13 @@ import json
 import uuid
 from typing import Any, Optional
 
-# Always bound when lazy mode is on: the discovery pair, the output pager, the
-# response-contract read-back and the clarify gate.
-LAZY_CORE_TOOLS = frozenset({
-    "tool_search",
-    "tool_invoke",
-    "read_tool_output",
-    "response_block_schema",
-    "response_style_guide",
-    "response_validate",
-    "clarify",
-})
+from .tool_bm25 import rank_tools
+from .tool_disclosure import CORE_TOOLS, disclosure_mode
+
+# Always bound when disclosure narrows: the discovery pair, the output pager, the
+# response-contract read-back and the clarify gate. Re-exported for compatibility
+# with the Round 5 / C3 tests; the ONE definition lives in tool_disclosure.py.
+LAZY_CORE_TOOLS = CORE_TOOLS
 
 #: A discovery response is bounded so it cannot become the new context flood.
 MAX_SEARCH_RESULTS = 12
@@ -37,11 +33,13 @@ MAX_SEARCH_SCHEMA_CHARS = 18_000
 
 
 def lazy_tools_enabled() -> bool:
-    import os
+    """The legacy lazy switch: explicit `on` only.
 
-    return (os.environ.get("HARNESS_LAZY_TOOLS") or "").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    `auto` is resolved by `tool_disclosure.resolve_disclosure`, which needs the
+    measured schema cost and window. `lazy_tool_surface` keeps the old meaning
+    (explicit opt-in) so an existing caller cannot accidentally auto-narrow.
+    """
+    return disclosure_mode() == "on"
 
 
 def lazy_tool_surface(
@@ -70,27 +68,26 @@ def _tool_row(tool: Any, *, include_schema: bool) -> dict[str, Any]:
         "description": str(getattr(tool, "description", ""))[:300],
         "permission": getattr(tool, "permission", "read"),
     }
+    if getattr(tool, "domain", ""):
+        row["domain"] = getattr(tool, "domain", "")
+    if getattr(tool, "tags", ()):
+        row["tags"] = list(getattr(tool, "tags", ()))
     if include_schema:
         row["parameters"] = getattr(tool, "input_schema", {})
     return row
 
 
-def _score(query: str, tool: Any) -> int:
-    q = query.lower().strip()
-    name = str(getattr(tool, "name", "")).lower()
-    description = str(getattr(tool, "description", "")).lower()
-    if not q:
-        return 0
-    if q == name:
-        return 100
-    if name.startswith(q):
-        return 80
-    if q in name:
-        return 60
-    if q in description:
-        return 30
-    terms = [term for term in q.split() if len(term) >= 3]
-    return sum(10 for term in terms if term in name or term in description)
+def _available_sources(tool_names: list[str], target: Any) -> list[dict[str, Any]]:
+    """Domain/count summary for a no-match response. Never invents a tool."""
+    counts: dict[str, int] = {}
+    for name in sorted(tool_names):
+        tool = target.get(name) if hasattr(target, "get") else None
+        domain = str(getattr(tool, "domain", "") or "other")
+        counts[domain] = counts.get(domain, 0) + 1
+    return [
+        {"domain": domain, "tools": count}
+        for domain, count in sorted(counts.items())
+    ]
 
 
 def register_tool_surface_tools(registry: Any) -> None:
@@ -109,13 +106,10 @@ def register_tool_surface_tools(registry: Any) -> None:
         tools = []
         for name in getattr(target, "names", lambda: [])():
             tool = target.get(name)
-            if tool is None:
-                continue
-            score = _score(query, tool)
-            if score > 0:
-                tools.append((score, tool))
-        tools.sort(key=lambda item: (-item[0], getattr(item[1], "name", "")))
-        selected = [tool for _score, tool in tools[:limit]]
+            if tool is not None:
+                tools.append(tool)
+        ranked = rank_tools(query, tools, len(tools))
+        selected = ranked[:limit]
 
         include_schema = True
         payload = {"tools": [_tool_row(tool, include_schema=True) for tool in selected]}
@@ -125,10 +119,16 @@ def register_tool_surface_tools(registry: Any) -> None:
                 "tools": [_tool_row(tool, include_schema=False) for tool in selected],
                 "schemasOmitted": True,
             }
-        payload["matchCount"] = len(tools)
+        payload["matchCount"] = len(ranked)
         payload["returned"] = len(selected)
         if not selected:
-            payload["hint"] = "No match. Try a broader domain word, or list the catalog."
+            payload["availableSources"] = _available_sources(
+                list(getattr(target, "names", lambda: [])()), target,
+            )
+            payload["hint"] = (
+                "No match. Try a broader task word, or use `availableSources` to "
+                "pick a domain."
+            )
         return json.dumps(payload, default=str), {"status": "OK", **payload}
 
     async def _invoke(args: dict[str, Any], ctx: Any) -> tuple[str, dict[str, Any]]:
@@ -197,6 +197,7 @@ def register_tool_surface_tools(registry: Any) -> None:
         permission="read",
         risk="none",
         timeout_ms=5_000,
+        parallel_safe=True,
     ))
     registry.register(ToolDefinition(
         name="tool_invoke",

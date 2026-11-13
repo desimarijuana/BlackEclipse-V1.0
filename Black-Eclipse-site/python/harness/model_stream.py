@@ -8,6 +8,7 @@ uses. Behavior is unchanged.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from langchain_core.messages import BaseMessage
@@ -21,6 +22,8 @@ async def ainvoke_streaming(
     timeout_s: float,
     emitter: Any,
     finalizing: bool,
+    *,
+    first_token_timeout_s: float | None = None,
 ) -> Any:
     """Invoke the model, streaming tokens live when it supports it.
 
@@ -45,9 +48,42 @@ async def ainvoke_streaming(
         aggregated: Any = None
         last_with_tools: Any = None
         last_with_usage: Any = None
-        async for chunk in model.astream(messages):
+        first = True
+        started = time.monotonic()
+        iterator = model.astream(messages).__aiter__()
+        while True:
+            try:
+                if first and first_token_timeout_s is not None:
+                    chunk = await await_bounded(
+                        iterator.__anext__(),
+                        min(float(first_token_timeout_s), float(timeout_s)),
+                        on_timeout=_abandon,
+                    )
+                else:
+                    chunk = await iterator.__anext__()
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                if first:
+                    try:
+                        await emitter.emit("model.first_token_timeout", {
+                            "timeoutS": float(first_token_timeout_s or timeout_s),
+                            "finalizing": finalizing,
+                        })
+                    except Exception:  # noqa: BLE001 - telemetry must not mask the timeout
+                        pass
+                raise
             if abandoned:
                 break
+            if first:
+                first = False
+                try:
+                    await emitter.emit("model.first_token", {
+                        "ttftMs": int((time.monotonic() - started) * 1000.0),
+                        "finalizing": finalizing,
+                    })
+                except Exception:  # noqa: BLE001 - telemetry must not break the stream
+                    pass
             aggregated = chunk if aggregated is None else merge_chunks(aggregated, chunk)
             if getattr(chunk, "tool_calls", None):
                 last_with_tools = chunk
@@ -85,7 +121,16 @@ async def ainvoke_streaming(
         return aggregated
     except (asyncio.TimeoutError, asyncio.CancelledError):
         raise
-    except Exception:  # noqa: BLE001 - not all models implement astream
+    except Exception as exc:  # noqa: BLE001 - not all models implement astream
+        # A real provider rejection must NOT be retried as "streaming is
+        # unsupported": that hides a context overflow and makes a second call.
+        try:
+            from .model_runtime.errors import ErrorClass, classify_exception  # noqa: PLC0415
+
+            if classify_exception(exc).error_class is ErrorClass.CONTEXT_OVERFLOW:
+                raise
+        except ImportError:  # pragma: no cover - defensive only
+            pass
         return await await_bounded(model.ainvoke(messages), timeout_s)
 
 

@@ -68,6 +68,12 @@ DEFAULT_POLICIES: dict[str, ExecutionPolicy] = {
     "agent": ExecutionPolicy(mode=ExecutionMode.CONCURRENT, queue=QueueName.AGENT.value,
                              worker_kind=WorkerKind.AGENT.value, priority=JobPriority.AGENT_INTERACTIVE.weight,
                              timeout_ms=900_000, max_attempts=2, backoff_ms=1000),
+    # W7: a delegated child is a normal run, but its lifecycle (schema repair,
+    # steering, completion inbox) is owned by the delegation worker. Durable by
+    # default so a restart can resume or honestly report the row.
+    "delegation": ExecutionPolicy(mode=ExecutionMode.DURABLE, queue=QueueName.AGENT.value,
+                                  worker_kind="delegation", priority=JobPriority.AGENT_INTERACTIVE.weight,
+                                  timeout_ms=900_000, max_attempts=1, durable=True, idempotent=True),
     "research": ExecutionPolicy(mode=ExecutionMode.BACKGROUND, queue=QueueName.RESEARCH.value,
                                 worker_kind=WorkerKind.RESEARCH.value, priority=JobPriority.RESEARCH.weight,
                                 timeout_ms=900_000, max_attempts=2, backoff_ms=1000),

@@ -401,6 +401,71 @@ def run_skill_maintenance(
     return {"success": True, **service.run_skill_maintenance()}
 
 
+@router.get("/skills/curator")
+def skill_curator_report() -> dict[str, Any]:
+    """W5.2 — the curator ledger: runs and proposals. Read-only."""
+    from ..skills.curator import curator_report  # noqa: PLC0415
+
+    return {"success": True, **curator_report(service.skill_store)}
+
+
+@router.post("/skills/curator/run")
+def run_skill_curator(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run one curator pass. Operator-gated.
+
+    Default mode is `dry_run` (report only). A merge always lands as an inert
+    draft; nothing is enabled, deleted, or permission-widened.
+    """
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from ..skills.curator import run_curator  # noqa: PLC0415
+
+    mode = (payload or {}).get("mode")
+    return {
+        "success": True,
+        **run_curator(service.skill_store, service.skill_registry, mode=mode),
+    }
+
+
+@router.post("/skills/curator/proposals/{proposal_id}/approve")
+def approve_curator_proposal(
+    proposal_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from ..skills.curator import approve_proposal  # noqa: PLC0415
+
+    result = approve_proposal(
+        service.skill_store, service.skill_registry, proposal_id,
+        actor=str((payload or {}).get("actor") or "operator"),
+        notes=str((payload or {}).get("notes") or ""),
+    )
+    return {"success": bool(result.get("ok")), **result}
+
+
+@router.post("/skills/curator/proposals/{proposal_id}/reject")
+def reject_curator_proposal(
+    proposal_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from ..skills.curator import reject_proposal  # noqa: PLC0415
+
+    result = reject_proposal(
+        service.skill_store, proposal_id,
+        actor=str((payload or {}).get("actor") or "operator"),
+        notes=str((payload or {}).get("notes") or ""),
+    )
+    return {"success": bool(result.get("ok")), **result}
+
+
 @router.post("/skills/{skill_id}/pin")
 def pin_skill_version(
     skill_id: str,

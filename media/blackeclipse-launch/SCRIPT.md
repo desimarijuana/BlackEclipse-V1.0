@@ -1,10 +1,11 @@
-# BlackEclipse launch video script
+# BlackEclipse harness launch video script
 
-**Format:** 45 seconds, 1920×1080, 30 fps, HyperFrames
+**Format:** 30 seconds, 1920×1080, 30 fps, HyperFrames
 
-**Core idea:** One request becomes a grounded, inspectable run: choose the right
-bot mode, let the harness use tools and skills, turn the result into a chart or
-workflow artifact, then inspect exactly what happened.
+**Core idea:** Eclipse turns one plain-language request into a bounded,
+observable work session. Viewers see what they can actually use it for:
+research a market move, run a chosen bot, apply a skill, build a workflow,
+produce a chart, and inspect the evidence behind the answer.
 
 **Production rule:** Use real captures from the installed Black Eclipse desktop
 app at `C:\Users\MSI\AppData\Local\Programs\BlackEclipse\Black Eclipse.exe`.
@@ -13,39 +14,45 @@ on screen as `SCREENSHOT NEEDED: <surface>` rather than drawing an invented pane
 
 ## Voice and sound
 
-No voiceover. Let the real interface carry the story with short titles. Use a
+No voiceover. Use short kinetic titles and the product's real labels. Use a
 restrained electronic pulse, cursor clicks, graph-node snaps, a tool-call tick,
-and one low impact when the final evidence view lands.
+and one low impact when the evidence view lands.
 
 ## Shot-by-shot script
 
 | Time | Picture / action | On-screen copy | Sound |
 |---|---|---|---|
-| 0:00–0:04 | Open on the real Eclipse desktop app. A live market view is already moving; cursor lands on the composer and enters one concrete request: `Explain what moved — then show the evidence.` | `One question. A full investigation.` | Pulse starts; keyboard taps |
-| 0:04–0:08 | The `+` menu opens. Show the actual mode controls: Auto, Quant, Choices, and Plan where present. Cursor selects the mode that fits the request; keep the real selected state visible. | `Choose how the run should think.` | Menu click; soft mode-lock tick |
-| 0:08–0:13 | Cut to the real agent/bot selector or agent preset surface. Show the selected bot/preset and its permitted tools, not a generic bot card. The run begins. | `Bots are bounded by a role, tools, and limits.` | Run click; rising activity bed |
-| 0:13–0:18 | Punch into the run timeline / activity stream. Show tool calls appearing, then a research or market-data result returning. Keep provenance, unavailable states, and source labels legible. | `The harness turns intent into observable work.` | Tool-call ticks; return chime |
-| 0:18–0:23 | Transition through the real Skills surface. Show a skill being discovered or invoked, with its name, trust/status, and permission boundary visible. Do not imply that a skill silently changes runtime permissions. | `Skills add procedure — the gate stays in charge.` | Lock click; short harmonic layer |
-| 0:23–0:29 | Enter Graph Studio. Start from the actual workflow canvas, then show a real node connection or run plan. Highlight the agent node, tool allowlist, memory scope, and output/chart node if those fields are present. | `Compose the run as a graph.` | Node snap sequence |
-| 0:29–0:34 | Execute the graph. Show the real run state progressing through nodes, with one branch returning data and the final node producing a result. If the app exposes test mode, keep its label visible. | `Same runtime. More control.` | Branch split; measured pulse |
-| 0:34–0:39 | Pull the result into the real chart/graph surface: a price series, comparison, indicator, or generated chart. Show axes, symbol, freshness/provenance, and any `UNAVAILABLE` or simulated label exactly as the product renders them. | `From answer to artifact.` | Chart trace draws; impact on final point |
-| 0:39–0:43 | Open observability or run detail. Show events, trace/timeline, tool history, cost/latency if available, and the final evidence or artifact reference. | `Every important step leaves a trail.` | Low impact; pulse resolves |
-| 0:43–0:45 | Return to the full Eclipse workspace. The mark lands once, then the CTA appears. | `BlackEclipse`  \n`Run the work. See the proof.`  \n`blackeclipse.local` or the real install command | Final mark hit; hold |
+| 0:00–0:03 | Open on the real Eclipse desktop app with a live market surface. The cursor enters: `Why did AMD move today? Compare the evidence and chart it.` | `Ask a real question.` | Pulse starts; keyboard taps |
+| 0:03–0:06 | Open the real `+` menu. Show the available mode controls and select the relevant mode, preserving the actual labels and selected state. | `Pick the mode for the job.` | Menu click; mode-lock tick |
+| 0:06–0:10 | Show the real bot/agent preset surface. Choose a research, market-data, valuation, risk, or other available preset; isolate its role, tool allowlist, and limits. | `Choose a bot with a job to do.` | Preset click; low rise |
+| 0:10–0:14 | Start the run. Punch into the real event stream as the harness calls tools, returns market data, and records source/provenance state. | `The harness turns intent into steps.` | Tool-call ticks; result chime |
+| 0:14–0:17 | Show a real skill being found or invoked. Keep the skill name and trust/status visible; show that skills add procedure without bypassing permissions. | `Use skills without losing control.` | Lock click |
+| 0:17–0:21 | Enter Graph Studio. Show the actual canvas changing from request → agent/tool node → data node → chart/output node. Highlight the node configuration rather than presenting a decorative diagram. | `Build repeatable work as a graph.` | Node snaps in rhythm |
+| 0:21–0:24 | Execute the workflow and show its real run state moving through nodes. If test mode is available, keep its label visible so viewers understand the boundary. | `Run it. Inspect every step.` | Branch split; measured pulse |
+| 0:24–0:27 | Pull back to the resulting chart or graph. Show the real symbol, axes, comparison/indicator, timestamp or freshness label, and the final answer/artifact reference. | `Turn research into something you can use.` | Chart trace draws; impact |
+| 0:27–0:30 | Open run detail for a final glimpse of events, tools, sources, and outcome. Return to the full workspace; mark lands once with the CTA. | `BlackEclipse`  \n`Research. Automate. See the proof.`  \n`Run the work. Keep the trail.` | Final mark hit; hold |
 
 ## Capture checklist
 
-Capture these states from the installed app before animating the film:
+Capture these states from the installed app before animating the film. The
+same request should travel through as many shots as possible so the viewer can
+follow cause → run → result:
 
 1. Full workspace with sidebar, composer, top-level navigation, and a real
    market/chart surface.
 2. Composer `+` menu with the actual mode labels and selected state.
-3. Bot/agent preset surface with the real preset name and tool boundary.
-4. A live or completed run showing tool events and source/provenance labels.
-5. Skills surface showing a real skill name, status/trust state, and invocation
+3. Bot/agent preset surface with the real preset name, task role, tool boundary,
+   model/provider pin if exposed, and run limits.
+4. A live or completed run showing the request, tool events, source/provenance
+   labels, intermediate output, and terminal status.
+5. Skills surface showing a real skill name, status/trust state, permission
+   boundary, and invocation
    or detail view.
-6. Graph Studio canvas with one real workflow and its configuration panel.
-7. Graph run result with a real output/chart node.
-8. Observability/run-detail view with trace, events, or metrics.
+6. Graph Studio canvas with one real workflow and its configuration panel:
+   agent, tools, memory scope, branching, and output shape where available.
+7. Graph run result with a real output/chart node and a visible run status.
+8. Observability/run-detail view with trace, events, tool history, and metrics
+   such as latency or cost only when the app exposes them.
 9. The real BlackEclipse mark and wordmark from the app assets.
 
 ## Claims to avoid
@@ -62,6 +69,6 @@ Capture these states from the installed app before animating the film:
 
 This script is intentionally a feature journey, not a list of cards: one
 question travels through mode selection, bot execution, skills, Graph Studio,
-charts, and observability before returning to the workspace. The existing
-30-second market-map film can remain as the short cut; this 45-second version is
-the fuller harness launch cut.
+charts, and observability before returning to the workspace. The emphasis is
+use-case clarity: Eclipse is for turning research, analysis, and repeatable
+agent work into inspectable runs and reusable workflows.

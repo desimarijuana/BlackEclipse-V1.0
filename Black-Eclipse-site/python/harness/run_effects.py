@@ -89,6 +89,32 @@ class RunEffects:
         except Exception:  # noqa: BLE001
             pass
 
+    def has_started(self, run_id: str) -> bool:
+        """True when any effect for this run is still unconfirmed."""
+        try:
+            row = self._db.execute(
+                "SELECT 1 FROM RunEffect WHERE runId=? AND state='started' LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            return row is not None
+        except Exception:  # noqa: BLE001
+            return True
+
+    def has_unconfirmed(self, run_id: str) -> bool:
+        """True when any effect is `started` OR its outcome became `unknown`.
+
+        Recovery must treat both as unsafe: the external side effect may have
+        happened, and re-running or skipping it silently would both be wrong.
+        """
+        try:
+            row = self._db.execute(
+                "SELECT 1 FROM RunEffect WHERE runId=? AND state IN ('started','unknown') LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            return row is not None
+        except Exception:  # noqa: BLE001
+            return True
+
     def mark_unknown(self, run_id: str, step_index: int, tool_call_id: str) -> None:
         try:
             self._db.execute(

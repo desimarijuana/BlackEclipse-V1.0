@@ -510,8 +510,16 @@ def build_default_workers(service: Any, config: Optional[FabricConfig] = None) -
     async def task_handler(ctx: WorkerContext) -> WorkerOutcome:
         return await _task_worker(service, ctx)
 
+    async def delegation_handler(ctx: WorkerContext) -> WorkerOutcome:
+        # W7: async delegation shares the ONE Fabric. The worker owns the
+        # delegation contract; the child itself is still `service.run`.
+        from ..delegation_lifecycle import execute_job  # noqa: PLC0415
+
+        return await execute_job(service, ctx)
+
     workers = [
         _mk(WorkerKind.AGENT.value, ["agent", "user"], agent_handler, service, cfg),
+        _mk("delegation", ["agent"], delegation_handler, service, cfg),
         _mk(WorkerKind.TOOL.value, ["user"], tool_handler, service, cfg),
         _mk(WorkerKind.RESEARCH.value, ["research"], research_handler, service, cfg),
         _mk(WorkerKind.BROWSER.value, ["browser"], browser_handler, service, cfg),

@@ -510,3 +510,54 @@ export function coerceCodeVerification(raw: unknown): CodeVerification | null {
     reviews,
   };
 }
+
+// -- W7: file checkpoints + /rollback -----------------------------------------
+
+export interface FileCheckpointView {
+  id: string;
+  reason?: string;
+  runId?: string;
+  createdAt?: string;
+  files?: number;
+}
+
+export interface CheckpointRestorePreviewView {
+  checkpointId: string;
+  all: boolean;
+  changes: Array<{ status: string; path: string }>;
+  count: number;
+  diff: string;
+}
+
+export async function listFileCheckpoints(limit = 50): Promise<FileCheckpointView[]> {
+  const body = await api<{ checkpoints: FileCheckpointView[] }>(
+    `/api/code/checkpoints?limit=${encodeURIComponent(String(limit))}`,
+  );
+  return body.checkpoints ?? [];
+}
+
+export async function diffFileCheckpoint(
+  id: string,
+): Promise<{ unified: string; truncated: boolean }> {
+  return api(`/api/code/checkpoints/${encodeURIComponent(id)}/diff`);
+}
+
+export async function previewFileRestore(
+  id: string,
+  input: { paths?: string[]; all?: boolean } = {},
+): Promise<CheckpointRestorePreviewView> {
+  return api(`/api/code/checkpoints/${encodeURIComponent(id)}/restore/preview`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function restoreFileCheckpoint(
+  id: string,
+  input: { paths?: string[]; all?: boolean } = {},
+): Promise<{ restored: string[]; skipped: string[]; preRestoreId: string | null }> {
+  return api(`/api/code/checkpoints/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}

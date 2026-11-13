@@ -160,15 +160,15 @@ async def test_conversation_history_reaches_the_model(store, monkeypatch):
     assert result.status == "completed"
 
     msgs = captured["messages"]
-    # system, runtime date/time context, prior user, prior assistant, current user
+    # system, prior user, prior assistant, runtime date/time context, current user
     from datetime import datetime, timezone
 
     assert msgs[0].type == "system"
-    assert "Runtime context" in msgs[1].content
-    # The block carries the run's real date, not a fabricated one.
-    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in msgs[1].content
-    assert msgs[2].type == "human" and msgs[2].content == "price of AAPL?"
-    assert msgs[3].type == "ai" and "338.55" in msgs[3].content
+    assert msgs[1].type == "human" and msgs[1].content == "price of AAPL?"
+    assert msgs[2].type == "ai" and "338.55" in msgs[2].content
+    # W2: runtime context is volatile and sits after history.
+    assert "Runtime context" in msgs[3].content
+    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in msgs[3].content
     assert msgs[4].type == "human" and msgs[4].content == "what did you say?"
 
 
@@ -259,9 +259,12 @@ async def test_completes_with_plain_answer(store, monkeypatch):
     assert result.output == "AAPL trades at 237.42."
     events = [e["type"] for e in store.list_events("run_test")]
     assert events == [
-        "run.created", "run.started", "response.plan", "prompt.plan",
+        "run.created", "run.started", "run.flags", "response.plan", "prompt.plan",
+        # W2.6: the provider-gated cache decision is observable.
+        "prompt.cache",
         # C7: one step span per loop iteration.
-        "step.started", "model.requested", "model.completed",
+        "step.started", "model.requested", "model.candidate_plan",
+        "model.first_token", "model.attempt.completed", "model.completed",
         "step.completed",
         # C4: the answer seam records/verifies checkable claims.
         "evidence.verified",

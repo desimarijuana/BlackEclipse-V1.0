@@ -541,6 +541,14 @@ def install_task_layer(service: Any) -> bool:
             wrap_service_for_goals(service)
         except Exception:  # noqa: BLE001 - goal wiring must never block boot
             log.warning("goal runtime wiring unavailable", exc_info=True)
+        # W4: the goal/loop engine rides the SAME task + automation seams. It is
+        # off by default (`HARNESS_GOAL_LOOP=off`) and must never block boot.
+        try:
+            from ..goals.bootstrap import install_autonomy_layer  # noqa: PLC0415
+
+            install_autonomy_layer(service)
+        except Exception:  # noqa: BLE001
+            log.warning("autonomy layer wiring unavailable", exc_info=True)
         from .tools import register_task_tools  # noqa: PLC0415
 
         register_task_tools(service.registry)

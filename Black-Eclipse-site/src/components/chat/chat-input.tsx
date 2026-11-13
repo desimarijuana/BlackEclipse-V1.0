@@ -31,6 +31,7 @@ import { QuantModeControl } from './quant-mode-control';
 import { ChoicesModeControl } from './choices-mode-control';
 import { PlanModeControl } from './plan-mode-control';
 import { TradeApprovalBanner } from './trade-approval-banner';
+import { GoalBar } from './goal-bar';
 import { resolveCommand, type CommandSpec } from '@/lib/harness/commands/command-registry';
 import { recordCommandRun, useCommandMemory } from '@/lib/harness/commands/command-history';
 import { useCommandSuggestions } from '@/lib/harness/commands/command-suggest';
@@ -569,6 +570,7 @@ export function ChatInput({
 
   return (
     <div className="w-full">
+      <GoalBar />
       <TradeApprovalBanner onCancel={onCancel} />
       {queued && queued.length > 0 && onQueueEdit && onQueueRemove && onQueueMove && onQueueRunNow && onQueueClear && (
         <MessageQueue

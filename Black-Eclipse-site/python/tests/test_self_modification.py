@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+import pytest
+
 from harness.eclipse_memory import EclipseMemoryStore
 from harness.persistence import AgentMemoryStore
 from harness.self_improvement.self_modification import (
@@ -14,6 +16,16 @@ from harness.self_improvement.self_modification import (
 from harness.skills.evaluation import evaluate_skill
 from harness.skills.registry import SkillRegistry
 from harness.skills.versioning import version_history
+
+
+@pytest.fixture(autouse=True)
+def _disable_execution_gate(monkeypatch):
+    """These tests cover TTL/audit/shadow, not W5 behavioural evaluation.
+
+    The W5 gate is exercised in `test_skill_execution_gate.py`; keeping it off
+    here preserves the original contract these tests were written for.
+    """
+    monkeypatch.setenv("HARNESS_SKILL_EXEC_EVAL", "off")
 
 
 class _Tools:

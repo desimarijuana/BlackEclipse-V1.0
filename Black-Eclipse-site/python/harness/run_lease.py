@@ -292,6 +292,40 @@ def fenced_update_run(store: Any, run_id: str, *, runtime_id: Optional[str] = No
         return False
 
 
+class LeaseLost(RuntimeError):
+    """This process no longer owns the run's lease epoch.
+
+    A fenced write returned zero rows: another runtime claimed the run, the
+    lease expired, or the run row disappeared. The caller must STOP writing and
+    let the new owner (or recovery) reconcile the run.
+    """
+
+    code = "RUN_LEASE_LOST"
+
+
+def fenced_progress(store: Any, run_id: str, *, runtime_id: Optional[str] = None,
+                    **patch: Any) -> None:
+    """Write run progress iff this runtime still owns the lease epoch.
+
+    This is the W6 entry point for every non-terminal run mutation. It honours
+    `HARNESS_FENCED_PROGRESS`; when the flag is off the legacy `update_run` is
+    used so an operator can roll back without a code change.
+
+    Raises `LeaseLost` when the write is fenced. Callers must not ignore it: a
+    stale worker that keeps writing can clobber the live owner's counters and
+    terminal status.
+    """
+    from .config.flags import get_bool  # noqa: PLC0415 - flags must stay importable
+
+    if not get_bool("HARNESS_FENCED_PROGRESS"):
+        store.update_run(run_id, **patch)
+        return
+    if not fenced_update_run(store, run_id, runtime_id=runtime_id, **patch):
+        raise LeaseLost(
+            f"run {run_id!r} is no longer owned by this runtime (lease fenced)"
+        )
+
+
 class LeaseHeartbeat:
     """Daemon heartbeat for one lease; owns its own thread-local DB connection."""
 
@@ -360,8 +394,10 @@ __all__ = [
     "LEASE_TTL_MS",
     "HEARTBEAT_INTERVAL_S",
     "LeaseHeartbeat",
+    "LeaseLost",
     "RunLeaseGuard",
     "RunLeaseManager",
     "default_runtime_id",
+    "fenced_progress",
     "fenced_update_run",
 ]

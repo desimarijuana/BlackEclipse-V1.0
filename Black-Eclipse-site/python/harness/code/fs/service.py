@@ -57,6 +57,7 @@ class FileSystemService:
         config: Optional[dict[str, Any]] = None,
         index: Any = None,
         watcher: Any = None,
+        run_id: Optional[str] = None,
     ) -> None:
         self._ws = ws
         self._binding = binding
@@ -64,6 +65,25 @@ class FileSystemService:
         self._config = config or {}
         self._index = index
         self._watcher = watcher
+        self._run_id = str(run_id or "")
+
+    def _before_mutation(self, reason: str = "before-write") -> None:
+        """W7: one shadow snapshot per run before the first file mutation."""
+        if self._ws is None:
+            return
+        try:
+            from .. import checkpoints  # noqa: PLC0415
+
+            checkpoints.snapshot(
+                self._ws.root, reason=reason, run_id=self._run_id,
+                turn_key=self._run_id,
+            )
+        except Exception:  # noqa: BLE001 - `warn`/`off` never block a write
+            from ...config.flags import get_flag  # noqa: PLC0415
+
+            if get_flag("HARNESS_FILE_CHECKPOINTS") in ("on", "enforce"):
+                # Safety-first mode: a missing undo point refuses the mutation.
+                raise
 
     # ── context ─────────────────────────────────────────────────────────────
     def _ctx(self, dry_run: bool = False) -> FsContext:
@@ -91,27 +111,35 @@ class FileSystemService:
         return operations.read_file(self._ctx(), path, **kwargs)
 
     def write_file(self, path: str, content: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.write_file(self._ctx(), path, content, **kwargs)
 
     def create_file(self, path: str, content: str = "", **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.create_file(self._ctx(), path, content, **kwargs)
 
     def delete_file(self, path: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.delete_file(self._ctx(), path, **kwargs)
 
     def move_file(self, source: str, destination: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.move_file(self._ctx(), source, destination, **kwargs)
 
     def copy_file(self, source: str, destination: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.copy_file(self._ctx(), source, destination, **kwargs)
 
     def rename_file(self, path: str, new_name: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.rename_file(self._ctx(), path, new_name, **kwargs)
 
     def create_directory(self, path: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.create_directory(self._ctx(), path, **kwargs)
 
     def delete_directory(self, path: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-write")
         return operations.delete_directory(self._ctx(), path, **kwargs)
 
     # ── search ──────────────────────────────────────────────────────────────
@@ -140,21 +168,27 @@ class FileSystemService:
 
     # ── editing ─────────────────────────────────────────────────────────────
     def patch_file(self, path: str, operation: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-patch")
         return editing.patch_file(self._ctx(), path, operation, **kwargs)
 
     def replace_text(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-patch")
         return editing.replace_text(self._ctx(), path, old_text, new_text, **kwargs)
 
     def insert_text(self, path: str, text: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-patch")
         return editing.insert_text(self._ctx(), path, text, **kwargs)
 
     def delete_text(self, path: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-patch")
         return editing.delete_text(self._ctx(), path, **kwargs)
 
     def apply_diff(self, diff_text: str, **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-patch")
         return editing.apply_diff(self._ctx(), diff_text, **kwargs)
 
     def multi_file_patch(self, patches: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        self._before_mutation("before-patch")
         return editing.multi_file_patch(self._ctx(), patches, **kwargs)
 
     # ── metadata ────────────────────────────────────────────────────────────

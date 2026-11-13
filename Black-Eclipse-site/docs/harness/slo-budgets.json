@@ -1,29 +1,201 @@
 {
-  "version": 1,
-  "description": "C7 release budgets. `npm run gate:slo` fails when a budget or a committed regression allowance is exceeded.",
-  "budgets": {
-    "terminal_correctness": {
+  "version": 2,
+  "description": "W8 release budgets. `npm run gate:slo` fails when a check breaches, a required sample is missing, or a committed regression allowance is exceeded. `requires` turns a check into `skipped` when its capability is off. `enforce:false` reports without failing.",
+  "checks": [
+    {
+      "name": "terminal_correctness",
+      "path": "runs.terminal",
       "kind": "ratio",
-      "target": 0.999
+      "target": 0.999,
+      "samplesPath": "runs.created",
+      "requireSamples": true,
+      "normalize": "terminal_over_created",
+      "enforce": true
     },
-    "run_p95_latency": {
+    {
+      "name": "orphan_rate",
+      "path": "runs.orphaned",
+      "kind": "invariant",
+      "max": 0,
+      "samplesPath": "runs.created",
+      "requireSamples": true,
+      "normalize": "orphan_over_created",
+      "enforce": true
+    },
+    {
+      "name": "run_p95_latency",
+      "path": "latency.p95",
       "kind": "percentile",
       "thresholdMs": 120000,
-      "maxRegression": 0.1
+      "maxRegression": 0.1,
+      "samplesPath": "latency.samples",
+      "minSamples": 20,
+      "requireSamples": false,
+      "enforce": true
     },
-    "resume_p95": {
+    {
+      "name": "resume_p95",
+      "path": "resume.p95",
       "kind": "percentile",
       "thresholdMs": 10000,
-      "maxRegression": 0.1
+      "maxRegression": 0.1,
+      "samplesPath": "resume.samples",
+      "minSamples": 5,
+      "requireSamples": false,
+      "enforce": true
     },
-    "orphan_rate": {
-      "kind": "rate",
-      "max": 0.0
-    },
-    "cost_per_task": {
+    {
+      "name": "cost_per_task",
+      "path": "cost.perTaskP95",
       "kind": "percentile",
-      "thresholdUsd": 1.0,
-      "maxRegression": 0.3
+      "thresholdMs": 1.0,
+      "maxRegression": 0.3,
+      "samplesPath": "cost.samples",
+      "minSamples": 20,
+      "requireSamples": false,
+      "enforce": true
+    },
+    {
+      "name": "ttft_p95",
+      "path": "latency.ttft.p95",
+      "kind": "percentile",
+      "thresholdMs": 15000,
+      "maxRegression": 0.2,
+      "samplesPath": "latency.ttft.samples",
+      "minSamples": 20,
+      "requireSamples": false,
+      "requires": "modelGateway",
+      "enforce": true
+    },
+    {
+      "name": "model_fallback_success_rate",
+      "path": "model.fallbackSuccessRate",
+      "kind": "ratio",
+      "target": 0.90,
+      "samplesPath": "model.fallbacks",
+      "minSamples": 10,
+      "requireSamples": false,
+      "requires": "modelGateway",
+      "enforce": false
+    },
+    {
+      "name": "context_overflow_rate",
+      "path": "context.overflowRate",
+      "kind": "rate",
+      "max": 0.01,
+      "samplesPath": "context.usageRatio.samples",
+      "minSamples": 20,
+      "requireSamples": false,
+      "requires": "contextLadder",
+      "enforce": true
+    },
+    {
+      "name": "compression_failure_rate",
+      "path": "context.compactions.failureRate",
+      "kind": "rate",
+      "max": 0.05,
+      "samplesPath": "context.compactions.samples",
+      "minSamples": 5,
+      "requireSamples": false,
+      "requires": "contextLadder",
+      "enforce": false
+    },
+    {
+      "name": "resume_success_rate",
+      "path": "resume.successRate",
+      "kind": "ratio",
+      "target": 0.99,
+      "samplesPath": "resume.samples",
+      "minSamples": 5,
+      "requireSamples": false,
+      "enforce": true
+    },
+    {
+      "name": "goal_completion_rate",
+      "path": "goals.completionRate",
+      "kind": "ratio",
+      "target": 0.80,
+      "samplesPath": "goals.samples",
+      "minSamples": 8,
+      "requireSamples": false,
+      "requires": "autonomy",
+      "enforce": false
+    },
+    {
+      "name": "goal_blocked_rate",
+      "path": "goals.blockedRate",
+      "kind": "rate",
+      "max": 0.15,
+      "samplesPath": "goals.samples",
+      "minSamples": 8,
+      "requireSamples": false,
+      "requires": "autonomy",
+      "enforce": false
+    },
+    {
+      "name": "file_checkpoint_failure_rate",
+      "path": "fileCheckpoints.failureRate",
+      "kind": "rate",
+      "max": 0.05,
+      "samplesPath": "fileCheckpoints.created",
+      "minSamples": 5,
+      "requireSamples": false,
+      "requires": "fileCheckpoints",
+      "enforce": false
+    },
+    {
+      "name": "effect_unknown",
+      "path": "integrity.effectUnknown",
+      "kind": "invariant",
+      "max": 0,
+      "requireSamples": false,
+      "requires": "runKernelIntegrity",
+      "enforce": true
+    },
+    {
+      "name": "lease_lost",
+      "path": "integrity.leaseLost",
+      "kind": "invariant",
+      "max": 0,
+      "requireSamples": false,
+      "requires": "runKernelIntegrity",
+      "enforce": true
+    },
+    {
+      "name": "checkpoint_write_failures",
+      "path": "integrity.checkpointWriteFailures",
+      "kind": "invariant",
+      "max": 0,
+      "requireSamples": false,
+      "requires": "runKernelIntegrity",
+      "enforce": true
+    },
+    {
+      "name": "event_seq_collisions",
+      "path": "integrity.eventSeqCollisions",
+      "kind": "invariant",
+      "max": 0,
+      "requireSamples": false,
+      "requires": "runKernelIntegrity",
+      "enforce": true
+    },
+    {
+      "name": "tool_batch_ordering_violations",
+      "path": "integrity.toolBatchOrderingViolations",
+      "kind": "invariant",
+      "max": 0,
+      "requireSamples": false,
+      "requires": "parallelTools",
+      "enforce": true
+    },
+    {
+      "name": "skill_enabled_without_eval",
+      "path": "integrity.skillEnabledWithoutEval",
+      "kind": "invariant",
+      "max": 0,
+      "requireSamples": false,
+      "requires": "learningEval",
+      "enforce": true
     }
-  }
+  ]
 }

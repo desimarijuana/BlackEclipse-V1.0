@@ -14,7 +14,15 @@ from typing import Any, Optional
 
 from ..migrations import Migration, MigrationRunner
 from ..persistence import now_iso
-from .model import Claim, EvidenceHandle, Goal, Plan, PlanStep
+from .model import (
+    Claim,
+    EvidenceHandle,
+    Goal,
+    GoalVerdict,
+    Loop,
+    Plan,
+    PlanStep,
+)
 
 MAX_CLAIM_TEXT = 4_000
 MAX_HANDLES = 24
@@ -101,6 +109,81 @@ GOAL_MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX IF NOT EXISTS idx_evidence_handle_claim ON EvidenceHandleRow(claimId)",
         ),
     ),
+    Migration(
+        id="2026-11-12-006-goal-autonomy",
+        description="W4 goal contract/gates/verdicts + session loops",
+        statements=(
+            "ALTER TABLE GoalRecord ADD COLUMN contract TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN gates TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN maxTurns INTEGER NOT NULL DEFAULT 20",
+            "ALTER TABLE GoalRecord ADD COLUMN usedTurns INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE GoalRecord ADD COLUMN lastVerdict TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN sessionId TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN nextRunAt TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN noProgressCount INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE GoalRecord ADD COLUMN modelProvider TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN modelName TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN modelBaseUrl TEXT",
+            "ALTER TABLE GoalRecord ADD COLUMN workspaceId TEXT",
+            """
+            CREATE TABLE IF NOT EXISTS GoalVerdict (
+              id          TEXT PRIMARY KEY,
+              goalId      TEXT NOT NULL,
+              runId       TEXT,
+              turn        INTEGER NOT NULL,
+              verdict     TEXT NOT NULL,
+              reason      TEXT,
+              evidence    TEXT,
+              gateResults TEXT,
+              usage       TEXT,
+              createdAt   TEXT NOT NULL,
+              FOREIGN KEY (goalId) REFERENCES GoalRecord(id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS GoalGateRun (
+              id         TEXT PRIMARY KEY,
+              goalId     TEXT NOT NULL,
+              verdictId  TEXT,
+              gateId     TEXT NOT NULL,
+              checkName  TEXT NOT NULL,
+              exitCode   INTEGER,
+              timedOut   INTEGER NOT NULL DEFAULT 0,
+              durationMs INTEGER,
+              outputTail TEXT,
+              createdAt  TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS AutonomyLoop (
+              id               TEXT PRIMARY KEY,
+              sessionId        TEXT NOT NULL,
+              kind             TEXT NOT NULL,
+              prompt           TEXT NOT NULL,
+              mode             TEXT NOT NULL,
+              intervalSeconds  INTEGER NOT NULL,
+              nextTickAt       TEXT,
+              lastTickAt       TEXT,
+              maxTicks         INTEGER NOT NULL DEFAULT 50,
+              usedTicks        INTEGER NOT NULL DEFAULT 0,
+              noChangeCount    INTEGER NOT NULL DEFAULT 0,
+              lastDigest       TEXT,
+              lastRunId        TEXT,
+              status           TEXT NOT NULL,
+              modelProvider    TEXT,
+              modelName        TEXT,
+              modelBaseUrl     TEXT,
+              workspaceId      TEXT,
+              createdAt        TEXT NOT NULL,
+              updatedAt        TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_goal_verdict_goal ON GoalVerdict(goalId, createdAt)",
+            "CREATE INDEX IF NOT EXISTS idx_goal_gate_goal ON GoalGateRun(goalId, createdAt)",
+            "CREATE INDEX IF NOT EXISTS idx_loop_session ON AutonomyLoop(sessionId, status)",
+            "CREATE INDEX IF NOT EXISTS idx_loop_next ON AutonomyLoop(status, nextTickAt)",
+        ),
+    ),
 )
 
 
@@ -136,26 +219,46 @@ class GoalStore:
     def create_goal(
         self, objective: str, *, acceptance: Optional[list[str]] = None,
         budget: Optional[dict[str, Any]] = None, task_id: Optional[str] = None,
-        goal_id: Optional[str] = None,
+        goal_id: Optional[str] = None, plan_id: Optional[str] = None,
+        contract: Optional[dict[str, Any]] = None,
+        gates: Optional[list[dict[str, Any]]] = None, max_turns: int = 20,
+        session_id: Optional[str] = None, model_provider: Optional[str] = None,
+        model_name: Optional[str] = None, model_base_url: Optional[str] = None,
+        workspace_id: Optional[str] = None,
     ) -> Goal:
         goal = Goal(
             id=goal_id or _uid("goal"),
             objective=str(objective)[:8_000],
             acceptance=tuple(str(item)[:500] for item in (acceptance or [])[:24]),
             task_id=task_id,
+            plan_id=plan_id,
             status="active",
             budget=dict(budget or {}),
+            contract=dict(contract) if isinstance(contract, dict) else None,
+            gates=[dict(item) for item in (gates or [])[:24]],
+            max_turns=max(1, int(max_turns)),
+            session_id=session_id,
+            model_provider=model_provider,
+            model_name=model_name,
+            model_base_url=model_base_url,
+            workspace_id=workspace_id,
             created_at=now_iso(),
             updated_at=now_iso(),
         )
         self._db.execute(
             "INSERT INTO GoalRecord "
-            "(id, objective, acceptance, planId, taskId, status, budget, createdAt, updatedAt) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, objective, acceptance, planId, taskId, status, budget, contract, "
+            "gates, maxTurns, usedTurns, lastVerdict, sessionId, nextRunAt, "
+            "noProgressCount, modelProvider, modelName, modelBaseUrl, workspaceId, "
+            "createdAt, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                goal.id, goal.objective, _json(list(goal.acceptance)), None,
+                goal.id, goal.objective, _json(list(goal.acceptance)), goal.plan_id,
                 goal.task_id, goal.status, _json(goal.budget),
-                goal.created_at, goal.updated_at,
+                _json(goal.contract) if goal.contract is not None else None,
+                _json(goal.gates), goal.max_turns, 0, None, goal.session_id, None,
+                0, goal.model_provider, goal.model_name, goal.model_base_url,
+                goal.workspace_id, goal.created_at, goal.updated_at,
             ),
         )
         return goal
@@ -164,19 +267,308 @@ class GoalStore:
         row = self._db.execute("SELECT * FROM GoalRecord WHERE id=?", (goal_id,)).fetchone()
         if row is None:
             return None
+        loaded = dict(row)
         return Goal(
             id=row["id"], objective=row["objective"],
             acceptance=tuple(_load(row["acceptance"], [])),
             plan_id=row["planId"], task_id=row["taskId"], status=row["status"],
             budget=dict(_load(row["budget"], {})),
+            contract=_load(loaded.get("contract"), None),
+            gates=list(_load(loaded.get("gates"), []) or []),
+            max_turns=int(loaded.get("maxTurns") or 20),
+            used_turns=int(loaded.get("usedTurns") or 0),
+            last_verdict=_load(loaded.get("lastVerdict"), None),
+            session_id=loaded.get("sessionId"),
+            next_run_at=loaded.get("nextRunAt"),
+            no_progress=int(loaded.get("noProgressCount") or 0),
+            model_provider=loaded.get("modelProvider"),
+            model_name=loaded.get("modelName"),
+            model_base_url=loaded.get("modelBaseUrl"),
+            workspace_id=loaded.get("workspaceId"),
             created_at=row["createdAt"], updated_at=row["updatedAt"],
         )
+
+    def list_goals(
+        self, *, session_id: Optional[str] = None, status: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[Goal]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if session_id:
+            clauses.append("sessionId = ?")
+            params.append(session_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._db.execute(
+            f"SELECT id FROM GoalRecord{where} ORDER BY createdAt DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+        out: list[Goal] = []
+        for row in rows:
+            goal = self.get_goal(row["id"])
+            if goal is not None:
+                out.append(goal)
+        return out
 
     def set_goal_status(self, goal_id: str, status: str) -> None:
         self._db.execute(
             "UPDATE GoalRecord SET status=?, updatedAt=? WHERE id=?",
             (status, now_iso(), goal_id),
         )
+
+    def due_goals(self, now: str, *, limit: int = 8) -> list[Goal]:
+        rows = self._db.execute(
+            "SELECT id FROM GoalRecord WHERE status='paused' "
+            "AND nextRunAt IS NOT NULL AND nextRunAt <= ? "
+            "ORDER BY nextRunAt ASC LIMIT ?",
+            (now, max(1, min(int(limit), 50))),
+        ).fetchall()
+        out: list[Goal] = []
+        for row in rows:
+            goal = self.get_goal(row["id"])
+            if goal is not None:
+                out.append(goal)
+        return out
+
+    def goal_for_task(self, task_id: str) -> Optional[Goal]:
+        if not task_id:
+            return None
+        row = self._db.execute(
+            "SELECT id FROM GoalRecord WHERE taskId=? ORDER BY updatedAt DESC LIMIT 1",
+            (task_id,),
+        ).fetchone()
+        return self.get_goal(row["id"]) if row is not None else None
+
+    def update_goal_fields(self, goal_id: str, fields: dict[str, Any]) -> None:
+        """Update a small, WHITELISTED set of goal fields (W4)."""
+        allowed = {
+            "planId", "taskId", "status", "contract", "gates", "maxTurns",
+            "usedTurns", "lastVerdict", "sessionId", "nextRunAt",
+            "noProgressCount", "modelProvider", "modelName", "modelBaseUrl",
+            "workspaceId",
+        }
+        sets: list[str] = []
+        params: list[Any] = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            if key in ("contract", "gates", "lastVerdict") and value is not None:
+                value = _json(value)
+            sets.append(f"{key}=?")
+            params.append(value)
+        if not sets:
+            return
+        sets.append("updatedAt=?")
+        params.append(now_iso())
+        params.append(goal_id)
+        self._db.execute(
+            f"UPDATE GoalRecord SET {', '.join(sets)} WHERE id=?", tuple(params),
+        )
+
+    def add_goal_turn(self, goal_id: str, *, last_verdict: Optional[dict[str, Any]] = None,
+                      next_run_at: Optional[str] = None,
+                      no_progress: Optional[int] = None) -> None:
+        sets = ["usedTurns = usedTurns + 1", "updatedAt=?"]
+        params: list[Any] = [now_iso()]
+        if last_verdict is not None:
+            sets.append("lastVerdict=?")
+            params.append(_json(last_verdict))
+        if next_run_at is not None:
+            sets.append("nextRunAt=?")
+            params.append(next_run_at)
+        if no_progress is not None:
+            sets.append("noProgressCount=?")
+            params.append(int(no_progress))
+        params.append(goal_id)
+        self._db.execute(
+            f"UPDATE GoalRecord SET {', '.join(sets)} WHERE id=?", tuple(params),
+        )
+
+    # ── Goal verdicts / gate audit (W4) ──────────────────────────────────────
+    def record_verdict(
+        self, goal_id: str, *, verdict: str, reason: str = "",
+        run_id: Optional[str] = None, turn: int = 1,
+        evidence: Optional[list[Any]] = None,
+        gate_results: Optional[list[dict[str, Any]]] = None,
+        usage: Optional[dict[str, Any]] = None,
+    ) -> GoalVerdict:
+        record = GoalVerdict(
+            id=_uid("gv"), goal_id=goal_id, run_id=run_id, turn=int(turn),
+            verdict=str(verdict), reason=str(reason)[:2_000],
+            evidence=[str(item) for item in (evidence or [])[:24]],
+            gate_results=[dict(item) for item in (gate_results or [])[:24]],
+            usage=dict(usage or {}), created_at=now_iso(),
+        )
+        self._db.execute(
+            "INSERT INTO GoalVerdict "
+            "(id, goalId, runId, turn, verdict, reason, evidence, gateResults, usage, createdAt) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id, record.goal_id, record.run_id, record.turn,
+                record.verdict, record.reason, _json(record.evidence),
+                _json(record.gate_results), _json(record.usage), record.created_at,
+            ),
+        )
+        return record
+
+    def list_verdicts(self, goal_id: str, *, limit: int = 50) -> list[GoalVerdict]:
+        rows = self._db.execute(
+            "SELECT * FROM GoalVerdict WHERE goalId=? ORDER BY createdAt ASC LIMIT ?",
+            (goal_id, max(1, min(int(limit), 500))),
+        ).fetchall()
+        return [
+            GoalVerdict(
+                id=row["id"], goal_id=row["goalId"], run_id=row["runId"],
+                turn=int(row["turn"]), verdict=row["verdict"],
+                reason=row["reason"] or "",
+                evidence=list(_load(row["evidence"], [])),
+                gate_results=list(_load(row["gateResults"], [])),
+                usage=dict(_load(row["usage"], {})), created_at=row["createdAt"],
+            )
+            for row in rows
+        ]
+
+    def record_gate_run(
+        self, goal_id: str, *, gate_id: str, check: str, verdict_id: str = "",
+        exit_code: Optional[int] = None, timed_out: bool = False,
+        duration_ms: int = 0, output_tail: str = "",
+    ) -> None:
+        self._db.execute(
+            "INSERT INTO GoalGateRun "
+            "(id, goalId, verdictId, gateId, checkName, exitCode, timedOut, durationMs, "
+            "outputTail, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                _uid("gg"), goal_id, verdict_id or None, gate_id, check,
+                exit_code, 1 if timed_out else 0, int(duration_ms),
+                str(output_tail or "")[:4_000], now_iso(),
+            ),
+        )
+
+    # ── Loops / heartbeats (W4) ──────────────────────────────────────────────
+    def create_loop(
+        self, session_id: str, *, kind: str, prompt: str, mode: str = "fixed",
+        interval_seconds: int = 300, next_tick_at: Optional[str] = None,
+        max_ticks: int = 50, model_provider: Optional[str] = None,
+        model_name: Optional[str] = None, model_base_url: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+    ) -> Loop:
+        loop = Loop(
+            id=_uid("loop"), session_id=session_id, kind=kind,
+            prompt=str(prompt)[:8_000], mode=mode,
+            interval_seconds=max(1, int(interval_seconds)),
+            next_tick_at=next_tick_at, max_ticks=max(1, int(max_ticks)),
+            status="active", model_provider=model_provider,
+            model_name=model_name, model_base_url=model_base_url,
+            workspace_id=workspace_id, created_at=now_iso(), updated_at=now_iso(),
+        )
+        self._db.execute(
+            "INSERT INTO AutonomyLoop "
+            "(id, sessionId, kind, prompt, mode, intervalSeconds, nextTickAt, lastTickAt, "
+            "maxTicks, usedTicks, noChangeCount, lastDigest, lastRunId, status, "
+            "modelProvider, modelName, modelBaseUrl, workspaceId, createdAt, updatedAt) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                loop.id, loop.session_id, loop.kind, loop.prompt, loop.mode,
+                loop.interval_seconds, loop.next_tick_at, None, loop.max_ticks,
+                0, 0, None, None, loop.status, loop.model_provider, loop.model_name,
+                loop.model_base_url, loop.workspace_id, loop.created_at,
+                loop.updated_at,
+            ),
+        )
+        return loop
+
+    def get_loop(self, loop_id: str) -> Optional[Loop]:
+        row = self._db.execute(
+            "SELECT * FROM AutonomyLoop WHERE id=?", (loop_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Loop(
+            id=row["id"], session_id=row["sessionId"], kind=row["kind"],
+            prompt=row["prompt"], mode=row["mode"],
+            interval_seconds=int(row["intervalSeconds"]),
+            next_tick_at=row["nextTickAt"], last_tick_at=row["lastTickAt"],
+            max_ticks=int(row["maxTicks"]),
+            used_ticks=int(row["usedTicks"]),
+            no_change_count=int(row["noChangeCount"]),
+            last_digest=row["lastDigest"], last_run_id=row["lastRunId"],
+            status=row["status"], model_provider=row["modelProvider"],
+            model_name=row["modelName"], model_base_url=row["modelBaseUrl"],
+            workspace_id=row["workspaceId"], created_at=row["createdAt"],
+            updated_at=row["updatedAt"],
+        )
+
+    def list_loops(
+        self, *, session_id: Optional[str] = None, status: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[Loop]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if session_id:
+            clauses.append("sessionId = ?")
+            params.append(session_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(int(limit), 500)))
+        rows = self._db.execute(
+            f"SELECT * FROM AutonomyLoop{where} ORDER BY createdAt DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
+        out: list[Loop] = []
+        for row in rows:
+            loaded = self.get_loop(row["id"])
+            if loaded is not None:
+                out.append(loaded)
+        return out
+
+    def due_loops(self, now: str, *, limit: int = 8) -> list[Loop]:
+        rows = self._db.execute(
+            "SELECT id FROM AutonomyLoop WHERE status='active' "
+            "AND nextTickAt IS NOT NULL AND nextTickAt <= ? "
+            "ORDER BY nextTickAt ASC LIMIT ?",
+            (now, max(1, min(int(limit), 50))),
+        ).fetchall()
+        out: list[Loop] = []
+        for row in rows:
+            loaded = self.get_loop(row["id"])
+            if loaded is not None:
+                out.append(loaded)
+        return out
+
+    def update_loop_fields(self, loop_id: str, fields: dict[str, Any]) -> None:
+        allowed = {
+            "mode", "intervalSeconds", "nextTickAt", "lastTickAt", "maxTicks",
+            "usedTicks", "noChangeCount", "lastDigest", "lastRunId", "status", "modelProvider",
+            "modelName", "modelBaseUrl", "workspaceId",
+        }
+        sets: list[str] = []
+        params: list[Any] = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            sets.append(f"{key}=?")
+            params.append(value)
+        if not sets:
+            return
+        sets.append("updatedAt=?")
+        params.append(now_iso())
+        params.append(loop_id)
+        self._db.execute(
+            f"UPDATE AutonomyLoop SET {', '.join(sets)} WHERE id=?", tuple(params),
+        )
+
+    def cancel_loops_for_session(self, session_id: str) -> int:
+        cursor = self._db.execute(
+            "UPDATE AutonomyLoop SET status='cancelled', updatedAt=? "
+            "WHERE sessionId=? AND status IN ('active','paused')",
+            (now_iso(), session_id),
+        )
+        return int(getattr(cursor, "rowcount", 0) or 0)
 
     # ── Plans / steps ────────────────────────────────────────────────────────
     def create_plan(

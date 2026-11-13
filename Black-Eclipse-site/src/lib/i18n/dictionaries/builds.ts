@@ -47,4 +47,16 @@ export const builds = {
   // Which builds the scorecard counts.
   'code.scorecard.scope.project': 'This project',
   'code.scorecard.scope.all': 'All builds',
+
+  // W7 file checkpoints + /rollback.
+  'code.checkpoints.title': 'File snapshots',
+  'code.checkpoints.empty': 'No snapshots yet. Eclipse takes one before the first file change.',
+  'code.checkpoints.refresh': 'Refresh',
+  'code.checkpoints.restore': 'Restore',
+  'code.checkpoints.confirm': 'Restore every tracked change from this snapshot?',
+  'code.checkpoints.restored': 'Restored',
+  'code.checkpoints.undoPoint': 'Undo point',
+  'code.checkpoints.restoreFailed': 'That snapshot could not be restored.',
+  'code.checkpoints.loadFailed': 'Could not load file snapshots.',
+  'code.checkpoints.noDiff': '(no differences)',
 } as const;

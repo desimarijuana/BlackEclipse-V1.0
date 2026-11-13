@@ -47,6 +47,7 @@ from .routers.agent_presets import router as agent_presets_router
 from .routers.personas import router as personas_router
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
+from .routers.delegations import router as delegations_router
 from .routers.channels import router as channels_router
 from .routers.application import router as application_router
 from .routers.artifacts import router as artifacts_router
@@ -109,6 +110,7 @@ from .routers.ui import router as ui_router
 from .routers.video import router as video_router
 from .routers.workspace import router as workspace_router
 from .routers.recovery import router as recovery_router
+from .routers.autonomy import router as autonomy_router
 from .routers.capabilities import router as capabilities_router
 from .schemas import ModelSettings, RunRequest, RunResult
 from .sdk.middleware import install_sdk
@@ -135,6 +137,7 @@ app.include_router(charts_router)
 app.include_router(notebook_router)
 app.include_router(automation_router)
 app.include_router(code_router)
+app.include_router(delegations_router)
 app.include_router(channels_router)
 app.include_router(code_intel_router)
 app.include_router(runs_router)
@@ -189,6 +192,7 @@ app.include_router(ui_router)
 app.include_router(video_router)
 app.include_router(workspace_router)
 app.include_router(recovery_router)
+app.include_router(autonomy_router)
 app.include_router(capabilities_router)
 # Process start time (epoch ms). The TS launcher compares this against the
 # build time of `python/harness/` to detect an orphaned runtime from an earlier
@@ -884,12 +888,16 @@ def cancel_skill_execution(run_id: str) -> dict[str, Any]:
 
 @app.post("/skills/{skill_id}/evaluate")
 def evaluate_skill_endpoint(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    from .config.flags import get_bool  # noqa: PLC0415
+
     result = evaluate_skill(
         skill_id, payload.get("version"), service.skill_registry,
         run_regression=bool(payload.get("runRegression")),
         base_version=payload.get("baseVersion"),
         metrics=payload.get("metrics"),
         base_metrics=payload.get("baseMetrics"),
+        require_execution=get_bool("HARNESS_SKILL_EXEC_EVAL"),
+        execution_invoker=service.build_execution_eval_invoker(),
     )
     return {"success": result.get("ok", False), **result}
 
@@ -975,7 +983,14 @@ def propose_skill_patch(skill_id: str, payload: dict[str, Any], _: bool = Depend
 def evaluate_skill_version(skill_id: str, version: str, payload: Optional[dict[str, Any]] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
     from .skills.versioning import evaluate_version  # noqa: PLC0415
 
-    result = evaluate_version(service.skill_registry, skill_id, version, actor=_actor(bool((payload or {}).get("operator"))))
+    from .config.flags import get_bool  # noqa: PLC0415
+
+    result = evaluate_version(
+        service.skill_registry, skill_id, version,
+        actor=_actor(bool((payload or {}).get("operator"))),
+        require_execution=get_bool("HARNESS_SKILL_EXEC_EVAL"),
+        execution_invoker=service.build_execution_eval_invoker(),
+    )
     return {"success": result.get("ok", False), **result}
 
 

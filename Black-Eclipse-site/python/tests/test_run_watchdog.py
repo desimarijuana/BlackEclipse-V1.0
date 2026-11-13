@@ -150,6 +150,37 @@ def test_sweep_preserves_the_last_assistant_text_as_a_partial_answer(store):
     assert "run.partial" in types
 
 
+def test_sweep_skips_a_run_with_a_live_lease(store):
+    from harness.run_lease import RunLeaseManager
+
+    store.create_run("run_leased", "eclipse-agent", {"query": "x"})
+    store.update_run("run_leased", status="running")
+    store.append_event("run_leased", "model.requested", 1, {"step": 1})
+    _age_run(store, "run_leased", 600)
+    manager = RunLeaseManager(store, runtime_id="rt-live", ttl_ms=60_000)
+    assert manager.claim("run_leased") == 1
+
+    service = _StubService(store)
+    assert sweep_stalled_runs(service) == []
+    assert store.get_run("run_leased")["status"] == "running"
+
+    # Once the lease expires the run is sweepable again.
+    store._db.execute("UPDATE RunLease SET expiresAtMs=0 WHERE runId=?", ("run_leased",))
+    store._db.commit()
+    assert sweep_stalled_runs(service) == ["run_leased"]
+    assert store.get_run("run_leased")["status"] == "failed"
+
+
+def test_find_stalled_accepts_a_live_set():
+    now = 1_000_000.0
+    rows = [
+        {"id": "old", "agentId": "eclipse-agent", "started": _iso(now - 500),
+         "lastEventAt": _iso(now - 400), "lastEventType": "model.requested"},
+    ]
+    assert find_stalled(rows, now, live_run_ids={"old"}) == []
+    assert find_stalled(rows, now, live_run_ids=set()) == ["old"]
+
+
 def test_sweep_never_raises_on_a_broken_store():
     class _Broken:
         class store:  # noqa: N801 - minimal stub

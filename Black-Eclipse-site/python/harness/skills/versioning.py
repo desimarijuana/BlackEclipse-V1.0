@@ -157,6 +157,8 @@ def evaluate_version(
     version: str,
     *,
     actor: Actor,
+    require_execution: Optional[bool] = None,
+    execution_invoker: Any = None,
 ) -> dict[str, Any]:
     """Run the deterministic evaluation and persist a structured record.
 
@@ -165,7 +167,11 @@ def evaluate_version(
     """
     from .evaluation import evaluate_skill  # noqa: PLC0415
 
-    result = evaluate_skill(skill_id, version, registry, run_regression=True)
+    result = evaluate_skill(
+        skill_id, version, registry, run_regression=True,
+        require_execution=require_execution,
+        execution_invoker=execution_invoker,
+    )
     stored = registry.store.get_version(skill_id, version)
     baseline = (stored or {}).get("baseVersion")
     metrics = _metrics_record(registry, skill_id, baseline, version)
@@ -235,6 +241,28 @@ def activate_version(
     if stored is None:
         return {"ok": False, "error": f"version {version!r} does not exist for {skill_id!r}"}
     eval_status = stored.get("evaluationStatus")
+    from ..config.flags import get_bool  # noqa: PLC0415
+
+    from .evaluation import execution_gate_applies  # noqa: PLC0415
+
+    manifest = registry.manifest(skill_id)
+    if (
+        eval_status == "passed"
+        and get_bool("HARNESS_SKILL_EXEC_EVAL")
+        and manifest is not None
+        and execution_gate_applies(manifest)
+    ):
+        evaluations = [
+            row for row in registry.store.list_evaluations(skill_id, limit=20)
+            if str(row.get("version")) == str(version)
+            and str(row.get("status")) == "passed"
+        ]
+        if not evaluations or not (evaluations[0].get("executionRunIds") or []):
+            return {
+                "ok": False,
+                "error": "execution evaluation required before activation",
+                "skillId": skill_id, "version": version,
+            }
     if eval_status not in ("passed",):
         return {
             "ok": False,

@@ -1,0 +1,159 @@
+"""Agent-facing file checkpoint tools (W7).
+
+`checkpoint_list` and `checkpoint_diff` are read-only. `checkpoint_restore` is
+effectful: the graph's authorizer requires a single-use approval for it, and the
+handler then takes a pre-restore snapshot before writing anything.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Optional
+
+from ..tools import ToolContext, ToolDefinition
+from . import checkpoints
+
+
+def _root(ctx: ToolContext) -> Any:
+    ws = getattr(ctx, "workspace", None)
+    root = getattr(ws, "root", None) if ws is not None else None
+    if root is None:
+        raise checkpoints.CheckpointError(
+            "WORKSPACE_UNBOUND", "There is no project folder to restore into.",
+        )
+    return root
+
+
+async def _emit(ctx: ToolContext, event_type: str, data: dict[str, Any]) -> None:
+    try:
+        from .tools import emit_code_event  # noqa: PLC0415
+
+        await emit_code_event(ctx, event_type, data)
+    except Exception:  # noqa: BLE001 - observability must not break a restore
+        pass
+
+
+async def checkpoint_list(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    try:
+        items = checkpoints.list_checkpoints(_root(ctx), limit=int(args.get("limit") or 20))
+    except checkpoints.CheckpointError as exc:
+        return f"{exc.code}: {exc.reason}", {"status": "unavailable", "code": exc.code}
+    if not items:
+        return (
+            "No file snapshots yet. A snapshot is taken before the first file change.",
+            {"status": "ok", "checkpoints": []},
+        )
+    lines = ["Recent snapshots:"]
+    for item in items:
+        lines.append(
+            f"- {item.get('id')} — {item.get('reason') or 'before-write'}"
+            f" ({item.get('files') or 0} files, {item.get('createdAt') or item.get('createdAt') or ''})"
+        )
+    return "\n".join(lines), {"status": "ok", "checkpoints": items}
+
+
+async def checkpoint_diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    checkpoint_id = str(args.get("checkpointId") or "").strip()
+    if not checkpoint_id:
+        return "CHECKPOINT_PATH_REQUIRED: name the snapshot to diff.", {"status": "refused"}
+    try:
+        result = checkpoints.diff(
+            _root(ctx), checkpoint_id,
+            paths=args.get("paths") if isinstance(args.get("paths"), list) else None,
+        )
+    except checkpoints.CheckpointError as exc:
+        return f"{exc.code}: {exc.reason}", {"status": "unavailable", "code": exc.code}
+    text = result["unified"] or "(no differences)"
+    return text[:60_000], {"status": "ok", **result}
+
+
+async def checkpoint_restore(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    checkpoint_id = str(args.get("checkpointId") or "").strip()
+    if not checkpoint_id:
+        return "CHECKPOINT_PATH_REQUIRED: name the snapshot to restore.", {"status": "refused"}
+    paths = args.get("paths") if isinstance(args.get("paths"), list) else None
+    restore_all = bool(args.get("all"))
+    try:
+        result = checkpoints.restore(
+            _root(ctx), checkpoint_id,
+            paths=paths, all=restore_all,
+            run_id=str(getattr(ctx, "run_id", "") or ""),
+            turn_key=str(getattr(ctx, "run_id", "") or ""),
+        )
+    except checkpoints.CheckpointError as exc:
+        return f"{exc.code}: {exc.reason}", {"status": "refused", "code": exc.code}
+    await _emit(ctx, "checkpoint.restored", {
+        "checkpointId": checkpoint_id, "preRestoreId": result.get("preRestoreId"),
+        "restored": len(result.get("restored") or []), "skipped": len(result.get("skipped") or []),
+    })
+    many = "Everything tracked" if restore_all else f"{len(result.get('restored') or [])} file(s)"
+    return (
+        f"Restored {many} from snapshot {checkpoint_id}. "
+        f"A pre-restore snapshot keeps this undoable ({result.get('preRestoreId')}).",
+        {"status": "restored", **result},
+    )
+
+
+_LIST_SCHEMA = {
+    "type": "object",
+    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+    "additionalProperties": False,
+}
+_DIFF_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "checkpointId": {"type": "string"},
+        "paths": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["checkpointId"],
+    "additionalProperties": False,
+}
+_RESTORE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "checkpointId": {"type": "string"},
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "all": {"type": "boolean"},
+    },
+    "required": ["checkpointId"],
+    "additionalProperties": False,
+}
+
+
+def register_checkpoint_tools(registry: Any) -> list[str]:
+    definitions = [
+        ToolDefinition(
+            name="checkpoint_list",
+            description="List the file snapshots Eclipse has taken for this project (newest first). Read-only.",
+            input_schema=_LIST_SCHEMA,
+            handler=checkpoint_list, permission="read", risk="none", timeout_ms=10_000,
+        ),
+        ToolDefinition(
+            name="checkpoint_diff",
+            description="Show what changed since a file snapshot, or between snapshots. Read-only.",
+            input_schema=_DIFF_SCHEMA,
+            handler=checkpoint_diff, permission="read", risk="none", timeout_ms=15_000,
+        ),
+        ToolDefinition(
+            name="checkpoint_restore",
+            description=(
+                "Restore files from a snapshot. Effectful: requires an approval. "
+                "Restores the named paths by default; `all` restores every tracked change. "
+                "A pre-restore snapshot is always taken first."
+            ),
+            input_schema=_RESTORE_SCHEMA,
+            handler=checkpoint_restore, permission="write", risk="medium",
+            timeout_ms=60_000, effect="write",
+        ),
+    ]
+    added: list[str] = []
+    for tool in definitions:
+        try:
+            registry.register(tool)
+            added.append(tool.name)
+        except ValueError:
+            continue
+    return added
+
+
+__all__ = ["register_checkpoint_tools"]

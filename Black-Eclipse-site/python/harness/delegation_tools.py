@@ -45,6 +45,9 @@ class DelegateChildModel(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     tool_subset: Optional[list[str]] = Field(default=None, max_length=64)  # noqa: N815
     workspace_id: Optional[str] = Field(default=None, max_length=128)  # noqa: N815
+    output_schema: Optional[dict[str, Any]] = None  # noqa: N815
+    schema_repair: bool = True  # noqa: N815
+    isolated: bool = False
 
 
 class DelegateInput(BaseModel):
@@ -64,6 +67,9 @@ class DelegateInput(BaseModel):
     temperatures: Optional[list[float]] = Field(default=None, max_length=8)
     approaches: Optional[list[str]] = Field(default=None, max_length=8)
     contexts: Optional[list[str]] = Field(default=None, max_length=8)
+    output_schema: Optional[dict[str, Any]] = None  # noqa: N815
+    schema_repair: bool = True  # noqa: N815
+    isolated: bool = False
 
 
 def delegate_schema() -> dict[str, Any]:
@@ -78,6 +84,9 @@ def delegate_schema() -> dict[str, Any]:
             "temperature": {"type": "number", "minimum": 0, "maximum": 2, "description": "Sampling temperature for this part (optional; the parent's setting otherwise)."},
             "tool_subset": {"type": "array", "items": {"type": "string"}, "description": "Limit this part to these tools (must be a subset of this task's tools)."},
             "workspace_id": {"type": "string", "description": "A folder this task already has, for a part that writes."},
+            "output_schema": {"type": "object", "description": "Optional bounded JSON Schema this part's answer must satisfy. A miss gets one repair turn; the raw answer is kept."},
+            "schema_repair": {"type": "boolean", "description": "Allow one bounded repair turn when the output schema is missed (default true)."},
+            "isolated": {"type": "boolean", "description": "Give a writing part its own disposable worktree. The parent gets a diff, never an automatic merge."},
         },
         "required": ["goal"],
         "additionalProperties": False,
@@ -100,6 +109,8 @@ def delegate_schema() -> dict[str, Any]:
             "approaches": {"type": "array", "items": {"type": "string"}, "description": "best_of only: optional different angles per attempt (e.g. 'retry with backoff', 'mock the API'). Guidance, never a claimed result."},
             "contexts": {"type": "array", "items": {"type": "string"}, "description": "best_of only: optional background per attempt (bounded), for tries that should work from different evidence."},
             "aggregate": {"type": "string", "enum": ["list", "compare", "merge_claims"], "description": "split only: how to combine the results."},
+            "output_schema": {"type": "object", "description": "best_of only: optional JSON Schema every attempt must satisfy."},
+            "isolated": {"type": "boolean", "description": "best_of only: give each attempt its own worktree."},
         },
         "additionalProperties": False,
     }
@@ -216,6 +227,9 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
                 agent_id=agent_ids[i] if i < len(agent_ids) else None,
                 model=models[i] if i < len(models) else None,
                 temperature=temperatures[i] if i < len(temperatures) else None,
+                output_schema=model.output_schema,
+                schema_repair=model.schema_repair,
+                isolated=model.isolated,
             )
             for i in range(count)
         ]
@@ -229,7 +243,10 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
             DelegationChild(goal=c.goal, context=c.context, approach=c.approach,
                             agent_id=c.agent_id, model=c.model,
                             temperature=c.temperature, tool_subset=c.tool_subset,
-                            workspace_id=c.workspace_id)
+                            workspace_id=c.workspace_id,
+                            output_schema=c.output_schema,
+                            schema_repair=c.schema_repair,
+                            isolated=c.isolated)
             for c in model.children
         ]
 

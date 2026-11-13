@@ -355,6 +355,110 @@ class StreamEvent:
     error: Optional[dict[str, Any]] = None
 
 
+# ── W1 gateway contracts ─────────────────────────────────────────────────────
+# These live in `types.py` so `ModelRuntime` can return them without importing
+# the gateway facade (which imports the runtime). `gateway.py` re-exports them.
+
+@dataclass
+class Candidate:
+    """One reachable model candidate in the gateway plan."""
+
+    provider: str
+    model: str
+    index: int
+    reason: str = "primary"          # primary | fallback | explicit
+    credential_id: Optional[str] = None
+    context_window: Optional[int] = None
+    score: Optional[float] = None
+    model_info: Optional[ModelInfo] = None
+    built: Any = None                 # prebuilt primary model, when usable
+    credential: Any = None            # Credential, never serialized
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.provider}/{self.model}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "index": self.index,
+            "reason": self.reason,
+            "credentialId": self.credential_id,
+            "contextWindow": self.context_window,
+            "score": None if self.score is None else round(self.score, 4),
+        }
+
+
+@dataclass
+class Attempt:
+    """One physical model attempt (one provider request)."""
+
+    provider: str
+    model: str
+    index: int
+    attempt: int
+    outcome: str                       # completed | failed | skipped
+    reason: str = ""
+    error_class: Optional[str] = None
+    status_code: Optional[int] = None
+    latency_ms: int = 0
+    ttft_ms: Optional[int] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: Optional[float] = None
+    priced: bool = False
+    retryable: bool = False
+    will_retry: bool = False
+    will_fallback: bool = False
+    credential_id: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "index": self.index,
+            "attempt": self.attempt,
+            "outcome": self.outcome,
+            "reason": self.reason,
+            "errorClass": self.error_class,
+            "statusCode": self.status_code,
+            "latencyMs": self.latency_ms,
+            "ttftMs": self.ttft_ms,
+            "promptTokens": self.prompt_tokens,
+            "completionTokens": self.completion_tokens,
+            "totalTokens": self.total_tokens,
+            "costUsd": self.cost_usd,
+            "priced": self.priced,
+            "retryable": self.retryable,
+            "willRetry": self.will_retry,
+            "willFallback": self.will_fallback,
+            "credentialId": self.credential_id,
+        }
+
+
+@dataclass
+class GatewayResult:
+    """The final response plus the full physical-attempt trace."""
+
+    response: Any
+    attempts: tuple[Attempt, ...] = ()
+    fallback_used: bool = False
+    total_tokens: int = 0
+    cost_usd: Optional[float] = None
+    priced: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "fallbackUsed": self.fallback_used,
+            "totalTokens": self.total_tokens,
+            "costUsd": self.cost_usd,
+            "priced": self.priced,
+            "attempts": [a.to_dict() for a in self.attempts],
+        }
+
+
 __all__ = [
     "CAPABILITY_KEYS",
     "CapabilityState",
@@ -372,4 +476,7 @@ __all__ = [
     "ToolCall",
     "ToolSchema",
     "Usage",
+    "Candidate",
+    "Attempt",
+    "GatewayResult",
 ]

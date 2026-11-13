@@ -17,6 +17,18 @@
     {"id": "contract.event_vocabulary", "kind": "contract", "invariant": "the hook vocabulary is closed and includes the step hooks"},
     {"id": "contract.tool_manifest", "kind": "contract", "invariant": "the portable tool manifest is versioned, digested and honest"},
     {"id": "contract.slo_report", "kind": "contract", "invariant": "the release report carries runs/latency/cost/slos"},
-    {"id": "contract.plugin_sdk", "kind": "contract", "invariant": "the plugin SDK declares a version"}
+    {"id": "contract.plugin_sdk", "kind": "contract", "invariant": "the plugin SDK declares a version"},
+    {"id": "signal.model_attempt", "kind": "signal", "invariant": "attempts, fallback numerator and TTFT reach the report"},
+    {"id": "signal.model_ttft", "kind": "signal", "invariant": "first token becomes a TTFT observation, not a generic event"},
+    {"id": "signal.context_compression", "kind": "signal", "invariant": "pressure, summary and skeleton outcomes are distinguishable"},
+    {"id": "signal.tool_batch", "kind": "signal", "invariant": "batch size, concurrency and guardrail outcome are recorded"},
+    {"id": "signal.integrity_unknown_effect", "kind": "signal", "invariant": "an unknown effect is counted and fails the invariant gate"},
+    {"id": "signal.integrity_lease_lost", "kind": "signal", "invariant": "a lost lease reaches the integrity section"},
+    {"id": "signal.file_checkpoint", "kind": "signal", "invariant": "created, failed and restored are distinguishable"},
+    {"id": "signal.goal_verdict", "kind": "signal", "invariant": "verdicts roll up into completion and blocked rates"},
+    {"id": "signal.skill_evaluation", "kind": "signal", "invariant": "behavioural evaluation outcomes reach the learning section"},
+    {"id": "contract.slo_report_v2", "kind": "contract", "invariant": "the release report carries schema v2, capabilities and unmeasured objectives"},
+    {"id": "contract.unmeasured_gate", "kind": "contract", "invariant": "missing samples fail only when the check requires them"},
+    {"id": "contract.alert_metric_names", "kind": "contract", "invariant": "every alert metric exists in the shipped exposition"}
   ]
 }

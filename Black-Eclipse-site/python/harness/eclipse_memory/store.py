@@ -1169,23 +1169,34 @@ class EclipseMemoryStore:
         evaluator: str = "deterministic-v1", summary: Optional[str] = None,
         cases: Optional[list[dict[str, Any]]] = None,
         fingerprint: Optional[str] = None,
+        execution_run_ids: Optional[list[str]] = None,
+        execution_scores: Optional[dict[str, Any]] = None,
+        execution_fingerprint: Optional[str] = None,
     ) -> str:
         evaluation_id = new_id("eval")
         self._db.execute(
-            """INSERT INTO SkillEvaluation (id, skillId, version, status, evaluator, dimensions, summary, createdAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (evaluation_id, skill_id, version, status, evaluator, json.dumps(dimensions), summary, now_iso()),
+            """INSERT INTO SkillEvaluation
+               (id, skillId, version, status, evaluator, dimensions, summary, createdAt,
+                executionRunIds, executionScores, executionFingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                evaluation_id, skill_id, version, status, evaluator,
+                json.dumps(dimensions), summary, now_iso(),
+                json.dumps(list(execution_run_ids or [])),
+                json.dumps(execution_scores or {}),
+                execution_fingerprint,
+            ),
         )
         for case in cases or []:
             self._db.execute(
                 """INSERT INTO SkillEvaluationCase
-                   (id, evaluationId, skillId, version, caseId, name, kind, input, expected, status, createdAt)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, evaluationId, skillId, version, caseId, name, kind, input, expected, spec, status, createdAt)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (new_id("evalcase"), evaluation_id, skill_id, version, case["caseId"],
                  case.get("name", case["caseId"]), case.get("kind", "schema"),
                  json.dumps(case.get("input")) if case.get("input") is not None else None,
                  json.dumps(case.get("expected")) if case.get("expected") is not None else None,
-                 case.get("status"), now_iso()),
+                 json.dumps(case), case.get("status"), now_iso()),
             )
         self._db.execute(
             "UPDATE SkillVersion SET evaluationStatus=?, evalFingerprint=?, updatedAt=? "
@@ -1236,6 +1247,7 @@ class EclipseMemoryStore:
             return None
         record = dict(row)
         record["dimensions"] = json.loads(record["dimensions"]) if record["dimensions"] else []
+        record = self._decode_execution_evidence(record)
         cases = self._db.execute(
             "SELECT * FROM SkillEvaluationCase WHERE evaluationId=? ORDER BY caseId", (evaluation_id,)
         ).fetchall()
@@ -1259,8 +1271,26 @@ class EclipseMemoryStore:
         for row in rows:
             record = dict(row)
             record["dimensions"] = json.loads(record["dimensions"]) if record["dimensions"] else []
-            out.append(record)
+            out.append(self._decode_execution_evidence(record))
         return out
+
+    @staticmethod
+    def _decode_execution_evidence(record: dict[str, Any]) -> dict[str, Any]:
+        """Decode the W5 execution columns without inventing values for old rows.
+
+        A pre-W5 row has NULL columns; it reads `[]`/`{}` and is therefore
+        static-only, which is exactly how the promotion gate treats it.
+        """
+        try:
+            record["executionRunIds"] = json.loads(record.get("executionRunIds") or "[]")
+        except (TypeError, ValueError):
+            record["executionRunIds"] = []
+        try:
+            record["executionScores"] = json.loads(record.get("executionScores") or "{}")
+        except (TypeError, ValueError):
+            record["executionScores"] = {}
+        record.setdefault("executionFingerprint", None)
+        return record
 
     def replace_evaluation_cases(self, skill_id: str, version: str, cases: list[dict[str, Any]]) -> None:
         self._db.execute(
@@ -1270,13 +1300,13 @@ class EclipseMemoryStore:
         for case in cases:
             self._db.execute(
                 """INSERT INTO SkillEvaluationCase
-                   (id, evaluationId, skillId, version, caseId, name, kind, input, expected, createdAt)
-                   VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, evaluationId, skillId, version, caseId, name, kind, input, expected, spec, createdAt)
+                   VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (new_id("evalcase"), skill_id, version, case["caseId"], case.get("name", case["caseId"]),
                  case.get("kind", "schema"),
                  json.dumps(case.get("input")) if case.get("input") is not None else None,
                  json.dumps(case.get("expected")) if case.get("expected") is not None else None,
-                 now_iso()),
+                 json.dumps(case), now_iso()),
             )
         self._db.commit()
 
@@ -1286,6 +1316,122 @@ class EclipseMemoryStore:
             (skill_id, version),
         ).fetchall()
         return [self._case_row(r) for r in rows]
+
+    # ── Skill curator ledger (W5.2) ─────────────────────────────────────────
+
+    def save_curator_run(
+        self, *, mode: str, status: str = "running",
+        details: Optional[dict[str, Any]] = None,
+    ) -> str:
+        run_id = new_id("curator")
+        self._db.execute(
+            """INSERT INTO SkillCuratorRun
+               (id, startedAt, mode, status, details)
+               VALUES (?, ?, ?, ?, ?)""",
+            (run_id, now_iso(), mode, status, json.dumps(details or {})),
+        )
+        self._db.commit()
+        return run_id
+
+    def finish_curator_run(
+        self, run_id: str, *, status: str, error: Optional[str] = None,
+        skills_scanned: int = 0, groups_found: int = 0,
+        proposals_created: int = 0, applied: int = 0,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self._db.execute(
+            """UPDATE SkillCuratorRun SET finishedAt=?, status=?, error=?,
+               skillsScanned=?, groupsFound=?, proposalsCreated=?, applied=?, details=?
+               WHERE id=?""",
+            (now_iso(), status, error, skills_scanned, groups_found,
+             proposals_created, applied, json.dumps(details or {}), run_id),
+        )
+        self._db.commit()
+
+    def save_curator_proposal(
+        self, *, run_id: str, kind: str, skill_ids: list[str],
+        base_version: Optional[str] = None, proposed_draft_id: Optional[str] = None,
+        diff: Any = None, reason: str = "", status: str = "reported",
+    ) -> str:
+        proposal_id = new_id("curprop")
+        self._db.execute(
+            """INSERT INTO SkillCuratorProposal
+               (id, runId, kind, skillIds, baseVersion, proposedDraftId, diff,
+                reason, status, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (proposal_id, run_id, kind, json.dumps(list(skill_ids)), base_version,
+             proposed_draft_id, json.dumps(diff) if diff is not None else None,
+             reason, status, now_iso()),
+        )
+        self._db.commit()
+        return proposal_id
+
+    def get_curator_proposal(self, proposal_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM SkillCuratorProposal WHERE id=?", (proposal_id,)
+        ).fetchone()
+        return self._curator_proposal_row(row) if row else None
+
+    def list_curator_proposals(
+        self, *, run_id: Optional[str] = None, status: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 500))
+        clauses: list[str] = []
+        values: list[Any] = []
+        if run_id:
+            clauses.append("runId=?")
+            values.append(run_id)
+        if status:
+            clauses.append("status=?")
+            values.append(status)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._db.execute(
+            f"SELECT * FROM SkillCuratorProposal{where} "
+            "ORDER BY createdAt DESC, rowid DESC LIMIT ?",
+            (*values, limit),
+        ).fetchall()
+        return [self._curator_proposal_row(row) for row in rows]
+
+    def decide_curator_proposal(
+        self, proposal_id: str, *, status: str, actor: str, notes: str = "",
+    ) -> None:
+        self._db.execute(
+            """UPDATE SkillCuratorProposal
+               SET status=?, decidedAt=?, decidedBy=?, decisionNotes=?
+               WHERE id=?""",
+            (status, now_iso(), actor, notes, proposal_id),
+        )
+        self._db.commit()
+
+    def list_curator_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        rows = self._db.execute(
+            "SELECT * FROM SkillCuratorRun ORDER BY startedAt DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            try:
+                record["details"] = json.loads(record.get("details") or "{}")
+            except (TypeError, ValueError):
+                record["details"] = {}
+            out.append(record)
+        return out
+
+    @staticmethod
+    def _curator_proposal_row(row: sqlite3.Row) -> dict[str, Any]:
+        record = dict(row)
+        try:
+            record["skillIds"] = json.loads(record.get("skillIds") or "[]")
+        except (TypeError, ValueError):
+            record["skillIds"] = []
+        try:
+            record["diff"] = json.loads(record["diff"]) if record.get("diff") else None
+        except (TypeError, ValueError):
+            record["diff"] = record.get("diff")
+        return record
 
     def save_candidate(self, candidate: dict[str, Any]) -> str:
         candidate_id = candidate.get("id") or new_id("cand")
@@ -1475,12 +1621,23 @@ class EclipseMemoryStore:
     @staticmethod
     def _case_row(row: sqlite3.Row) -> dict[str, Any]:
         record = dict(row)
+        raw_spec = record.pop("spec", None)
         for key in ("input", "expected"):
             if record.get(key):
                 try:
                     record[key] = json.loads(record[key])
                 except (TypeError, ValueError):
                     pass
+        if raw_spec:
+            try:
+                spec = json.loads(raw_spec)
+            except (TypeError, ValueError):
+                spec = None
+            if isinstance(spec, dict):
+                # The spec is the authored case (graders/envState/constraints).
+                # The row's own columns stay authoritative for identity/status.
+                for key, value in spec.items():
+                    record.setdefault(key, value)
         return record
 
     @staticmethod

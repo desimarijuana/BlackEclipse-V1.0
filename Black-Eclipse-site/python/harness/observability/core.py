@@ -50,6 +50,7 @@ from .metrics import MetricsRegistry
 from .observers import Observer, ObserverHub
 from .redaction import Redactor, set_default_redactor
 from .sampling import Sampler
+from .signals import SignalAggregates, capabilities, record_metrics
 from .slo import SLORegistry
 from .tracing import Span, SpanStore, STATUS_ERROR, STATUS_OK, Tracer
 
@@ -77,6 +78,7 @@ class ObservabilityHub:
         self.anomaly = AnomalyDetector()
         self.loops = LoopDetector()
         self.slos = SLORegistry()
+        self.signals = SignalAggregates()
 
         self._lock = threading.RLock()
         self._dropped: dict[str, int] = {}
@@ -89,6 +91,8 @@ class ObservabilityHub:
         self._resume_ms: deque[float] = deque(maxlen=2000)
         self._run_costs: deque[float] = deque(maxlen=5000)
         self._run_cost_unpriced = 0
+        self._resume_total = 0
+        self._resume_success = 0
         self._created = 0
         self._terminal: dict[str, int] = {"ok": 0, "failed": 0, "cancelled": 0}
         self._orphans = 0
@@ -109,6 +113,56 @@ class ObservabilityHub:
             self.observers.register(observer)
         self._build_exporters(exporters or [], start=start_exporters)
         self._register_self_health()
+        self.register_objectives()
+
+    def register_objectives(self) -> None:
+        """Register every objective eagerly, once, with its counters intact.
+
+        Pre-W8 objectives were defined on the first event. That made a missing
+        signal invisible and (because `define` replaces) reset the objective's
+        samples on every subsequent event. `ensure` preserves them.
+        """
+        p95_target = _env_float("ECLIPSE_SLO_P95_TARGET", 0.95)
+        self.slos.ensure("agent_success_rate", self.config.slo_agent_success_rate,
+                         description="Agent runs complete without error")
+        self.slos.ensure("tool_success_rate", self.config.slo_tool_success_rate,
+                         description="Tool calls succeed")
+        self.slos.ensure("terminal_correctness", _env_float("ECLIPSE_SLO_TERMINAL_TARGET", 0.999),
+                         description="Runs that reach exactly one terminal state")
+        self.slos.ensure("run_p95_latency", p95_target, kind="percentile",
+                         threshold=_env_float("ECLIPSE_SLO_RUN_P95_MS", 120_000.0), unit="ms",
+                         description="Run p95 latency within budget")
+        self.slos.ensure("resume_p95", p95_target, kind="percentile",
+                         threshold=_env_float("ECLIPSE_SLO_RESUME_P95_MS", 10_000.0), unit="ms",
+                         description="Resume to continued run p95")
+        self.slos.ensure("cost_per_task", p95_target, kind="percentile",
+                         threshold=_env_float("ECLIPSE_SLO_COST_PER_TASK_USD", 1.0), unit="usd",
+                         description="Cost per completed task within budget")
+        self.slos.ensure("orphan_rate", 1.0, kind="rate",
+                         threshold=_env_float("ECLIPSE_SLO_ORPHAN_RATE", 0.0),
+                         description="Runs left active without a terminal state")
+        self.slos.ensure("ttft_p95", p95_target, kind="percentile",
+                         threshold=_env_float("ECLIPSE_SLO_TTFT_P95_MS", 15_000.0), unit="ms",
+                         description="Time to first token p95 within budget")
+        self.slos.ensure("model_fallback_success_rate",
+                         _env_float("ECLIPSE_SLO_FALLBACK_SUCCESS", 0.90),
+                         description="Fallback attempts that complete")
+        self.slos.ensure("context_overflow_rate", 1.0, kind="rate",
+                         threshold=_env_float("ECLIPSE_SLO_CONTEXT_OVERFLOW_RATE", 0.01),
+                         description="Model calls refused or recovered for context pressure")
+        self.slos.ensure("compression_failure_rate", 1.0, kind="rate",
+                         threshold=_env_float("ECLIPSE_SLO_COMPRESSION_FAILURE_RATE", 0.05),
+                         description="Compression ladder runs that fail to shrink")
+        self.slos.ensure("resume_success_rate", _env_float("ECLIPSE_SLO_RESUME_SUCCESS", 0.99),
+                         description="Resumed runs that reach a terminal state")
+        self.slos.ensure("goal_completion_rate", _env_float("ECLIPSE_SLO_GOAL_COMPLETION", 0.80),
+                         description="Goal verdicts that complete")
+        self.slos.ensure("goal_blocked_rate", 1.0, kind="rate",
+                         threshold=_env_float("ECLIPSE_SLO_GOAL_BLOCKED_RATE", 0.15),
+                         description="Goal verdicts that end blocked")
+        self.slos.ensure("file_checkpoint_failure_rate", 1.0, kind="rate",
+                         threshold=_env_float("ECLIPSE_SLO_FILE_CHECKPOINT_FAILURE", 0.05),
+                         description="File checkpoint snapshots that fail")
 
     # ── exporters ───────────────────────────────────────────────────────────
     def _build_exporters(self, extra: list[Exporter], *, start: bool) -> None:
@@ -369,6 +423,10 @@ class ObservabilityHub:
             m.inc_counter("eclipse_recovery_total", labels={"phase": "start" if hook.endswith("Start") else "end"})
         elif hook == "onSecurityEvent":
             m.inc_counter("eclipse_security_events_total", labels=labels)
+        else:
+            # W8 signals have their own stable metric names; anything else is a
+            # no-op, so this stays a single dispatch point.
+            record_metrics(m, hook, event)
 
     def _cost_for(self, event: HookEvent) -> None:
         if event.hook not in ("onLLMEnd",):
@@ -439,70 +497,92 @@ class ObservabilityHub:
         )
 
     def _slo_for(self, event: HookEvent) -> None:
-        if event.hook == "onRunEnd":
-            target = self.config.slo_agent_success_rate
-            self.slos.define("agent_success_rate", target, description="Agent runs complete without error")
-            result = self.slos.record("agent_success_rate", good=(event.status != "ERROR" and not event.error_type))
-            if result and not result["healthy"]:
+        attrs = event.attributes or {}
+        hook = event.hook
+        if hook == "onRunEnd":
+            result = self.slos.record(
+                "agent_success_rate",
+                good=(event.status != "ERROR" and not event.error_type),
+            )
+            if result and result["healthy"] is False:
                 self.emit("onSLOViolation", context=event.context, attributes=result)
 
-            # C7: terminal correctness, latency, resume and cost are observable
-            # objectives, not prose. The release report computes the exact
-            # terminal ratio from created/terminal counts; this runtime view
-            # records every run that reached a terminal state.
-            self.slos.define(
-                "terminal_correctness",
-                _env_float("ECLIPSE_SLO_TERMINAL_TARGET", 0.999),
-                description="Runs that reach exactly one terminal state",
-            )
+            # The release report recomputes terminal correctness and the orphan
+            # rate from created/terminal counts; the runtime view still sees the
+            # terminal event so a persistent violation surfaces live.
             self.slos.record("terminal_correctness", good=True)
-
-            self.slos.define(
-                "run_p95_latency",
-                _env_float("ECLIPSE_SLO_P95_TARGET", 0.95),
-                kind="percentile",
-                threshold=_env_float("ECLIPSE_SLO_RUN_P95_MS", 120_000.0),
-                unit="ms",
-                description="Run p95 latency within budget",
-            )
             if event.duration_ms:
                 latency = self.slos.record_value("run_p95_latency", event.duration_ms)
-                if latency and not latency["healthy"]:
+                if latency and latency["healthy"] is False:
                     self.emit("onSLOViolation", context=event.context, attributes=latency)
 
-            if (event.attributes or {}).get("resumed") and event.duration_ms:
-                self.slos.define(
-                    "resume_p95",
-                    _env_float("ECLIPSE_SLO_P95_TARGET", 0.95),
-                    kind="percentile",
-                    threshold=_env_float("ECLIPSE_SLO_RESUME_P95_MS", 10_000.0),
-                    unit="ms",
-                    description="Resume to continued run p95",
-                )
+            resumed = bool(attrs.get("resumed"))
+            if resumed and event.duration_ms:
                 self.slos.record_value("resume_p95", event.duration_ms)
+            if resumed:
+                self._resume_total += 1
+                # `onRunEnd` is only emitted for a terminal run, so a resumed
+                # run reaching this hook is a successful resume.
+                self._resume_success += 1
+                self.slos.record("resume_success_rate", good=True)
 
-            cost = (event.attributes or {}).get("costUsd")
-            if cost is not None and (event.attributes or {}).get("costKnown"):
-                self.slos.define(
-                    "cost_per_task",
-                    _env_float("ECLIPSE_SLO_P95_TARGET", 0.95),
-                    kind="percentile",
-                    threshold=_env_float("ECLIPSE_SLO_COST_PER_TASK_USD", 1.0),
-                    unit="usd",
-                    description="Cost per completed task within budget",
-                )
+            cost = attrs.get("costUsd")
+            if cost is not None and attrs.get("costKnown"):
                 self.slos.record_value("cost_per_task", float(cost))
 
-            self.slos.define(
-                "orphan_rate", 1.0, kind="rate",
-                threshold=_env_float("ECLIPSE_SLO_ORPHAN_RATE", 0.0),
-                description="Runs left active without a terminal state",
-            )
             self.slos.record("orphan_rate", good=True)
-        elif event.hook in ("onToolEnd", "onToolError"):
-            target = self.config.slo_tool_success_rate
-            self.slos.define("tool_success_rate", target, description="Tool calls succeed")
-            self.slos.record("tool_success_rate", good=(event.hook == "onToolEnd"))
+        elif hook in ("onToolEnd", "onToolError"):
+            self.slos.record("tool_success_rate", good=(hook == "onToolEnd"))
+        elif hook == "onModelAttempt":
+            self.signals.record_model_attempt(attrs, run_id=event.context.run_id or "")
+        elif hook == "onModelFallback":
+            self.signals.record_model_fallback(attrs)
+        elif hook == "onModelFirstToken":
+            if attrs.get("timeout"):
+                self.signals.record_ttft_timeout()
+            else:
+                self.signals.record_first_token(attrs)
+            value = attrs.get("ttftMs")
+            if isinstance(value, (int, float)) and value >= 0:
+                slo = self.slos.record_value("ttft_p95", float(value))
+                if slo and slo["healthy"] is False:
+                    self.emit("onSLOViolation", context=event.context, attributes=slo)
+        elif hook == "onContextPressure":
+            self.signals.record_context_pressure(attrs)
+            if attrs.get("overflow") or attrs.get("exhausted"):
+                self.slos.record("context_overflow_rate", good=False)
+            else:
+                self.slos.record("context_overflow_rate", good=True)
+        elif hook == "onContextCompaction":
+            self.signals.record_context_compaction(attrs)
+            if attrs.get("stage") not in (None, "", "none"):
+                self.slos.record("compression_failure_rate", good=bool(attrs.get("ok")))
+        elif hook == "onToolBatch":
+            self.signals.record_tool_batch(attrs)
+        elif hook == "onToolGuardrail":
+            self.signals.record_guardrail(attrs)
+        elif hook == "onGoalVerdict":
+            self.signals.record_goal_verdict(attrs)
+            verdict = str(attrs.get("verdict") or "")
+            self.slos.record("goal_completion_rate", good=(verdict == "done"))
+            self.slos.record("goal_blocked_rate", good=(verdict != "blocked"))
+        elif hook == "onGoalCreated":
+            self.signals.record_goal_created()
+        elif hook == "onSkillEvaluation":
+            self.signals.record_skill_eval(attrs)
+        elif hook == "onCuratorRun":
+            self.signals.record_curator(attrs)
+        elif hook == "onIntegrityEvent":
+            self.signals.record_integrity(attrs)
+            if attrs.get("kind") == "checkpoint_write":
+                self.signals.record_checkpoint_write(attrs)
+        elif hook == "onFileCheckpoint":
+            self.signals.record_file_checkpoint(attrs, event_type=str(attrs.get("eventType") or ""))
+            op = str(attrs.get("op") or "")
+            if op in ("created", "failed"):
+                self.slos.record("file_checkpoint_failure_rate", good=(op != "failed"))
+        elif hook == "onDelegation":
+            self.signals.record_delegation(attrs, event_type=str(attrs.get("eventType") or ""))
 
     # ── release readiness (C7) ───────────────────────────────────────────────
     def sweep_orphans(self, *, max_age_s: Optional[float] = None) -> int:
@@ -515,11 +595,6 @@ class ObservabilityHub:
                 self._active_since.pop(run, None)
                 self._orphans += 1
         if stale:
-            self.slos.define(
-                "orphan_rate", 1.0, kind="rate",
-                threshold=_env_float("ECLIPSE_SLO_ORPHAN_RATE", 0.0),
-                description="Runs left active without a terminal state",
-            )
             for _ in stale:
                 self.slos.record("orphan_rate", good=False)
             self.metrics.inc_counter(
@@ -559,16 +634,25 @@ class ObservabilityHub:
         self.sweep_orphans()
         return usage
 
-    def release_report(self) -> dict[str, Any]:
-        """A machine-readable release-readiness report (C7 gate input)."""
+    def release_report(self, *, capabilities_override: Optional[dict[str, bool]] = None) -> dict[str, Any]:
+        """A machine-readable release-readiness report (W8 schema v2).
+
+        `capabilities_override` is used only by the deterministic probe, which
+        simulates every workstream's signal so the gate can exercise the checks
+        without turning production flags on.
+        """
         durations = list(self._run_ms)
         resumes = list(self._resume_ms)
         costs = list(self._run_costs)
         terminal_total = sum(self._terminal.values())
+        created = self._created
+        signal_tools = self.signals.tool_report()
         return {
+            "schema": 2,
             "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "capabilities": capabilities_override or capabilities(),
             "runs": {
-                "created": self._created,
+                "created": created,
                 "terminal": terminal_total,
                 "completed": self._terminal.get("ok", 0),
                 "failed": self._terminal.get("failed", 0),
@@ -581,8 +665,16 @@ class ObservabilityHub:
                 "p50": _pct(durations, 0.50),
                 "p95": _pct(durations, 0.95),
                 "p99": _pct(durations, 0.99),
+                "ttft": self.signals.ttft_report(),
             },
-            "resume": {"samples": len(resumes), "p95": _pct(resumes, 0.95)},
+            "resume": {
+                "samples": len(resumes),
+                "p95": _pct(resumes, 0.95),
+                "successRate": (
+                    None if self._resume_total <= 0
+                    else round(self._resume_success / self._resume_total, 6)
+                ),
+            },
             "cost": {
                 "samples": len(costs),
                 "totalUsd": round(sum(costs), 8),
@@ -590,10 +682,70 @@ class ObservabilityHub:
                 "perTaskP95": _pct(costs, 0.95),
                 "unpricedRuns": self._run_cost_unpriced,
             },
-            "tools": {"calls": self._tool_calls, "errors": self._tool_errors},
+            "model": self.signals.model_report(),
+            "context": self.signals.context_report(),
+            "tools": {
+                "calls": self._tool_calls,
+                "errors": self._tool_errors,
+                "batches": signal_tools["batches"],
+                "guardrails": signal_tools["guardrails"],
+            },
+            "goals": self.signals.goals_report(),
+            "learning": self.signals.learning_report(),
+            "integrity": self.signals.integrity_report(),
+            "fileCheckpoints": self.signals.file_checkpoint_report(),
+            "delegation": self.signals.delegation_report(),
             "failures": dict(sorted(self._failures.items())),
-            "slos": self.slos.report(),
+            "slos": self._slos_with_runs(created, terminal_total, self._orphans),
         }
+
+    def _slos_with_runs(self, created: int, terminal: int, orphans: int) -> dict[str, Any]:
+        """Overlay run-derived objectives so the dashboard cannot show green
+        while `runs.created` and `runs.terminal` disagree."""
+        report = self.slos.report()
+        objectives = {item["name"]: item for item in report["objectives"]}
+        terminal_obj = objectives.get("terminal_correctness")
+        if terminal_obj is not None:
+            measured = created > 0
+            compliance = (min(terminal, created) / created) if measured else None
+            target = float(terminal_obj.get("target") or 0.999)
+            budget = max(0.0, 1.0 - target)
+            terminal_obj.update({
+                "measured": measured,
+                "total": created,
+                "good": min(terminal, created),
+                "compliance": None if compliance is None else round(compliance, 5),
+                "healthy": (None if not measured else compliance >= target),
+                "errorBudgetRemaining": (
+                    None if not measured else
+                    (0.0 if budget <= 0 else max(0.0, 1.0 - (1.0 - compliance) / budget))
+                ),
+            })
+        orphan_obj = objectives.get("orphan_rate")
+        if orphan_obj is not None:
+            measured = created > 0
+            failure = (orphans / created) if measured else None
+            allowed = float(orphan_obj.get("threshold") or 0.0)
+            orphan_obj.update({
+                "measured": measured,
+                "total": created,
+                "good": max(0, created - orphans),
+                "compliance": None if failure is None else round(1.0 - failure, 5),
+                "healthy": (None if not measured else failure <= allowed),
+                "errorBudgetRemaining": (
+                    None if not measured else (1.0 if failure <= allowed else 0.0)
+                ),
+            })
+        items = list(objectives.values())
+        violations = [item for item in items if item.get("healthy") is False]
+        unmeasured = [item["name"] for item in items if not item.get("measured")]
+        report.update({
+            "objectives": items,
+            "violations": violations,
+            "unmeasured": unmeasured,
+            "allHealthy": not violations,
+        })
+        return report
 
     # ── errors + export ─────────────────────────────────────────────────────
     def _record_error(self, event: HookEvent) -> None:

@@ -1219,6 +1219,68 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 36 — W5 learning loop. Behavioural execution evidence on an
+# evaluation (run ids + grader scores + cache fingerprint), and the curator's
+# run/proposal ledger. Additive only: no existing row is rewritten or removed.
+MIGRATIONS.append(
+    (
+        36,
+        [
+            "ALTER TABLE SkillEvaluation ADD COLUMN executionRunIds TEXT;",
+            "ALTER TABLE SkillEvaluation ADD COLUMN executionScores TEXT;",
+            "ALTER TABLE SkillEvaluation ADD COLUMN executionFingerprint TEXT;",
+            "CREATE INDEX IF NOT EXISTS idx_skileval_execfp ON SkillEvaluation(skillId, version, executionFingerprint);",
+            """
+            CREATE TABLE IF NOT EXISTS SkillCuratorRun (
+              id              TEXT PRIMARY KEY,
+              startedAt       TEXT NOT NULL,
+              finishedAt      TEXT,
+              mode            TEXT NOT NULL,
+              status          TEXT NOT NULL,
+              error           TEXT,
+              skillsScanned   INTEGER NOT NULL DEFAULT 0,
+              groupsFound     INTEGER NOT NULL DEFAULT 0,
+              proposalsCreated INTEGER NOT NULL DEFAULT 0,
+              applied         INTEGER NOT NULL DEFAULT 0,
+              details         TEXT
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_curatorrun_started ON SkillCuratorRun(startedAt);",
+            """
+            CREATE TABLE IF NOT EXISTS SkillCuratorProposal (
+              id              TEXT PRIMARY KEY,
+              runId           TEXT NOT NULL,
+              kind            TEXT NOT NULL,
+              skillIds        TEXT NOT NULL,
+              baseVersion     TEXT,
+              proposedDraftId TEXT,
+              diff            TEXT,
+              reason          TEXT,
+              status          TEXT NOT NULL DEFAULT 'reported',
+              createdAt       TEXT NOT NULL,
+              decidedAt       TEXT,
+              decidedBy       TEXT,
+              decisionNotes   TEXT
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_curatorprop_run ON SkillCuratorProposal(runId);",
+            "CREATE INDEX IF NOT EXISTS idx_curatorprop_status ON SkillCuratorProposal(status);",
+        ],
+    )
+)
+
+# Migration 37 — preserve the authored evaluation case (graders/envState) so the
+# execution tier can replay a case exactly as it was authored. Kept separate from
+# migration 36 because altering an already-applied migration is never safe.
+MIGRATIONS.append(
+    (
+        37,
+        [
+            "ALTER TABLE SkillEvaluationCase ADD COLUMN spec TEXT;",
+        ],
+    )
+)
+
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 
 __all__ = ["MIGRATIONS", "SCHEMA_VERSION"]
