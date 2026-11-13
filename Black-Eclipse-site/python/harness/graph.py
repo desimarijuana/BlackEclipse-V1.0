@@ -209,9 +209,13 @@ CHAT_MAX_STEPS_CEILING = 32
 #: per-MODEL-CALL budget; using it as the whole-run deadline made every real
 #: research turn (8-20 steps, multi-second tools) exceed 120s and fail with
 #: RUN_TIMEOUT / RUN_STALLED before it could answer. 24 steps need more than one
-#: call's worth of time, so the default chat agent gets a floor of 10 minutes —
-#: the same floor the deep-quant and writing-autonomy paths already use.
-DEFAULT_CHAT_RUN_TIMEOUT_S = 600.0
+#: call's worth of time, so the default chat agent gets a floor of 20 minutes:
+#: a 20-step research turn (data -> compute -> chart -> report) routinely needs
+#: 10-15 minutes, and a 10-minute floor killed real turns right before the
+#: answer. The pruning ladder (now ON by default) keeps the prompts small, so
+#: the extra wall clock is not extra cost. An operator can still lower it with
+#: `ECLIPSE_CHAT_RUN_TIMEOUT_S`.
+DEFAULT_CHAT_RUN_TIMEOUT_S = 1200.0
 
 
 def chat_step_budget(agent: AgentConfig, request: Any) -> int:
@@ -1299,7 +1303,8 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     # turn and the next agent turn, so a pinned check runs after a change and a
     # failure is handed back to the model.
     graph.add_conditional_edges(
-        "verify_repair", route_after_repair, {"agent": "agent", "exhausted": "exhausted"},
+        "verify_repair", route_after_repair,
+        {"agent": "agent", "exhausted": "exhausted", END: END},
     )
     if replan_budget is not None:
         graph.add_node("replan", replan_node)
@@ -1310,7 +1315,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         graph.add_conditional_edges(
             "tools", route_after_tools,
             {"replan": "replan", "verify_repair": "verify_repair",
-             "agent": "agent", "exhausted": "exhausted"},
+             "agent": "agent", "exhausted": "exhausted", END: END},
         )
         graph.add_edge("replan", "agent")
     else:
@@ -1319,7 +1324,8 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         )
         graph.add_conditional_edges(
             "tools", route_after_tools,
-            {"verify_repair": "verify_repair", "agent": "agent", "exhausted": "exhausted"},
+            {"verify_repair": "verify_repair", "agent": "agent", "exhausted": "exhausted",
+             END: END},
         )
     graph.add_edge("exhausted", END)
     return graph.compile()
@@ -1435,15 +1441,29 @@ async def execute_run(
                 request.runId, "CHECKPOINT_NOT_FOUND",
                 "no checkpoint exists for this run â€” it cannot be resumed", store,
             )
-        if existing.get("status") in ("completed", "failed", "cancelled"):
+        # Only a run that already reached a NORMAL end is terminal. A `failed`
+        # run (timeout, provider outage, process death) still has unfinished
+        # work, so it is resumable from its last non-terminal checkpoint — this
+        # is what makes Retry continue instead of starting over.
+        if existing.get("status") in ("completed", "cancelled"):
             return _resume_error(
                 request.runId, "RESUME_CONFLICT",
                 f"run is already in terminal status '{existing.get('status')}'", store,
             )
+        if checkpoint.get("kind") == "terminal":
+            # The graph already wrote its exhausted/terminal boundary; there is
+            # no earlier boundary to continue from.
+            return _resume_error(
+                request.runId, "CHECKPOINT_NOT_FOUND",
+                "the latest checkpoint is terminal - nothing left to resume", store,
+            )
         resume_from = checkpoint
-        # Re-enter the SAME run: keep its identity, re-mark it running.
+        # Re-enter the SAME run: keep its identity, re-mark it running, and clear
+        # the previous attempt's terminal error so the row reflects live work.
         lineage.set_run_parent(request.runId, request.parentRunId)
-        if not _owner_write(status="running", startedAt=started):
+        if not _owner_write(
+            status="running", startedAt=started, error=None, finishedAt=None,
+        ):
             return _lease_lost_result()
         await emitter.emit("run.resumed", {"checkpointId": checkpoint["id"], "step": (checkpoint.get("payload") or {}).get("step")})
     else:
@@ -2017,6 +2037,22 @@ async def execute_run(
             toolCalls=0, toolErrors=0, modelSteps=0,
         )
     except Exception as exc:  # noqa: BLE001
+        # A node may have already recorded a precise terminal outcome (for
+        # example RUN_TIMEOUT) and then a late routing/bookkeeping error escaped
+        # the graph. Never overwrite that honest status with INTERNAL_ERROR.
+        prior = store.get_run(request.runId) or {}
+        prior_status = prior.get("status")
+        prior_error = prior.get("error")
+        if (
+            prior_status in ("failed", "completed", "cancelled")
+            and isinstance(prior_error, dict)
+            and prior_error.get("code")
+        ):
+            log.warning(
+                "run %s ended as %s but a late error escaped: %s",
+                request.runId, prior_status, exc,
+            )
+            return _result(request.runId, prior_status, store, prior_error)
         error = HarnessError(code="INTERNAL_ERROR", message=str(exc))
         fenced_update_run(store, request.runId, runtime_id=runtime_id, status="failed", error=error.model_dump(), finishedAt=now_iso())
         await emitter.emit("run.failed", {"error": error.model_dump()})

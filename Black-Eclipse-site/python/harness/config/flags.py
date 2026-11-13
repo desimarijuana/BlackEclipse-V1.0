@@ -157,7 +157,7 @@ FLAG_SPECS: dict[str, FlagSpec] = {
         description="Gate compression on provider-reported usage",
     ),
     "HARNESS_COMPRESSION_LADDER": _spec(
-        "HARNESS_COMPRESSION_LADDER", "enum", "shadow",
+        "HARNESS_COMPRESSION_LADDER", "enum", "on",
         values=("shadow", "on", "off"), owner="W2",
         description="Prune -> summarise -> deterministic fallback ladder",
     ),

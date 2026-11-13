@@ -13,7 +13,7 @@ import { parseChatCommand } from "./commands/commands";
 import { buildAgentInstruction } from "./commands/command-agent";
 import { loadProjectCommands } from "./commands/command-plugins";
 import { getAgentPreset } from "./agent-presets";
-import { runViaRuntime, startRunBackground, type RunRequestPayload } from "./clients/python-client";
+import { runViaRuntime, startRunBackground, resumeRunInRuntime, type RunRequestPayload } from "./clients/python-client";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
 import type { RunInput, RunResult } from "./types";
 import { newRunId } from "./ids";
@@ -306,6 +306,7 @@ export async function startChatRun(
   planMode?: "on" | "off",
   agentId?: string,
   modelProvider?: string,
+  resume = false,
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -423,8 +424,35 @@ export async function startChatRun(
     callbackBaseUrl: runtimeBaseUrl(),
     callbackToken: runtimeCallbackToken(),
   };
+  // A Retry of a failed turn re-enters the SAME run at its last checkpoint
+  // (completed tool calls are reused). If that is not possible the helper
+  // starts a fresh run and returns its id.
+  if (resume) return resumeChatRun(id, payload, identityHeaders);
   await startRunBackground(payload, identityHeaders);
   return id;
+}
+
+/**
+ * Resume an existing run from its latest durable checkpoint. The run id is
+ * authoritative; the payload supplies the model settings the stored row does
+ * not carry. A checkpoint that cannot be resumed (already completed/cancelled,
+ * or no non-terminal boundary) falls back to a FRESH run so Retry always does
+ * something useful — but it never silently discards a resumable run.
+ */
+export async function resumeChatRun(
+  runId: string,
+  payload: RunRequestPayload,
+  identityHeaders?: Record<string, string>,
+): Promise<string> {
+  try {
+    await resumeRunInRuntime(runId, payload as unknown as Record<string, unknown>);
+    return runId;
+  } catch (err) {
+    console.warn("[run-service] resume failed; starting a fresh run instead:", err);
+  }
+  const fresh: RunRequestPayload = { ...payload, runId: newRunId() };
+  await startRunBackground(fresh, identityHeaders);
+  return fresh.runId;
 }
 
 export async function startRun(

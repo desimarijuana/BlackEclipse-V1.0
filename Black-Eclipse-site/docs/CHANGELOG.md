@@ -1,6 +1,31 @@
 # Change Log
 
 ## 2026-11-13
+- **feat(chat): Retry resumes a failed run instead of starting over.** A
+  `failed` run is no longer terminal: Retry re-enters the SAME run at its last
+  non-terminal checkpoint (completed tool calls are reused), clears the prior
+  terminal error, and falls back to a fresh run only when the checkpoint cannot
+  be resumed (completed/cancelled, or a terminal boundary). `graph.py` also
+  routes `END` explicitly out of `verify_repair`/`tools`, refuses to overwrite a
+  precise terminal status (e.g. `RUN_TIMEOUT`) with `INTERNAL_ERROR` when a late
+  error escapes, and the default chat run timeout is 20 minutes (10 minutes
+  killed real 20-step research turns just before the answer). The compression
+  ladder is now ON by default (`HARNESS_COMPRESSION_LADDER=on`) so the extra wall
+  clock is not extra prompt cost. Tests: `test_run_resume.py`,
+  `run-manager.test.ts`. Size pin: `graph.py` 2763→2797. docs updated:
+  `docs/CHANGELOG.md` (no architecture change — behavior and defaults only).
+- **docs(voice): plan an ASCII-wave voice field for the composer.** New
+  `docs/voice-ascii-wave-plan.md` (status: Proposed) specifies turning the chat
+  composer into a live ASCII wave while dictating and adding a streaming
+  transcript, without changing the dictation pipeline: a new
+  `src/lib/voice/meter.ts` (AnalyserNode RMS, pure level maths),
+  `src/lib/voice/wave-field.ts` (pure ring/ramp maths), a canvas
+  `voice-wave-field.tsx`, the hook hoisted out of `VoiceInputButton` so the
+  composer can morph on `data-voice`, interim text through the existing unused
+  `onInterim`, and honest limits (desktop/WebView2 has no browser STT, so it
+  gets amplitude + a post-stop reveal; reduced-motion gets a static frame).
+  Phased P0–P3 with tests and risks. docs updated:
+  `docs/voice-ascii-wave-plan.md` (new), `docs/CHANGELOG.md`.
 - **test(accounting): hardcore cross-book accounting prompts + offline suite; 6
   real bugs fixed.** Added `docs/accounting-hardcore-tests.md` (20 chat prompts
   with pass rules for the double-entry General Ledger and the securities

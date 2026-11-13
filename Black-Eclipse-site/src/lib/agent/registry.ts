@@ -222,10 +222,12 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
     .filter((m) => m !== last && (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
   // The client owns the run id so cancellation is possible while in flight.
-  const runId =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+  // A Resume reuses the failed run's id so the runtime continues that run from
+  // its checkpoint instead of starting over.
+  const runId = options?.resumeRunId ??
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? `run_${crypto.randomUUID()}`
-      : `run_${Date.now().toString(36)}`;
+      : `run_${Date.now().toString(36)}`);
   options?.onRunId?.(runId);
   // The project this turn is scoped to (a local preference, not a grant). The
   // runtime resolves it and puts the project's members in front of the model.
@@ -236,6 +238,7 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
     chatId: options?.chatId,
     agentId: options?.agentId,
     runId,
+    resumeRunId: options?.resumeRunId,
     model: options?.model,
     modelProvider: options?.modelProvider,
     reasoningEffort: options?.reasoningEffort,
@@ -339,7 +342,7 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
     // refused: repeating it would only produce the same refusal, so fail fast
     // with the real reason (and the front door's code) instead.
     if (res.status === 404 || res.status === 405) {
-      return chatOnce(messages, { ...options, onRunId: undefined, signal: options?.signal });
+      return chatOnce(messages, { ...options, onRunId: undefined, resumeRunId: undefined, signal: options?.signal });
     }
     throw await readRequestError(res);
   }
@@ -347,7 +350,7 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
     // Streaming not available — fall back to the one-shot path. Drop the abort
     // signal so a cancellation that raced the fallback still works, and drop
     // onRunId so the run id is regenerated for the one-shot call.
-    return chatOnce(messages, { ...options, onRunId: undefined, signal: options?.signal });
+    return chatOnce(messages, { ...options, onRunId: undefined, resumeRunId: undefined, signal: options?.signal });
   }
 
   const reader = res.body.getReader();
@@ -434,7 +437,7 @@ const eclipseAgent: AgentProvider = {
       if (err instanceof ChatRequestError) throw err;
       // A streaming failure must not lose the run: retry once, one-shot.
       if (options?.onDelta || options?.onStatus || options?.onEvent) {
-        return chatOnce(messages, { ...options, onRunId: undefined });
+        return chatOnce(messages, { ...options, onRunId: undefined, resumeRunId: undefined });
       }
       throw err;
     }

@@ -68,8 +68,34 @@ class KillModel:
         yield await self.ainvoke(messages)
 
 
+class FailAfterToolModel:
+    """Step 1 emits a tool call; step 2 raises a normal Exception (a failed run).
+
+    The failure is caught by the graph, which persists status='failed' — the
+    case a Retry must be able to resume from.
+    """
+
+    def __init__(self):
+        self.calls = 0
+
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        self.calls += 1
+        if self.calls == 1:
+            return AIMessage(
+                content="",
+                tool_calls=[{"id": "c1", "name": "counting_tool", "args": {"x": 1}}],
+            )
+        raise RuntimeError("provider dropped")
+
+    async def astream(self, messages):
+        yield await self.ainvoke(messages)
+
+
 class ResumedModel:
-    """After a crash, the resumed run continues: step 2 answers with no tools."""
+    """After a failure, the resumed run continues: step 2 answers with no tools."""
 
     def __init__(self):
         self.calls = 0
@@ -220,3 +246,37 @@ async def test_resume_of_terminal_run_returns_resume_conflict(store, monkeypatch
     assert result.error.code == "RESUME_CONFLICT"
     # Still exactly one terminal status persisted.
     assert store.get_run("run_done")["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_resume_of_failed_run_continues_instead_of_starting_over(store, monkeypatch):
+    """A `failed` run (not completed/cancelled) is resumable.
+
+    This is the Retry contract: a timeout or provider drop must continue from
+    the last checkpoint and reuse completed tool calls, not replay the turn.
+    """
+    counter = {"executed": 0, "fetches": 0}
+    registry = _registry(counter)
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: FailAfterToolModel())
+    failed = await graph_module.execute_run(
+        _req("run_failed_resume"), registry, CountingBridge(counter), store,
+    )
+    assert failed.status == "failed"
+    assert store.get_run("run_failed_resume")["status"] == "failed"
+    assert counter["executed"] == 1
+    checkpoint = RunLineage(store).latest_checkpoint("run_failed_resume")
+    assert checkpoint is not None and checkpoint["kind"] != "terminal"
+
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: ResumedModel())
+    resumed = await graph_module.execute_run(
+        _req("run_failed_resume", resumeFrom=checkpoint["id"]), registry,
+        CountingBridge(counter), store,
+    )
+    assert resumed.status == "completed"
+    assert resumed.output == "resumed answer"
+    # The tool ran once: the resume reused the recorded result.
+    assert counter["executed"] == 1
+    row = store.get_run("run_failed_resume")
+    assert row["status"] == "completed"
+    # The previous attempt's terminal error is cleared.
+    assert row["error"] is None

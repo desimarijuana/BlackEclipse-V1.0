@@ -71,6 +71,16 @@ describe('conversation-scoped run manager', () => {
     expect(one).toBe(two);
   });
 
+  it('forwards a resume run id to the provider so Retry continues the run', async () => {
+    chatMock.mockImplementation(async () => 'continued');
+
+    const turn = await runManager.start({ ...args('chat_resume'), resumeRunId: 'run_existing' });
+
+    expect(turn.status).toBe('completed');
+    const options = chatMock.mock.calls[0][2] as { resumeRunId?: string };
+    expect(options.resumeRunId).toBe('run_existing');
+  });
+
   it('reports both live conversations for the sidebar', async () => {
     const releases: Array<() => void> = [];
     chatMock.mockImplementation(

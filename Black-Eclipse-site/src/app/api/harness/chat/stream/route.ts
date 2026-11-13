@@ -167,6 +167,13 @@ export async function POST(request: Request) {
   const rawRunId = body.runId;
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
+  // Resume: continue an existing failed run from its checkpoint. The same
+  // validated shape as `runId`; Retry sends it instead of minting a new run.
+  const rawResumeRunId = body.resumeRunId;
+  const resumeRunId =
+    typeof rawResumeRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawResumeRunId)
+      ? rawResumeRunId
+      : undefined;
 
   // Presentation-only UI focus (which page the user is on). Sanitized + bounded:
   // strings only, trimmed, capped; anything else is dropped.
@@ -208,7 +215,7 @@ export async function POST(request: Request) {
       history,
       chatId ? await readStoredCompaction(chatId) : null,
     );
-    id = await startChatRun(query, effectiveHistory, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider);
+    id = await startChatRun(query, effectiveHistory, documents, resumeRunId ?? runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider, Boolean(resumeRunId));
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

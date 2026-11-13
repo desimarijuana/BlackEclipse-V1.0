@@ -224,7 +224,12 @@ RATCHET_PY: dict[str, int] = {
     # in the same file; may only shrink from here. Re-pinned 2759 -> 2763 for the
     # research-finisher fenced import. The subsystem-wiring block remains the
     # split candidate.
-    "graph.py": 2763,
+    # Re-pinned 2763->2797 (2026-11-13): resumable failed runs (a `failed` run is
+    # no longer terminal, the terminal-checkpoint guard, the cleared error on
+    # resume), the `END` routes out of `verify_repair`/`tools`, the honest-
+    # terminal-status guard in the catch block, and the 20-minute chat default.
+    # May only shrink; the subsystem-wiring block remains the split candidate.
+    "graph.py": 2797,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

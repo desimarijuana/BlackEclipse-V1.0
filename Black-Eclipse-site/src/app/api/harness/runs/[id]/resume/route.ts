@@ -22,8 +22,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const run = await getRunFromRuntime(id);
     if (!run) return NextResponse.json({ error: "Run not found" }, { status: 404 });
 
+    // A `failed` run is resumable: its last checkpoint still holds unfinished
+    // work (a timeout/provider drop must not force the whole turn to restart).
+    // Only a normally finished or cancelled run is truly terminal.
     const status = String((run as { status?: unknown }).status ?? "");
-    if (status === "completed" || status === "failed" || status === "cancelled") {
+    if (status === "completed" || status === "cancelled") {
       return NextResponse.json(
         { error: `Run is already terminal (${status}) and cannot be resumed`, code: "RESUME_CONFLICT" },
         { status: 409 }

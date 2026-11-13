@@ -101,6 +101,14 @@ export interface ChatOptions {
    */
   uiContext?: UiFocus;
   /**
+   * Continue an existing run from its latest durable checkpoint instead of
+   * starting a new one. Set by Retry on a failed turn: the runtime re-enters the
+   * SAME run id and reuses every completed tool call, so a 10-minute research
+   * turn is not thrown away by one timeout. The front door falls back to a
+   * fresh run when the checkpoint is unusable.
+   */
+  resumeRunId?: string;
+  /**
    * Called with the harness run id as soon as it is known, so the caller can
    * offer cancellation before the reply arrives.
    */

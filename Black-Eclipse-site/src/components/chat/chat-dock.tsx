@@ -454,6 +454,7 @@ export function ChatDock({
   const startTurn = async (
     history: { role: 'user' | 'assistant'; content: string }[],
     userText: string,
+    opts?: { resumeRunId?: string },
   ) => {
     setQuery('');
     setExpanded(true);
@@ -516,6 +517,7 @@ export function ChatDock({
         chatId: sessionIdRef.current,
         model: chatModel.displayModel || undefined,
         reasoningEffort: reasoningEffort.effort,
+        resumeRunId: opts?.resumeRunId,
         onTurn,
       });
       // A finished reply is an incoming message, not a generic success.
@@ -593,8 +595,10 @@ export function ChatDock({
   };
 
   /**
-   * Retry/regenerate an assistant turn: drop it and everything after, then
-   * re-run its preceding user prompt on the truncated transcript.
+   * Retry/regenerate an assistant turn: drop it and re-run its preceding user
+   * prompt. A turn that FAILED mid-run resumes its existing run from the last
+   * checkpoint (the runtime reuses completed tool calls), so a long research
+   * turn continues instead of starting over. Anything else re-runs fresh.
    */
   const retryMessage = (assistantId: string) => {
     if (busy) return;
@@ -606,10 +610,18 @@ export function ChatDock({
       if (msgs[i].role === 'user') { userId = i; break; }
     }
     if (userId === -1) return;
+    const failed = msgs[idx];
+    const resumeRunId =
+      failed.role === 'assistant' &&
+      failed.status === 'error' &&
+      failed.runId &&
+      idx === msgs.length - 1
+        ? failed.runId
+        : undefined;
     const history = msgs.slice(0, userId).map(m => ({ role: m.role, content: m.content }));
     const text = msgs[userId].content;
     append(msgs.slice(0, userId));
-    void startTurn(history, text);
+    void startTurn(history, text, { resumeRunId });
   };
 
   // Upload attached documents into the dock's own session folder, where the

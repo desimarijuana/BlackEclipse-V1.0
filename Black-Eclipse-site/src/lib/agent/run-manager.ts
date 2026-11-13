@@ -66,6 +66,11 @@ export interface StartRunArgs {
   model?: string;
   /** The composer's per-question reasoning-effort override. */
   reasoningEffort?: import('./reasoning').ReasoningLevel;
+  /**
+   * Continue this existing (failed) run from its checkpoint instead of starting
+   * a new run. Used by Retry so a timeout resumes the work already done.
+   */
+  resumeRunId?: string;
   /** Per-run turn sink. Called even when the conversation is not on screen. */
   onTurn?: (turn: AssistantTurn) => void;
   /** Fired once the run reaches a terminal state. */
@@ -544,6 +549,7 @@ class RunManager {
         chatId: args.chatId,
         model: args.model,
         reasoningEffort: args.reasoningEffort,
+        resumeRunId: args.resumeRunId,
         uiContext: getUiFocus(),
         signal: controller.signal,
         onRunId: (id) => {
