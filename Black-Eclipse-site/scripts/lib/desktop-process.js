@@ -148,10 +148,41 @@ function channelLaunchEnv(channel) {
   };
 }
 
+/** Block the CLI briefly without spinning the CPU. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Wait for the channel port to be released before relaunching.
+ *
+ * A stopped window can outlive its own server by a moment: the new shell then
+ * starts, finds port 3100 still held by the old process, and parks on the
+ * "leftover server" conflict screen with a Retry button. Waiting here turns
+ * that race into a slow launch instead of a stuck app.
+ */
+function waitForPortFree(port, timeoutMs = 15000) {
+  if (process.platform !== "win32") return true;
+  const deadline = Date.now() + timeoutMs;
+  const script =
+    "(Get-NetTCPConnection -State Listen -LocalPort " + Number(port) +
+    " -ErrorAction SilentlyContinue | Measure-Object).Count";
+  while (Date.now() < deadline) {
+    const out = spawnSync("powershell", ["-NoProfile", "-Command", script], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    if (out.status === 0 && String(out.stdout).trim() === "0") return true;
+    sleepSync(400);
+  }
+  return false;
+}
+
 /** Launch the channel window; returns the child pid or null when absent. */
 function launchShell(channel) {
   const exe = shellPathFor(channel);
   if (!fs.existsSync(exe)) return { launched: false, exe, reason: "missing" };
+  waitForPortFree(channel.appPort);
   const child = spawn(exe, [], {
     cwd: ROOT,
     detached: true,
@@ -173,6 +204,7 @@ module.exports = {
   readOwner,
   stopOwnedServer,
   stopShell,
+  shellPids,
   launchShell,
   channelLaunchEnv,
   pidAlive,

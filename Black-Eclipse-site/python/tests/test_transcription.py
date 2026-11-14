@@ -175,3 +175,41 @@ async def test_provider_timeout_is_reported(monkeypatch):
         await transcribe(**_kwargs())
 
     assert exc.value.code == "TIMEOUT"
+
+def test_local_provider_runs_on_device_without_network(monkeypatch):
+    """`local` must bypass the HTTP path entirely: no key, no endpoint."""
+    import asyncio
+
+    calls: dict = {}
+
+    async def fake_local(**kwargs):
+        calls.update(kwargs)
+        return {
+            "text": "hello from this machine",
+            "provider": "local",
+            "model": kwargs["model"],
+            "language": "en",
+            "durationMs": kwargs.get("duration_ms"),
+        }
+
+    monkeypatch.setattr(service, "transcribe_local", fake_local)
+
+    result = asyncio.run(
+        transcribe(
+            audio_base64=base64.b64encode(b"RIFF....WAVE").decode(),
+            mime_type="audio/wav",
+            provider="local",
+            base_url="",
+            api_key=None,
+            model="base.en",
+            language="en-US",
+            prompt="tickers: AAPL",
+            duration_ms=1200,
+        )
+    )
+
+    assert result["text"] == "hello from this machine"
+    assert result["provider"] == "local"
+    assert calls["extension"] == ".wav"  # mime drives the temp suffix
+    assert calls["model"] == "base.en"
+    assert calls["language"] == "en-US"

@@ -60,6 +60,10 @@ function buildStable() {
     cwd: ROOT,
     stdio: "inherit",
     windowsHide: true,
+    // This is the managed path: it promotes the build and restarts the window,
+    // so building under a running app is expected (build-prod.js refuses only a
+    // plain `npm run build`).
+    env: { ...process.env, BE_ALLOW_BUILD_WHILE_RUNNING: "1" },
   });
   if (result.status !== 0) process.exit(result.status || 1);
 }

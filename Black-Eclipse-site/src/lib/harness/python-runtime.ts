@@ -524,7 +524,13 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
     );
     g.__harnessPyProc = proc;
     let bindConflict = false;
-    const exited = new Promise<number | null>((resolve) => proc.once("exit", (code) => resolve(code)));
+    let childExited = false;
+    const exited = new Promise<number | null>((resolve) =>
+      proc.once("exit", (code) => {
+        childExited = true;
+        resolve(code);
+      })
+    );
 
     proc.stdout?.on("data", (d) => process.stdout.write(`[harness-py] ${d}`));
     proc.stderr?.on("data", (d) => {
@@ -560,6 +566,19 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
         `[harness] runtime port ${HARNESS_PY_PORT} is held by a process that is not answering /health. ` +
           `Stop it (or set HARNESS_PY_PORT) and restart.`
       );
+    } else if (!childExited) {
+      // Still importing after the full budget. A cold start on a loaded machine
+      // can outlast it (the budget is a timeout, not a verdict). KILLING here is
+      // what made a slow boot permanent: the child was healthy but slow, and
+      // nothing retries on its own, so agent features 503'd for the rest of the
+      // session until someone POSTed /api/harness/runtime/restart by hand.
+      // Leave it running; the next ensure() sees trackedRuntimeAlive() and waits
+      // for it again, adopting it as soon as /health answers.
+      console.warn(
+        `[harness] Python runtime still starting after ${timeoutMs}ms — leaving it running; ` +
+          `a later request will adopt it when /health answers`
+      );
+      return false;
     } else {
       console.error(`[harness] Python runtime did not become healthy within ${timeoutMs}ms`);
     }

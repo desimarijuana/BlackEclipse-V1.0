@@ -115,9 +115,32 @@ async function runBackgroundBootTasks(): Promise<void> {
     // while the rest of the pipeline runs; concurrent requests still coalesce
     // onto this same spawn. Non-blocking: the server is fully up.
     void import("@/lib/harness/python-runtime")
-      .then((m) => m.ensurePythonRuntime())
-      .then((ok) => {
-        if (!ok) console.error("[startup] Python runtime unavailable — agent runs will 503");
+      .then(async (m) => {
+        // Bounded retry, not a single fire-and-forget attempt. A cold start can
+        // outlast one budget, or lose a race with a build/restart; the old code
+        // logged the failure and gave up, leaving agent features 503 for the
+        // rest of the session until a manual /api/harness/runtime/restart.
+        const backoffMs = [0, 20_000, 45_000, 90_000];
+        for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+          if (backoffMs[attempt] > 0) {
+            await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+          }
+          if (await m.ensurePythonRuntime()) {
+            if (attempt > 0) {
+              console.log(`[startup] Python runtime ready after ${attempt + 1} attempt(s)`);
+            }
+            return true;
+          }
+          if (attempt < backoffMs.length - 1) {
+            console.warn(
+              `[startup] Python runtime not ready — retrying (attempt ${attempt + 2}/${backoffMs.length})`
+            );
+          }
+        }
+        console.error(
+          "[startup] Python runtime unavailable after retries — agent runs will 503 until restarted"
+        );
+        return false;
       })
       .catch((err) => console.error("[startup] python runtime warm-up failed:", err));
 

@@ -1,6 +1,95 @@
 # Change Log
 
 ## 2026-11-13
+- **feat(build): `npm run build` can no longer break the running app.**
+  The last "I built it and the app broke" path: a raw build rewrites `.next`,
+  deletes `BUILD_ID` and saturates the CPU while the desktop app is up, which
+  starves the Python runtime's cold start (33–67 s idle, >5 min under a build)
+  and leaves doctor reporting no available build. Policy now lives in
+  `scripts/lib/build-guard.js` (pure, 9 tests in `src/lib/build-guard.test.ts`);
+  `scripts/build-prod.js` probes channel ports + owner markers and **refuses**
+  with the three alternatives (`desktop:refresh`, `black stop`, `desktop:dev`).
+  The managed paths stay exempt via `BE_ALLOW_BUILD_WHILE_RUNNING=1` because they
+  own the pin and restart: `scripts/desktop-build.js` (so `desktop:refresh` still
+  works) and `scripts/update.js` (builds before refreshing). Advice strings in
+  `desktop-server.js` / `desktop-promote.js` now point at `desktop:refresh`
+  instead of a build that would be refused. Verified live: plain
+  `npm run build` with the app up exits 1 naming Stable/3100/pid, and
+  `npm run desktop:refresh` still builds + promotes + reopens.
+  docs updated: `docs/environments.md`, `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+- **fix(voice): the Stop control fits inside the composer; stale builds cannot
+  skip a rebuild.** The recording control grew to `■ Stop 0:12` but the call
+  sites passed `w-8`/`w-9`, which won the cascade and squeezed the label so it
+  spilled past the composer's right edge. The button now keeps the caller's
+  height, drops its width while recording, and the composer chip is
+  `min-w-0 flex-1 truncate` with the hint hidden below `md`, so nothing can
+  overflow. Separately: `build()` recorded the source hash AFTER `next build`
+  finished, so an edit made mid-build was marked "already built" and a stale
+  chat chunk was promoted (the release missing the Stop UI). It now writes the
+  hash taken at build START, and `scripts/mark-build.js` is a documented no-op.
+  no doc change — layout fix plus build-tooling correctness.
+- **fix(harness): a slow boot no longer becomes a permanent 503.** Root cause of
+  the "runtime never came up after a relaunch" report: a **concurrent
+  `npm run build`** (a stale session's `BE_FORCE_BUILD=1; npm run build`) held
+  `.next-build.lock`, deleted `BUILD_ID` and saturated the CPU, so the Python
+  cold start could not finish. The supervisor then made it permanent in two ways:
+  (1) on timeout it called `killTrackedRuntime()`, killing a child that was still
+  importing — measured boot is 33–67 s idle, but the budget is a timeout, not a
+  verdict; (2) the boot pre-start was a single fire-and-forget attempt, so
+  nothing retried and agent features 503'd until someone POSTed
+  `/api/harness/runtime/restart` by hand. Now `python-runtime.ts` leaves a
+  still-alive child running (a later `ensure()` sees `trackedRuntimeAlive()` and
+  adopts it when `/health` answers) and only kills on a real exit or bind
+  conflict, and `instrumentation.ts` retries with backoff (0/20/45/90 s) before
+  reporting unavailable. Verified: idle boot 3100 +5 s / harness +33 s, and under
+  the real contention the runtime came up +67 s with doctor all-PASS on build
+  `rgxZzk8EB9QB7Juw14dr8`. Tests `src/lib/harness/python-runtime.test.ts` +
+  `runtime-supervision.test.ts` (22), `npx tsc --noEmit`. docs updated:
+  `docs/CHANGELOG.md`.
+- **fix(voice): the Stop control is now labelled, and the field says what to do.**
+  On-device transcription runs when the operator STOPS recording, but the only
+  affordance was an unlabelled square in the composer — so a live mic stretched
+  on and nothing was ever transcribed (the runtime log showed zero
+  `/voice/transcribe` calls from dictation). Recording now renders an explicit
+  **Stop** control with the elapsed time, the field reads "Listening — speak,
+  then press Stop to transcribe", and the composer chip names the engine
+  (On-device / Whisper / Browser) plus "stop to transcribe · esc cancels".
+  no doc change — copy and affordance only.
+- **feat(desktop): the last web surfaces are gone — service worker, offline
+  page, container deployment.** Deleting the browser lane left three things that
+  only made sense with a browser: (1) the PWA offline layer — `public/sw.js`,
+  `src/app/offline/route.ts`, `src/lib/offline/page.ts`, its test and the
+  `OfflineReady` registration in `src/app/layout.tsx`; (2) the container
+  deployment — `Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`,
+  `.dockerignore`; (3) the `blackeclipse` dev-origin allowance in
+  `next.config.ts` (`allowedDevOrigins`), now unreachable. The shell's own boot
+  screen (`desktop/ui/index.html` + `desktop-server.js` markers) is the only
+  pre-ready UI, so the fallback had nothing left to protect. Also removed the
+  proxy TLS material under `.black-eclipse/certs/`. Verified end to end:
+  `npm run desktop:refresh` built (build `_nujF-AUw8YudcJt6EaBs`), promoted,
+  relaunched the window, `desktop:doctor` all-PASS, `npx tsc --noEmit` clean.
+  docs updated: `docs/ARCHITECTURE.md` (Layer 0), `docs/environments.md`
+  (Docker), `docs/NAVIGATION.md`, `docs/DEPLOYMENT.md` (Stale),
+  `docs/harness/authentication.md`, `docs/PRODUCTION-READINESS.md`,
+  `SECURITY.md`, `docs/CHANGELOG.md`.
+  Also normalised `python/tests/test_transcription.py` to LF (one stray CRLF made
+  `src/lib/gitignore-guard.test.ts` fail its mixed-line-ending scan).
+- **feat(voice): dictation now runs on this machine — no API key, no setup.**
+  WebView2 has no speech engine, so `auto` used to resolve to a dead browser
+  recognizer (or to "not configured"). Transcription now has a first-class
+  **local** provider: `python/harness/transcription/local.py` runs
+  `faster-whisper` inside the Python runtime the app already ships, in a worker
+  thread, with the model cached under `.black-eclipse/models/whisper` (downloads
+  once, then offline). `auto` prefers a configured cloud key and otherwise uses
+  the on-device engine, so plugging nothing in still works. pyav is pinned
+  `>=12,<15` in `python/requirements.txt` — 15+ removed the `metadata_errors`
+  keyword faster-whisper passes to `av.open()` and local transcription failed
+  with "unexpected keyword argument". Measured: 4 s clip → 1.7 s, transcript
+  correct. Also: `TranscriptionError` moved to
+  `python/harness/transcription/errors.py` (local + HTTP paths share it without a
+  cycle), the settings provider list gained "On this device", and the runtime
+  client timeout is 300 s so a first-run model download is not mistaken for a
+  hang. docs updated: `docs/voice.md`, `docs/CHANGELOG.md`.
 - **feat(desktop): the browser lane is deleted — there is one front door.**
   Gating was not enough: `bin/black.js` still DEFAULTED to `black eclipse`, which
   booted the old Next site on 3105 behind the local proxy, and `setup:desktop`

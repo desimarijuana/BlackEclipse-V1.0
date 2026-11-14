@@ -18,9 +18,11 @@ Two related but independent systems:
   header and in bot messages. Settings › **Voice** chooses the system voice,
   rate, pitch and volume, and can opt into speaking every new reply.
 - **Voice input (dictation).** The mic in either composer records a prompt,
-  transcribes it, and inserts the words at the caret. Whisper is used when an
-  OpenAI-compatible transcription endpoint is configured; otherwise the
-  browser's SpeechRecognition is the zero-config fallback.
+  transcribes it, and inserts the words at the caret. With no cloud key
+  configured, transcription runs **on this machine** (`faster-whisper` in the
+  Python runtime) — no account, no key. A configured OpenAI/Groq key takes over
+  when present; a local whisper.cpp server remains available as a Custom
+  endpoint.
 
 Read-aloud is text-to-speech only. Dictation records **only while the control is
 active**, sends the clip to the selected transcription endpoint (or the browser
@@ -103,11 +105,17 @@ provider reports why instead of switching engines behind the operator's back.
 ### Flow
 
 ```
-mic → Whisper:  MediaRecorder → base64 → POST /api/voice/transcribe
-                → Next caps/rate/provider → Python /voice/transcribe
-                → provider /audio/transcriptions → { text } → insert at caret
+mic → local:    MediaRecorder → base64 → POST /api/voice/transcribe
+                 → Next caps/rate → Python /voice/transcribe
+                 → on-device faster-whisper (model cached once) → { text }
+mic → cloud:    same path, provider endpoint `/audio/transcriptions`
 mic → Browser:  SpeechRecognition → final transcript → insert at caret
 ```
+
+**Local is the default.** `auto` uses a configured cloud key when there is one,
+otherwise the on-device engine. The Whisper model (`base.en`, ~75 MB) downloads
+once into `.black-eclipse/models/whisper` and then works offline; after that a
+short dictation transcribes in about a second on CPU. Nothing is uploaded.
 
 Audio is bounded (≤ 15 MB, ≤ 120 s), MIME-allowlisted, transcribed once and
 discarded. Nothing is written to disk, JDDS, artifacts or memory; the transcript
@@ -182,6 +190,8 @@ Design rationale, phases and the mobile notes:
 | Bounded transcription front door | `src/app/api/voice/transcribe/route.ts` |
 | Runtime client | `src/lib/harness/clients/transcribe-client.ts` |
 | Python validation + provider call | `python/harness/transcription/service.py` |
+| On-device engine (no key, offline after one download) | `python/harness/transcription/local.py` |
+| Shared failure classes | `python/harness/transcription/errors.py` |
 | Python route (`/voice/transcribe`, operator-gated) | `python/harness/routers/transcription.py` |
 | Operator settings card | `src/components/screens/voice-input-settings.tsx` |
 
@@ -190,9 +200,14 @@ Design rationale, phases and the mobile notes:
 - Provider choice is server-owned in JDDS `SystemConfig` key
   `voice_input_config` (`provider`, optional `baseUrl`, optional `model`).
   `auto` picks the first configured key (OpenAI, then Groq).
-- Presets: OpenAI (`gpt-4o-mini-transcribe`), Groq (`whisper-large-v3`), and
-  Custom. Custom is any OpenAI-compatible endpoint — including a keyless local
-  `whisper.cpp` server (`http://127.0.0.1:8080/v1`).
+- Presets: **On this device** (`base.en`, no key), OpenAI
+  (`gpt-4o-mini-transcribe`), Groq (`whisper-large-v3`), and Custom. Custom is
+  any OpenAI-compatible endpoint — including a keyless local `whisper.cpp`
+  server (`http://127.0.0.1:8080/v1`).
+- The on-device engine needs no key at all. `faster-whisper` ships with the
+  Python runtime (`python/requirements.txt`), and the model downloads once into
+  `.black-eclipse/models/whisper`. PyAV is pinned below 15 because 15+ removed
+  the `metadata_errors` keyword faster-whisper passes to `av.open()`.
 - Keys come from the shared vault: `OPENAI_API_KEY`, `GROQ_API_KEY`, or the
   optional `TRANSCRIBE_API_KEY` for a custom remote endpoint. The browser only
   learns *whether* one is configured — never its value.

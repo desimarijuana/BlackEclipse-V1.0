@@ -854,10 +854,18 @@ export function ChatInput({
         
         <div className="flex min-w-0 items-end justify-between gap-2 px-0.5">
           {voiceActive && (
-            <span className="flex h-8 items-center gap-2 px-1.5 font-mono text-[10px] uppercase tracking-wide text-rose-300/90">
-              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-400" />
-              {voice.engine === 'browser' ? 'Browser dictation' : 'Whisper dictation'}
-              <span className="normal-case tracking-normal text-muted-foreground/60">esc to cancel</span>
+            <span className="flex h-8 min-w-0 flex-1 items-center gap-2 overflow-hidden px-1.5 font-mono text-[10px] uppercase tracking-wide text-rose-300/90">
+              <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-rose-400" />
+              <span className="truncate">
+                {voice.engine === 'browser'
+                  ? 'Browser dictation'
+                  : voice.config?.provider === 'local'
+                    ? 'On-device dictation'
+                    : 'Whisper dictation'}
+              </span>
+              <span className="hidden shrink-0 normal-case tracking-normal text-muted-foreground/70 md:inline">
+                ■ stop to transcribe · esc cancels
+              </span>
             </span>
           )}
           {!voiceActive && (
@@ -901,7 +909,7 @@ export function ChatInput({
             </DropdownMenuContent>
           </DropdownMenu>
           )}
-          <div className="flex min-w-0 items-center justify-end gap-1 sm:gap-2">
+          <div className="flex min-w-0 shrink-0 items-center justify-end gap-1 sm:gap-2">
             {!voiceActive && (
               <>
                 {modelState ? (

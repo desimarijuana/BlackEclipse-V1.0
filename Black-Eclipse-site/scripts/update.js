@@ -139,6 +139,11 @@ function refreshDesktop() {
   }
 }
 
+// The updater builds the new tag FIRST and refreshes the desktop afterwards, so
+// the app being up is expected. `build-prod.js` refuses a plain `npm run build`
+// while a channel is live; this is the managed path and owns the restart.
+process.env.BE_ALLOW_BUILD_WHILE_RUNNING = "1";
+
 async function main() {
   if (!CHANNELS.includes(channel)) fail(`unknown channel "${channel}" (use ${CHANNELS.join(" | ")})`);
   if (process.env.ECLIPSE_UPDATES_DISABLED === "1") fail("update checks are disabled by ECLIPSE_UPDATES_DISABLED=1");

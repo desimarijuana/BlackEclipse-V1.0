@@ -27,7 +27,7 @@ export interface VoiceFireFieldProps {
 }
 
 const DPR_CAP = 2;
-const IDLE_LABEL = 'Listening — speak naturally';
+const IDLE_LABEL = 'Listening — speak, then press Stop to transcribe';
 const TRANSCRIBING_LABEL = 'Transcribing…';
 
 export function VoiceFireField({

@@ -806,7 +806,7 @@ async function main() {
     if (!pin) {
       marker(
         "ERROR",
-        "No completed production build yet. Run `npm run build` once in the project folder, then reopen Black Eclipse."
+        "No completed production build yet. Run `npm run desktop:refresh` in the project folder, then reopen Black Eclipse."
       );
       process.exitCode = 3;
       return;
@@ -869,7 +869,7 @@ async function main() {
     } else if (!STANDALONE) {
       marker(
         "WARN",
-        `Serving the last completed build (${pin.buildId}). Run \`npm run build\` then \`npm run desktop:refresh\` to update it.`
+        `Serving the last completed build (${pin.buildId}). Run \`npm run desktop:refresh\` to update it.`
       );
     }
   }

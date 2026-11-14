@@ -109,6 +109,15 @@ export function VoiceInputButtonView({
           ? 'Starting microphone…'
           : `Voice input · ${engineLabel}`;
 
+  // A fixed square size (`w-8`/`w-9`) is right for the idle mic, but while
+  // recording the control grows into `■ Stop 0:12`. Keep the caller's HEIGHT
+  // and drop its width, otherwise `w-8` wins the cascade and the label spills
+  // outside the composer.
+  const recordingSizeClass = (className ?? '')
+    .split(/\s+/)
+    .filter((cls) => cls && !/^w-/.test(cls))
+    .join(' ');
+
   return (
     <span className="relative inline-flex shrink-0">
       {consentOpen && (
@@ -180,21 +189,31 @@ export function VoiceInputButtonView({
         aria-pressed={recording}
         className={cn(
           'flex items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-70',
-          recording && 'w-auto px-1.5 text-rose-300 hover:text-rose-200',
-          className,
+          recording
+            ? cn(
+                recordingSizeClass,
+                'w-auto shrink-0 gap-1.5 whitespace-nowrap px-2 text-rose-200 hover:text-rose-100',
+              )
+            : className,
         )}
       >
         {busy ? (
           <Loader2 size={iconSize} className="animate-spin" />
         ) : recording ? (
-          <Square size={iconSize - 3} />
+          <>
+            <span
+              aria-hidden
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] bg-rose-400 text-black"
+            >
+              <Square size={8} />
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-wide tabular-nums">Stop</span>
+            <span className="font-mono text-[10px] tabular-nums text-rose-300/80">
+              {formatElapsed(voice.elapsedMs)}
+            </span>
+          </>
         ) : (
           <Mic size={iconSize} />
-        )}
-        {recording && (
-          <span className="ml-1 font-mono text-[10px] tabular-nums">
-            {formatElapsed(voice.elapsedMs)}
-          </span>
         )}
       </button>
     </span>

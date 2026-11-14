@@ -135,7 +135,7 @@ function promoteRelease() {
   if (!buildLooksComplete(source)) {
     fail(
       `no completed build in ${fromArg || channel.buildDir}. Run ` +
-        `${channel.id === "dev" ? '"npm run desktop:build:dev"' : '"npm run build"'} first.`,
+        `${channel.id === "dev" ? '"npm run desktop:dev"' : '"npm run desktop:refresh"'} first.`,
     );
   }
   const buildId = readBuildId(source);

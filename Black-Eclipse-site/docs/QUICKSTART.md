@@ -71,6 +71,12 @@ supported entry point (`npm run build`, `desktop:build:dev`, `desktop:refresh`,
 `desktop:promote`, the desktop launcher) takes `.next-build.lock` first; a second
 build **waits** for the first and reuses it if the source is unchanged.
 
+A plain `npm run build` also **refuses while the desktop app is running**: the
+build would saturate the CPU and starve the Python runtime's cold start. Use
+`npm run desktop:refresh` (build → pin → reopen) or `black stop` first. The
+managed paths — `desktop:refresh` and `black update` — are exempt because they
+own the pin and the restart.
+
 > `npm install` is not a plain install here. Its `postinstall` runs
 > `prisma generate`, `scripts/setup-python.js`, and `scripts/link-global.js`.
 > If install "hangs", it is probably the optional Python setup.

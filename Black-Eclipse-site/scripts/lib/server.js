@@ -156,8 +156,15 @@ function build(options = {}) {
   if (!release) throw new Error("timed out waiting for another production build to finish");
   try {
     if (!needsBuild()) return false;
+    // Hash the sources as they are WHEN THE BUILD STARTS. Writing the hash
+    // computed at the end records edits that `next build` never compiled — a
+    // file changed mid-build then looked "already built" on the next refresh,
+    // and a stale chunk was promoted (the release whose Stop control was
+    // missing). Recording the start hash means such a build is honestly stale.
+    const startedHash = sourceHash();
     execSync("npx next build", { cwd: root, stdio: "inherit", env: process.env });
-    markBuilt();
+    fs.mkdirSync(nextDir, { recursive: true });
+    fs.writeFileSync(hashFile, startedHash);
     return true;
   } finally {
     release();

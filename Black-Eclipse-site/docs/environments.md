@@ -85,6 +85,15 @@ instead of wiping the same directory underneath it. The lock lives outside
 `.next` because the build deletes that directory; it is advisory, so a raw
 `npx next build` bypasses it.
 
+**A plain `npm run build` refuses while a channel is live.** The window is safe
+(it serves a pinned copy), but a build started under a running app saturates the
+CPU — which starves the Python runtime's cold start — and leaves `.next` without
+a `BUILD_ID` until it finishes. `scripts/lib/build-guard.js` owns the policy
+(pure + unit-tested); `build-prod.js` probes the channel ports and owner markers.
+The managed paths set `BE_ALLOW_BUILD_WHILE_RUNNING=1` because they own the pin
+and the restart: `npm run desktop:refresh` (via `scripts/desktop-build.js`) and
+`black update`.
+
 Reaching Stable requires **promotion**, never an in-place rewrite:
 `desktop:promote` validates the staged copy, moves `current.json` (keeping
 `previous.json`), and restarts the window. See

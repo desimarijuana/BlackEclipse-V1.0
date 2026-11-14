@@ -160,3 +160,8 @@ sqlite-vec>=0.1.6
 # configured; the Whisper model is downloaded once into
 # .black-eclipse/models/whisper and then works offline.
 faster-whisper>=1.0,<2
+
+# PyAV 15+ removed the `metadata_errors` keyword that faster-whisper passes to
+# av.open(), which broke local transcription with "open() got an unexpected
+# keyword argument". Pin the range that works.
+av>=12,<15
