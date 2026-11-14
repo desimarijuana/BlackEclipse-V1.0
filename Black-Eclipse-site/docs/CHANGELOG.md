@@ -1,6 +1,15 @@
 # Change Log
 
 ## 2026-11-14
+- **security(oss): scan and scrub leaked tokens from public history.** A
+  `gitleaks 8.30.1` scan over `--all` on the scrubbed mirror found two real
+  hardcoded service tokens in old commits (neither is present at HEAD). Both
+  were removed with `git-filter-repo --replace-text`; `git log -S` now returns
+  nothing and the history scan is green with the new reviewed `.gitleaks.toml`
+  allowlist (test fixtures, `STORAGE_KEY` constants, eval `"key"` fields, a
+  cache hash, the fake `AKIA...EXAMPLE`). **The two tokens still need to be
+  rotated — scrubbing history does not revoke them.** docs updated:
+  `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
 - **test(fs): make the polling-modified check deterministic.** The watcher
   fingerprints `(st_mtime_ns, st_size)`; the test rewrote `one\n` as the
   same-sized `two\n` and used `os.utime(..., None)`, which can land in the same

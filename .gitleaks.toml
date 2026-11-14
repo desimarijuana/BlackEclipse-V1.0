@@ -1,0 +1,35 @@
+# Gitleaks configuration for the public-release history scan.
+#
+# Extends the default rule set. The allowlist is NOT "ignore noise": every entry
+# was triaged on 2026-11-14 against the real finding. A new finding in one of
+# these paths still deserves a look; remove an entry if it stops being accurate.
+#
+# Usage:
+#   gitleaks detect --source <mirror-or-worktree> --config .gitleaks.toml \
+#     --log-opts="--all" --redact
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets: test fixtures, storage-key literals, eval keys, generated hashes."
+paths = [
+  # Python test fixtures deliberately contain fake keys/tokens to prove redaction.
+  '''Black-Eclipse-site/python/tests/.*''',
+  # Vitest fixtures do the same for auth/session/middleware/preflight.
+  '''Black-Eclipse-site/src/.*\.test\.ts''',
+  # Eval dataset: "key" is a memory identifier, not a credential.
+  '''Black-Eclipse-site/python/harness/eclipse_memory/eval/dataset_v1\.json''',
+  # A planning formula (`windowTokens >= thresholdPct/100`), not a token.
+  '''Black-Eclipse-site/docs/harness/roadmap/w3-tool-execution-plan\.md''',
+  # Generated HyperFrames cache: "key" is a content hash.
+  '''media/.*/\.hyperframes/.*''',
+  # localStorage names, not credentials. The generic rule keys off the word
+  # "key"; these three files define only storage identifiers.
+  '''Black-Eclipse-site/src/lib/bots/appearance\.ts''',
+  '''Black-Eclipse-site/src/lib/notifications/store\.ts''',
+  '''Black-Eclipse-site/src/lib/agent/use-reasoning-effort\.ts''',
+]
+regexes = [
+  # Dogfood fixture used to test the redactor itself.
+  '''AKIAABCDEFGHIJKLMNOP''',
+]

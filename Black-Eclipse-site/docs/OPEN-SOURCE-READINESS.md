@@ -36,7 +36,7 @@ files.
 | # | Blocker | Evidence |
 |---|---|---|
 | O1 | Git history contains `jdds.db` snapshots | A 60 MB historical blob contains 106 trades, 58 journal days, 1 journal profile, 40 tags. See §2. |
-| O2 | History has never been scanned for credentials | `scripts/scan-secrets.js` scans **tracked HEAD only**. Run `gitleaks`/`trufflehog` over `--all`. |
+| O2 | ~~History has never been scanned for credentials~~ **resolved in the mirror** | `scripts/scan-secrets.js` scans **tracked HEAD only**. A `gitleaks` 8.30.1 scan over `--all` found **two real hardcoded tokens** in old commits; both were scrubbed with `--replace-text` and **must still be rotated**. The final mirror scans clean with `.gitleaks.toml` (reviewed allowlist for fixtures). |
 | O3 | Tracked files contain absolute home-directory paths | `docs/harness/baselines/*.json`, `docs/harness/roadmap/phase-00-policy-and-baseline.md`, some `media/` artifacts. |
 | O4 | Personal author e-mail is in history | Publishing history publishes every `%ae`. |
 | O5 | Community files were incomplete | Fixed: root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `check:oss`. |
@@ -133,7 +133,21 @@ gitleaks detect --source . --log-opts="--all" --redact
 trufflehog git file://. --only-verified
 ```
 
-Any hit is a real incident: rotate the credential **before** pushing.
+Use the committed config so the scan is repeatable:
+
+```bash
+gitleaks detect --source <mirror-or-worktree> --config .gitleaks.toml \
+  --log-opts="--all" --redact
+```
+
+The config allowlists only triaged non-secrets (test fixtures, `STORAGE_KEY`
+constants, eval `"key"` fields, a generated cache hash, and the fake
+`AKIA...EXAMPLE` string). A hit outside that list is a real finding.
+
+Any hit is a real incident: **rotate the credential before pushing**, then
+scrub it with `--replace-text`. Deleting a token from history does not make it
+un-leaked; the scan found two live service tokens in this repository's past, so
+rotation is mandatory even after the mirror is clean.
 
 ---
 
@@ -233,5 +247,6 @@ they are not discovered after launch.
 
 | Date | State | Evidence |
 |---|---|---|
+| 2026-11-14 | History credential scan | **2 real tokens found and scrubbed** | `gitleaks 8.30.1` over `--all` on the first clean mirror found two hardcoded service tokens in old commits (not present at HEAD). A second mirror was produced with `--replace-text` and a mailmap; the tokens are absent (`git log -S` empty) and the history scan is green with the new `.gitleaks.toml`. **Both tokens must be rotated**; history removal is not revocation. Remaining findings were triaged false positives (test fixtures, storage-key literals, eval `"key"` fields, a cache hash, the fake `AKIA...EXAMPLE`). |
 | 2026-11-14 | Clean mirror produced and verified | Ran `scripts/scrub-public-history.ps1` on a mirror of this repository: `jdds.db`/`eclipse-memory.db`/`agent-memory.db` are absent from every commit, pack size fell from 79.9 MiB to 40.3 MiB, and a clone of the mirror passes `npm run check:oss` with **0 warnings** after a mailmap rewrite of the personal author email. The live private history is unchanged and must not be flipped to public. Not pushed. Remaining before push: O2 (gitleaks/trufflehog over `--all`), create the new public repository, re-create/push tags. |
 | 2026-11-14 | Scaffolding added | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `package.json` metadata, CodeQL workflow, `scripts/oss-preflight.js` (`npm run check:oss`), and the mirror-only `scripts/scrub-public-history.ps1`. Personal absolute paths were removed from the bulk importers (now `BE_IMPORT_ROOT`, default `/data/imports/`, gitignored) and the roadmap/media docs. `check:oss` now reports exactly one blocker: `jdds.db` in history (O1). O2 (history credential scan) and the history rewrite remain operator steps. |
