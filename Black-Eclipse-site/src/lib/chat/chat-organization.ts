@@ -360,26 +360,57 @@ export function saveConversationsCache(
   storage: Pick<Storage, 'setItem'>,
   conversations: Conversation[],
 ): number {
-  const write = (list: Conversation[]): boolean => {
+  try {
+    storage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(conversations));
+    return 0;
+  } catch {
+    // Over quota (or storage blocked) — fall through to a bounded eviction.
+  }
+
+  // Eviction must stay CHEAP. This runs on the main thread ~400 ms after every
+  // transcript change, i.e. at the exact moment a message is sent and when a
+  // reply lands. The previous loop removed ONE conversation per attempt and
+  // re-serialized the whole (barely smaller) list each time: once the history
+  // outgrew the ~5 MB quota that was O(n²) `JSON.stringify` — seconds to tens of
+  // seconds of frozen UI, twice per turn, forever. Serialize each conversation
+  // ONCE, then binary-search the smallest eviction that fits: O(n) serialization
+  // and O(log n) writes, independent of how far over quota the list is.
+  const parts = conversations.map((c) => JSON.stringify(c));
+  const victims = cacheEvictionOrder(conversations);
+
+  const writePrefix = (count: number): boolean => {
+    const drop = new Set<string>();
+    for (let i = 0; i < count && i < victims.length; i++) drop.add(victims[i].id);
+    const chunks: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      if (!drop.has(conversations[i].id)) chunks.push(parts[i]);
+    }
     try {
-      storage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(list));
+      // Exactly what `JSON.stringify(list)` would produce for the kept rows.
+      storage.setItem(CONVERSATIONS_STORAGE_KEY, `[${chunks.join(',')}]`);
       return true;
     } catch {
       return false;
     }
   };
 
-  if (write(conversations)) return 0;
-
-  const kept = [...conversations];
-  for (const victim of cacheEvictionOrder(conversations)) {
-    const idx = kept.findIndex((c) => c.id === victim.id);
-    if (idx !== -1) kept.splice(idx, 1);
-    if (write(kept)) return conversations.length - kept.length;
-    if (kept.length === 0) break;
+  // The full list already failed, so the answer is at least 1 eviction. Fitting
+  // is monotone (dropping more rows never makes the payload bigger), so binary
+  // search is exact and costs log2(n) attempts instead of n.
+  let lo = 1;
+  let hi = victims.length;
+  let fitted = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (writePrefix(mid)) {
+      fitted = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
   }
-  // Even an empty list could not be written (storage blocked / private mode).
-  return conversations.length;
+  // Nothing fit, not even an empty list (storage blocked / private mode).
+  return fitted === -1 ? conversations.length : fitted;
 }
 
 // ── Scope & tags ─────────────────────────────────────────────────────────────

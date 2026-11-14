@@ -358,6 +358,28 @@ describe('saveConversationsCache', () => {
     expect(saveConversationsCache(s, list(3))).toBe(3);
     expect(s.stored).toBeNull();
   });
+
+  it('evicts in a bounded number of writes, not one per evicted chat', () => {
+    // Regression: the cache write happens on the main thread ~400 ms after every
+    // message, and the old loop re-serialized the whole list once per evicted
+    // conversation. With a multi-megabyte history that O(n²) work froze the UI
+    // for seconds exactly when a message was sent and when the reply landed.
+    let writes = 0;
+    const quota = 4_000;
+    const storage = {
+      setItem: (_k: string, v: string) => {
+        writes += 1;
+        if (v.length > quota) throw new DOMException('quota', 'QuotaExceededError');
+      },
+    };
+    const many = Array.from({ length: 2_000 }, (_, i) =>
+      conv({ id: `c${i}`, timestamp: i, messages: [{ id: `m${i}`, role: 'user', content: 'x'.repeat(40) }] }),
+    );
+    const dropped = saveConversationsCache(storage, many);
+    expect(dropped).toBeGreaterThan(1_900);
+    // ceil(log2(2000)) ~ 11 probes plus the initial full-list attempt.
+    expect(writes).toBeLessThanOrEqual(16);
+  });
 });
 
 describe('cross-tab conversation merge', () => {
