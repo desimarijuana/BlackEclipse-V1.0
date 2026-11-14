@@ -80,7 +80,9 @@ describe("command registry", () => {
   });
 
   it("builds an argument hint from the schema", () => {
-    expect(commandArgHint(resolveCommand("skills")!)).toBe("[action] [subject…] [--status <string>]");
+    expect(commandArgHint(resolveCommand("skills")!)).toBe(
+      "[action] [subject…] [--status <string>] [--version <string>] [--<key> <value>]…",
+    );
     expect(commandArgHint(resolveCommand("skill")!)).toBe("[name] [description…] [--category <string>]");
   });
 

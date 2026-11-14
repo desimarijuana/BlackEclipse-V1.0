@@ -1,6 +1,15 @@
 # Change Log
 
 ## 2026-11-13
+- **fix(skills): `/skills run` now sends the skill's input.** The command called
+  `executeSkill` with no `input`, so every skill with a required input — including
+  EVERY user-authored skill, whose schema requires `objective` — was blocked by the
+  Python runtime with `INPUT_VALIDATION_FAILED` before it ran. `/skills` now opts
+  into `passThroughFlags` and `run` forwards `--key value` flags (plus trailing free
+  text as `objective`, and `--version` as a pin) into the execution request; an
+  input-validation failure also renders a usage hint. Covered by
+  `command-router.test.ts` (flags, free text, version) and the parser/registry hint
+  tests. docs updated: `docs/harness/slash-commands.md`, `docs/CHANGELOG.md`.
 - **feat(build): `npm run build` can no longer break the running app.**
   The last "I built it and the app broke" path: a raw build rewrites `.next`,
   deletes `BUILD_ID` and saturates the CPU while the desktop app is up, which

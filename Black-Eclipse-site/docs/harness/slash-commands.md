@@ -1,7 +1,7 @@
 ---
 title: Slash Commands
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-13
 ---
 
 # Slash Commands
@@ -67,7 +67,7 @@ every routed command.
    preserves quoted strings, Unicode, filenames with spaces, and backslash
    escapes, then binds tokens to the command's declared schema. Unknown flags are
    errors unless the command opts into `passThroughFlags` (how
-   `/skill --asset BTC` builds a skill's input object).
+   `/skills run <id> --objective "…"` builds a skill's input object).
 2. **Resolve** — a leading `/token` that matches no command yields an `unknown`
    result. `/usr/bin` is not a command (the token must be followed by whitespace
    or end-of-text).
@@ -332,13 +332,21 @@ counterpart: the user asks for room now, without waiting for a limit.
 
 ## Skill integration
 
-### Run a skill — `/skills run <id>`
+### Run a skill — `/skills run <id> [--<input> <value>]…`
 
 Resolves the skill against the authoritative registry and calls the existing
 `executeSkill`, which runs through the Python runtime's real executor (allowlist,
 permissions, dependency DAG, and budget enforced in Python — the `SKILL.md` text
 is prompt-delivered and can never widen authority). An unknown id returns
 `SKILL_NOT_FOUND`; a disabled/incompatible skill is refused by Python.
+
+The skill's declared input is passed either as pass-through flags
+(`/skills run user.my-skill --objective "Review ACME"`, any `--key value`) or as
+trailing free text, which becomes `objective`. This matters because every
+user-authored skill declares `objective` as a required input; sending an empty
+input makes the runtime block the run with `INPUT_VALIDATION_FAILED` before the
+skill starts. `--version <v>` pins a version (it is a declared flag, so it is not
+treated as input).
 
 ### Author a skill — `/skill <name> <what it should do>`
 

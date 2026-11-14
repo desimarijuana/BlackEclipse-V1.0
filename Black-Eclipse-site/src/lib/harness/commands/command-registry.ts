@@ -344,11 +344,13 @@ const SKILLS: CommandSpec = {
   description:
     "The skill catalog interface. `list` shows installed skills; `search` filters by keyword; " +
     "`category` filters by category; `show` inspects one skill; `run` executes one; `test` runs its " +
-    "evaluation suite; `validate` checks its preflight (dependencies, tools, permissions).",
+    "evaluation suite; `validate` checks its preflight (dependencies, tools, permissions). " +
+    "`run` accepts a skill's inputs as pass-through flags (`--objective \"…\"`) or trailing free text.",
   category: "skills",
   tags: ["skills", "discovery"],
   version: V,
   status: "available",
+  passThroughFlags: true,
   args: [
     {
       name: "action",
@@ -365,6 +367,7 @@ const SKILLS: CommandSpec = {
   ],
   flags: [
     { name: "status", description: "Filter by lifecycle status.", type: "string" },
+    { name: "version", description: "Pin a specific skill version (run).", type: "string" },
   ],
   handler: { type: "skills", target: "skills.catalog" },
   permissions: { approval: "none" },
@@ -378,7 +381,8 @@ const SKILLS: CommandSpec = {
     "/skills search crypto",
     "/skills category research",
     "/skills show crypto-onchain-research",
-    "/skills run crypto-onchain-research",
+    "/skills run crypto-onchain-research --objective \"Research on-chain activity\"",
+    "/skills run user.my-skill Review ACME concentration risk",
     "/skills test crypto-onchain-research",
     "/skills validate crypto-onchain-research",
   ],

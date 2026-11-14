@@ -854,9 +854,32 @@ export const handlers: Record<string, Handler> = {
       }
       case "run": {
         const id = subject[0];
-        if (!id) return invalid("MISSING_ARG", "Usage: `/skills run <skill-id>`.");
-        const result = await deps.skills.execute({ skillId: id, executionMode: "interactive" }, { operator: ctx.operator });
-        return renderSkillExecution(result);
+        if (!id) return invalid("MISSING_ARG", "Usage: `/skills run <skill-id> [--<input> <value>]…`.");
+        // Pass-through flags + trailing free text become the skill's input. Most
+        // skills (and EVERY user-authored skill) declare required inputs, so
+        // sending `{}` made `/skills run` fail with INPUT_VALIDATION_FAILED.
+        const input: Record<string, unknown> = { ...args.input };
+        const freeform = subject.slice(1).join(" ").trim();
+        if (freeform && input.objective === undefined) input.objective = freeform;
+        const version = typeof args.flags.version === "string" ? args.flags.version : undefined;
+        const result = await deps.skills.execute(
+          {
+            skillId: id,
+            executionMode: "interactive",
+            ...(version ? { version } : {}),
+            ...(Object.keys(input).length ? { input } : {}),
+          },
+          { operator: ctx.operator },
+        );
+        const rendered = renderSkillExecution(result);
+        if (result.error?.code === "INPUT_VALIDATION_FAILED") {
+          rendered.blocks = [...(rendered.blocks ?? []), callout(
+            "note",
+            "This skill needs input",
+            `Pass it as flags or as trailing text: \`/skills run ${id} --objective "…"\`.`,
+          )];
+        }
+        return rendered;
       }
       case "test": {
         const id = subject[0];

@@ -65,7 +65,8 @@ describe("bindArgs", () => {
   const skills = resolveCommand("skills")!;
   const skillTest = resolveCommand("skill-test")!;
   const skillExplain = resolveCommand("skill-explain")!;
-  // A synthetic spec exercising pass-through flags (no shipped command uses it).
+  // A synthetic spec exercising pass-through flags independently of the
+  // shipped `skills` command (which now enables pass-through for `run` inputs).
   const passthrough = {
     ...skills,
     id: "test.passthrough",
@@ -114,7 +115,7 @@ describe("bindArgs", () => {
   });
 
   it("rejects an unknown flag when pass-through is off", () => {
-    const bound = bindArgs(skills, tokenizeArgs("list --nope"));
+    const bound = bindArgs(resolveCommand("skill")!, tokenizeArgs("x --nope"));
     expect(bound.errors.some((e) => e.code === "UNKNOWN_FLAG")).toBe(true);
   });
 });

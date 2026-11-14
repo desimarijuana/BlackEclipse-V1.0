@@ -608,6 +608,31 @@ describe("executeCommandFromText", () => {
     );
   });
 
+  it("passes skill input to /skills run from flags or trailing text", async () => {
+    // Every user-authored skill declares a required `objective`; sending `{}` used
+    // to make `/skills run` fail validation before the runtime ever ran it.
+    const flagged = makeDeps();
+    await executeCommandFromText('/skills run user.demo --objective "Review ACME"', ctx, flagged);
+    expect(flagged.skills.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ skillId: "user.demo", input: { objective: "Review ACME" } }),
+      { operator: false },
+    );
+
+    const free = makeDeps();
+    await executeCommandFromText("/skills run user.demo Review ACME", ctx, free);
+    expect(free.skills.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { objective: "Review ACME" } }),
+      { operator: false },
+    );
+
+    const versioned = makeDeps();
+    await executeCommandFromText("/skills run user.demo --version 1.1.0 --objective x", ctx, versioned);
+    expect(versioned.skills.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ version: "1.1.0", input: { objective: "x" } }),
+      { operator: false },
+    );
+  });
+
   it("reports a failed skill execution honestly", async () => {
     const deps = makeDeps({
       execute: vi.fn(async () => execution({ status: "failed", output: null, error: { code: "TOOL_ERROR", message: "boom" } })),
