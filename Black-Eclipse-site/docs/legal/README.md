@@ -1,7 +1,7 @@
 ---
 title: Legal & Compliance
 status: Draft
-last-verified: 2026-11-07
+last-verified: 2026-11-14
 ---
 
 # Legal & Compliance
@@ -54,6 +54,7 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 | `LICENSE` (MIT) | Live | Project | Repository root |
 | `SECURITY.md` | Live | Maintainers | Safe-harbour wording added |
 | `CONTRIBUTING.md` | Live | Maintainers | DCO sign-off required |
+| `CODE_OF_CONDUCT.md` | Live | Maintainers | Contributor Covenant 2.1 |
 | [`DCO`](../../DCO) | Live | Maintainers | DCO 1.1; `git commit -s` |
 | [Terms of Service](./TERMS-OF-SERVICE.md) | Draft | Founder + counsel | Template; localise entity/law/liability cap |
 | [Privacy Notice](./PRIVACY-NOTICE.md) | Draft | Founder + counsel | Align to the data map and hosting model |

@@ -52,6 +52,8 @@ Browser UI ──► Next.js API routes ──► JDDS (SQLite via Prisma)
 ### Prerequisites
 - Node.js 20+
 - npm
+- Rust and the Tauri prerequisites to build the desktop shell (see
+  [`desktop/README.md`](desktop/README.md))
 - *(optional)* Python 3.9+ with `yfinance` — enables live quotes for non-TradingView markets (e.g. US):
   ```bash
   pip install yfinance
@@ -60,39 +62,53 @@ Browser UI ──► Next.js API routes ──► JDDS (SQLite via Prisma)
 ### Install & Run
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (also provisions the Python agent stack)
 npm install
 
-# 2. Start the dev server
-npm run dev
+# 2. Build and open the desktop app
+npm run desktop:dev       # Dev channel: isolated data, port 3101
+# or
+npm run desktop:refresh   # Stable channel: promote the build, port 3100
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. That's it — the database creates itself, seeds demo data, and starts pulling live prices for any markets you enable.
+The product is the **native desktop app**; there is no website to open. On a
+packaged install, launch **Black Eclipse** from the Start menu — it starts its
+own loopback server. `npm run desktop:doctor` prints the window, port, served
+build, harness, and provider state in one screen.
 
 ### Scripts
 
 | Script | Description |
 |---|---|
-| `npm run dev` | Start the Next.js dev server (also boots the refresh scheduler) |
-| `npm run build` / `npm run start` | Production build / serve |
-| `npm run lint` | ESLint |
-| `npm test` | Vitest unit tests |
+| `npm run desktop:dev` | Build and launch the Dev channel (isolated data, port 3101) |
+| `npm run desktop:refresh` | Build, promote, and open the Stable channel (port 3100) |
+| `npm run desktop:doctor` | One-screen window / port / build / harness / provider status |
+| `npm run build` | Production Next build used by the desktop payload |
+| `npm run lint` / `npm run typecheck` | ESLint / `tsc --noEmit` |
+| `npm test` | Vitest + Python + eval gates |
+| `npm run check:all` | The full release gate |
 
 ## Configuration (all optional)
 
-The app runs fully without environment variables. Copy `.env.example` to `.env.local` to configure:
+The app runs fully without environment variables. Copy `.env.example` to `.env` to configure:
 
 | Variable | Purpose |
 |---|---|
-| `CRON_SECRET` | Enables server-to-server calls to mutating endpoints (`Authorization: Bearer <secret>`). **Set this when deploying publicly.** Without it, only same-origin browser requests and localhost calls can mutate state. |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OLLAMA_BASE_URL` | Power the agentic chat/research. Without any of them, a built-in mock provider answers. Keys can also be set from the in-app Settings screen. |
-| `CONNECTOR_SECRET_KEY` | Base64 32-byte key used to encrypt operator data-source credentials at rest. **Required on hosted/serverless deploys** (an auto-generated local key would differ per instance). Locally it is optional — a gitignored `.connector-key` is generated on first use. |
+| `CRON_SECRET` | Guards server-to-server calls to mutating endpoints (`Authorization: Bearer <secret>`) and the non-loopback harness bind. |
+| `HARNESS_AUTH` / `HARNESS_AUTH_SECRET` | `required` + a random secret is mandatory before any non-loopback bind. A missing secret fails closed (503). |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OLLAMA_BASE_URL` | Power the agentic chat/research. Without one, an agent run fails honestly with a provider-unavailable error — it never falls back to a fake answer. Keys can also be set in the in-app Settings screen. |
+| `CONNECTOR_SECRET_KEY` | Base64 32-byte key used to encrypt operator data-source credentials at rest. Locally it is optional — a gitignored `.connector-key` is generated on first use. |
 
-## Deployment Notes
+## Runtime Notes
 
-- **Local machine / VPS / Docker (recommended):** everything works out of the box — the scheduler runs inside the app process.
-- **Vercel/serverless:** SQLite and the in-process scheduler don't fit serverless. A `POST /api/cron/run` endpoint exists for hosted schedulers (see `vercel.json`); point it at a persistent database for real deployments.
-- In-memory caches assume a single app instance; running multiple replicas against one SQLite file is not supported.
+- The **desktop app is the product**. It owns its loopback server and the Python
+  harness; there is no hosted website, reverse proxy, or serverless deployment
+  lane.
+- Two channels can run at once: **Stable** (3100) and **Dev** (3101, isolated
+  data).
+- The agent runtime is a child process. If Python is unavailable, runs fail
+  honestly with a 503 instead of falling back to a mock agent.
+- Back up the data directory (`jdds.db`, `agent-memory.db`, `.black-eclipse/`).
 
 ## Security Model
 

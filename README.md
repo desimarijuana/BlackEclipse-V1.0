@@ -49,9 +49,12 @@ Add a provider key (or point at Ollama) in **Settings** to use a frontier model.
 | `Black-Eclipse-site/` | The application (Next.js front door + Python agent runtime) |
 | `Black-Eclipse-site/docs/` | The canonical system documentation |
 | `Black-Eclipse-site/scripts/` | Build, test, release, backup and operations scripts |
-| `.github/workflows/` | CI, deploy, live evals, weekly ops drift watch |
+| `.github/workflows/` | CI, CodeQL, deploy, live evals, weekly ops drift watch |
+| `CONTRIBUTING.md` | Contributor entry point (setup, DCO, release gate) |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant 2.1 |
 | `SECURITY.md` | How to report a vulnerability (GitHub private advisories) |
 | `CODEOWNERS` | Path ownership for review |
+| `Black-Eclipse-site/docs/OPEN-SOURCE-READINESS.md` | What is left before the repository is public |
 
 Start reading at
 [`Black-Eclipse-site/README.md`](Black-Eclipse-site/README.md) and

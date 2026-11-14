@@ -80,7 +80,11 @@ def test_polling_backend_still_detects_all_event_kinds(tmp_path):
     assert any(e.event == "created" for e in watcher.poll_once())
     target = root / "src" / "new.txt"
     target.write_text("two\n", encoding="utf-8")
-    os.utime(target, None)
+    # The fingerprint is (st_mtime_ns, st_size). "one\n" and "two\n" are the same
+    # size, and os.utime(..., None) can land in the same filesystem timestamp
+    # tick on Windows, so force a distinct mtime instead of racing the clock.
+    future = target.stat().st_mtime + 5
+    os.utime(target, (future, future))
     assert any(e.event == "modified" for e in watcher.poll_once())
     target.rename(root / "src" / "renamed.txt")
     renamed = watcher.poll_once()

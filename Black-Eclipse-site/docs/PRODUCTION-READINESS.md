@@ -51,6 +51,12 @@ counsel; R7 and R8 are the operations exit gate. See §5.
 > every operator must set `HARNESS_AUTH=required` + `HARNESS_AUTH_SECRET` before
 > any non-loopback bind (the preflight fails closed). **C11/C12** are hosted-only
 > and do not apply to this release.
+>
+> **Making the repository public is a separate gate.** History scrubbing,
+> community files, package metadata, CodeQL and personal-path leaks are owned by
+> [`OPEN-SOURCE-READINESS.md`](./OPEN-SOURCE-READINESS.md) and its re-runnable
+> preflight `npm run check:oss`. Publication does not close any production gate
+> in this roadmap.
 
 ---
 
@@ -316,3 +322,4 @@ below. Do not mark a phase done because the code side is finished.
 | 2026-11-10 | C3 | **PASS (clean build)** | 0.3.2 checked out into a pristine worktree (no working-tree changes): `npm run build` succeeded in **297 s**, produced .next/BUILD_ID, and the build served `GET /login` **200**. This is the clean-build evidence the roadmap requires, uncontaminated by the concurrent dev tree. |
 | 2026-11-10 | C6 | **PASS (production build)** | On the same build, with the real data dir and model settings: `/login` 200; `/api/settings` resolved `ollama / deepseek-v4.1-flash:cloud`; a provider chat returned `OK`; a harness run `run_d54d4755-53ea-459d-9a98-bcec3a4ebbfc` completed with **1 tool call** (`finance_calc`) and returned `+25.0%` with zero tool errors, and the advisory-integrity gate labelled the stray advice as `unverified`. Restart persistence uses the same databases already proven by the P2 backup/restore drill, so it was not re-run to avoid interrupting the soak. |
 | 2026-11-10 | Soak (restart) | **running on the production build** | The app on `:3100` is now the **v0.3.2 production build** run from an isolated release checkout (`%LOCALAPPDATA%\BlackEclipse\release-v0.3.2`) with `BE_DATA_DIR` → the main data dir and junctions for `.black-eclipse`/`python/.black-eclipse`. `scripts/install-app-task.ps1` registers `BlackEclipse App` (2-min ignore-new watchdog + Startup shortcut, no admin) so a dev rebuild no longer restarts it. The main tree's dev `.next` was restored. Soak clock restarted **2026-11-10 01:09**; first sample healthy (200). |
+| 2026-11-14 | Ops evidence | **not generating (open)** | Re-checked this host: there is no `BlackEclipse App` or `Black Eclipse Backup` scheduled task, and `%LOCALAPPDATA%\BlackEclipse\health.log` does not exist. `scripts/soak-report.ps1` therefore exits 2 ("no health log") and the 7-day soak clock has **no evidence** to close against. The scripts still exist (`scripts/health-watch.sh`, `scripts/install-app-task.ps1`, `scripts/backup.sh`); an operator must reinstall the tasks and restart the clock. `ALERT_WEBHOOK_URL` is still unset, so R7 remains open. |

@@ -1,6 +1,22 @@
 # Change Log
 
 ## 2026-11-14
+- **test(fs): make the polling-modified check deterministic.** The watcher
+  fingerprints `(st_mtime_ns, st_size)`; the test rewrote `one\n` as the
+  same-sized `two\n` and used `os.utime(..., None)`, which can land in the same
+  Windows timestamp tick. It now sets mtime +5 s explicitly. Passes 20/20 alone.
+  no doc change — test-isolation fix.
+- **test(automation): make the singleton-wired assertion self-contained.**
+  `test_service_singleton_is_wired` now takes the module `ctx` fixture, so a
+  prior module's app shutdown can no longer clear the process-wide automation
+  singleton between tests (it passed alone, failed late in the full run). The
+  file passes 8/8 alone. no doc change — test-isolation fix.
+- **docs(readiness): record that the soak has no evidence on this host.** There
+  is no `BlackEclipse App` or `Black Eclipse Backup` scheduled task, and
+  `%LOCALAPPDATA%\BlackEclipse\health.log` is absent, so
+  `scripts/soak-report.ps1` exits 2. The 7-day gate cannot close until the tasks
+  are reinstalled and the clock is restarted; `ALERT_WEBHOOK_URL` is still unset.
+  docs updated: `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 - **docs(oss): public-release readiness surface and preflight.** Added the root
   community files a public repository needs (`CONTRIBUTING.md`,
   `CODE_OF_CONDUCT.md`, issue/PR templates), `repository`/`homepage`/`bugs` in
@@ -10,8 +26,18 @@
   commits. Added `docs/OPEN-SOURCE-READINESS.md` as the owning doc for the
   history scrub, publication-day checklist and legal/IP review, and updated the
   root README to `v0.4.0` with the measured `task_success 0.9748` gate.
-  docs updated: `docs/OPEN-SOURCE-READINESS.md`, `docs/NAVIGATION.md`,
-  `docs/README.md`, `docs/CHANGELOG.md`.
+  Added `scripts/scrub-public-history.ps1`, a mirror-only wrapper for the
+  `git-filter-repo` history scrub (supports `--replace-text` and `--mailmap`).
+  Produced and verified a clean mirror: no DB blobs in any commit, 79.9 -> 40.3
+  MiB, and `check:oss` PASS with 0 warnings in a clone of it. Not pushed; the
+  live private history is untouched.
+  Also removed the personal absolute paths from the bulk importers: they now
+  resolve through `scripts/lib/import-paths.js` and `BE_IMPORT_ROOT`
+  (default `/data/imports/`, which is gitignored), and the roadmap/media docs
+  use `<repo>` / `%LOCALAPPDATA%` placeholders. docs updated:
+  `docs/OPEN-SOURCE-READINESS.md`, `docs/NAVIGATION.md`, `docs/README.md`,
+  `docs/PRODUCTION-READINESS.md`, `docs/legal/README.md`, `README.md` (both
+  roots), `CONTRIBUTING.md` (both roots), `docs/CHANGELOG.md`.
 - **brand(desktop): new app icon.** Replaced the desktop shell icon with the
   refreshed BlackEclipse mark (`ICON-LOGO-DESKTOP.svg`: dark radial tile,
   silver-gradient eclipse glyph, rounded card edge). Regenerated

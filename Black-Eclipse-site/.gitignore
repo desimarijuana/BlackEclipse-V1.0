@@ -111,6 +111,11 @@ python/csess_*/
 .tmp-tests/
 /scripts/scratch/
 
+# Bulk-import source data for scripts/import-*.js (BE_IMPORT_ROOT). Third-party
+# market data and scraped snapshots are never committed; a snapshot can also
+# carry a real journal. See scripts/lib/import-paths.js.
+/data/imports/
+
 # vendored embedded Python (downloaded on-demand, never committed)
 /scripts/vendor/python/
 

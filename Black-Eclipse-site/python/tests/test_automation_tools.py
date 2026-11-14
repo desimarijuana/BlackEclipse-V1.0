@@ -55,7 +55,10 @@ def test_bot_tools_are_registered():
         assert service.registry.get(name) is not None, name
 
 
-def test_service_singleton_is_wired():
+def test_service_singleton_is_wired(ctx):
+    # Depend on `ctx` so the singleton is installed by THIS module. Without the
+    # fixture this passed alone but failed after a prior module's app shutdown
+    # had cleared the process-wide singleton.
     from harness.automation import tools
 
     assert tools.get_automation_service() is not None

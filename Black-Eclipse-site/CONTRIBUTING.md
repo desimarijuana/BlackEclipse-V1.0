@@ -6,7 +6,12 @@ Thanks for your interest in contributing! Here's how to get started.
 
 1. Fork and clone the repository
 2. Run `npm install`
-3. Run `npm run dev` and open http://localhost:3000
+3. Run `npm run desktop:dev` (Dev channel, port 3101) or `npm run desktop:refresh`
+   (Stable, port 3100) to build and open the native window
+
+The product is the **desktop app**; there is no website runtime in the daily
+loop. See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the channel layout and
+`npm run desktop:doctor` for a one-screen status check.
 
 No API keys or database setup are required. `npm install` runs `prisma generate`,
 and first boot provisions and seeds JDDS via `scripts/doctor.js` / `prisma db push`
@@ -88,6 +93,7 @@ the licence grants use; the DCO records provenance.
 
 ## Reporting Issues
 
-- Include the browser/OS you're using
+- Include your OS, the app version and channel (Stable/Dev), and whether the
+  Python harness was running
 - Describe the expected vs. actual behavior
 - If it's a visual bug, a screenshot helps

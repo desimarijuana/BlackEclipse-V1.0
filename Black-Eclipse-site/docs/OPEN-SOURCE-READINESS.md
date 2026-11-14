@@ -67,7 +67,16 @@ git rev-list --objects --all \
 ### Recommended: publish a rewritten mirror
 
 `git filter-repo` is the maintained tool (install it separately; it is not a
-repo dependency).
+repo dependency). A helper wraps the same steps and never touches the live
+clone:
+
+```powershell
+pwsh -File scripts/scrub-public-history.ps1 -SourceUrl <private-clone-url>
+# optional: -Replacements .\replacements.txt
+```
+
+It clones a mirror to a temp directory, strips the database paths, verifies
+they are gone, and prints the push steps. It does **not** push.
 
 ```bash
 # 1. Work on a mirror, never on the live clone.
@@ -106,6 +115,8 @@ Notes:
 
 - **Every commit hash and tag changes.** Re-create annotated tags on the
   rewritten commits (`v0.4.0` etc.) rather than pushing the old tag objects.
+- **The mirror is a snapshot.** Re-run the script after the last commit you
+  intend to publish; do not push a mirror built from an earlier tree.
 - The old private repository keeps its history; do not delete it. It is the
   provenance record.
 - If a rewrite is too risky, the alternative is a **fresh repository with one
@@ -222,4 +233,5 @@ they are not discovered after launch.
 
 | Date | State | Evidence |
 |---|---|---|
-| 2026-11-14 | Scaffolding added | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `package.json` metadata, CodeQL workflow, `scripts/oss-preflight.js` (`npm run check:oss`). History still contains `jdds.db`; O1–O4 remain open. |
+| 2026-11-14 | Clean mirror produced and verified | Ran `scripts/scrub-public-history.ps1` on a mirror of this repository: `jdds.db`/`eclipse-memory.db`/`agent-memory.db` are absent from every commit, pack size fell from 79.9 MiB to 40.3 MiB, and a clone of the mirror passes `npm run check:oss` with **0 warnings** after a mailmap rewrite of the personal author email. The live private history is unchanged and must not be flipped to public. Not pushed. Remaining before push: O2 (gitleaks/trufflehog over `--all`), create the new public repository, re-create/push tags. |
+| 2026-11-14 | Scaffolding added | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `package.json` metadata, CodeQL workflow, `scripts/oss-preflight.js` (`npm run check:oss`), and the mirror-only `scripts/scrub-public-history.ps1`. Personal absolute paths were removed from the bulk importers (now `BE_IMPORT_ROOT`, default `/data/imports/`, gitignored) and the roadmap/media docs. `check:oss` now reports exactly one blocker: `jdds.db` in history (O1). O2 (history credential scan) and the history rewrite remain operator steps. |
