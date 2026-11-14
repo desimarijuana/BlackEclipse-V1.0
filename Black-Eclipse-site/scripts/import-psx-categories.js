@@ -9,7 +9,9 @@ const fs = require('fs');
 const adapter = new PrismaBetterSqlite3({ url: 'file:' + path.join(process.cwd(), 'jdds.db') });
 const prisma = new PrismaClient({ adapter });
 
-const DIR = 'C:/Users/Rafay/Desktop/Eclipse-PSX-Universe/normalized';
+const { importPath } = require('./lib/import-paths');
+
+const DIR = importPath('Eclipse-PSX-Universe', 'normalized');
 const FILES = [
   { file: '02_psx_etfs.csv', assetClass: 'ETF' },
   { file: '03_psx_reits.csv', assetClass: 'REIT' },

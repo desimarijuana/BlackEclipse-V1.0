@@ -17,8 +17,11 @@ const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_UNIVERSE = 'C:/Users/Rafay/Desktop/eclipse-crypto-data/data/output/crypto_universe_20260814_223934.jsonl';
-const DEFAULT_MARKETDATA_DIR = 'C:/Users/Rafay/Desktop/eclipse-crypto-data/data/output';
+const { importPath } = require('./lib/import-paths');
+
+// The timestamp in the sample filename is only a default; pass a path to override.
+const DEFAULT_MARKETDATA_DIR = importPath('eclipse-crypto-data', 'data', 'output');
+const DEFAULT_UNIVERSE = path.join(DEFAULT_MARKETDATA_DIR, 'crypto_universe_20260814_223934.jsonl');
 
 const adapter = new PrismaBetterSqlite3({ url: 'file:' + path.join(process.cwd(), 'jdds.db') });
 const prisma = new PrismaClient({ adapter });

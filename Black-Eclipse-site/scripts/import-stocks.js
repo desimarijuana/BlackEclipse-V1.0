@@ -12,7 +12,9 @@ const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_CSV = 'C:/Users/Rafay/Desktop/black_eclipse_assets/divided/01_ByType_Stock.csv';
+const { importPath } = require('./lib/import-paths');
+
+const DEFAULT_CSV = importPath('black_eclipse_assets', 'divided', '01_ByType_Stock.csv');
 
 // Proper CSV parser honoring double-quoted fields (may contain commas).
 function splitCsvLine(line, delimiter) {

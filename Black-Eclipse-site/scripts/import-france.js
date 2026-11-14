@@ -11,7 +11,9 @@ const fs = require('fs');
 const adapter = new PrismaBetterSqlite3({ url: 'file:' + path.join(process.cwd(), 'jdds.db') });
 const prisma = new PrismaClient({ adapter });
 
-const DEFAULT_CSV = 'C:/Users/Rafay/Desktop/market-scraping/France_Stock_Listings/france_stocks_master.csv';
+const { importPath } = require('./lib/import-paths');
+
+const DEFAULT_CSV = importPath('market-scraping', 'France_Stock_Listings', 'france_stocks_master.csv');
 
 function splitCsvLine(line, delimiter) {
   const cells = [];

@@ -29,6 +29,14 @@
   trusting the timestamp). Touching `src-tauri/tauri.conf.json` forced the
   resource rebuild and the embedded icons then decoded to the new artwork.
   docs updated: `desktop/README.md` (icon-change procedure), `docs/CHANGELOG.md`.
+- **refactor(importers): no hard-coded personal paths in the bulk importers.**
+  The `scripts/import-*.js` one-offs defaulted to an absolute path on one
+  developer's machine, which was useless elsewhere and leaked a personal
+  directory into a tree headed public. They now resolve through
+  `scripts/lib/import-paths.js`: `BE_IMPORT_ROOT` (set it to a directory that
+  mirrors the documented layout) or `./data/imports` under the app directory.
+  no doc change — one-off tooling; the helper's header documents the layout and
+  the env var.
 
 ## 2026-11-13
 - **fix(chat): the transcript cache write no longer freezes the composer on

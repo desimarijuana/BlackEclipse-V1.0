@@ -16,7 +16,9 @@ const fs = require('fs');
 const adapter = new PrismaBetterSqlite3({ url: 'file:' + path.join(process.cwd(), 'jdds.db') });
 const prisma = new PrismaClient({ adapter });
 
-const BASE = 'C:/Users/Rafay/Desktop/market-scraping/HK_Stock_Listings';
+const { importPath } = require('./lib/import-paths');
+
+const BASE = importPath('market-scraping', 'HK_Stock_Listings');
 const MASTER_CSV = path.join(BASE, 'hk_stocks_master.csv');
 const DIV_CSV = path.join(BASE, 'hk_div_yields.csv');
 

@@ -66,7 +66,9 @@ function parseCsv(text) {
 const adapter = new PrismaBetterSqlite3({ url: 'file:' + path.join(process.cwd(), 'jdds.db') });
 const prisma = new PrismaClient({ adapter });
 
-const DEFAULT_DIR = 'C:/Users/Rafay/Desktop/blackeclipse_market_universe';
+const { importPath } = require('./lib/import-paths');
+
+const DEFAULT_DIR = importPath('blackeclipse_market_universe');
 
 // Auto-discover all universe CSVs in the folder (any blackeclipse_*.csv).
 function discoverFiles(dir) {

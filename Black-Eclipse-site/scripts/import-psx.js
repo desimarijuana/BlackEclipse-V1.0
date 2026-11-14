@@ -6,7 +6,9 @@ const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_CSV = 'C:/Users/Rafay/Desktop/Eclipse-PSX-Universe/normalized/01_psx_equities.csv';
+const { importPath } = require('./lib/import-paths');
+
+const DEFAULT_CSV = importPath('Eclipse-PSX-Universe', 'normalized', '01_psx_equities.csv');
 
 function splitCsvLine(line, delimiter) {
   const cells = [];
