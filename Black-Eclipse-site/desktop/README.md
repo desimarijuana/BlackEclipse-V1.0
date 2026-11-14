@@ -232,6 +232,16 @@ checkout (`desktop:dev`) uses the machine's own interpreters and is not branded.
 The `msedgewebview2.exe` helpers are the system WebView2 runtime; their icon is
 Microsoft's, not ours.
 
+**Changing the shipped icon:** replacing `src-tauri/icons/icon.ico` alone is not
+enough — `cargo build` recompiles the crate but **does not rerun `tauri-build`'s
+resource step**, so the linked `Black Eclipse.exe` silently keeps the previous
+icon (verified: RT_ICON blobs still decode to the old artwork). Touch
+`src-tauri/tauri.conf.json` (or `cargo clean -p black-eclipse-desktop`) before
+rebuilding, then confirm the embedded resources actually changed. Windows also
+caches shell icons per path, so after swapping the exe run `npm run setup:desktop`
+(shortcut + `SHChangeNotify`) and, if Explorer still shows the old bitmap,
+restart `explorer.exe`.
+
 ## Distribution
 
 `npm run desktop:installer` writes:

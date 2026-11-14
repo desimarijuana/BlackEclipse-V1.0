@@ -1,6 +1,54 @@
 # Change Log
 
+## 2026-11-14
+- **docs(oss): public-release readiness surface and preflight.** Added the root
+  community files a public repository needs (`CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, issue/PR templates), `repository`/`homepage`/`bugs` in
+  `package.json`, a free `CodeQL` workflow, and `scripts/oss-preflight.js`
+  (`npm run check:oss`). The preflight is deliberately **not** in `check:all`:
+  it fails on history hygiene, and this tree still carries `jdds.db` blobs in old
+  commits. Added `docs/OPEN-SOURCE-READINESS.md` as the owning doc for the
+  history scrub, publication-day checklist and legal/IP review, and updated the
+  root README to `v0.4.0` with the measured `task_success 0.9748` gate.
+  docs updated: `docs/OPEN-SOURCE-READINESS.md`, `docs/NAVIGATION.md`,
+  `docs/README.md`, `docs/CHANGELOG.md`.
+- **brand(desktop): new app icon.** Replaced the desktop shell icon with the
+  refreshed BlackEclipse mark (`ICON-LOGO-DESKTOP.svg`: dark radial tile,
+  silver-gradient eclipse glyph, rounded card edge). Regenerated
+  `desktop/src-tauri/icons/icon.ico` (16/24/32/48/64/128/256, 32-bit DIB entries)
+  and `desktop/src-tauri/icons/icon.png` (512) — the pair Tauri embeds in
+  `Black Eclipse.exe` and uses for the window/tray icon — plus
+  `public/branding/black-eclipse.ico`, which `scripts/brand-runtime.js` stamps
+  onto the packaged Node/Python runtime executables. Rasterised from the SVG with
+  `sharp`; no dependency added. The installed shell only picks the new resource
+  up after a Rust rebuild (`npm run desktop:build`) and a reinstall/shortcut
+  refresh (`npm run setup:desktop` re-runs the icon-cache flush).
+  **Gotcha found while applying it:** `cargo build` recompiled the crate but did
+  not rerun `tauri-build`'s resource step, so the "new" exe was byte-different
+  and still embedded the OLD RT_ICON blobs (confirmed by decoding them, not by
+  trusting the timestamp). Touching `src-tauri/tauri.conf.json` forced the
+  resource rebuild and the embedded icons then decoded to the new artwork.
+  docs updated: `desktop/README.md` (icon-change procedure), `docs/CHANGELOG.md`.
+
 ## 2026-11-13
+- **fix(chat): the transcript cache write no longer freezes the composer on
+  every turn.** Root cause of the "it stops for 10–15 s when I send, then stops
+  again when the reply appears" report: `saveConversationsCache` removed ONE
+  conversation per attempt and re-serialized the whole (barely smaller) list each
+  time. It runs on the main thread 400 ms after every transcript change — i.e.
+  exactly at send and at reply — so once the history passed the ~5 MB
+  localStorage quota the eviction was O(n²) `JSON.stringify`: seconds of frozen
+  UI, twice per turn, growing with history (this install holds 234 chats /
+  19.3k messages). It now serializes each conversation once and binary-searches
+  the smallest eviction that fits, so the cost is O(n) serialization + O(log n)
+  `setItem` calls regardless of how far over quota the list is. Payload bytes are
+  unchanged (`[` + pre-serialized rows + `]` is exactly `JSON.stringify(list)`),
+  and the eviction order (trashed → archived → oldest unpinned) and return value
+  are preserved. Test `chat-organization.test.ts` pins the write count to
+  ≤ ceil(log2 n)+1 for a 2 000-chat over-quota list (the old loop made ~2 000 full
+  re-serializations). `npx tsc --noEmit`, vitest 524 files / 4 831 tests.
+  no doc change — behaviour-preserving performance fix; the cache contract is
+  already described in `docs/chat-ui-audit.md`.
 - **fix(skills): `/skills run` now sends the skill's input.** The command called
   `executeSkill` with no `input`, so every skill with a required input — including
   EVERY user-authored skill, whose schema requires `objective` — was blocked by the
@@ -3615,39 +3663,3 @@
   without changing behaviour. Docs updated: `CONTRIBUTING.md`,
   `docs/CHANGELOG.md`.
 
-## 2026-11-07
-- **feat(decisions): typed decision models (System One-shaped) as a first-class
-  layer.** New `python/harness/decisions/` asks closed `choice` / `score` /
-  `noul` questions about a `state` and returns typed answers with probabilities
-  and confidence — deliberately NOT a chat provider (no messages/tools/
-  streaming). Ships the deterministic rule provider (fully offline), a
-  fail-closed `DecisionPolicy` (`answered` / `review` / `unavailable`), a
-  privacy-gated provider registry, and an immutable `DecisionRecord` /
-  `DecisionOutcome` audit on `agent-memory.db`. Read-only tools
-  `decision_ask`/`decision_list`/`decision_scorecard` are wired through
-  `AgenticService` → `execute_run` → `ToolContext.decision_service` and the
-  Eclipse agent allowlist. A partial/mistyped answer, a provider error or no
-  provider is `unavailable`, never a guess. TypeSafe/Jev and LLM adapters are
-  additive next; no remote provider is installed implicitly. Docs:
-  `docs/decision-models.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
-  `docs/DECISIONS.md`, ADR-070, `docs/CHANGELOG.md`.
-- **docs(legal): add the Legal, Compliance & Risk Management Blueprint.** New
-  `docs/legal/LEGAL-COMPLIANCE-BLUEPRINT.md` covers the entity/IP structure,
-  US/UK/EU/Pakistan regulatory characterisation, AI and financial disclaimers,
-  automated-trading responsibility and existing broker controls (arming,
-  per-order approval, typed phrase, risk limits, kill switch, bounded mandates,
-  reconciliation, audit), privacy/security, MIT vs Apache/AGPL and DCO vs CLA,
-  the capability/consent matrix, the document register, incident/dispute
-  handling, and a costed 90-day roadmap. `docs/legal/README.md` is the document
-  register and status board. The core position: Eclipse is self-directed
-  research and order-entry software; the user owns the decision and the account,
-  and no disclaimer is treated as immunity. NAVIGATION gets a legal trigger row.
-  Docs: `docs/legal/LEGAL-COMPLIANCE-BLUEPRINT.md`,
-  `docs/legal/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **fix(changelog): rotation keeps the archive's line endings.** `2026-10-31`
-  pushed `CHANGELOG.md` to 8 dated sections, so the active window was rotated
-  into `docs/changelog/2026-10.md` with `npm run rotate:changelog`. The script
-  appended an LF block to a CRLF archive, producing a file with mixed endings
-  and failing `gitignore-guard`'s "no tracked text file mixes CRLF and bare LF"
-  contract (measured: 20,628 CRLF + 205 LF). It now normalizes the merged block
-  to the target's dominant ending. no doc change — tooling fix, policy unchanged.
