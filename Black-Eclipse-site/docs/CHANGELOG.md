@@ -3,7 +3,7 @@
 ## 2026-11-14
 - **security(oss): remove the remaining machine-local paths and personal
   address.** Deleted the generated `media/blackeclipse-launch/.hyperframes/`
-  tree (29 tracked capture/cache files that embedded `C:\Users\...`) and
+  tree (29 tracked capture/cache files that embedded absolute user-profile paths) and
   gitignored `**/.hyperframes/`; replaced the absolute temp path in three
   `docs/harness/baselines/*.json` evidence files with `<tmp>`; removed the
   personal address from `install-git-hooks.js` (extra addresses now come from
