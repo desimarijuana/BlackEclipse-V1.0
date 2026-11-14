@@ -375,7 +375,7 @@
   ],
   "version": 1,
   "window": {
-    "db": "C:\\Users\\MSI\\AppData\\Local\\Temp\\be-w0-soak-r6b1bosp\\agent-memory.db",
+    "db": "<tmp>\\be-w0-soak-r6b1bosp\\agent-memory.db",
     "source": "w0-soak"
   }
 }

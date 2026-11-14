@@ -158,11 +158,12 @@ if (historySecrets.length > 0) {
 // Absolute home-directory paths in tracked text files. These leak a username
 // and often a project name; they are not credentials, but they do not belong in
 // a public tree.
-// The ERE needs `\\` (two characters) to match one literal backslash.
-const personalPathPattern = String.raw`([A-Za-z]:\\Users\\|/Users/)[A-Za-z0-9._-]+`;
+// Match one or two literal backslashes (plain text and JSON-escaped paths).
+const personalPathPattern = String.raw`([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}|/Users/)[A-Za-z0-9._-]+`;
 // Obvious fixtures/placeholders are not leaks. `msi` is matched
 // case-sensitively so a test fixture does not hide a real `MSI` path.
-const placeholderUser = /[\\/]Users[\\/](me|x|msi|user|username|Public|test|example)(?![A-Za-z0-9._-])/;
+const placeholderUser =
+  /[\\/]{1,2}Users[\\/]{1,2}(me|x|msi|user|username|Public|test|example)(?![A-Za-z0-9._-])/;
 const personalPathHits = [
   ...new Set(
     safeGit(["grep", "-I", "-n", "-E", personalPathPattern, "--", "."])

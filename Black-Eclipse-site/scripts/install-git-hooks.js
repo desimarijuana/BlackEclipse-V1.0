@@ -39,9 +39,14 @@ const HOOKS_DIR = path.join(ROOT, ".githooks");
 const CANONICAL_NAME = "desimarijuana";
 const CANONICAL_EMAIL = "121116805+desimarijuana@users.noreply.github.com";
 // Addresses known to produce uncredited commits. Replaced automatically.
+// Keep personal addresses OUT of the repository: supply them locally instead,
+// comma-separated, e.g. GIT_COMMIT_BAD_EMAILS="old@example.com,other@example.com".
 const KNOWN_BAD_EMAILS = new Set([
-  "arkg03@gmail.com",
   "user@blackeclipse.com",
+  ...(process.env.GIT_COMMIT_BAD_EMAILS || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
 ]);
 
 function git(args, opts = {}) {

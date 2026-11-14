@@ -1,6 +1,15 @@
 # Change Log
 
 ## 2026-11-14
+- **security(oss): remove the remaining machine-local paths and personal
+  address.** Deleted the generated `media/blackeclipse-launch/.hyperframes/`
+  tree (29 tracked capture/cache files that embedded `C:\Users\...`) and
+  gitignored `**/.hyperframes/`; replaced the absolute temp path in three
+  `docs/harness/baselines/*.json` evidence files with `<tmp>`; removed the
+  personal address from `install-git-hooks.js` (extra addresses now come from
+  `GIT_COMMIT_BAD_EMAILS`); widened the `check:oss` path detector to catch
+  JSON-escaped backslashes. The history scrub replacements now cover the old
+  `MSI`/`Rafay` paths as well. docs updated: `docs/CHANGELOG.md`.
 - **security(oss): scan and scrub leaked tokens from public history.** A
   `gitleaks 8.30.1` scan over `--all` on the scrubbed mirror found two real
   hardcoded service tokens in old commits (neither is present at HEAD). Both

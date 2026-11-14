@@ -23,3 +23,7 @@ node_modules/
 # (`.black-eclipse/channels/secret.key` is a generated channel-encryption key).
 # Never commit it; the app's own directory has its own `/.black-eclipse/` rule.
 /.black-eclipse/
+
+# HyperFrames generated project state and capture cache. It embeds absolute
+# machine paths, so it is runtime data and is never committed.
+**/.hyperframes/
