@@ -62,9 +62,9 @@ All commands run from `Black-Eclipse-site/`.
 ### G1 — `./scripts/vendor/python/python.exe -m pytest python/tests/test_source_authority.py -v`
 
 ```
-platform win32 -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\MSI\Documents\Default Project\black eclipse\Black-Eclipse-site\scripts\vendor\python\python.exe
+platform win32 -- Python 3.12.8, pytest-9.1.1, pluggy-1.6.0 -- <repo>\Black-Eclipse-site\scripts\vendor\python\python.exe
 cachedir: .pytest_cache
-rootdir: C:\Users\MSI\Documents\Default Project\black eclipse\Black-Eclipse-site\python
+rootdir: <repo>\Black-Eclipse-site\python
 configfile: pytest.ini
 plugins: anyio-4.15.1, langsmith-0.13.0, asyncio-1.4.0
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function

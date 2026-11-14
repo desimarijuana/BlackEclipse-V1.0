@@ -8,7 +8,7 @@ research a market move, run a chosen bot, apply a skill, build a workflow,
 produce a chart, and inspect the evidence behind the answer.
 
 **Production rule:** Use real captures from the installed Black Eclipse desktop
-app at `C:\Users\MSI\AppData\Local\Programs\BlackEclipse\Black Eclipse.exe`.
+app at `%LOCALAPPDATA%\Programs\BlackEclipse\Black Eclipse.exe`.
 Do not recreate product UI from memory. If a surface is not capturable, label it
 on screen as `SCREENSHOT NEEDED: <surface>` rather than drawing an invented panel.
 

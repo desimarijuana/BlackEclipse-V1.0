@@ -320,7 +320,7 @@ traversal is stopped:
 Copy the raw output of the gate into the progress log. The exact commands:
 
 ```bash
-cd "C:/Users/MSI/Documents/Default Project/black eclipse/Black-Eclipse-site"
+cd "<repo>/Black-Eclipse-site"
 npm run check:all
 git status --short
 ```

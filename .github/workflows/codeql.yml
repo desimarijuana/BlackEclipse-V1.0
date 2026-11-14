@@ -1,0 +1,50 @@
+name: CodeQL
+
+# Free for public repositories. This is deliberately a separate workflow: it
+# does not block a pull request (the release gate in ci.yml does that), it finds
+# the classes of bug a test suite misses.
+#
+# WHY: an agent with shell, browser and filesystem tools is only as safe as the
+# code around it. Code scanning runs on every push to main, every PR, and weekly
+# so a newly disclosed query still finds an old problem.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "24 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript", "python"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

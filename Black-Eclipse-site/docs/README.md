@@ -26,6 +26,7 @@ wants to understand the system — not for the compiler.
 | 6 | [DECISIONS.md](./DECISIONS.md) | Why is it built this way? (ADRs) |
 | 7 | [GLOSSARY.md](./GLOSSARY.md) | What does this word mean here? |
 | 8 | [CHANGELOG.md](./CHANGELOG.md) | What changed recently, and were the docs updated? |
+| 9 | [OPEN-SOURCE-READINESS.md](./OPEN-SOURCE-READINESS.md) | Is the repository safe to make public? (readiness, not an intro) |
 
 Related, outside this folder: [`../README.md`](../README.md) (project intro),
 [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (dev setup), and

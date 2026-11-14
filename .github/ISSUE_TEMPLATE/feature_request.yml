@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a capability, improvement, or documentation change.
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the need, not just the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Market data / JDDS
+        - Portfolio / journal / trading
+        - Agent runtime / tools / skills
+        - Desktop shell / packaging
+        - UI / UX
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      options:
+        - label: This does not require a hosted website lane to be restored.
+        - label: This does not fabricate or relabel simulated financial data.
+        - label: I am willing to open a pull request.

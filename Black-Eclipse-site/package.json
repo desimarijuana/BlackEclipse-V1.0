@@ -3,6 +3,14 @@
   "version": "0.4.0",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/desimarijuana/BlackEclipse-V1.0.git"
+  },
+  "homepage": "https://github.com/desimarijuana/BlackEclipse-V1.0#readme",
+  "bugs": {
+    "url": "https://github.com/desimarijuana/BlackEclipse-V1.0/issues"
+  },
   "bin": {
     "black": "bin/black.js",
     "eclipse": "scripts/eclipse.js"
@@ -100,6 +108,7 @@
     "update:sign": "node scripts/update-sign.js",
     "security:preflight": "node scripts/security-preflight.js",
     "check:all": "node scripts/check-all.js",
+    "check:oss": "node scripts/oss-preflight.js",
     "desktop:refresh": "node scripts/desktop-refresh.js"
   },
   "engines": {

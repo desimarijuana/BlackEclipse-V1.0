@@ -59,16 +59,20 @@ Start reading at
 
 ## Production use
 
-The current release is **`v0.3.0`**, a production release for a
-**single-operator self-hosted** instance — not a hosted multi-tenant service.
-See [`Black-Eclipse-site/docs/releases/v0.3.0.md`](Black-Eclipse-site/docs/releases/v0.3.0.md)
-for the verification record and
-[`Black-Eclipse-site/docs/DEPLOYMENT.md`](Black-Eclipse-site/docs/DEPLOYMENT.md)
-for deployment, backups, monitoring and incident handling.
+The current release is **`v0.4.0`**, for **single-operator, self-hosted** use on
+the native desktop app — not a hosted multi-tenant service. See the
+[harness release record](Black-Eclipse-site/docs/harness/releases/v0.4.0/RELEASE.md)
+and the
+[production-readiness roadmap](Black-Eclipse-site/docs/PRODUCTION-READINESS.md),
+which lists the gates that are still open (the interrupted soak window and the
+external inputs only an operator can supply).
 
-The live agent benchmark is published honestly: `task_success 0.8520` on the
-live-eligible tasks, below the **0.9 target**. The target is unchanged; the
-release ships on a recorded, version-scoped floor (ADR-071 / ADR-H347).
+The live agent benchmark is published honestly: `task_success 0.9748`,
+`financial_accuracy 0.9963`, `citation_accuracy 1.0000`, `hallucination_rate
+0.0000` on the live-eligible tasks, gate **PASS** (run
+`evalrun-1794281772755`, pinned `live:27c280164943e63520e14422a6c953cf`). The
+0.9 target is unchanged and the measured run is reproducible; older releases
+shipped on a recorded, version-scoped floor (ADR-071 / ADR-H347).
 
 ## Contributing
 
