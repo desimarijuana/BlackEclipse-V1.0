@@ -161,7 +161,7 @@ if (historySecrets.length > 0) {
 // Match one or two literal backslashes (plain text and JSON-escaped paths).
 const personalPathPattern = String.raw`([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}|/Users/)[A-Za-z0-9._-]+`;
 // Obvious fixtures/placeholders are not leaks. `msi` is matched
-// case-sensitively so a test fixture does not hide a real `MSI` path.
+// case-sensitively so a test fixture does not hide a real uppercase user path.
 const placeholderUser =
   /[\\/]{1,2}Users[\\/]{1,2}(me|x|msi|user|username|Public|test|example)(?![A-Za-z0-9._-])/;
 const personalPathHits = [

@@ -343,8 +343,8 @@ def test_consolidation_supersedes_a_contradiction_to_the_later_statement(tmp_pat
 def test_consolidation_removes_a_near_duplicate_without_a_subject(tmp_path):
     store = EclipseMemoryStore(os.path.join(str(tmp_path), "mem3.db"))
     first = store.save_memory(
-        memory_type="semantic", scope="user", subject="bubu",
-        content='User Rafay\'s "bubu" is Maimoona.', created_by="u1",
+        memory_type="semantic", scope="user", subject="nickname",
+        content='User Alex\'s "nickname" is Sam.', created_by="u1",
     )
     store._db.execute(
         "UPDATE MemoryRecord SET createdAt='2026-01-01T00:00:00.000Z', "
@@ -354,7 +354,7 @@ def test_consolidation_removes_a_near_duplicate_without_a_subject(tmp_path):
     store._db.commit()
     second = store.save_memory(
         memory_type="semantic", scope="user", subject=None,
-        content="my bubu is maimoona", created_by="u1",
+        content="my nickname is sam", created_by="u1",
     )
     report = consolidate_active(store)
     assert report["duplicateCount"] == 1
@@ -400,11 +400,11 @@ def test_consolidation_removes_an_exact_duplicate(tmp_path):
     store = EclipseMemoryStore(os.path.join(str(tmp_path), "mem2.db"))
     first = store.save_memory(
         memory_type="semantic", scope="global", subject="identity",
-        content="bubu is Maimoona", created_by="u1",
+        content="nickname is Sam", created_by="u1",
     )
     second = store.save_memory(
         memory_type="semantic", scope="global", subject="identity",
-        content="bubu is Maimoona", created_by="u1",
+        content="nickname is Sam", created_by="u1",
     )
     report = consolidate_active(store)
     assert report["duplicateCount"] == 1

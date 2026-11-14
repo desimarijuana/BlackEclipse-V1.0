@@ -9,7 +9,7 @@
   personal address from `install-git-hooks.js` (extra addresses now come from
   `GIT_COMMIT_BAD_EMAILS`); widened the `check:oss` path detector to catch
   JSON-escaped backslashes. The history scrub replacements now cover the old
-  `MSI`/`Rafay` paths as well. docs updated: `docs/CHANGELOG.md`.
+  personal paths as well. docs updated: `docs/CHANGELOG.md`.
 - **security(oss): scan and scrub leaked tokens from public history.** A
   `gitleaks 8.30.1` scan over `--all` on the scrubbed mirror found two real
   hardcoded service tokens in old commits (neither is present at HEAD). Both
