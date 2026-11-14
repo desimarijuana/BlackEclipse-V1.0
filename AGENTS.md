@@ -101,8 +101,12 @@ If docs and code disagree, **the code wins** — then fix the doc.
   fake agent.
 - **Never commit, push, or open a PR unless the user explicitly asks.** When
   asked, inspect `git status`/`git diff` first and never commit secrets.
-- **Do not commit `jdds.db` on routine changes** — it is a seed snapshot updated
-  deliberately, rarely. See `.opencode/skills/black-eclipse-db/SKILL.md`.
+- **Never commit `jdds.db`.** It is untracked runtime data for every channel
+  (git ignores `*.db`); real broker trades and the personal vault must never ship.
+  Fresh clones and installers stay populated through generated seeding instead
+  (schema via `prisma db push`, demo journal via `src/lib/journal/demo.ts`,
+  installer seed via `scripts/lib/seed-db.js`). See
+  `.opencode/skills/black-eclipse-db/SKILL.md`.
 - **Reuse before rebuild.** Prefer existing components, hooks, and services.
 - **Keep files small.** Memory is the top constraint on this machine; do not
   re-bloat large files.

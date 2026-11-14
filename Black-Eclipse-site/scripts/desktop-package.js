@@ -25,6 +25,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { ensureNode } = require("./desktop-runtime");
+const { ensureSeedDatabase } = require("./lib/seed-db");
 
 const ROOT = path.join(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next-desktop", "standalone");
@@ -189,38 +190,9 @@ function prunePycache(dir) {
 const pycache = prunePycache(path.join(APP, "scripts", "vendor", "python"));
 console.log(`  pruned ${pycache} __pycache__ directories`);
 
-// 5c. Schema-only seed database. Without it a first run creates an empty file
-// with no tables and every query fails. Generated from the Prisma schema here,
-// so no binary database is committed to git.
-function ensureSeedDatabase() {
-  const seedDir = path.join(APP, "seed");
-  const seedDb = path.join(seedDir, "jdds.db");
-  if (fs.existsSync(seedDb)) {
-    console.log("  seed database: already present");
-    return;
-  }
-  fs.mkdirSync(seedDir, { recursive: true });
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "be-seed-"));
-  const result = spawnSync(
-    process.execPath,
-    [
-      path.join(ROOT, "node_modules", "prisma", "build", "index.js"),
-      "db",
-      "push",
-      "--schema=prisma/schema.prisma",
-    ],
-    { cwd: ROOT, env: { ...process.env, BE_DATA_DIR: tmp }, stdio: "inherit" }
-  );
-  const generated = path.join(tmp, "jdds.db");
-  if (result.status !== 0 || !fs.existsSync(generated)) {
-    fail("Could not generate the seed database (prisma db push failed).");
-  }
-  fs.copyFileSync(generated, seedDb);
-  fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(`  seed database: ${(fs.statSync(seedDb).size / 1024 / 1024).toFixed(1)} MB`);
-}
-
-ensureSeedDatabase();
+// 5c. First-run seed database: schema + the shared demo journal, so a packaged
+// install opens populated instead of empty. See scripts/lib/seed-db.js.
+ensureSeedDatabase({ appDir: APP, rootDir: ROOT, fail });
 
 // 5d. Permanent junk: tests, metadata and caches that never run at runtime.
 // Removing them cannot change behaviour — they are not imported.

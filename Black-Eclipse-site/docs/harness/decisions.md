@@ -72,10 +72,11 @@ Adding a provider is one entry (+ a requirements line for native integrations).
 **Decision.** Runs, events, tool executions, agent memory and skills live in
 `agent-memory.db`, not `jdds.db`.
 
-**Why.** JDdS is the committed seed snapshot with a monthly-update discipline;
-harness state is high-churn operational data. Separation prevents write
-contention and keeps the snapshot stable, and gives user/skill data its own
-lifecycle.
+**Why.** JDdS is high-value shared market data; harness state is high-churn
+operational data. Separation prevents write contention and keeps user/skill data
+on its own lifecycle. (Originally the split also protected a committed seed
+snapshot; `jdds.db` is untracked runtime data now, so the snapshot discipline is
+obsolete — see `docs/GLOSSARY.md` under **Seed**.)
 
 **Consequences.** Two DB files at the project root; `agent-memory.db*` is
 gitignored. No Prisma migration — idempotent DDL on first use.

@@ -1,7 +1,7 @@
 ---
 title: Glossary
 status: Current
-last-verified: 2026-09-18
+last-verified: 2026-11-14
 ---
 
 # Glossary
@@ -192,8 +192,12 @@ environment before `dev`/`up` runs.
 **`db-guard`** — the script (`scripts/db-guard.js`) that sets SQLite durability
 PRAGMAs and takes rolling backups.
 
-**Seed snapshot** — the committed `jdds.db` that ships real data to fresh clones.
-Deliberately updated rarely; never re-committed casually.
+**Seed** — the database a fresh clone or install starts from. It is **generated, not
+committed**: `scripts/doctor.js` / the installer create the schema with
+`prisma db push`, then the demo journal seeder (`src/lib/journal/demo.ts`) fills
+it with rows tagged `source:'demo'`. `scripts/lib/seed-db.js` bakes the same
+schema + demo rows into a packaged installer's `app/seed/jdds.db`. `jdds.db`
+itself is untracked runtime data.
 
 **Capability matrix** — the truthful, per-market breakdown of what the system can
 actually do (`src/lib/harness/capability.ts`): recognition, searchable universe,

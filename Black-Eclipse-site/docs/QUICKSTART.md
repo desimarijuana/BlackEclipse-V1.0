@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-14
 ---
 
 # Quickstart
@@ -224,11 +224,19 @@ transitions are also recorded as durable notifications (`GET
 
 ## Where your data lives
 
-Everything persistent is in **one file**: `Black-Eclipse-site/jdds.db` (SQLite,
-WAL side-files ignored by git). The committed `jdds.db` is a **seed snapshot** —
-new clones get real markets without scraping. See
-[`../.opencode/skills/black-eclipse-db/SKILL.md`](../../.opencode/skills/black-eclipse-db/SKILL.md)
-for the rules (never re-commit it casually; checkpoint WAL before committing it).
+Everything persistent is in **one file**: `jdds.db` (SQLite, WAL side-files
+alongside it). It is **runtime data and untracked** — git ignores `*.db`, so no
+vault ever travels with the source. The live path resolves through
+`src/lib/db.ts` (`BE_DB_PATH` → `BE_DATA_DIR` → the channel data dir, e.g.
+`Black-Eclipse-site/.black-eclipse/dev/jdds.db`).
+
+A fresh clone is never empty: `doctor.js` creates the schema, and the boot hook
+seeds a **demo** journal (~88 trades, `source:'demo'`, one-time marker, removable
+from the Journal UI). A packaged installer additionally ships
+`app/seed/jdds.db` containing that same schema + demo dataset, built by
+`scripts/lib/seed-db.js`. Rolling backups land in `backups/` and are ignored. See
+[`../../.opencode/skills/black-eclipse-db/SKILL.md`](../../.opencode/skills/black-eclipse-db/SKILL.md)
+for the rules (never stage a `.db`; real broker data never ships).
 
 ## Common first-run questions
 

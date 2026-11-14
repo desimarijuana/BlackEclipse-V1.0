@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-14
+- **fix(desktop): installers ship a populated seed, not an empty one.** The
+  packaged `app/seed/jdds.db` was schema-only, so a first run opened an empty
+  journal until the boot hook fired. `scripts/lib/seed-db.js` (new) generates the
+  schema, runs the *shared* demo seeder (`scripts/seed-journal.ts` →
+  `src/lib/journal/demo.ts`), checkpoints WAL, and verifies `source:'demo'` rows
+  before copying — packaged installs now open with ~88 labelled demo trades. It
+  also regenerates a stale schema-only seed left by an earlier build (early-exit
+  only when demo rows already exist) and clears an inherited `BE_DB_PATH` so the
+  developer's own vault can never be baked into a release. No database is
+  committed; real `source:'broker'` data still never ships. docs updated:
+  `docs/QUICKSTART.md`, `docs/GLOSSARY.md`, `docs/harness/decisions.md` (ADR-H5
+  rationale), `AGENTS.md`, `.opencode/skills/black-eclipse-db/SKILL.md`,
+  `docs/CHANGELOG.md`.
 - **security(oss): remove the remaining machine-local paths and personal
   address.** Deleted the generated `media/blackeclipse-launch/.hyperframes/`
   tree (29 tracked capture/cache files that embedded absolute user-profile paths) and
