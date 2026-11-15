@@ -4,7 +4,9 @@
 
 **Research. Analyze. Build. Automate. Trade.**
 
-[![Download for Windows](.github/assets/download-windows.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe)
+[![Download for Windows](.github/assets/download-windows.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) [![Download for Linux](.github/assets/download-linux.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) [![Download for macOS](.github/assets/download-macos.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg)
+
+<sub>Windows 10/11 (x64) · Linux (amd64, `.deb`) · macOS (Apple silicon, `.dmg`) — Linux and macOS builds are **not** notarised or code-signed yet, so expect a Gatekeeper warning. All installers are unsigned; [verify the SHA-256](#install) or browse [all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).</sub>
 
 ![Core license: MIT](https://img.shields.io/badge/core%20license-MIT-green)
 ![Pine engine: AGPL-3.0-only](https://img.shields.io/badge/pine%20engine-AGPL--3.0--only-orange)
@@ -165,7 +167,11 @@ npm install              # also provisions the Python agent runtime
 npm run desktop:refresh  # build + open the desktop app (port 3100)
 ```
 
-Or take the [installer](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest).
+Or take the installer for your platform — [Windows](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) ·
+[Linux](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) ·
+[macOS](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) ·
+[all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).
+
 No account and no manual database setup. First boot provisions and seeds the local
 vault and starts the agent runtime. To use a model, either add a key for a
 supported hosted provider or configure a local Ollama provider in
@@ -174,8 +180,8 @@ supported hosted provider or configure a local Ollama provider in
 | Platform | Artifact | Signing |
 |---|---|---|
 | Windows 10/11 (x64) | `BlackEclipse-Setup.exe` (NSIS) | unsigned |
-| Linux (x64) | `BlackEclipse-linux-*.deb` | unsigned |
-| macOS | `BlackEclipse-mac-*.dmg` | unsigned — no Apple Developer certificate is configured, so Gatekeeper will warn |
+| Linux (amd64) | `BlackEclipse-linux-amd64.deb` | unsigned |
+| macOS (Apple silicon) | `BlackEclipse-mac-arm64.dmg` | unsigned — no Apple Developer certificate is configured, so Gatekeeper will warn |
 
 **Verify before you run it.** The installers are unsigned, so every release
 publishes `SHA256SUMS.txt` next to the binaries. Check the file you downloaded:

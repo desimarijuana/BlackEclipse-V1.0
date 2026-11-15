@@ -39,6 +39,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **feat(readme): Linux and macOS download buttons.** The page had one button for
+  Windows plus a table nobody scrolls to. It now carries three, each pinned to the
+  version-independent alias from the download contract (`BlackEclipse-Setup.exe`,
+  `BlackEclipse-linux-amd64.deb`, `BlackEclipse-mac-arm64.dmg`) with a one-line
+  platform/signing note and an "all releases" fallback. Windows stays lime; the
+  other two are dark so the default path still reads as the default. macOS keeps
+  the architecture in the name on purpose - only one arch is built per runner and
+  handing an Intel Mac an arm64 build is worse than making the choice visible.
+  Both SVGs are shape-only (no fonts, no network refs) so they render through an
+  `<img>` on GitHub. `desktop-release.yml` now asserts each exact alias exists and
+  fails the release instead of publishing a button that 404s; it previously only
+  globbed `BlackEclipse-linux-*.deb` while the button was pinned to `-amd64`.
+  docs updated: `docs/public-readme.md` (three-button contract table),
+  `docs/CHANGELOG.md`.
 - **docs(launch): record the four blocked launch items with an owner each.**
   `docs/public-readme.md` §6 went from "two things that are not finished" to a
   four-row table naming who can actually close each one (social preview: web UI

@@ -156,9 +156,23 @@ cd Black-Eclipse-site
 node -e "require('sharp')('../.github/assets/social-card.svg',{density:144}).resize(1280,640).png().toFile('../.github/assets/social-card.png')"
 ```
 
-`.github/assets/download-windows.svg` is the README's download button. It must
-keep pointing at the version-independent release alias
-`releases/latest/download/BlackEclipse-Setup.exe` — never a versioned filename.
+`.github/assets/download-windows.svg`, `download-linux.svg` and
+`download-macos.svg` are the README's three download buttons. Each is pinned to a
+**version-independent** release alias, because `releases/latest/download/<name>`
+is the only link that survives a version bump:
+
+| Button | Stable name | Produced by |
+|---|---|---|
+| Windows | `BlackEclipse-Setup.exe` | `scripts/desktop-installer.js` |
+| Linux (amd64) | `BlackEclipse-linux-amd64.deb` | `scripts/desktop-bundle.js` (`buildDeb`) |
+| macOS (Apple silicon) | `BlackEclipse-mac-arm64.dmg` | `scripts/desktop-bundle.js` (`buildMac`) |
+
+Never point a button at a versioned filename. macOS keeps the architecture in the
+name because only one arch is produced per runner and an Intel Mac cannot launch an
+arm64 build. `.github/workflows/desktop-release.yml` asserts each alias exists and
+fails the release rather than publishing a button that 404s; if a runner's
+architecture ever changes, update the SVG **and** the README link in the same
+commit.
 
 ## 6. What is not finished, and who can do it
 

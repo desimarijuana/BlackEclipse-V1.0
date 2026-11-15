@@ -151,8 +151,11 @@ jobs:
         shell: bash
         run: |
           npm run desktop:bundle
-          # The README's Linux button links to this exact name.
           ls -l dist/BlackEclipse-linux-*.deb
+          # The README button is pinned to this exact name. If the runner arch
+          # ever changes, fail here rather than publish a release whose button
+          # 404s - update download-linux.svg and the README link together.
+          test -f dist/BlackEclipse-linux-amd64.deb
 
       - name: Build the macOS app and dmg
         if: matrix.os == 'macos-latest'
@@ -160,8 +163,10 @@ jobs:
         shell: bash
         run: |
           npm run desktop:bundle
-          # The README's macOS button links to this exact name.
           ls -l dist/BlackEclipse-mac-*.dmg
+          # The README button is pinned to the Apple-silicon name on purpose:
+          # an Intel Mac cannot launch an arm64 build, so the choice is explicit.
+          test -f dist/BlackEclipse-mac-arm64.dmg
 
       # --- runtime smoke: a binary that compiles is not an app that runs ------
       - name: Smoke test (Windows)
