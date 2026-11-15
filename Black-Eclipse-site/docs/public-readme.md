@@ -160,12 +160,35 @@ node -e "require('sharp')('../.github/assets/social-card.svg',{density:144}).res
 keep pointing at the version-independent release alias
 `releases/latest/download/BlackEclipse-Setup.exe` — never a versioned filename.
 
-## 6. Two things that are not finished
+## 6. What is not finished, and who can do it
 
-| # | Open item | Effect on the README |
-|---|---|---|
-| L1 | `black-eclipse-harness` is **not on PyPI** (`docs/harness/roadmap/round-4-gap-closure.md` O6: "declarable, not installable") | The install block shows the source install and says "PyPI release pending". When it publishes, replace the source line with `pip install black-eclipse-harness` and delete the note. `.github/workflows/publish-harness.yml` does the publish on a version tag. |
-| L2 | The public repository URL does not exist yet; `origin` is private, and `pyproject.toml` points at `github.com/black-eclipse/black-eclipse` | Every link uses the current `origin`. Rewrite them in one pass when the public repository is created — never mix the two. |
+| # | Open item | Who can do it | Effect on the README |
+|---|---|---|---|
+| L1 | Social preview image | **A person, in the web UI.** GitHub exposes no API for it: Repository → Settings → Social preview → upload `.github/assets/social-card.png` (1280×640, already on `main`). | None on the text; without it, link previews show a generic avatar. |
+| L2 | Dashboard, Journal, Graph Studio and Bots figures | **A person, with the app open** (one command). `node scripts/capture-readme-shots.js` against a running, seeded install. | Four table rows sit behind an HTML comment in the README waiting for the PNGs. |
+| L3 | `black-eclipse-harness` is **not on PyPI** (`docs/harness/roadmap/round-4-gap-closure.md` O6: "declarable, not installable") | **A person, with a PyPI token.** `.github/workflows/publish-harness.yml` publishes on a version tag once `PYPI_API_TOKEN` exists. | The install block shows the source install and says "PyPI release pending". When it publishes, replace the source line with `pip install black-eclipse-harness` and delete the note. |
+| L4 | The public repository URL does not exist yet; `origin` is private, and `pyproject.toml` points at `github.com/black-eclipse/black-eclipse` | **A product decision + a history rewrite.** `docs/OPEN-SOURCE-READINESS.md` explains why the private repo must not simply be flipped public. | Every link uses the current `origin`. Rewrite them in one pass when the public repository is created — never mix the two. |
+
+### Why the four screenshots keep failing (do not retry blindly)
+
+Five capture attempts on 2026-11-15, each against a **copy** of a real vault
+(55,714 prices, 20 workflows, 13 automations), all rejected. What happens:
+
+1. A vault whose prices are days old is correct to render
+   `LIVE PRICES UNAVAILABLE`; the widgets stay on `Loading…`.
+2. Forcing a real refresh through `POST /api/refresh` works but takes **~290
+   seconds** for the US market and blocks the Node event loop hard enough that the
+   dev server stops answering for ~100 seconds afterwards (node-cron logs missed
+   executions).
+3. `?tab=<id>` deep links are unreliable on a cold dev load — `?tab=dashboard`
+   rendered the Eclipse Agent tab instead, twice.
+4. Bots lists 13 automations, but the conversation pane fetches threads from a
+   1.8 GB `agent-memory.db` and can sit on `LOADING` for minutes.
+5. Graph Studio never reaches a canvas; only the Workflows gallery renders.
+
+So the constraint is not the screenshot tooling, it is that **the dev lane cannot
+serve a warm, freshly-priced app**. The installed desktop app can, which is why the
+capture script targets a running app rather than starting one.
 
 ## 7. Where this sits
 
