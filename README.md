@@ -42,23 +42,22 @@ operate tools, and execute controlled financial workflows.
 |---|---|
 | ![Eclipse Agent research surface](Black-Eclipse-site/docs/figures/readme/02-agent.png) | ![Turnover map of real instruments sized by traded value](Black-Eclipse-site/docs/figures/readme/03-market-bubbles.png) |
 | **Eclipse Agent** — the research surface, driven by slash commands and tools | **Market Bubbles** — real instruments sized by 24h traded value |
-| ![Portfolio dashboard with daily brief and market bias](Black-Eclipse-site/docs/figures/readme/01-dashboard.png) | |
-| **Dashboard** — the daily decision surface, with demo data labelled as demo | |
 
-These are captures of the running application. They are not mockups, and the
-dashboard shot is deliberately left showing the shipped `DEMO BOOK` state so you
-can see how simulated data is labelled.
+These are captures of the running application. They are not mockups.
 
 <!--
-  Two more surfaces belong in this table and are staged, not yet captured:
-  Graph Studio (the workflow editor) and Bots (the agent workspace).
-  Capture them with `node scripts/capture-readme-shots.js` while the seeded app
-  is running, then add rows here:
+  STAGED, NOT YET CAPTURED. Capture a seeded install, then add rows here:
 
+  | ![Dashboard with a live book](Black-Eclipse-site/docs/figures/readme/01-dashboard.png) | ![Journal with demo trades](Black-Eclipse-site/docs/figures/readme/07-journal.png) |
+  | **Dashboard** - the daily decision surface | **Journal** - trades, analytics and reviews |
   | ![Graph Studio: the visual workflow editor](Black-Eclipse-site/docs/figures/readme/05-graph-studio.png) | ![Bots: scheduled agents and group rooms](Black-Eclipse-site/docs/figures/readme/06-bots.png) |
   | **Graph Studio** - workflows as a typed node graph | **Bots** - agents with schedules, packs and group rooms |
 
-  Rules and the crop constraint: docs/public-readme.md section 3.
+  Why they are not here: a capture needs FRESH prices and a warm harness.
+  A vault whose prices are days old makes the app render LIVE PRICES UNAVAILABLE
+  (correctly), the bots pane sits on LOADING while it fetches threads, and the
+  Graph Studio gallery needs the workflow catalog. See docs/public-readme.md §3
+  and scripts/capture-readme-shots.js.
 -->
 
 

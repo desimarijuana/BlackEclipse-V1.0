@@ -39,6 +39,21 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **docs(readme): gate the four state-dependent screenshots, drop the empty
+  dashboard shot.** Tried four times to capture Dashboard, Journal, Graph Studio
+  and Bots from a dev server pointed at a copy of a real vault (55,714 prices,
+  20 workflows, 13 automations, 76 demo trades seeded after scrubbing 121 broker
+  trades). What was actually reproducible: the Dashboard and Journal correctly
+  render `LIVE PRICES UNAVAILABLE` / `LOADING` because the copied prices are days
+  old, the Bots list populates (13 automations including the full Institution cast)
+  but its conversation pane stays on `LOADING`, and `?tab=graph-studio` opens the
+  Workflows gallery yet never a canvas. None of that is shippable, so the empty
+  Dashboard figure was **removed** rather than kept, leaving three real populated
+  captures, and all four remaining shots are staged behind an HTML comment in the
+  README with the exact blocking reason for each. `scripts/capture-readme-shots.js`
+  waits for real content and refuses to write a figure that is still loading.
+  docs updated: `docs/public-readme.md` (per-surface blocking table + the
+  stale-vault and personal-vault rules), `docs/CHANGELOG.md`.
 - **docs(readme): stage the Graph Studio and Bots figures behind a capture gate.**
   Tried to capture the workflow editor and the bots workspace for the README. Both
   tabs open (`?tab=graph-studio`, `?tab=bots`), but on a dev server with no seeded

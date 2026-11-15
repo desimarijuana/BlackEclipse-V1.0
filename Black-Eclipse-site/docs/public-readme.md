@@ -89,30 +89,40 @@ Regenerate from the launch assets with `sharp` (run from `Black-Eclipse-site/`,
 where it is installed): resize to 1600 wide, `extract` to height 868, then
 `png({ compressionLevel: 9 })`.
 
-### The two that need a seeded app
+### The four that need a warm, fresh app
 
-Graph Studio needs a saved workflow open, and Bots needs the finance pack — neither
-exists on a fresh boot, so they cannot be captured from a clean checkout. The
-committed set is therefore four figures, and the two remaining rows in the README
-are staged behind an HTML comment until the PNGs land.
+Dashboard, Journal, Graph Studio and Bots cannot be captured from a cold checkout,
+and a stale vault is not enough either. What happens when you try (all four
+verified on 2026-11-15, against a copy of a real vault):
 
-Capture them where the data exists:
+| Surface | What blocks a good capture |
+|---|---|
+| **Dashboard** | Needs fresh prices. A vault whose last price write is days old makes the app render `LIVE PRICES UNAVAILABLE` and leave widgets on `Loading…` — which is correct behaviour and a terrible screenshot. |
+| **Journal** | Needs seeded trades. The demo seeder supplies 76 labelled trades, but the tab also needs the price bridge, so it renders `LOADING` while the bridge is cold. |
+| **Bots** | The list arrives (13 automations seed from a used profile), but the conversation pane fetches threads from the harness and sits on `LOADING` for a long time on a large `agent-memory.db`. |
+| **Graph Studio** | Deep-linking `?tab=graph-studio` renders the Workflows gallery; the canvas needs a workflow *opened* from the catalog, and the catalog needs the harness warm. It is not in the default sidebar, so it also cannot be reached by clicking F-keys. |
+
+Capture procedure:
 
 ```bash
 cd Black-Eclipse-site
 npm run desktop:refresh                      # seeds the vault, boots the runtime
-node scripts/capture-readme-shots.js         # writes 05-graph-studio + 06-bots
-node scripts/capture-readme-shots.js --only bots --port 3101
+# let the app refresh prices once (Market Discover -> Refresh Prices), then:
+node scripts/capture-readme-shots.js
 ```
 
-The script refuses to write a figure whose expected content never appears
-(`BOTS · 0`, an empty canvas, a `Loading` pane), because an empty workspace
-photograph is worse than no photograph. If it times out, open the tab by hand,
-seed the pack, and run it again.
+The script waits for real content, refuses to write a figure that is still
+`LOADING`, and crops to 1600 wide. Two hard rules:
 
-A capture taken with headless Chromium against a dev server that has no seeded
-harness will show `BOTS · 0 / Loading` and a blank canvas. That was tried and
-rejected; do not re-add it.
+- **Do not screenshot a stale vault.** `LIVE PRICES UNAVAILABLE` is the product
+  being honest; shipping it in the README makes the product look broken instead.
+- **Do not screenshot a personal vault.** The dev vault carries real broker
+  trades. Scrubbing for a capture means deleting `Trade`, `TradeFill`,
+  `TradeExecution`, `JournalDay` and `JournalProfile` from a *copy*, then seeding
+  demo trades — never pointing the app at the real file.
+
+A headless capture against a dev server with no seeded harness produces `BOTS · 0`,
+a blank canvas and a spinner. That was tried twice and rejected both times.
 
 ## 4. Copy rules
 
