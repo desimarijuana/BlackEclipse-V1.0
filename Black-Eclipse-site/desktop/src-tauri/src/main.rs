@@ -176,8 +176,16 @@ const INIT_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Current prefs schema. Bump when a stored *default* must be re-interpreted.
+/// v1: `keep_warm` defaults to false — see `migrate_prefs`.
+const PREFS_VERSION: u32 = 1;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Prefs {
+    /// Absent in files written before v1 (`#[serde(default)]` ⇒ 0), which is
+    /// what the one-time close-behaviour migration keys on.
+    #[serde(default)]
+    version: u32,
     keep_warm: bool,
     width: u32,
     height: u32,
@@ -197,7 +205,11 @@ fn default_window_glass() -> bool {
 impl Default for Prefs {
     fn default() -> Self {
         Self {
-            keep_warm: true,
+            // Closing the window must close the app. Keep-warm is opt-in from
+            // the tray (and remembered); it is not the out-of-the-box answer,
+            // because a window that only minimizes on close reads as a bug.
+            keep_warm: false,
+            version: PREFS_VERSION,
             width: 1440,
             height: 900,
             x: None,
@@ -206,6 +218,20 @@ impl Default for Prefs {
             window_glass: true,
         }
     }
+}
+
+/// Older builds defaulted `keep_warm` to true and persisted it on every bounds
+/// save, so a stored `true` cannot be told apart from an explicit choice.
+/// Reset it exactly once (files without a `version` field) instead of making
+/// every existing install keep minimizing on close forever.
+fn migrate_prefs(path: &PathBuf, prefs: &mut Prefs) {
+    if prefs.version >= PREFS_VERSION {
+        return;
+    }
+    prefs.keep_warm = false;
+    prefs.version = PREFS_VERSION;
+    save_prefs(path, prefs);
+    log_line("[shell] migrated prefs: close now quits (keep-warm is opt-in)");
 }
 
 struct AppState {
@@ -1210,7 +1236,7 @@ fn desktop_info(state: tauri::State<AppState>) -> serde_json::Value {
     serde_json::json!({
         "root": state.root.to_string_lossy(),
         "port": app_port(),
-        "keepWarm": state.prefs.lock().map(|p| p.keep_warm).unwrap_or(true),
+        "keepWarm": state.prefs.lock().map(|p| p.keep_warm).unwrap_or(false),
     })
 }
 
@@ -1454,7 +1480,8 @@ fn main() {
     let log_file = runtime_dir.join("desktop-native.log");
     std::env::set_var("BE_DESKTOP_LOG", &log_file);
 
-    let prefs = load_prefs(&prefs_file);
+    let mut prefs = load_prefs(&prefs_file);
+    migrate_prefs(&prefs_file, &mut prefs);
 
     log_line(&format!(
         "[shell] starting — root={} port={}",
@@ -1549,6 +1576,7 @@ fn main() {
                         log_line("[shell] window minimized (keep-warm)");
                         let _ = win_for_events.minimize();
                     } else {
+                        log_line("[shell] window closed — quitting");
                         let _ = win_for_events.hide();
                         let state = app_for_events.state::<AppState>();
                         state.quitting.store(true, Ordering::SeqCst);
@@ -1568,7 +1596,7 @@ fn main() {
             let keep_item = CheckMenuItem::with_id(
                 &handle,
                 "keep_warm",
-                "Keep running when the window closes (minimize)",
+                "Keep running after the window closes (minimize to taskbar)",
                 true,
                 prefs.keep_warm,
                 None::<&str>,
@@ -1577,18 +1605,23 @@ fn main() {
             let separator = PredefinedMenuItem::separator(&handle)?;
             let menu = Menu::with_items(&handle, &[&open_item, &keep_item, &separator, &quit_item])?;
 
+            // The check item is the source of truth: the platform toggles it on
+            // click, and mirroring our own `!value` could drift from what the
+            // menu shows.
+            let keep_switch = keep_item.clone();
+
             let mut tray = TrayIconBuilder::with_id("main-tray")
                 .tooltip("Black Eclipse")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open" => show_window(app),
                     "keep_warm" => {
                         let state = app.state::<AppState>();
-                        let mut next = true;
+                        // On a read error fall back to "off": closing must quit.
+                        let next = keep_switch.is_checked().unwrap_or(false);
                         if let Ok(mut prefs) = state.prefs.lock() {
-                            prefs.keep_warm = !prefs.keep_warm;
-                            next = prefs.keep_warm;
+                            prefs.keep_warm = next;
                             save_prefs(&state.prefs_file, &prefs);
                         }
                         log_line(&format!("[shell] keep-warm = {next}"));

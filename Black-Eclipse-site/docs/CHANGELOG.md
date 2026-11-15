@@ -39,6 +39,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **docs(launch): record the four blocked launch items with an owner each.**
+  `docs/public-readme.md` §6 went from "two things that are not finished" to a
+  four-row table naming who can actually close each one (social preview: web UI
+  only, GitHub has no API for it; the four screenshots: one command against a
+  running install; PyPI: a token; public repo: a decision plus the history
+  rewrite) - so the next person does not re-litigate or re-attempt them. Also
+  recorded the five rejected capture attempts with their measured causes (a
+  290-second US refresh that blocks the Node event loop for ~100s afterwards,
+  `?tab=` deep links landing on the wrong tab on a cold dev load, bots threads
+  fetching from a 1.8 GB store, Graph Studio stopping at the gallery), so the
+  constraint is documented as "the dev lane cannot serve a warm app" rather than
+  "the screenshot script is flaky". docs updated: `docs/public-readme.md`,
+  `docs/CHANGELOG.md`.
 - **docs(readme): gate the four state-dependent screenshots, drop the empty
   dashboard shot.** Tried four times to capture Dashboard, Journal, Graph Studio
   and Bots from a dev server pointed at a copy of a real vault (55,714 prices,
@@ -158,6 +171,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   alias exists, and the release body is now a platform → file table with the
   first-open step for each OS. docs updated: `docs/desktop-size-plan.md`
   (three-row name table), `docs/CHANGELOG.md`.
+- **fix(desktop): closing the window now quits instead of only minimizing.**
+  `Prefs::default()` shipped `keep_warm: true`, so every close (`X` in the
+  tab strip, taskbar close, Alt+F4) hit `prevent_close()` + `minimize()` and the
+  app looked like it never closed; the tray checkbox was the only way out.
+  Keep-warm is now opt-in (`false` by default) and the shell logs
+  `window closed — quitting`, hides the window, stops the owned server tree and
+  exits. `desktop-prefs.json` gained a `version` field and a one-time
+  `migrate_prefs` reset (v1) so installs that inherited the old default do not
+  keep minimizing forever; the tray checkbox now reads its own checked state
+  instead of flipping a mirror. Verified on the Dev shell: `CloseMainWindow()`
+  → process exits, `[shell] server tree <pid> stopped`, no leftover node or
+  python. docs updated: `desktop/README.md`, `docs/desktop-app-plan.md`.
 
 ## 2026-11-14
 - **fix(desktop): installers ship a populated seed, not an empty one.** The

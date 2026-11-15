@@ -329,11 +329,12 @@ supervising and `python-runtime.ts` already does it, the shell stays out.
 
 ## 9. Keep-warm and preferences (normative)
 
-Keep-warm is **on by default** with a visible setting (prototype: tray checkbox).
+Keep-warm is **off by default** with a visible setting (tray checkbox). Closing
+the window quits; keep-warm is an opt-in for instant reopen.
 
 | Action | Behaviour |
 | --- | --- |
-| Close window | Hide to tray when keep-warm is on; quit when off. Never silently kill a server we do not own |
+| Close window | Quit when keep-warm is off (stop an owned server tree, then exit); minimize to the taskbar when it is on. Never silently kill a server we do not own |
 | Tray click | Show + focus the existing window (never spawn a second) |
 | Reopen | Warm window; no rebuild, no re-spawn |
 | Quit | Graceful shutdown of an owned server tree, then exit |
@@ -398,7 +399,7 @@ Status of each item against the frozen prototype: **P** = passes,
 | 4 | Python harness starts through the existing supervisor | ? (never exercised from the shell; harness only starts on demand) |
 | 5 | Python crash recovery works | ? (delegated, unchanged) |
 | 6 | Next.js crash is detected | **implemented**, unverified end to end |
-| 7 | Close/reopen follows keep-warm preference | **P** — WM_CLOSE hid the window, process stayed alive |
+| 7 | Close/reopen follows keep-warm preference | ✔ verified (default close quits: window process exits, owned server tree stopped; keep-warm minimizes) |
 | 8 | Windows restart does not corrupt state | ? |
 | 9 | Existing databases preserved | **P** — the shell writes no schema, guard is background |
 | 10 | Only one canonical `BE_DATA_DIR` | **P** — resolved absolute and passed explicitly; logged at boot |
