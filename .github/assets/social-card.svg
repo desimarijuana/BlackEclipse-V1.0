@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Black Eclipse — the open-source financial AI harness">
+  <title>Black Eclipse social preview</title>
+  <!-- Source of truth for the 1280x640 GitHub social preview. Text is real
+       <text>, so an export renders it with the local font stack; no external
+       references. Export with sharp, do not hand-edit the PNG. -->
+  <rect width="1280" height="640" fill="#050607"/>
+  <rect x="40" y="40" width="1200" height="560" fill="none" stroke="#f4f5f2" stroke-opacity=".1"/>
+
+  <g transform="translate(96 100)">
+    <circle cx="28" cy="28" r="28" fill="#f4f5f2"/>
+    <circle cx="42" cy="28" r="26" fill="#050607"/>
+  </g>
+  <text x="166" y="140" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="32" font-weight="700" letter-spacing="-0.6" fill="#f4f5f2">Black Eclipse</text>
+
+  <text x="96" y="280" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="62" font-weight="700" letter-spacing="-2.2" fill="#f4f5f2">The Open-Source</text>
+  <text x="96" y="352" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="62" font-weight="700" letter-spacing="-2.2" fill="#f4f5f2">Financial AI Harness</text>
+
+  <line x1="96" y1="424" x2="720" y2="424" stroke="#f4f5f2" stroke-opacity=".1"/>
+
+  <text x="96" y="472" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="18" letter-spacing="3.6" fill="#b4ff42">RESEARCH · ANALYZE</text>
+  <text x="96" y="504" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="18" letter-spacing="3.6" fill="#b4ff42">BUILD · TRADE</text>
+
+  <text x="1184" y="556" text-anchor="end" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="15" letter-spacing="2.6" fill="#8b918d">v0.4.0 · MIT · SELF-HOSTED</text>
+</svg>

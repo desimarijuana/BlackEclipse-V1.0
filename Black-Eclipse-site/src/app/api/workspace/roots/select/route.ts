@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { selectTrustedRoot } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { corsPreflight, localCors } from "@/lib/workspace/cors";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 // POST /api/workspace/roots/select — make an approved folder the active
 // workspace, or clear the selection with a null rootId.
 export async function POST(request: Request) {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const rootId = typeof body.rootId === "string" ? body.rootId : null;

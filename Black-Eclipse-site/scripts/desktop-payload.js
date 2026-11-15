@@ -62,12 +62,23 @@ const LEAK_PATHS = [
   ".env.development",
   "mcp-servers.json",
   ".connector-key",
+  "jdds.db",
+  "jdds.db-wal",
+  "jdds.db-shm",
+  "agent-memory.db",
+  "agent-memory.db-wal",
+  "agent-memory.db-shm",
+  "eclipse-memory.db",
+  "eclipse-memory.db-wal",
+  "eclipse-memory.db-shm",
+  "python/.black-eclipse/channels/secret.key",
 ];
 
 // Trees the compiled server never reads at run time.
 const PRUNE_PATHS = [
   ...LEAK_PATHS,
   ".black-eclipse",
+  "python/.black-eclipse",
   ".next-dev",
   ".tmp-tests",
   "backups",
@@ -92,7 +103,7 @@ function pruneStandalone() {
     }
   }
   for (const entry of fs.readdirSync(STANDALONE)) {
-    if (/\.log$/i.test(entry)) {
+    if (/\.log$/i.test(entry) || /\.(db|db-wal|db-shm)$/i.test(entry)) {
       fs.rmSync(path.join(STANDALONE, entry), { force: true });
       removed += 1;
     }
@@ -101,10 +112,11 @@ function pruneStandalone() {
 
   const leaks = LEAK_PATHS.filter((rel) => fs.existsSync(path.join(STANDALONE, rel)));
   const strayEnv = fs.readdirSync(STANDALONE).filter((e) => /^\.env/i.test(e));
-  if (leaks.length || strayEnv.length) {
+  const strayDb = fs.readdirSync(STANDALONE).filter((e) => /\.(db|db-wal|db-shm)$/i.test(e));
+  if (leaks.length || strayEnv.length || strayDb.length) {
     console.error(
       `\n[payload] REFUSING to hand over a payload containing local configuration: ` +
-        `${[...leaks, ...strayEnv].join(", ")}`
+        `${[...leaks, ...strayEnv, ...strayDb].join(", ")}`
     );
     process.exit(3);
   }

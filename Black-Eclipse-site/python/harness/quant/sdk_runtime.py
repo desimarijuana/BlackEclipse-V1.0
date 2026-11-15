@@ -63,6 +63,11 @@ def docker_command(image: str, workdir: str, in_name: str, out_name: str,
     return [
         "docker", "run", "--rm", "--network", "none", "--memory", "512m", "--cpus", "1",
         "--read-only", "--pids-limit", "256", "--tmpfs", "/tmp",
+        # Drop every capability and forbid setuid/privilege gain. The image keeps
+        # its default user because the bind-mounted /work directory must remain
+        # writable by the host uid; without capabilities there is no root power
+        # to escalate with.
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "-v", f"{workdir}:/work", "-w", "/work", image,
         "python", "-I", f"/work/{entry}", f"/work/{in_name}", f"/work/{out_name}",
     ]

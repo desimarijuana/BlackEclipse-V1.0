@@ -201,11 +201,33 @@ console.log(
 );
 console.log(`SHA-256:   ${digest}`);
 
+// Stable download alias. The README's Download button links to
+// `releases/latest/download/BlackEclipse-Setup.exe`, so a version-independent
+// name must exist on every release; otherwise the button breaks each version.
+// The alias always mirrors the SLIM installer — never the offline (-full)
+// edition, and never a stale file from a previous run.
+const SLIM_EXE = path.join(DIST, `BlackEclipse-Setup-${VERSION}.exe`);
+const ALIAS_EXE = path.join(DIST, "BlackEclipse-Setup.exe");
+if (fs.existsSync(SLIM_EXE)) {
+  fs.copyFileSync(SLIM_EXE, ALIAS_EXE);
+  console.log(`Alias:     dist/BlackEclipse-Setup.exe (stable download URL)`);
+} else if (FULL) {
+  // An offline-only build must never ship a slim alias from an older version —
+  // the release would then serve a stale installer to the Download button.
+  if (fs.existsSync(ALIAS_EXE)) {
+    fs.rmSync(ALIAS_EXE, { force: true });
+    console.log(`Alias:     removed stale dist/BlackEclipse-Setup.exe (no slim build this run)`);
+  }
+} else {
+  console.error(`Could not create the stable download alias: ${path.basename(SLIM_EXE)} missing.`);
+  process.exit(5);
+}
+
 // Checksum file for GitHub Releases — expected practice for an unsigned binary.
-// Includes every installer currently present (slim and offline editions).
+// Includes every installer currently present (slim, offline, and the alias).
 const sums = fs
   .readdirSync(DIST)
-  .filter((f) => /^BlackEclipse-Setup-.*\.exe$/.test(f))
+  .filter((f) => /^BlackEclipse-Setup(-.*)?\.exe$/.test(f))
   .sort()
   .map((f) => `${sha256(path.join(DIST, f))}  ${f}`)
   .join("\n");

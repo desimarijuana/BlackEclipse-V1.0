@@ -1,7 +1,7 @@
 ---
 title: Security — one decision path for every privileged operation
 status: Current
-last-verified: 2026-11-11
+last-verified: 2026-11-15
 ---
 
 # Security
@@ -316,6 +316,34 @@ price. Test runs never perform network, write or trading effects.
 One `SecurityContext` per session. A request that presents a different session or
 a workspace different from the context's binding is refused before policy.
 Closing a session revokes its capabilities.
+
+## Front-door request trust (2026-11-15 audit)
+
+Two request-boundary rules exist above the security gateway. They are cheap and
+independent of auth mode, because the packaged desktop runs `HARNESS_AUTH=off`:
+
+1. **Cross-site API gate (`src/middleware.ts`).** Before any route handler, an
+   API request carrying `Sec-Fetch-Site: cross-site` is refused, and a mutating
+   request must pass `checkMutationAllowed` (same-origin browser, loopback with no
+   `Origin`, or the operator secret). Public HMAC webhook prefixes are exempt.
+   This closes drive-by CSRF to privileged routes even when a per-route guard was
+   forgotten. `x-forwarded-host` is honoured only when `BE_TRUST_PROXY=1`.
+2. **Loopback Host check (`deps.py::_is_loopback`, `identity.py::_is_loopback`).**
+   A request is an operator only when the peer address **and** the `Host` header
+   both name loopback (`127.0.0.1`, `localhost`, `[::1]`, `testserver`). This
+   closes DNS rebinding, where the browser resolves an attacker hostname to
+   127.0.0.1 and sends `Host: attacker.example`.
+
+HTTP terminal/shell routes (`/terminal/execute`, `/terminal/sessions/{id}/run`,
+`/code/shell`) also consult the destructive-command hardline before execution.
+Raw PTY keystrokes (`/terminal/sessions/{id}/raw`) remain a deliberate
+operator-only live-terminal path.
+
+Known residual: session revocation is authoritative on the privileged route
+families that call `requireApiAuth` (command execution, workspace files/roots,
+artifacts, terminal, security admin, runtime restart). Read-only routes may
+accept a signed token until its 7-day expiry. Auth remains off by default on the
+desktop; do not describe logout as global until every route calls it.
 
 ## Multi-tenancy & identity (`security/identity.py`)
 

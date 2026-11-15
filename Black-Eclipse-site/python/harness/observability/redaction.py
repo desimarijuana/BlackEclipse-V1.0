@@ -136,4 +136,12 @@ def redact(value: Any) -> Any:
     return _DEFAULT.redact(value)
 
 
-__all__ = ["Redactor", "REDACTED", "redact", "set_default_redactor", "get_default_redactor"]
+def redact_tool_text(text: Any, limit: int = 4000) -> str:
+    """Redact and cap a tool result before it is persisted. Never raises."""
+    try:
+        return str(redact(str(text)[:limit]))[:limit]
+    except Exception:  # noqa: BLE001 - persistence must never fail on redaction
+        return REDACTED
+
+
+__all__ = ["Redactor", "REDACTED", "redact", "redact_tool_text", "set_default_redactor", "get_default_redactor"]

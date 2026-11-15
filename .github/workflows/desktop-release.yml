@@ -44,18 +44,18 @@ jobs:
             artifact: macos
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: Black-Eclipse-site/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -140,18 +140,28 @@ jobs:
         run: |
           npm run desktop:installer
           npm run desktop:installer -- --full
+          # The README's Download button links to this exact name. Fail the
+          # build rather than publish a release whose button 404s.
+          test -f dist/BlackEclipse-Setup.exe
+          echo "stable download alias present: $(ls -lh dist/BlackEclipse-Setup.exe | awk '{print $5}')"
 
       - name: Build the Linux package
         if: matrix.os == 'ubuntu-latest'
         working-directory: Black-Eclipse-site
         shell: bash
-        run: npm run desktop:bundle
+        run: |
+          npm run desktop:bundle
+          # The README's Linux button links to this exact name.
+          ls -l dist/BlackEclipse-linux-*.deb
 
       - name: Build the macOS app and dmg
         if: matrix.os == 'macos-latest'
         working-directory: Black-Eclipse-site
         shell: bash
-        run: npm run desktop:bundle
+        run: |
+          npm run desktop:bundle
+          # The README's macOS button links to this exact name.
+          ls -l dist/BlackEclipse-mac-*.dmg
 
       # --- runtime smoke: a binary that compiles is not an app that runs ------
       - name: Smoke test (Windows)
@@ -198,10 +208,11 @@ jobs:
       # -----------------------------------------------------------------------
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: black-eclipse-${{ matrix.artifact }}
           path: |
+            Black-Eclipse-site/dist/BlackEclipse-Setup.exe
             Black-Eclipse-site/dist/BlackEclipse-Setup-*.exe
             Black-Eclipse-site/dist/*.deb
             Black-Eclipse-site/dist/*.dmg
@@ -218,29 +229,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
 
       - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           draft: true
           generate_release_notes: true
           body: |
-            ## Install
+            ## Download
 
-            **Windows**
-            - `winget install BlackEclipse.BlackEclipse` (skips the SmartScreen prompt), or
-            - run `BlackEclipse-Setup-*.exe` — per-user, no admin, no prerequisites.
+            | Platform | File |
+            |---|---|
+            | **Windows 10/11** | [BlackEclipse-Setup.exe](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) |
+            | **macOS (Apple Silicon)** | [BlackEclipse-mac-arm64.dmg](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) |
+            | **Linux (amd64)** | [BlackEclipse-linux-amd64.deb](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) |
 
-            **macOS** — open the `.dmg`. If Gatekeeper refuses it, right-click →
-            Open, or run `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`.
+            These are the same files the README buttons serve. The versioned
+            `BlackEclipse-Setup-<version>*.exe`, `BlackEclipse-<version>-<arch>.dmg`
+            and `blackeclipse_<version>_<arch>.deb` are identical copies.
 
-            **Linux** — `sudo dpkg -i blackeclipse_*_amd64.deb`.
+            - `BlackEclipse-Setup-<version>-full.exe` — offline Windows edition,
+              for a machine with no network.
+            - `SHA256SUMS.txt` — verify the Windows installer before running it.
 
-            This build is **not code-signed**. Verify the SHA-256 against
-            `SHA256SUMS.txt` before running.
+            **First open.** None of the builds are code-signed, so the OS asks once:
+            Windows SmartScreen → **More info → Run anyway**; macOS → right-click
+            the app → **Open** (or `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`);
+            Linux → `sudo apt install ./BlackEclipse-linux-amd64.deb`.
 
             Your data lives in the platform data directory and survives uninstall.
             MT5 and computer-control are Windows-only.

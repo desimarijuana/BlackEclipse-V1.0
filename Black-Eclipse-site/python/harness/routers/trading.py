@@ -1,13 +1,14 @@
-"""Broker connectivity routes (P0, read-only).
+"""Broker connectivity and order routes.
 
 Thin adapters over `harness.trade.service.BrokerService`, reached through
 `harness.deps.service`. Reads AND mutations are operator-gated (loopback or
 runtime token) exactly like the other runtime surfaces: an agent can never add a
 broker connection or edit its settings.
 
-There is deliberately no order route. Live execution is a later, separately
-authorized phase; `POST /trading/orders` returns an honest 501 so a client cannot
-mistake a missing feature for a working one.
+Order preview/submit/cancel/modify/close ARE implemented. They are not a free
+execution path: `trade/service.py` requires exactly one approval or mandate, the
+approval digest is bound to the exact order and consumed atomically, live orders
+need a typed arm with a TTL, and the risk policy/daily-loss brake still apply.
 """
 
 from __future__ import annotations

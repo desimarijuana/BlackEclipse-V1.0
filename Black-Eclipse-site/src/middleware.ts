@@ -21,6 +21,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authConfig, authMisconfigured } from "@/lib/auth/config";
 import { readCookie, verifySessionToken, AUTH_COOKIE } from "@/lib/auth/token";
+import { checkMutationAllowed } from "@/lib/api-guard";
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/|sounds/|backgrounds/).*)"],
@@ -40,6 +41,60 @@ const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/channels/webhook/", "/api
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+}
+
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+// Largest legitimate upload is 30 MB (backgrounds); 40 MB leaves headroom and
+// stops the App Router from buffering an unbounded JSON/text body into memory.
+const MAX_API_BODY_BYTES = 40_000_000;
+
+/**
+ * Central cross-site request guard for the API surface.
+ *
+ * Route handlers already rely on `guardMutation`, but coverage is not uniform:
+ * several agent front-door routes (command execution, workspace writes, artifact
+ * proxies) historically forwarded straight to the Python runtime. A missing
+ * guard there is a drive-by CSRF to a privileged local action, because the
+ * default desktop deployment runs with `HARNESS_AUTH=off` and the Python runtime
+ * trusts a loopback peer.
+ *
+ * Enforcing the same policy once, before every API handler, makes a forgotten
+ * per-route guard a defence-in-depth gap instead of an exploitable one:
+ *   * a browser-declared `Sec-Fetch-Site: cross-site` request is refused;
+ *   * a mutating request must pass the shared same-origin/loopback/secret rule.
+ *
+ * Public webhook prefixes are exempt (their handlers prove an HMAC over the raw
+ * body); `/api/auth/*` is handled by its own guard so the login surface stays
+ * reachable.
+ */
+function crossSiteRejected(request: NextRequest): NextResponse | null {
+  const { pathname } = request.nextUrl;
+  if (!pathname.startsWith("/api/") || isPublic(pathname)) return null;
+
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    return NextResponse.json(
+      { error: "Cross-site API requests are not allowed", code: "CROSS_SITE_BLOCKED" },
+      { status: 403 },
+    );
+  }
+
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_API_BODY_BYTES) {
+    return NextResponse.json(
+      { error: "Request body is too large", code: "PAYLOAD_TOO_LARGE" },
+      { status: 413 },
+    );
+  }
+
+  if (!MUTATING_METHODS.has(request.method)) return null;
+
+  const guard = checkMutationAllowed(request);
+  if (guard.allowed) return null;
+  return NextResponse.json(
+    { error: guard.reason || "Forbidden", code: "MUTATION_FORBIDDEN" },
+    { status: 403 },
+  );
 }
 
 // A single canonical origin keeps ONE app: the same URL, the same origin-scoped
@@ -124,6 +179,12 @@ function purgeDevCacheOnce(request: NextRequest, response: NextResponse): void {
 export async function middleware(request: NextRequest) {
   const canonical = canonicalRedirect(request);
   if (canonical) return canonical;
+
+  // This runs BEFORE the auth mode check on purpose: the zero-config desktop
+  // deployment (HARNESS_AUTH=off) is exactly where an unguarded mutation route
+  // would otherwise be reachable from any web page the operator visits.
+  const crossSite = crossSiteRejected(request);
+  if (crossSite) return crossSite;
 
   const cfg = authConfig();
   if (!cfg.required) {

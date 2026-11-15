@@ -6,6 +6,7 @@
 // operator token is attached server-side by the shared runtime auth helper.
 
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { guardMutation } from "@/lib/api-guard";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
@@ -15,7 +16,9 @@ import { redactSecrets } from "@/lib/harness/errors";
 
 export const dynamic = "force-dynamic";
 
-async function forward(request: Request, method: string, path: string[]): Promise<NextResponse> {
+async function forward(request: Request, method: string, path: string[]): Promise<Response> {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   const healthy = await ensurePythonRuntime();
   if (!healthy) {
     throw new HarnessRuntimeUnavailable(

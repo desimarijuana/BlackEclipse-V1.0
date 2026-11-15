@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { makeWorkspaceFolder } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
@@ -6,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 // POST /api/workspace/file/mkdir — create a folder inside the active root.
 export async function POST(request: Request) {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const path = typeof body.path === "string" ? body.path : "";

@@ -23,6 +23,10 @@ def _request(host: str, headers: dict[str, str] | None = None) -> Request:
     raw_headers = [
         (name.lower().encode(), value.encode()) for name, value in (headers or {}).items()
     ]
+    # A real HTTP/1.1 request always carries a Host header; the loopback trust
+    # rule requires it to name loopback too (DNS-rebinding defence).
+    if not any(name == b"host" for name, _ in raw_headers):
+        raw_headers.append((b"host", host.encode()))
     return Request({
         "type": "http",
         "method": "GET",

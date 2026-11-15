@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { approveTrustedRoot, getWorkspaceRoots } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { corsPreflight, localCors } from "@/lib/workspace/cors";
@@ -25,6 +26,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const path = typeof body.path === "string" ? body.path : "";

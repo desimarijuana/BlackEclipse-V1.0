@@ -3,6 +3,7 @@
 // talks to the runtime; it adds no agentic logic of its own.
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "../python-runtime";
+import { runtimeCallbackToken } from "../runtime-auth";
 import type { HarnessErrorJson, HarnessEvent, RunRecord, RunResult, UsageSummary } from "../types";
 import { redactSecrets, HarnessHttpError, isNotFoundError } from "../errors";
 
@@ -89,9 +90,14 @@ async function request<T>(
     );
   }
   const { timeoutMs = 180_000, ...rest } = init;
+  const operatorToken = runtimeCallbackToken();
   const res = await fetch(`${HARNESS_PY_URL}${path}`, {
     ...rest,
-    headers: { "Content-Type": "application/json", ...(rest.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(operatorToken ? { "X-Harness-Operator": operatorToken } : {}),
+      ...(rest.headers ?? {}),
+    },
     signal: AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));

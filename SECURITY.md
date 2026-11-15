@@ -73,6 +73,12 @@ of intent, not a waiver of any third party's rights and not legal advice.
 - **Fail closed.** A required control that is missing (auth secret, operator
   secret, approval store, policy error) refuses the operation; it never falls
   back to "allow".
+- **Two request-boundary rules protect the accountless desktop.** A central
+  same-origin gate rejects cross-site mutating API calls (and any browser
+  request marked `Sec-Fetch-Site: cross-site`) even when `HARNESS_AUTH=off`; the
+  Python runtime trusts a request as an operator only when both the peer address
+  and the `Host` header name loopback. This closes drive-by CSRF and DNS
+  rebinding. `X-Forwarded-Host` is honoured only when `BE_TRUST_PROXY=1`.
 - **Secrets never enter git.** `.env*`, databases, private keys, `mcp-servers.json`
   and the connector key are ignored *and* checked by a pre-commit hook and CI.
 - **Encrypted credentials at rest in the app DB** (AES-256-GCM), with the
@@ -81,12 +87,29 @@ of intent, not a waiver of any third party's rights and not legal advice.
 - **Least privilege in the container.** Non-root user, all capabilities dropped,
   `no-new-privileges`.
 
+### Known limitations (2026-11-15 security audit)
+
+- The product provisions **one operator account**; multi-user isolation is not a
+  supported or tested claim.
+- Session revocation is authoritative on privileged routes (shell, workspace,
+  artifacts, terminal, security admin, runtime restart); read-only routes may
+  accept a signed token until its 7-day expiry. Rotate `HARNESS_AUTH_SECRET`
+  after a suspected token theft.
+- Journals, memories and runs are plaintext SQLite protected by OS file
+  permissions; only connector credentials are encrypted.
+- Python dependencies are not locked/hashed yet, and install-time downloads are
+  TLS-verified but not checksum-verified.
+- The detailed audit, including reproduction detail, lives in `security/audit/`
+  and is **not** part of the public release.
+
 ## Operator checklist before exposing the app
 
 1. `HARNESS_AUTH=required` and a unique `HARNESS_AUTH_SECRET` (≥ 32 random bytes).
 2. A unique `CRON_SECRET` and a `CONNECTOR_SECRET_KEY`.
 3. `node scripts/security-preflight.js` passes with `NODE_ENV=production`.
-4. TLS terminated by a reverse proxy; `BE_BIND_ADDR` left at loopback.
+4. TLS terminated by a reverse proxy; `BE_BIND_ADDR` left at loopback. If the
+   proxy sets `X-Forwarded-Host`, also set `BE_TRUST_PROXY=1` so the same-origin
+   check compares the real external host; leave it unset otherwise.
 5. A real account created through `/api/auth/setup` (the setup route closes after
    the first account).
 6. Back up the data volume, and keep `.env`, `.connector-key` and

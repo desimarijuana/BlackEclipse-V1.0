@@ -5,6 +5,7 @@
 // by transport (loopback) or the runtime token, presented to Python as a header.
 
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
@@ -14,7 +15,9 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ path?: string[] }> };
 
-async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextResponse> {
+async function proxy(request: Request, ctx: Ctx, method: string): Promise<Response> {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   if (method !== "GET") {
     const blocked = guardMutation(request, "artifacts");
     if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
@@ -27,11 +30,23 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
     );
   }
   const { path } = await ctx.params;
-  const segments = (path ?? []).join("/");
+  const parts = path ?? [];
+  // Reject traversal before building the upstream path, and encode each segment
+  // so a segment can never introduce an extra path component. Without this the
+  // catch-all could reach a sibling runtime route while carrying the operator
+  // token.
+  if (parts.some((p) => p === "." || p === ".." || p.includes("\\"))) {
+    return NextResponse.json({ error: "invalid artifact path" }, { status: 400 });
+  }
+  const segments = parts.map(encodeURIComponent).join("/");
   const target = segments === "" ? "/artifacts" : `/artifacts/${segments}`;
   const url = new URL(request.url);
   const token = runtimeCallbackToken();
-  const user = request.headers.get("x-eclipse-user");
+  // Ownership is NEVER taken from a caller-supplied header. The verified
+  // identity JWT (`X-Harness-Identity`) is minted by this front door from the
+  // signed session; Python resolves the owner from it. A browser header such as
+  // `x-eclipse-user` is attacker-controlled and used to select another user's
+  // artifacts, so it is no longer forwarded.
   // A download stream (video/audio playback) is bound by the CLIENT's
   // connection, not by a fixed proxy timeout — aborting a large MP4 at 60 s
   // would cut long playback off mid-stream. JSON calls keep the hard bound.
@@ -43,7 +58,6 @@ async function proxy(request: Request, ctx: Ctx, method: string): Promise<NextRe
       "Content-Type": "application/json",
       ...(token ? { "X-Harness-Operator": token } : {}),
       ...(await runtimeIdentityHeaders(request)),
-      ...(user ? { "X-Harness-User": user } : {}),
       ...(range ? { Range: range } : {}),
     },
     signal: isDownload ? request.signal : AbortSignal.timeout(60_000),

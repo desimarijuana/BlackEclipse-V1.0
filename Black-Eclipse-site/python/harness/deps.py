@@ -62,11 +62,32 @@ IDENTITY_BOUNDARY: dict[str, str] = {
 
 _OPERATOR_SECRET_PLACEHOLDER = "change-me-to-a-random-secret"
 
+# Host headers a loopback listener may legitimately receive. The peer address
+# alone is NOT enough to trust a request: a DNS-rebinding page can make the
+# browser resolve its own domain to 127.0.0.1, so the TCP peer is loopback while
+# the request is attacker-controlled. Requiring the HTTP Host header to name
+# loopback as well closes that path; the Next.js front door and direct local
+# callers both send `127.0.0.1:<port>` / `localhost:<port>`.
+_LOOPBACK_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
+
+
+def _host_header_is_loopback(request: Request) -> bool:
+    raw = (request.headers.get("host") or "").strip().lower()
+    if not raw:
+        return False
+    if raw.startswith("["):
+        name = raw.split("]", 1)[0] + "]"
+    elif raw.count(":") == 1:
+        name = raw.rsplit(":", 1)[0]
+    else:
+        name = raw
+    return name in _LOOPBACK_HOSTNAMES
+
 
 def _is_loopback(request: Request) -> bool:
     client = request.client
     host = (client.host if client else "") or ""
-    return host in _LOOPBACK_HOSTS
+    return host in _LOOPBACK_HOSTS and _host_header_is_loopback(request)
 
 
 def _operator_secret_configured() -> bool:

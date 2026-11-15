@@ -65,12 +65,18 @@ function requestHost(request: Request): string {
   // poor source behind a proxy: Next.js rebuilds it from its own bind address
   // in dev (e.g. `http://127.0.0.1:3000/...`) even when the browser used a
   // different hostname, which would make a same-origin POST look cross-origin.
-  // The Host header (and, behind a proxy, x-forwarded-host) is what the browser
-  // sent and is what same-origin comparison must use.
-  const forwarded = request.headers.get("x-forwarded-host");
-  if (forwarded) {
-    const first = forwarded.split(",")[0].trim();
-    if (first) return first;
+  //
+  // `x-forwarded-host` is caller-controlled unless a trusted reverse proxy sets
+  // it, and trusting it unconditionally let a non-browser caller claim to be
+  // loopback. It is honoured only when the operator explicitly declares a
+  // trusted proxy with `BE_TRUST_PROXY=1`; the Host header is the default.
+  const trustProxy = /^(1|true|yes|on)$/i.test((process.env.BE_TRUST_PROXY ?? "").trim());
+  if (trustProxy) {
+    const forwarded = request.headers.get("x-forwarded-host");
+    if (forwarded) {
+      const first = forwarded.split(",")[0].trim();
+      if (first) return first;
+    }
   }
   const host = request.headers.get("host");
   if (host) return host;

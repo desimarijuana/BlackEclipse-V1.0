@@ -1,5 +1,149 @@
 # Change Log
 
+Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/)
+— one file per month. This file keeps the newest seven dated sections;
+`npm run rotate:changelog -- --write` performs the move.
+
+## 2026-11-15
+- **security(audit): close drive-by CSRF and DNS-rebinding paths; add a full
+  audit report set.** The default desktop runs `HARNESS_AUTH=off`, and 59
+  mutating API routes had no same-origin guard, so a malicious page could reach
+  `/api/code/shell` and workspace writes (verified: a cross-origin `text/plain`
+  POST created a folder). Added a central cross-site gate in
+  `src/middleware.ts` before the auth-mode branch (mutations must pass the
+  shared same-origin/loopback/secret policy; `Sec-Fetch-Site: cross-site` is
+  refused; HMAC webhooks exempt). Added loopback `Host` validation in
+  `python/harness/deps.py` and `security/identity.py` so DNS rebinding cannot
+  impersonate an operator. Also: artifact ownership from the verified identity
+  instead of `x-eclipse-user`, `x-forwarded-host` honoured only under
+  `BE_TRUST_PROXY=1`, destructive-command hardline on the HTTP terminal/shell
+  routes, payload pruning of `python/.black-eclipse` and databases (plus removal
+  of leaked `dist` channel keys), `userId` from verified identity on `/runs`, and
+  `permissions: contents: read` on the deploy/live-evals workflows. Upgraded
+  `next` 15.5.18 -> 15.5.29 for the Critical Windows/image RCE advisories, pinned
+  `dompurify`/`proxy-addr`, and removed every production Critical from
+  `npm audit`. Also added a 40 MB API body cap, redacted tool output before
+  persistence, dropped capabilities + `no-new-privileges` on the quant sandbox,
+  corrected the stale "trading is read-only" comments, and added a production
+  Critical audit gate to CI. Every GitHub Action is now pinned to a commit SHA,
+  the Python stack has a universal hash-locked `python/requirements.lock`
+  (`npm run lock:python`), `/runs` + cancel/resume require the operator token,
+  and the privileged route families now enforce the DB-backed session check
+  (`requireApiAuth`). Login and the desktop's `HARNESS_AUTH=off` path were
+  deliberately left unchanged: the app is local-only and has no sign-in screen. Audit deliverables under `security/audit/` (kept out of the
+  public tree). Git history was rewritten on 2026-11-15: every `jdds.db`,
+  `dev_output.log` and `dev-server.log` blob was removed and the personal author
+  email was mapped to the public noreply handle, after a full bundle backup;
+  `oss-preflight.js` now passes with 0 warnings. Release remains **CONDITIONAL**:
+  session revocation / dependency / multi-tenant items still need a fix or an
+  explicit local-only accept. Docs updated:
+  `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
+  `.env.example`, `docs/CHANGELOG.md`.
+- **docs(readme): stage the Graph Studio and Bots figures behind a capture gate.**
+  Tried to capture the workflow editor and the bots workspace for the README. Both
+  tabs open (`?tab=graph-studio`, `?tab=bots`), but on a dev server with no seeded
+  harness they render `BOTS · 0 / Loading` and a blank canvas, so neither was
+  added - an empty workspace photograph is worse than none. Instead:
+  `scripts/capture-readme-shots.js` captures both from a seeded install at
+  1920x1080, crops to 1600, and **refuses to write a figure whose expected content
+  never appears**; the README carries the two table rows behind an HTML comment so
+  the wiring is one edit away. `docs/public-readme.md` section 3 records the recipe,
+  the refusal rule, and that the headless/empty attempt was rejected. docs updated:
+  `docs/public-readme.md`, `docs/CHANGELOG.md`.
+- **docs(readme): close the launch-review gaps - screenshots, methodology,
+  licensing, signing, limits.** Applied the README review. Added four real
+  captures of the running app (`docs/figures/readme/`, 1600x868), a six-step
+  research-to-execution workflow, a five-persona "who it is for" table, a
+  methodology table beside the benchmark numbers (347 tasks / 15 datasets / 78.1%
+  oracle coverage / 278 trials / how `financial_accuracy` is graded / what it does
+  NOT measure), an explicit two-license table, a platform + signing-status table
+  with `SHA256SUMS.txt` verification, and a three-row troubleshooting table. The
+  install copy now says a hosted provider needs a key instead of implying none
+  ever are. Cropping the captures was not cosmetic: the composer status strip
+  renders `C:\Users\<name>\AppData\Local\Temp\...`, so uncropped shots would have
+  published a user profile (the O3 leak class). Two claims were dropped during
+  verification - `npm run doctor` does not exist (it is `desktop:doctor`) and the
+  "good first issue" label does not exist (now plain Issues). docs updated:
+  `docs/public-readme.md` (new section order, screenshot policy, six new evidence
+  rows), `docs/CHANGELOG.md`.
+- **docs(readme): adopt the launch copy and make it checkable.** The README now
+  runs on the product copy: the harness positioning ("The Open-Source Financial AI
+  Harness" / *Research. Analyze. Build. Trade.*), the five problems each paired
+  with what Eclipse does about it, nine capabilities, and seven architecture areas.
+  Everything that could be a dead end got a destination: each capability and
+  architecture row links to the package or doc that implements it (verified: all 12
+  relative links resolve); the problems became a two-column table so a problem
+  never appears without an answer; the architecture list became a "what exists
+  today + source" table. Analysis, plan, install, benchmarks, documentation and
+  open-source sections were kept so the page still works as a repository front
+  door. The MetaTrader 5 claim was verified before it shipped
+  (`python/harness/trade/`, `MT5Adapter`) and the provider list was checked against
+  `models.py` + the packaging extras. docs updated: `docs/public-readme.md`
+  (structure + evidence rows for MT5 and providers), `docs/CHANGELOG.md`.
+- **docs(readme): rewrite the public copy from slogans to mechanisms.** The first
+  pass read as generic because its section headings were metaphors ("a door that
+  doesn't open", "survives Tuesday", "colleagues, not macros") that could have
+  described any product. The README is now task-first and checkable: *what it is*
+  (the runtime, and the enforced rule that nothing outside `quant/` and
+  `finance_facts/` may compute a trading statistic), *what you can do* (six tasks
+  with their real mechanisms - schedule kinds, the six committee seats and their
+  concurrency numbers, the sandbox flags), *what it refuses to do* (the six named
+  refusal codes, the hardest block to copy honestly), and *how a run works*. Two
+  copy rules were added so the next edit does not drift back: no slogan as a
+  section heading, and concrete over clever. Social preview regenerated to match
+  ("the model plans / python computes / the gate refuses"). docs updated:
+  `docs/public-readme.md` (structure, two new copy rules, three new evidence
+  rows), `docs/CHANGELOG.md`.
+- **feat(launch): reposition the public page from the terminal to the harness.**
+  The launch argument is now the agentic/quant substrate, not market data or the
+  terminal UI: harness durability (leases, fencing, at-most-once effects, crash
+  resume), one policy gateway with a hash-chained audit, source-authority
+  evidence, generated evaluation scorecards, bots (schedules, teams, the
+  Institution preset, goals/loops/heartbeats), quant research (anti-lookahead,
+  walk-forward, Deflated Sharpe/PBO, sandboxed Python, gated live trials), and the
+  research/execution boundary. The root `README.md` is the single public front
+  door and was rewritten on that spine (no separate landing page and no Pages
+  build - a reader decides on the repo page), keeping the download button, the
+  two-tier benchmark and every existing link; the heading now states the category
+  first ("an agent harness for trading research") instead of leading with a hook
+  that only lands if you already know the product. Social preview is generated
+  from `.github/assets/social-card.svg` (sharp), not hand-edited. The install
+  block deliberately leads with the source install and
+  labels PyPI as pending, because `black-eclipse-harness` is still not published
+  (round-4 gap O6) - `pip install black-eclipse-harness` would be a false claim
+  today. Added `.github/workflows/publish-harness.yml` (tag/version match gate, a
+  no-data-in-package check, `twine upload` on a tag, `dry_run` by default). docs
+  updated: `docs/public-readme.md` (new: the argument in order, claim-to-evidence
+  table, copy rules, deliberate omissions, the two open items),
+  `docs/NAVIGATION.md` (task row + the root README as the only public front
+  door), `docs/README.md`, `docs/CHANGELOG.md`.
+- **feat(release): one-click Download button that never breaks.** The README now
+  leads with a "Download for Windows" button linking to
+  `releases/latest/download/BlackEclipse-Setup.exe`, sourced from a local SVG
+  (`.github/assets/download-windows.svg`, no shields.io dependency).
+  `scripts/desktop-installer.js` writes that version-independent alias as a copy
+  of the slim installer, removes it on an offline-only (`--full`) build so a
+  stale installer can never be published, and includes it in `SHA256SUMS.txt`;
+  `desktop-release.yml` uploads it as a release asset and fails the build when it
+  is missing. The release body now leads with the direct link (the winget line is
+  gone — those manifests still point at a repository that does not exist). The
+  README's source instructions moved under "Build from source" so a downloader is
+  not told to run `npm install` first. docs updated:
+  `docs/desktop-size-plan.md` (the alias is the public download contract),
+  `docs/CHANGELOG.md`.
+- **feat(release): the download row covers every desktop platform.** Windows
+  stays the primary button; `download-macos.svg` and `download-linux.svg` sit
+  beside it (dark fill, accent outline — secondary weight). `desktop-bundle.js`
+  now also writes stable aliases, `BlackEclipse-linux-<arch>.deb` (from
+  `buildDeb`) and `BlackEclipse-mac-<arch>.dmg` (from `buildMac`), so the macOS
+  and Linux buttons never break on a version bump. The macOS alias keeps the
+  arch in its name on purpose: one arch is produced per runner and a Mac cannot
+  run the other, so the button links `arm64` explicitly instead of handing an
+  Intel Mac a binary it can never launch. `desktop-release.yml` asserts each
+  alias exists, and the release body is now a platform → file table with the
+  first-open step for each OS. docs updated: `docs/desktop-size-plan.md`
+  (three-row name table), `docs/CHANGELOG.md`.
+
 ## 2026-11-14
 - **fix(desktop): installers ship a populated seed, not an empty one.** The
   packaged `app/seed/jdds.db` was schema-only, so a first run opened an empty
@@ -3376,355 +3520,4 @@
   `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
 - **feat(ui): real, type-any page pagination for Artifacts and Market News; fix cards that silently vanished.** Artifacts now uses ServerPaginationFooter instead of an append-only "Load more": numbered pages, a typed per-page box (1–200, the runtime's real cap), current-page polling, and last-page clamping after deletes. Artifact cards fall back to the category icon when an image/video has no generated thumbnail instead of rendering a 404 `<img>` (a blank card); the failed-thumbnail state is per card. Market News gets the same typed per-page control in its pagination footer plus a typed "go to page" box, and the Customize panel accepts any cards-per-page value; `/api/news`'s `limit` cap rises 50→200 and the UI clamps to it. Fixed the card toggle bug where "Timestamp" was nested inside "Badges", so disabling Badges hid timestamps even though the Timestamp toggle said on. Clustering now uses a fixed 600-row window so `pagination.total`/`totalPages` stay consistent between pages. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
 - **feat(ui): paginated Alert History and a real Saved-news library.** Alert History now pages the server archive with numbered pages and a typed per-page box (1–200) instead of always requesting the first 100 rows; filters/search reset to page 1, and the current page is clamped when the archive shrinks. `/api/alerts/history` widened its bounded union window 500→2000 and documents that `total` describes that window. News bookmarks now persist the full article snapshot (`be_news_saved_items_v1`) instead of only IDs, so Saved is its own searchable, category/sentiment/sort-filtered, paginated list that no longer depends on which feed page is loaded; legacy ID-only bookmarks migrate when their article next appears in the feed, and the detail dialog is extracted to `news-detail-dialog.tsx`. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
-
-## 2026-11-08
-- **docs(oss): make the repository publish-ready as MIT open source.** GitHub
-  renders the repository ROOT, which had no README or LICENSE (both lived only
-  under `Black-Eclipse-site/`), so the project read as unlicensed. Added root
-  `README.md` (what it is, quick start, layout, production status, license map)
-  and root `LICENSE` (MIT, with the scope note that
-  `Black-Eclipse-site/pine-engine/` is AGPL-3.0-only via `pinets`). Fixed
-  `pine-engine/NOTICE.md`, which still said the app "stays proprietary"; the app
-  is MIT, the Pine engine is the separate AGPL component. `package.json` now
-  declares `license: MIT`. The GitHub repository is still **private** —
-  flipping visibility is an owner action, not a repo edit. Docs updated:
-  `README.md` (root), `LICENSE`, `pine-engine/NOTICE.md`, `docs/CHANGELOG.md`.
-- **fix(evaluation): restore the live gate's `provider_configured` helper.** The
-  v0.3.0 tree called and exported `provider_configured()` in
-  `python/harness/evaluation/live_gate.py` but the definition was missing, so
-  `npm run eval:live` died with a `NameError` before any trial. The helper is
-  back (a local provider needs only a name; a hosted one also needs a key) with
-  three unit tests, and the live lane now runs end-to-end against the configured
-  Ollama model — `--limit 1` produced a recorded run. Size budget re-pinned
-  464766→464772 and evaluation 12066→12073 for the restored code. Docs updated:
-  `docs/CHANGELOG.md`.
-- **ops(release): P5 operational scaffolding for a self-hosted instance.**
-  `scripts/backup.sh` (consistent SQLite snapshots via the backup API, a
-  `PRAGMA integrity_check` before the archive is accepted, gzip archive,
-  retention, `.black-eclipse/` included), `scripts/install-backup-timer.sh`
-  (daily systemd timer), `scripts/health-watch.sh` (public health probe that
-  posts to `ALERT_WEBHOOK_URL` and says plainly when no channel is configured),
-  `deploy/prometheus/blackeclipse.rules.yml` (availability + health-probe alerts,
-  runtime-metric templates), and `.github/workflows/ops-drift.yml` (weekly
-  drift/size/ADR/secrets cadence, at the repository root where Actions reads it).
-  `docs/DEPLOYMENT.md` gains Backups & restore, Monitoring & alerts, Incident
-  response and Drift watch. The P5 exit gate is time-based (one week of a live
-  instance with no silent failure), so it is recorded open, not done. Docs
-  updated: `docs/DEPLOYMENT.md`, `docs/PRODUCTION-READINESS.md`,
-  `docs/CHANGELOG.md`.
-- **docs(harness): refresh benchmark results.** `docs/harness/benchmarks.md`
-  now records run `evalrun-1794189449278` at commit `216277a2` (tier 0,
-  gate PASS) with updated latency. Doc updated: `docs/harness/benchmarks.md`.
-  No code or contract change — recorded benchmark output only.
-- **refactor(ui): remove the Eclipse SDK page.** The dedicated `?tab=sdk`
-  screen (`src/components/screens/sdk/`) is deleted along with its AppTab,
-  sidebar/Agentic entry, search-palette page and launcher row, app-shell nav
-  section, deep-link entry and nav translation key. The Eclipse SDK itself —
-  `/sdk/*`, `eclipseSdk`, widgets, dashboards, themes, locks, audit and the
-  `/app` / `/eclipsesdk` chat tools — is unchanged and remains driveable from
-  ChatBot and the typed client. Docs updated: `docs/ARCHITECTURE.md`,
-  `docs/eclipse-sdk.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **fix(ui): the sidebar Graph pop-up now shows only the learned graph.** The
-  **Relations** tab duplicated the Investor Eye relationship graph (the same
-  `IE_GRAPH_TOPIC` chart, with no capability the Investor Eye panel lacks), so
-  it is removed; the pop-up keeps the learning-journey graph and drops the tab
-  strip. The Investor Eye **Relationship Graph** panel is unchanged, and the
-  now-unused `RelationshipGraphChart` re-export and `sidebar.graphSkills` /
-  `sidebar.graphRelations` strings are removed. `graphHint` / `graphDialogHint`
-  now describe the learned graph. No data or API change. Docs updated:
-  `docs/CHANGELOG.md`.
-- **fix(ui): the crash card now offers one clear action — Reload.** The
-  top-level "Something went wrong" fallback (`error-boundary.tsx`) paired
-  "Try again" (reset the boundary state in place) with "Reload" (full document
-  reload). For a boundary wrapping the whole app, the in-place reset rarely
-  recovers: a deterministic render error immediately re-throws, and the subtree's
-  state is already gone, so it mostly flashed the card back. "Try again" was
-  removed and the surviving **Reload** button is now the primary action. No doc
-  change — copy/affordance-only UI change, contracts unchanged.
-- **fix(ui): the sidebar menu always reads F1–F12 in order again.** Saved
-  shortcut slots had drifted for legacy orders (ChatBot kept F3 from the old
-  default order) and for the Dashboard insertion, which left one slot blank and
-  shifted every following key by one; duplicate keys could also survive. The
-  config is now versioned (v3) with an explicit `shortcutsCustomized` flag:
-  un-customized menus are re-numbered F1..F12 in visible order on load, after an
-  app-wide nav update and after a reorder, while keys assigned in Settings are
-  preserved and de-duplicated. Sidebar badges and collapsed titles render the
-  formatted label; the shortcut help no longer double-formats labels (which
-  upper-cased `Shift + E`) and now lists the missing `Alt+G` Graph mode entry.
-  Docs updated: `docs/OVERVIEW.md`, `docs/CHANGELOG.md`.
-- **Skills Phase 8: surface promotion evidence, version comparison, and bundle
-  update preview/rollback.** Three capabilities already existed in the browser
-  client but had no UI. Skill Detail now has a **Promotion evidence** section
-  (evaluation status, execution metrics, CI, usefulness, deprecation advice,
-  sample warning) and a **Compare versions** section (older-vs-current success,
-  validation, duration, regressions, case-set deltas, low-sample honesty).
-  Locked bundles gained **Preview update** (member/version/hash deltas) and
-  **Rollback**. New `skill-evidence.tsx` + `skill-evidence.test.tsx`; read-only,
-  no API change. Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **fix(harness): a cold start no longer reports 503 while it is still importing.**
-  The P2 drill saw the first authenticated harness call return 503 under a
-  concurrent build/test load, then succeed on the next call. Measured cause: the
-  runtime cold start is 36 s standalone and ~51 s alongside the app's own boot,
-  and can exceed the old 240 s budget when the host is saturated — the front door
-  then reports the runtime unavailable while it is still healthy. The default
-  `HARNESS_PY_START_TIMEOUT_MS` is now **300 s** (with margin over the measured
-  worst case), `waitForHealth` logs progress every 15 s instead of waiting
-  silently, and `_boot()` now logs per-subsystem timings so a slow start is
-  diagnosable from the log. Verified: a fresh isolated production app + data dir
-  returned the first `/api/harness/models` **200 in 51.4 s**; the boot marks show
-  every subsystem step under 200 ms, so the remaining time is the Python import
-  itself. Docs updated: `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
-- **Skills Phase 7: execution runs are addressable.** `?tab=skills&sub=skills.activity&focus=<runId>`
-  now opens (and highlights/expands) that run. The Learning Queue's "View run"
-  is restored and routes there; a run older than the 100-row list window is
-  fetched by id from `/api/skill-executions/:runId`, and a missing run shows an
-  honest "Run not found" state. Collapsing the focused row clears the URL param.
-  Added the browser `getSkillExecution` helper and an SSR test
-  (`execution-activity.test.tsx`) pinning the expanded/collapsed states. Docs
-  updated: `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
-- **Skills Phase 6: bulk enable/disable in the Library.** Each skill card now has
-  a labelled selection checkbox and a selection toolbar ("Enable", "Disable",
-  "Clear"). Bulk actions call the existing operator-gated
-  `setSkillLifecycle` per skill in batches of five, count successes/failures,
-  report a partial-failure toast instead of claiming blanket success, then
-  refresh the list. Only reversible transitions are offered — no bulk
-  deprecate/delete. No API or data-shape change; the server remains the
-  authority for every transition. Docs updated:
-  `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
-- **Skills Phase 5: navigation + accessibility pass.** The primary group tab bar
-  now stays visible during a skill drill-down; choosing a group closes it (URL
-  replaced, not pushed), so detail is escapable without the Back button. Added
-  `aria-pressed` to Library filter/sort and Guided Learn source toggles,
-  `aria-expanded` to detail sections and execution rows, `aria-label`s to the
-  Library search and Evaluation skill picker, `role="status"`/`aria-live` to the
-  toast, and Escape-to-close + `aria-modal` to the author drawer. New SSR test
-  `src/components/screens/skills/skill-library.test.tsx` pins the filter state,
-  pagination range and empty-state action. Docs updated:
-  `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
-- **fix(deploy): the container applies the Prisma schema on first boot.**
-  `docker-entrypoint.sh` execs `next start` directly, bypassing
-  `scripts/doctor.js` (the `prestart` hook that runs `prisma db push`), so a
-  fresh `be-data` volume booted with an empty `jdds.db` and every Prisma table
-  failed with P2021 (`CronJob does not exist`, news-refresh cycle errors). The
-  entrypoint now runs `prisma db push` before `exec` — idempotent, and fail-soft
-  (a destructive schema change warns loudly instead of dropping data). Found by
-  the P2 production-posture drill. Verified on an isolated data dir: 58 tables
-  including `CronJob`, `PRAGMA integrity_check = ok`, and an app boot with zero
-  schema errors. The same drill confirmed: unauthenticated `/api/settings` 401;
-  first-run setup + login + authenticated `/api/auth/me`; a killed/absent
-  runtime reporting 503 then recovering to 200; and a backup → destroy →
-  restore with 4/4 databases passing `integrity_check`. Docs updated:
-  `docs/DEPLOYMENT.md`, `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
-- **Skills Phase 4: server-side list query contract + large-registry UX.**
-  `GET /skills` now accepts `q`/`category`/`status`/`risk`/`sort`/`limit`/`offset`
-  and returns an exact envelope (`registryTotal`, `total`, `offset`, `limit`,
-  `hasMore`); the old bare call still returns every skill. The pure semantics
-  live in `python/harness/skills/listing.py` with
-  `python/tests/test_skills_listing.py`; the front door and both TS clients
-  forward the query. Added `updatedAt` to summaries and an "Updated" sort to the
-  Library, and gave the Evaluation Center a searchable skill picker (a 90+ item
-  `<select>` was unusable). The UI intentionally stays client-side below ~500
-  rows for instant filtering; above that the same params drive server paging with
-  no API change. Docs updated: `docs/harness/phase-3-architecture.md`,
-  `docs/CHANGELOG.md`.
-- **fix(trading): the approval card IS an execution path — stop reporting fills as
-  refusals.** A demo XAUUSD order filled (`ord_a143a70d5baa`, ticket 11290511790,
-  0.1 lot @ 4071.91) through approval `appr_bca8be7bf25b44db`, yet the chat then
-  claimed the card "never sends" and that a demo mandate was the only way. Root
-  cause was contradictory guidance: `prompts.py` `<fiduciary_advice>` called the
-  demo mandate the ONLY execution path and told the model to call `order_submit`
-  directly, while the per-run trading directive says `order_preview` + the
-  operator's card. The system block now names both operator-gated paths (manual
-  approval card, unattended demo mandate), states that the card submits and needs
-  no mandate, and requires an `order_ledger`/`broker_positions` read before
-  reporting a failure. `trading_intent.py` says the same; `order_preview`'s result
-  names the card as the submit path; `order_submit`'s `MANDATE_REQUIRED` message
-  points at `order_preview` for a one-off trade. The approval banner also kept its
-  success line only while a pending approval existed — a fill consumed the
-  approval and the confirmation vanished — so the notice now survives the
-  unmount for 10 s. Prompt ceiling re-pinned 43307 → 44183 (measured). Tests:
-  `test_trading_intent.py`, `test_phase_s_stabilization.py`,
-  `test_memory_tools.py`, broker suite. Docs updated: `docs/trading.md`,
-  `docs/CHANGELOG.md`.
-- **Skills Phase 3: URL-addressable detail and persisted Library filters.** A
-  skill drill-down now has a real URL (`?tab=skills&sub=skills.detail&focus=<id>`)
-  and pushes a history entry, so browser Back closes it and a link/Cmd-click
-  opens the same skill. Library search/filters/sort live in the URL
-  (`q`/`cat`/`status`/`risk`/`sort`), are restored on reload, and survive the
-  detail round-trip; the pure parse/serialize pair is
-  `src/lib/skills/library-view.ts` with `library-view.test.ts`. Added shared
-  `EmptyState`/`ErrorState` to `skill-ui.tsx` and replaced the bespoke empty and
-  error panels across Library, Evaluation, Activity, Learning Queue, Bundles,
-  Project Skills, Maintenance and Journey. No API change; deep links use the
-  existing `focus` dispatch path. Docs updated:
-  `docs/harness/phase-3-architecture.md`, `docs/CHANGELOG.md`.
-- **Skills Control Room: 10 tabs → 5 groups, real pagination, and dead
-  controls removed.** The Skills screen flattened discovery, authoring, review
-  and monitoring into one ten-tab bar. It now renders five primary destinations
-  — Library · Learning · Journey · Collections · Operations — with sub-tabs;
-  `SKILLS_TABS` remains the deep-link/agent-surface inventory and Start Here is
-  `hidden` (first-run content in the Library empty state, still reachable at
-  `?tab=skills&sub=skills.start`). RSL Experiments moved out of Journey into
-  Operations. Added the shared `PaginationFooter` to the 91-skill Library
-  (25/page), Evaluation Center, all four Skill Detail histories, Project Skills
-  trust/approval history, Bundles, and Maintenance; added a Library sort control
-  and derived the status/category filter chips from the registry (the hardcoded
-  list omitted seven real statuses). Removed the Learning Queue "View run"
-  no-op, the unreachable read-only-operator banners, and the raw-JSON-only run
-  input (now a schema-driven form with a JSON fallback). Bundle delete now
-  confirms first. Docs updated: `docs/harness/phase-3-architecture.md`,
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **Memory Control Room follow-up: every remaining list is paged; diagnostics
-  moved out of Facts.** Sessions, automatic-learning reviews, suggestions,
-  corrections and mistakes now accept `offset` and return exact `total` /
-  `hasMore`, with the shared footer ("Showing X–Y of N") in each view. Added
-  `listChatSessionsPage`, `listLearningReviewsPage`, `listSuggestionsPage`,
-  `listCorrectionsPage` and `listMistakesPage` to both clients; the
-  array-returning wrappers remain for bounded batch callers. Preferences
-  evidence groups are paged client-side. Retention, contradiction-detection
-  prose, real-usage metrics and compaction now live in Maintenance →
-  Diagnostics (`diagnostics-panel.tsx`) instead of above the Facts lifecycle
-  list; Facts → Lifecycle keeps the state counts, view chips and paged list.
-  Tests: browser-client paging cases; Python suite re-run. Docs updated:
-  `docs/harness/personal-memory.md`, `docs/CHANGELOG.md`.
-- **Memory Control Room: 16 tabs → 7, exact counts, and real pagination.** The
-  screen had accumulated 16 top-level tabs that duplicated the same records
-  (Facts/Lifecycle, Sessions/Session Search, Preferences/Suggestions,
-  Files/Health) and pushed content below diagnostic prose. It now renders
-  Overview · Facts (Browse + Lifecycle) · Sessions (list + search) · Review
-  (suggestions + learning reviews) · Preferences (learned + context snapshot) ·
-  Settings (policies + providers + profiles) · Maintenance (diagnostics + files
-  + health/data), with every legacy slug kept as a deep-link alias. Removed the
-  redundant Skills tab, the three-card model legend, and the duplicate Markdown
-  actions in Health. Fixed the literal `{Math.round(...)}` that appeared in the
-  usage report, fixed the JSON import picker (a disabled button swallowed the
-  file dialog), and corrected the empty-state copy that claimed nothing is
-  learned automatically. Overview totals are now `COUNT(*)` queries instead of
-  `len(list(limit=500))`; `/eclipse-memory/memories`, `/lifecycle` and
-  `/session-search` accept `offset` and return exact `total`/`hasMore`.
-  Facts search is server-side and paged (50/page), Lifecycle is paged, and
-  Session Search has a working "Load more". The Settings cluster (profiles,
-  providers, policies) was extracted to `settings-panel.tsx` so the shell stays
-  under the source-size ratchet. Tests: new
-  `python/tests/test_memory_pagination.py`, browser-client pagination cases.
-  Docs updated: `docs/harness/personal-memory.md`,
-  `docs/harness/phase-3-memory-progress.md`, `docs/CHANGELOG.md`.
-- **fix(desktop): the right-click "Open" icon is the app icon.** Windows 11's
-  modern context menu draws the **target's** icon for "Open", so the desktop
-  shortcut to `wscript.exe` showed the colourful Windows Script Host icon there
-  even though its `IconLocation` pointed at `black-eclipse.ico` (setting
-  `IconLocation` can only fix the desktop/Start tile). New
-  `scripts/desktop-shortcut.js` (`npm run setup:desktop`, `black desktop`)
-  compiles `.black-eclipse/Black Eclipse.exe` with the .NET Framework `csc` that
-  ships with Windows, embeds `public/branding/black-eclipse.ico` in it, points
-  the shortcut (repairing an existing one under any name) at that exe with the
-  same icon, and asks the shell to refresh its icon cache. The exe just starts
-  `start-eclipse.vbs`, so boot/stop behaviour is unchanged. No new dependency:
-  `csc` is part of Windows and the generated exe is gitignored. Docs updated:
-  `docs/QUICKSTART.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **fix(trading): attach to MetaTrader 5 instead of launching it in the
-  background.** `mt5.initialize(path=...)` starts `terminal64.exe` when it is
-  closed, so the 15 s dashboard broker snapshot and the journal auto-sync
-  reopened MT5 every time it was shut. The adapter now checks the OS process list
-  first (`trade/terminal.py` `terminal_running`, a dependency-free Toolhelp
-  snapshot kept separate from `terminal/proctree.py` so the broker layer does not
-  pull in the sandbox) and refuses before `initialize` with
-  `TERMINAL_NOT_RUNNING` unless the connection opts in with
-  `config.autoLaunchTerminal: true`. `probe()` reports the same honest code
-  without launching. `autoLaunchTerminal`/`openTerminalOnTrade` joined
-  `ALLOWED_CONFIG_KEYS`, and boolean config values now stay booleans
-  (`false` used to become the truthy string `"False"`, which also made
-  `portable` misbehave). New checkbox in Settings › Broker connection, off by
-  default. Tests: `python/tests/test_mt5_launch.py`; the simulated-terminal
-  fixture stubs the running check. Docs updated: `docs/trading.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph-studio): expose typed decisions as workflow nodes + a zero-config demo.**
-  New `decision.ask` (general: wired/`stateJson` state + a closed question
-  template, `model` side effect) and `decision.demo` (deterministic rules
-  scenario, `local_write` audit only) in `python/harness/graph_runtime/decision_nodes.py`,
-  registered through `node_packs.py` and bound to `service.decision` in
-  `graph_runtime/bootstrap.py`; editor contracts in
-  `src/lib/graph-studio/registry-decisions.ts` + `registry.manifest.json`; new
-  `decision` node category, inspector fields, `brain` icon and the
-  `decision-demo` starter template. Both nodes reuse `DecisionService.ask`, so
-  status stays the only branch (`answered` / `review` / `unavailable`), a
-  missing provider fails closed, and `ECLIPSE_PRIVACY=local-models` is still
-  enforced. The `decision.ask` capability joins `TEST_RUN_CAPABILITIES` (a
-  typed judgment is information, not a world effect), so the demo template is
-  runnable in a workflow test run. Tests:
-  `python/tests/test_graph_decision_nodes.py` (15) plus the regenerated manifest
-  parity. `scripts/size-budget.json` total re-pinned
-  463916 → 464234 for the new node adapter (deliberate; no per-file ratchet
-  changed). Docs updated: `docs/graph-studio.md`,
-  `docs/decision-models.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **docs(release): add the production-readiness roadmap.** New
-  `docs/PRODUCTION-READINESS.md` records the measured 2026-11-08 baseline
-  (typecheck, tests, secrets, ADRs and size are green; `npx eslint .` has 3
-  errors; the live agent gate still fails at `task_success 0.8520 < 0.9`; the
-  preflight passes only as advisory and the container path is unverified),
-  names the six blockers (R1-R6), defines
-  twelve re-runnable exit criteria (C1-C12), and sequences the work as P0 tree +
-  lint + merge, P1 clean build + secrets + container, P2 production-posture
-  proof (journey, backup/restore, failure drill), P3 the live-gate decision
-  (improve to 0.9 or an ADR with a recorded accepted floor), P4 release
-  engineering (check:all on `main`, release note, tag, deploy/rollback), and P5
-  operations. It deliberately separates engineering blockers from the external
-  inputs (provider key, Docker host, second reviewer, CODEOWNERS team, counsel)
-  so a finished code phase is never reported as a finished release. NAVIGATION
-  gets a trigger row. Docs:
-  `docs/PRODUCTION-READINESS.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **chore(changelog): rotate the active window.** Adding today's section took
-  `CHANGELOG.md` to 8 dated sections, over the committed 7-section window the
-  `changelog-guard` test enforces. `node scripts/rotate-changelog.js --write`
-  moved `2026-11-01` into `docs/changelog/2026-11.md` (a move, never a prune),
-  preserving the archive's line endings. no doc change — rotation is tooling,
-  the policy is unchanged.
-- **fix(lint): clear the three gate-blocking errors.** `folder-picker.tsx`
-  renamed the `useWindows` callback to `openWindows` (it is a `useCallback`
-  named like a hook, so `react-hooks/rules-of-hooks` failed the gate);
-  `desktop-launcher.test.ts` replaced its two `any`s with a typed
-  `LauncherTheme` shape. `npx eslint .` now exits 0 (0 errors, 118 warnings).
-  Verified: `npx tsc --noEmit`, the two affected Vitest files (19 tests) and
-  `python/tests/test_decisions.py` (28). no doc change — lint-only.
-- **chore(release): complete P0 and land it on `main`.** The typed-decision and
-  legal work (`cc5519ea`) and the roadmap + lint fix (`9785b485`) are merged into
-  local `main` as `b48d3ba5`; the `CHANGELOG.md` merge conflict kept BOTH sides'
-  `2026-11-04` entries and the rotated archive now carries main's `2026-11-01`
-  bullets (including the `423,998` size re-pin), so no history was dropped.
-  `npm run check:all` on `main` passes **ALL GATES** (tsc, eslint 0 errors,
-  secret scan, advisory preflight, ADR + size, Vitest + Python, eval gates,
-  corpus). `main` is clean and not pushed. Docs updated:
-  `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
-- **fix(deploy): the security preflight accepts `HARNESS_AUTH=required`.**
-  `scripts/security-preflight.js` had its own `truthy()` that omitted `required`
-  — the documented production value, and the exact value `docker-compose.yml`
-  forces — so a correctly hardened deployment failed its own deploy gate with
-  "HARNESS_AUTH missing". It now mirrors `src/lib/auth/config.ts` exactly
-  (`required`/`enable`/`enabled` are on; `off`/`none`/`disabled` are off) and
-  returns `undefined` for anything else. Regression test
-  `src/lib/security-preflight.test.ts` (8 cases) covers both the accepted
-  vocabulary and the three fail-closed paths. Verified manually: a public
-  production posture with generated secrets passes; without them it exits 1.
-  `docs/DEPLOYMENT.md` now states that the script reads the process environment
-  (not `.env`) and shows `node --env-file=.env scripts/security-preflight.js`
-  for checking a filled file without exporting it. Also verified the clean
-  build actually serves: `next start` on the fresh `.next` returned
-  `GET /login` 200 in 2 s. Docs updated:
-  `docs/PRODUCTION-READINESS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
-- **fix(ui): a partial autonomy status no longer crashes the skills panel.**
-  `RslAutonomyCardView` read `status.killSwitch.paused` without guarding
-  `killSwitch`, so a proxy error envelope or an older payload threw during
-  render and blanked the whole panel. `npm run test:drift` had been red for this
-  reason (the fixture's broad `/api/evolution/rsl` mock matched the autonomy
-  route and returned the wrong shape). The field is guarded, a regression test
-  covers a missing `killSwitch`, and the fixture now mocks
-  `/api/evolution/rsl/autonomy` before the broader route. `npm run test:drift`
-  passes both smokes. Also documented why `useInView` intentionally has no
-  dependency list (a ref-only mount check that cannot loop), and corrected
-  `CONTRIBUTING.md`'s release-gate list to match `check-all.js`/CI (it omitted
-  the secret scan, preflight, ADR and size checks, the corpus gate and the drift
-  smokes). Also removed six dead `eslint-disable` directives (their rules are not
-  enabled) and one unused icon import, so the advisory warning count drops
-  without changing behaviour. Docs updated: `CONTRIBUTING.md`,
-  `docs/CHANGELOG.md`.
 

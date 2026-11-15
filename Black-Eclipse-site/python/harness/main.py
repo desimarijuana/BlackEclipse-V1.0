@@ -518,11 +518,9 @@ def agents() -> dict[str, Any]:
     }
 
 @app.post("/runs")
-async def start_run(http_request: Request, request: RunRequest, background: bool = False) -> JSONResponse:
-    from .security.identity import resolve_identity
-    _tenant = resolve_identity(http_request).tenant_id
-    if _tenant and not request.tenantId:
-        request = request.model_copy(update={"tenantId": _tenant})
+async def start_run(http_request: Request, request: RunRequest, background: bool = False, _: bool = Depends(require_operator)) -> JSONResponse:
+    from .security.identity import bind_run_identity
+    request = bind_run_identity(http_request, request)
     try:
         if background:
             await service.run_background(request)
@@ -647,7 +645,7 @@ class CancelResponse(BaseModel):
 
 
 @app.post("/runs/{run_id}/cancel")
-def cancel_run(run_id: str) -> dict[str, Any]:
+def cancel_run(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
     if not service.get_run(run_id):
         raise HTTPException(status_code=404, detail="Run not found")
     cancelled = service.cancel(run_id)
@@ -655,7 +653,7 @@ def cancel_run(run_id: str) -> dict[str, Any]:
 
 
 @app.post("/runs/{run_id}/resume")
-async def resume_run(run_id: str, request: RunRequest, background: bool = False) -> JSONResponse:
+async def resume_run(run_id: str, request: RunRequest, background: bool = False, _: bool = Depends(require_operator)) -> JSONResponse:
     """Resume a crashed run from its latest checkpoint (Phase 1).
 
     The run id in the path is authoritative. A resume of a run with no checkpoint

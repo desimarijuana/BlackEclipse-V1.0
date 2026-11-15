@@ -95,11 +95,30 @@ def _confine(root, requested: Optional[str]):
     return resolved
 
 
+def _reject_hardline(command: str) -> None:
+    """Apply the always-on destructive-command hardline to HTTP terminal input.
+
+    The agent tool path already consults it (`code/terminal.py::classify`), but
+    these direct operator endpoints historically called the terminal manager
+    without that check. Operator authorization is not a licence to run `format`
+    or a recursive delete through an API a rebinding/CSRF request can reach.
+    """
+    from ..security.hardline import evaluate  # noqa: PLC0415
+
+    fatal = evaluate(command)
+    if fatal is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "COMMAND_BLOCKED", "message": f"blocked ({fatal.rule}): {fatal.reason}"},
+        )
+
+
 # ── Foreground ──────────────────────────────────────────────────────────────
 
 
 @router.post("/terminal/execute")
 async def terminal_execute(body: ExecuteRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    _reject_hardline(body.command)
     root = _confine(_root_or_400(), body.cwd)
     result = service.terminal.execute_command(
         command=body.command, cwd=str(root), shell=body.shell, runtime=body.runtime,
@@ -168,6 +187,7 @@ def close_session(session_id: str, _: bool = Depends(require_operator)) -> dict[
 
 @router.post("/terminal/sessions/{session_id}/run")
 async def run_in_session(session_id: str, body: RunShellRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    _reject_hardline(body.command)
     root = _root_or_400()
     timeout_s = int((body.timeoutMs or 120_000) // 1000) or 1
     result = service.terminal.run_in_shell(session_id, body.command, timeout_s=timeout_s, workspace_root=str(root))

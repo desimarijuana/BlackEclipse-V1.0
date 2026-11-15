@@ -1,7 +1,7 @@
 ---
 title: Authentication & multi-user mode
 status: Current
-last-verified: 2026-11-06
+last-verified: 2026-11-15
 ---
 
 # Authentication & multi-user mode
@@ -48,12 +48,25 @@ Two layers, because the Edge middleware cannot open SQLite:
 1. **`src/middleware.ts` (Edge)** — the app-wide *coarse* gate. It requires a
    validly **signed** session cookie for every page and every `/api/**` call,
    except `/login` and `/api/auth/**`. API calls get `401 AUTH_REQUIRED`; pages
-   redirect to `/login`. When mode is off it is a no-op.
+   redirect to `/login`. When mode is off it is a no-op. When auth is required
+   but no usable signing secret exists, every request fails closed with `503`.
+   Independently of the auth mode, a **central cross-site gate** runs first: a
+   browser-declared `Sec-Fetch-Site: cross-site` request is refused, and a
+   mutating API call must pass the same-origin / loopback / operator-secret
+   policy (`src/lib/api-guard.ts`). Public HMAC webhooks are exempt. This is what
+   protects the default desktop (`HARNESS_AUTH=off`) from drive-by CSRF.
 2. **`requireApiAuth(request)` / `getAuthContext(request)` (Node)** — the
    *authoritative* check. A route that needs a real identity resolves the cookie
    to a live session row and an active user; a deleted session is refused
-   immediately. Every mutation route should call `requireApiAuth` after the
-   middleware gate.
+   immediately. **Only routes that call it get that guarantee** — middleware
+   checks the signature, not the database. The privileged route families
+   (command execution, workspace files/roots, artifacts, terminal, security
+   admin, runtime restart) call it; read-only routes may still accept a signed
+   token until its 7-day expiry.
+
+The desktop app runs accountless (`HARNESS_AUTH=off`, no sign-in screen). The
+login/setup endpoints exist only for an operator who explicitly enables auth for
+a non-loopback deployment.
 
 Sessions are opaque server-side ids stored in `.black-eclipse/auth.db` (gitignored,
 never JDdS, never committed). The cookie carries only the signed id — `HttpOnly`,

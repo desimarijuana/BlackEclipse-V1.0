@@ -1,13 +1,15 @@
-"""MetaTrader 5 read-only adapter (Windows, local IPC).
+"""MetaTrader 5 adapter (Windows, local IPC).
 
 The official `MetaTrader5` package talks to a running `terminal64.exe`; it is not
 a REST API and there is no API key. In the preferred ATTACH mode the operator has
 already logged the terminal into a demo (or live) account, and Eclipse passes no
 credentials at all.
 
-P0 implements only reads. `order_send` is deliberately absent: live execution is a
-separate, approval-gated phase. A missing package, terminal, login or broker
-connection is reported with a distinct code, never as an empty account.
+The adapter implements reads AND the low-level order calls. `order_send` is only
+reachable through `trade/service.py`, which requires an approval or mandate, a
+digest bound to the exact order, live-arm state for a real account, and the risk
+policy. A missing package, terminal, login or broker connection is reported with
+a distinct code, never as an empty account.
 """
 
 from __future__ import annotations

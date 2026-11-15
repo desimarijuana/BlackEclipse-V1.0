@@ -21,6 +21,7 @@ import uuid
 from typing import Any, Mapping, Optional
 
 from .run_patch import RUN_JSON_FIELDS, RUN_PATCH_FIELDS, run_patch_sql
+from .observability.redaction import redact_tool_text
 from .sqlite_pool import ThreadLocalConnections
 
 SCHEMA = """
@@ -758,6 +759,7 @@ class AgentMemoryStore:
 
     # ── Tool executions ─────────────────────────────────────────────────────
     def record_tool_execution(self, run_id: str, result: Any) -> None:
+        text = redact_tool_text(result.text)
         self._db.execute(
             """INSERT INTO HarnessToolExecution
                (id, runId, toolCallId, name, ok, durationMs, args, text, error, createdAt)
@@ -770,7 +772,7 @@ class AgentMemoryStore:
                 1 if result.ok else 0,
                 result.duration_ms,
                 json.dumps(getattr(result, "args", {}) or {}),
-                result.text[:4000],
+                text,
                 result.error.model_dump_json() if result.error else None,
                 now_iso(),
             ),

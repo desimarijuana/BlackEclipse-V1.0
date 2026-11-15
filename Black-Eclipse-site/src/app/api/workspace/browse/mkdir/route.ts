@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { createDirectory } from "@/lib/workspace/browse-server";
 import { corsPreflight, localCors } from "@/lib/workspace/cors";
 
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 // picker is showing. `name` is a single leaf, never a path. Node-native so the
 // picker keeps working while the Python runtime restarts.
 export async function POST(request: Request) {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   try {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const parent = typeof body.path === "string" ? body.path.trim() : "";

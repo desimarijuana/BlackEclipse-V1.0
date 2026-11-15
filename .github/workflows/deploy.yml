@@ -17,6 +17,10 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# Deploy only reads the checkout and SSHes; it needs no GITHUB_TOKEN writes.
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-production
   cancel-in-progress: false

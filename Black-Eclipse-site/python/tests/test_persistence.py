@@ -143,6 +143,23 @@ def test_tool_execution_recorded(store):
     assert execs[0]["name"] == "get_market_snapshot"
 
 
+def test_tool_execution_text_is_redacted_before_persistence(store):
+    class R:
+        tool_call_id = "c2"
+        name = "read_file"
+        ok = True
+        duration_ms = 3
+        text = "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+        error = None
+        args = {"path": ".env"}
+
+    store.create_run("run_redact", "a", {"query": "x"})
+    store.record_tool_execution("run_redact", R())
+    stored = store.list_tool_executions("run_redact")[0]["text"]
+    assert "sk-proj-" not in stored
+    assert "REDACTED" in stored
+
+
 def test_memory_remember_and_recall_scoped(store):
     store.remember("user", "preference", "Prefers PSX", user_id="u1")
     store.remember("user", "preference", "Loves crypto", user_id="u2")

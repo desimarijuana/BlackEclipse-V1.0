@@ -37,7 +37,10 @@ RATCHET_PY: dict[str, int] = {
     # +24 (2026-11-13): `/health/live`, the constant-time supervisor readiness
     # route. The diagnostic `/health` below it stays as-is. Split candidate: the
     # health document itself.
-    "main.py": 1296,
+    # Shrank 1296 -> 1294 (2026-11-15 audit): the verified-identity binding for
+    # `/runs` moved into `security/identity.py::bind_run_identity` rather than
+    # growing this facade. May only shrink from here.
+    "main.py": 1294,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research
@@ -306,7 +309,10 @@ RATCHET_PY: dict[str, int] = {
     # (pre-existing growth). Re-pinned 1549->1555 for ranked session-search
     # page slicing (offset); 1555->1586 for session/review offset paging.
     # May only shrink.
-    "persistence.py": 1603,
+    # Re-pinned 1603->1604 (2026-11-15 audit) for tool-output redaction before
+    # persistence; the redaction helper itself lives in observability/redaction.py.
+    # May only shrink.
+    "persistence.py": 1604,
     # Pre-existing and unratcheted: the memory tool surface (inventory,
     # consolidation, review handlers). SPLIT CANDIDATE: the inventory handlers
     # belong beside `eclipse_memory/service.py`.

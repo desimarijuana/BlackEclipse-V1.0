@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { runShell } from "@/lib/harness/clients/code-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
@@ -6,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 // POST /api/code/shell — one command through the host shell for the terminal panel.
 export async function POST(req: Request) {
+  const denied = await requireApiAuth(req);
+  if (denied) return denied;
   try {
     const body = (await req.json().catch(() => ({}))) as {
       command?: string;

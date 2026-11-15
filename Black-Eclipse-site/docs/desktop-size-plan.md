@@ -67,6 +67,24 @@ Recording the number as the baseline for a later startup pass.
 Both install per-user and preserve data. The slim edition is the recommended
 download; the offline edition exists for machines with no network.
 
+Every slim build also writes `BlackEclipse-Setup.exe`, a byte-identical copy
+under a version-independent name. That is the **public download contract**:
+the README buttons and the release page link to
+`releases/latest/download/<stable name>`, so they never change between versions.
+
+| Platform | Stable name | Produced by |
+| --- | --- | --- |
+| Windows (slim) | `BlackEclipse-Setup.exe` | `scripts/desktop-installer.js` |
+| macOS | `BlackEclipse-mac-<arch>.dmg` | `scripts/desktop-bundle.js` (`buildMac`) |
+| Linux | `BlackEclipse-linux-<arch>.deb` | `scripts/desktop-bundle.js` (`buildDeb`) |
+
+The macOS name keeps the architecture because only one arch is produced per
+runner and a Mac cannot run the other: the button links `arm64` explicitly
+rather than handing an Intel Mac a binary it can never launch. The Windows
+installer script deletes its alias on an offline-only build (a stale alias must
+never be published) and lists it in `SHA256SUMS.txt`; `desktop-release.yml`
+fails the build when any alias is missing.
+
 Packaging command:
 
 ```

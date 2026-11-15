@@ -1,9 +1,10 @@
-"""Bounded demo-execution mandates for unattended graph runs (P3).
+"""Bounded execution mandates for unattended graph runs (P3).
 
-A mandate is an operator-created, expiring authorization for ONE demo broker
+A mandate is an operator-created, expiring authorization for ONE broker
 connection. It names the symbols, a margin cap and a maximum number of orders.
-It is not a standing approval for live trading: `create` refuses a live
-connection, and the graph compiler still refuses live trading nodes.
+Live mandates are only created when the mandate is pinned to a workflow or bot,
+are capped at a short TTL, and remain subject to the live arm and the graph
+compiler's authorized-mode check - a mandate alone never enables live trading.
 
 Every use is counted atomically, so a graph that loops cannot exceed the mandate.
 Revocation is immediate.

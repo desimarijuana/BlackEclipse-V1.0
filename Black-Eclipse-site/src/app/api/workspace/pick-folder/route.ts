@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { pickNativeFolder } from "@/lib/workspace/native-picker";
 import { corsPreflight, localCors } from "@/lib/workspace/cors";
 
@@ -8,6 +9,8 @@ export const maxDuration = 300;
 // POST /api/workspace/pick-folder — open the Windows "Select Folder" dialog on
 // the machine running the app. Blocks until the person picks or cancels.
 export async function POST(request: Request) {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   if (process.platform !== "win32") {
     return NextResponse.json(
       { error: "The native folder dialog is only available on Windows." },

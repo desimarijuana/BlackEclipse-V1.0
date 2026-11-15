@@ -84,6 +84,91 @@ describe("middleware with auth ON", () => {
   });
 });
 
+describe("cross-site API guard", () => {
+  beforeEach(() => {
+    env.HARNESS_AUTH = "off";
+    resetAuthConfig();
+  });
+
+  it("blocks a cross-site mutating request before any route handler runs", async () => {
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/api/code/shell", {
+        method: "POST",
+        headers: {
+          origin: "https://evil.example",
+          "content-type": "text/plain",
+          host: "127.0.0.1:3000",
+        },
+        body: '{"command":"echo pwned"}',
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("MUTATION_FORBIDDEN");
+  });
+
+  it("blocks a browser-declared cross-site GET (drive-by side effects)", async () => {
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/api/cron/run", {
+        headers: { "sec-fetch-site": "cross-site", host: "127.0.0.1:3000" },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("CROSS_SITE_BLOCKED");
+  });
+
+  it("allows the app's own same-origin mutation", async () => {
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/api/code/shell", {
+        method: "POST",
+        headers: { origin: "http://127.0.0.1:3000", host: "127.0.0.1:3000" },
+        body: "{}",
+      }),
+    );
+    expect(res.status).not.toBe(403);
+  });
+
+  it("does not let a spoofed x-forwarded-host make a remote host look local", async () => {
+    const res = await middleware(
+      new NextRequest("http://evil.example:3000/api/workspace/file/write", {
+        method: "POST",
+        headers: {
+          host: "evil.example:3000",
+          "x-forwarded-host": "localhost:3000",
+        },
+        body: "{}",
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects an oversized declared body", async () => {
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/api/workspace/file/write", {
+        method: "POST",
+        headers: {
+          origin: "http://127.0.0.1:3000",
+          host: "127.0.0.1:3000",
+          "content-length": String(41_000_000),
+        },
+        body: "{}",
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect((await res.json()).code).toBe("PAYLOAD_TOO_LARGE");
+  });
+
+  it("leaves HMAC-authenticated public webhooks alone", async () => {
+    const res = await middleware(
+      new NextRequest("http://127.0.0.1:3000/api/webhooks/demo", {
+        method: "POST",
+        headers: { origin: "https://provider.example", host: "127.0.0.1:3000" },
+        body: "{}",
+      }),
+    );
+    expect(res.status).not.toBe(403);
+  });
+});
+
 describe("canonical origin redirect", () => {
   const savedCanonical = env.BE_CANONICAL_HOST;
   afterEach(() => {

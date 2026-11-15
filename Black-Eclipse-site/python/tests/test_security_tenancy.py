@@ -58,7 +58,11 @@ def test_resolve_identity_precedence(monkeypatch):
     from starlette.requests import Request
 
     def make(headers=None, client=("127.0.0.1", 1)):
-        scope = {"type": "http", "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]}
+        all_headers = dict(headers or {})
+        # A real HTTP/1.1 request always has a Host header; the loopback trust
+        # rule requires it to name loopback too (DNS-rebinding defence).
+        all_headers.setdefault("host", "testserver")
+        scope = {"type": "http", "headers": [(k.lower().encode(), v.encode()) for k, v in all_headers.items()]}
         req = Request(scope)
         req.scope["client"] = client
         return req

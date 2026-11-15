@@ -27,3 +27,8 @@ node_modules/
 # HyperFrames generated project state and capture cache. It embeds absolute
 # machine paths, so it is runtime data and is never committed.
 **/.hyperframes/
+
+# Internal security assessment output. Contains reproduction detail and must not
+# be published with the public repository until every finding is fixed or
+# explicitly accepted.
+/security/audit/

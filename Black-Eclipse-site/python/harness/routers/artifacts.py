@@ -51,7 +51,20 @@ def _service() -> ArtifactService:
 
 
 def _owner(request: Request) -> str:
-    return (request.headers.get("x-harness-user") or "local").strip() or "local"
+    """The artifact owner.
+
+    A VERIFIED identity (the front door's signed `X-Harness-Identity` JWT) wins;
+    only when no identity is present (single-user local mode) does this fall back
+    to the local owner. A caller-supplied `x-harness-user` is never authoritative
+    on its own: it used to select an arbitrary owner and therefore another user's
+    artifacts.
+    """
+    from ..security.identity import resolve_identity
+
+    identity = resolve_identity(request)
+    if identity.user_id:
+        return identity.user_id
+    return "local"
 
 
 def _raise(exc: Exception) -> None:

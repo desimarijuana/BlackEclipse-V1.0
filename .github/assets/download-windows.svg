@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="64" viewBox="0 0 340 64" role="img" aria-label="Download Black Eclipse for Windows">
+  <title>Download Black Eclipse for Windows</title>
+  <!-- README download button. Plain shapes only: GitHub renders this through
+       <img>, so no scripts, no external fonts, no network references. -->
+  <rect x="1" y="1" width="338" height="62" rx="10" fill="#b4ff42" stroke="#0b0b0d" stroke-width="2"/>
+  <!-- Windows mark: four panes, drawn as paths so it survives any font stack. -->
+  <g fill="#0b0b0d" transform="translate(18 16)">
+    <path d="M0 0h13.2v12.6H0z"/>
+    <path d="M15.3 0H28.5v12.6H15.3z"/>
+    <path d="M0 14.7h13.2V27.3H0z"/>
+    <path d="M15.3 14.7H28.5V27.3H15.3z"/>
+  </g>
+  <text x="60" y="27" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="700" fill="#0b0b0d" letter-spacing="0.2">Download for Windows</text>
+  <text x="60" y="45" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" fill="#0b0b0d" fill-opacity="0.62" letter-spacing="0.3">141 MB · no admin · no Node.js · no Python</text>
+</svg>

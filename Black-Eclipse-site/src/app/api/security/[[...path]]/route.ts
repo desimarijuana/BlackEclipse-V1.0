@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "@/lib/auth/server";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
@@ -41,6 +42,8 @@ async function proxy(
   path: string[],
   method: "GET" | "POST",
 ): Promise<Response> {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
   const target = path.join("/");
   if (!isAllowed(method, target)) {
     return NextResponse.json(

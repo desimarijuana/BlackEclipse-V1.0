@@ -32,6 +32,7 @@ from fastapi import HTTPException, Request
 IDENTITY_HEADER = "x-harness-identity"
 PLACEHOLDER_SECRET = "change-me-to-a-random-secret"
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+_LOOPBACK_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
 _CLOCK_SKEW_S = 60
 
 
@@ -129,7 +130,18 @@ ANONYMOUS = Identity()
 def _is_loopback(request: Request) -> bool:
     client = request.client
     host = (client.host if client else "") or ""
-    return host in _LOOPBACK_HOSTS
+    if host not in _LOOPBACK_HOSTS:
+        return False
+    raw = (request.headers.get("host") or "").strip().lower()
+    if not raw:
+        return False
+    if raw.startswith("["):
+        name = raw.split("]", 1)[0] + "]"
+    elif raw.count(":") == 1:
+        name = raw.rsplit(":", 1)[0]
+    else:
+        name = raw
+    return name in _LOOPBACK_HOSTNAMES
 
 
 def _valid_operator_token(request: Request) -> bool:
@@ -217,6 +229,23 @@ def resolve_identity(request: Request) -> Identity:
             verified=True,
         )
     return ANONYMOUS
+
+
+def bind_run_identity(request: Request, run_request: Any) -> Any:
+    """Return `run_request` with userId/tenantId taken from the VERIFIED identity.
+
+    A caller-supplied `userId` is never authoritative in multi-tenant mode; the
+    front door signs the identity, and this helper is the one place a run creator
+    applies it. Kept here (not `main.py`) so the front-door module stays under its
+    size ratchet.
+    """
+    identity = resolve_identity(request)
+    updates: dict[str, Any] = {}
+    if identity.user_id:
+        updates["userId"] = identity.user_id
+    if identity.tenant_id and not getattr(run_request, "tenantId", None):
+        updates["tenantId"] = identity.tenant_id
+    return run_request.model_copy(update=updates) if updates else run_request
 
 
 def require_identity(request: Request) -> Identity:

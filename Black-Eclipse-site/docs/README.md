@@ -1,7 +1,7 @@
 ---
 title: Documentation Home
 status: Current
-last-verified: 2026-09-15
+last-verified: 2026-11-15
 ---
 
 # BlackEclipse Documentation
@@ -27,6 +27,7 @@ wants to understand the system — not for the compiler.
 | 7 | [GLOSSARY.md](./GLOSSARY.md) | What does this word mean here? |
 | 8 | [CHANGELOG.md](./CHANGELOG.md) | What changed recently, and were the docs updated? |
 | 9 | [OPEN-SOURCE-READINESS.md](./OPEN-SOURCE-READINESS.md) | Is the repository safe to make public? (readiness, not an intro) |
+| 10 | [public-readme.md](./public-readme.md) | What does the public README claim, and what evidence backs each claim? |
 
 Related, outside this folder: [`../README.md`](../README.md) (project intro),
 [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (dev setup), and

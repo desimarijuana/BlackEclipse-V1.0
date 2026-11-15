@@ -160,6 +160,14 @@ def code_shell(body: ShellRunRequest, _: bool = Depends(require_operator)) -> di
     """
     from ..code import shell as shell_mod  # noqa: PLC0415
     from ..code.workspace import default_root  # noqa: PLC0415
+    from ..security.hardline import evaluate as hardline  # noqa: PLC0415
+
+    fatal = hardline(body.command)
+    if fatal is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "COMMAND_BLOCKED", "message": f"blocked ({fatal.rule}): {fatal.reason}"},
+        )
 
     root = default_root()
     if root is None:

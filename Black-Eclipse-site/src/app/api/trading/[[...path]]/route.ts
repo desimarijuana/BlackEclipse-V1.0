@@ -8,11 +8,12 @@ import { isAllowedTradingRoute } from "@/lib/harness/trading-routes";
 
 export const dynamic = "force-dynamic";
 
-// ── Broker connectivity proxy (P0, read-only) ─────────────────────────────────
+// ── Broker connectivity + order proxy ────────────────────────────────────────
 // Paths are allowlisted (`trading-routes.ts`) and every Python `/trading/*`
 // route is operator-gated; this proxy injects the runtime operator token, so no
-// secret reaches the browser. There is deliberately no order route:
-// `/trading/orders` is a 501 in the runtime and is not proxied here.
+// secret reaches the browser. Order submission exists and is NOT free execution:
+// Python requires an approval or mandate bound to the exact order, a live arm
+// for a real account, and the risk policy. Reads are the default surface.
 
 async function proxy(
   request: Request,

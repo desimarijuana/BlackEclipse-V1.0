@@ -132,7 +132,8 @@ function buildDeb() {
     ].join("\n")
   );
 
-  const out = path.join(DIST, `blackeclipse_${VERSION}_${process.arch === "arm64" ? "arm64" : "amd64"}.deb`);
+  const arch = process.arch === "arm64" ? "arm64" : "amd64";
+  const out = path.join(DIST, `blackeclipse_${VERSION}_${arch}.deb`);
   if (DRY_RUN) {
     console.log(`[bundle] dry run: staged ${path.relative(ROOT, stage)} (dpkg-deb skipped)`);
     console.log(`[bundle] would write ${path.relative(ROOT, out)}`);
@@ -140,6 +141,13 @@ function buildDeb() {
   }
   sh("dpkg-deb", ["--build", "--root-owner-group", stage, out]);
   console.log(`\n[bundle] ${path.relative(ROOT, out)}`);
+
+  // Stable download alias — the README's Linux button links to
+  // `releases/latest/download/BlackEclipse-linux-amd64.deb`, so the name must
+  // survive a version bump. See docs/desktop-size-plan.md (download contract).
+  const alias = path.join(DIST, `BlackEclipse-linux-${arch}.deb`);
+  fs.copyFileSync(out, alias);
+  console.log(`[bundle] alias ${path.relative(ROOT, alias)}`);
 }
 
 /* ------------------------------------------------------------------- macos */
@@ -211,6 +219,14 @@ function buildMac() {
   ]);
   console.log(`\n[bundle] ${path.relative(ROOT, dmg)}`);
   console.log("[bundle] ad-hoc signed. Gatekeeper will still block a download until notarised (C5).");
+
+  // Stable download alias. The arch is IN the name because a Mac cannot run the
+  // other arch's build, and only one arch is produced per runner: the README
+  // links `BlackEclipse-mac-arm64.dmg` explicitly rather than silently handing
+  // an Intel Mac a binary it can never launch.
+  const alias = path.join(DIST, `BlackEclipse-mac-${process.arch}.dmg`);
+  fs.copyFileSync(dmg, alias);
+  console.log(`[bundle] alias ${path.relative(ROOT, alias)}`);
 }
 
 /* ------------------------------------------------------------------ main */
