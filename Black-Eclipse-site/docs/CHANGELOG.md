@@ -39,6 +39,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **fix(readme): the three download buttons now fit one line.** At 340px each the
+  row wrapped, leaving Windows alone with Linux and macOS stranded underneath. The
+  trio is resized to 300 + 210 + 210 (736px inside GitHub's ~880px column) with
+  short labels (Windows / Linux / macOS) and the arch moved into the sublabel, so
+  the primary button leads and the other two sit beside it instead of below.
+  Sizing rationale recorded so a fourth platform shrinks the row instead of
+  re-wrapping it. docs updated: `docs/public-readme.md`, `docs/CHANGELOG.md`.
 - **feat(readme): Linux and macOS download buttons.** The page had one button for
   Windows plus a table nobody scrolls to. It now carries three, each pinned to the
   version-independent alias from the download contract (`BlackEclipse-Setup.exe`,

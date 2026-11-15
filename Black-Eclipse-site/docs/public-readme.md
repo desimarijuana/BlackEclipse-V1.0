@@ -157,9 +157,13 @@ node -e "require('sharp')('../.github/assets/social-card.svg',{density:144}).res
 ```
 
 `.github/assets/download-windows.svg`, `download-linux.svg` and
-`download-macos.svg` are the README's three download buttons. Each is pinned to a
-**version-independent** release alias, because `releases/latest/download/<name>`
-is the only link that survives a version bump:
+`download-macos.svg` are the README's three download buttons, and they are sized to
+sit on **one line** at GitHub's default README width (300 + 210 + 210 px plus gaps
+≈ 736 px, inside an ~880 px column). If a fourth platform is ever added, shrink the
+existing three rather than letting the row wrap — a wrapped row reads as one big
+button and two strays. Each is pinned to a **version-independent** release alias,
+because `releases/latest/download/<name>` is the only link that survives a version
+bump:
 
 | Button | Stable name | Produced by |
 |---|---|---|
