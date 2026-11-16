@@ -16,11 +16,10 @@ The service never trusts the caller: pydantic validates every body.
 
 from __future__ import annotations
 import asyncio
-import json
 import logging
 import os
 import time
-from typing import Any, AsyncIterator, Optional
+from typing import Any, Optional
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -42,6 +41,7 @@ from .deps import (
 from .models import list_providers
 from .model_runtime import ALIASES, get_runtime
 from .persistence import now_iso
+from .run_stream import run_event_frames
 from .research.engine import run_research
 from .research.mandate import parse_mandate
 from .routers.agent_presets import router as agent_presets_router
@@ -607,32 +607,8 @@ async def stream_run(run_id: str, request: Request, after: int = 0) -> Streaming
         last_id = 0
     since = max(int(after or 0), last_id)
     queue = service.bus.open_stream(run_id)
-
-    async def _frames() -> AsyncIterator[str]:
-        try:
-            for event in service.list_events(run_id):
-                seq = int(event.get("seq") or 0)
-                if seq and seq <= since:
-                    continue
-                yield f"id: {seq}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
-            if not service.get_run(run_id) or service.is_active(run_id):
-                while True:
-                    try:
-                        event = await asyncio.wait_for(queue.get(), timeout=15.0)
-                    except asyncio.TimeoutError:
-                        yield ": keep-alive\n\n"
-                        continue
-                    if event is None:
-                        break
-                    seq = int(event.get("seq") or 0)
-                    prefix = f"id: {seq}\n" if seq else ""
-                    yield f"{prefix}event: {event['type']}\ndata: {json.dumps(event)}\n\n"
-            yield "event: stream.end\ndata: {}\n\n"
-        finally:
-            service.bus.close_stream(run_id, queue)
-
     return StreamingResponse(
-        _frames(),
+        run_event_frames(service, run_id, queue, since),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
