@@ -36,7 +36,7 @@ operate tools, and execute controlled financial workflows.
 
 **From financial information to actionable intelligence.**
 
-**Jump to:** [Screenshots](#screenshots) · [Problems](#the-problems-were-solving) · [Different](#what-makes-black-eclipse-different) · [Capabilities](#what-you-can-do-with-eclipse) · [Architecture](#built-as-a-financial-ai-harness) · [Workflow](#from-a-research-question-to-a-tested-strategy) · [Install](#install) · [Benchmarks](#benchmarks) · [Docs](#documentation)
+**Jump to:** [Screenshots](#screenshots) · [Problems](#the-problems-were-solving) · [Different](#what-makes-black-eclipse-different) · [Capabilities](#what-you-can-do-with-eclipse) · [Architecture](#built-as-a-financial-ai-harness) · [Data sources](#data-sources-and-commercial-use) · [Workflow](#from-a-research-question-to-a-tested-strategy) · [Install](#install) · [Benchmarks](#benchmarks) · [Docs](#documentation)
 
 ## Screenshots
 
@@ -135,6 +135,46 @@ question produces the same number or an honest `UNAVAILABLE`. The same rule
 applies to trading — **no layer outside
 [`quant/`](Black-Eclipse-site/python/harness/quant/) may compute a trading
 statistic**, and research and execution stay separate products.
+
+## Data sources and commercial use
+
+The app does not ship a data licence of its own. Sources fall into three tiers, and
+the difference matters the moment money is involved:
+
+| Tier | What it means | Default |
+|---|---|---|
+| **Included** | Open data with no account. Ships with the app. | **On** |
+| **Connect your own** | You supply a key or account; the provider's terms bind you. | Off |
+| **Advanced / community** | Personal-use sources. Never part of a commercial default. | Off |
+
+**Can be used commercially** — SEC EDGAR, BEA, BLS, USGS; FRED, World Bank,
+Eurostat/ECB and GDELT **with the attribution the app already displays**.
+
+**Commercial, with your own key** — Polygon, Twelve Data, Finnhub, Alpha Vantage,
+Marketstack, Financial Modeling Prep, Trading Economics, and the research search
+providers (Tavily, Brave, Exa, Serper). CoinGecko paid requires attribution;
+CoinMarketCap requires you to check its current terms.
+
+**Personal use only — do not ship these in a paid product** — the TradingView
+scanner, Yahoo Finance (`yfinance`), the Binance public ticker, CoinGecko keyless /
+demo, and the DuckDuckGo HTML search. They are off by default for this reason, and
+turning one on is an explicit operator choice.
+
+Every toggle is enforced at the fetch path (`src/lib/data-source-preferences.ts`), so
+a source that is off cannot quietly serve a screen. The full table — every source,
+what it powers, its commercial status and its terms link — is generated from
+`src/lib/setup/source-catalog.ts` into
+[`docs/data-sources.md`](Black-Eclipse-site/docs/data-sources.md).
+
+**Adding your own** is a first-class path: add or edit an entry in
+`src/lib/setup/source-catalog.ts`, run `npm run docs:data-sources`, and the docs and
+the Settings surface follow. For a commercial deployment, use the *connect your own*
+tier on a commercial plan, or plug in a source you have the rights to.
+
+> This is an informational snapshot of each provider's published terms, not legal
+> advice and not a licence grant. Terms change — verify the current ones before a
+> paid launch. Language models are separate again: you bring your own provider key
+> or run Ollama locally, and that provider's terms apply.
 
 ## From a research question to a tested strategy
 

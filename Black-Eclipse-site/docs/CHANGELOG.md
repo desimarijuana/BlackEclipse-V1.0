@@ -135,6 +135,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **docs(readme): say which data sources are commercial, which are not, and how to
+  add your own.** New "Data sources and commercial use" section, built from the
+  generated catalogue (`docs/data-sources.md`) rather than from memory: the three
+  tiers (included / connect your own / advanced), the commercial statuses
+  (`ok` / `attribution` / `personal-only` / `verify`), and an explicit
+  **personal-use-only** list - TradingView scanner, Yahoo Finance (`yfinance`),
+  Binance public ticker, CoinGecko keyless, DuckDuckGo HTML - with the reason they
+  are off by default. States that a source that is off cannot serve a screen because
+  `data-source-preferences.ts` is consulted at the fetch path, and that adding a
+  source is an entry in `source-catalog.ts` plus `npm run docs:data-sources`.
+  Carries the two qualifiers the catalogue itself carries: the table is an
+  informational snapshot of published terms, not legal advice or a licence grant;
+  and language models are separate (bring your own key, or Ollama locally).
+  docs updated: `docs/public-readme.md` (evidence row), `docs/CHANGELOG.md`.
 - **docs(readme): ship the Bots and Workflows screenshots, both captured from the
   installed app.** The two surfaces that carry the product argument are now the
   hero and the first grid row: **Bots** (13 agents with `Active`/`Completed` state,
