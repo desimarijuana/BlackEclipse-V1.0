@@ -1,5 +1,7 @@
 # CFA Level I — Quantitative Methods
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 11-14% (was 6-9%) · 11 modules · fourth topic in the study order.**
 Quantitative Methods roughly doubled in 2027. It now carries the second-heaviest
 weight in the exam and a module that did not previously exist. A pre-2026 course

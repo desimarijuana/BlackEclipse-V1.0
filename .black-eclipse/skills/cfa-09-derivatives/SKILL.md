@@ -1,5 +1,7 @@
 # CFA Level I — Derivatives and Risk Management
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 6-9% (was 5-8%) · 10 modules · ninth in the study order.** Renamed from
 *Derivatives* in 2027 and slightly up-weighted. Concept-light at Level I: the exam
 asks for payoff, price and value mechanics, not exotic models.

@@ -45,6 +45,12 @@ jobs:
       - name: Secret scan
         run: node scripts/scan-secrets.js
 
+      # The SBOM and third-party notices are generated from the lockfiles. A
+      # lockfile change without regenerating them is a release drift, so fail
+      # the build instead of shipping a stale inventory.
+      - name: SBOM drift check
+        run: node scripts/generate-sbom.js --check
+
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:

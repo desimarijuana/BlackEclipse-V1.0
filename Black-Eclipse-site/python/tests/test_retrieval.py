@@ -22,6 +22,7 @@ from harness.retrieval.parallel import run_parallel
 from harness.retrieval.planner import plan_retrieval
 from harness.retrieval.sources import SourceOutcome
 from harness.retrieval.validate import validate_object, validate_objects
+from harness.retrieval_tools import _next_routes
 from harness.tools import DataBridge
 
 
@@ -109,7 +110,22 @@ def test_planner_selects_structured_for_quotes_and_history():
     assert quote.requires_precise_data is True
 
     history = plan_retrieval(FinancialRetrievalRequest(objective="h", dataType="historical_prices"))
-    assert "WEB" not in history.sources  # a series is never web-sourced
+    assert "WEB" not in history.sources  # a series is never web-sourced by default
+
+    # An explicit last-resort page route is allowed, AFTER the structured ones,
+    # and the plan says the result is partial rather than a verified series.
+    fallback = plan_retrieval(FinancialRetrievalRequest(
+        objective="h", dataType="historical_prices", webFallback=True,
+    ))
+    assert fallback.sources[-1] == "WEB"
+    assert fallback.allow_web is True
+    assert any("PARTIAL" in warning for warning in fallback.warnings)
+
+    # A derived metric is never page-sourced even when the caller asks.
+    derived = plan_retrieval(FinancialRetrievalRequest(
+        objective="d", dataType="derived_metric", webFallback=True,
+    ))
+    assert "WEB" not in derived.sources
 
 
 def test_planner_selects_web_for_research_and_earnings():
@@ -118,6 +134,17 @@ def test_planner_selects_web_for_research_and_earnings():
 
     earnings = plan_retrieval(FinancialRetrievalRequest(objective="e", dataType="earnings"))
     assert earnings.sources[0] == "WEB"
+
+
+def test_unavailable_result_teaches_only_bound_next_routes():
+    from types import SimpleNamespace
+
+    routes = _next_routes(SimpleNamespace(allowed={"web_search", "scraper_run"}))
+    names = [name for name, _ in routes]
+    assert names == ["web_search", "scraper_run"]  # order preserved, surface-filtered
+    # An empty/unbound context still teaches the generic ladder (the tool is
+    # allowed to be more helpful when the surface cannot be read).
+    assert _next_routes(None)
 
 
 def test_planner_respects_allow_web_false():

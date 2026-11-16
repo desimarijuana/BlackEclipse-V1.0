@@ -1,0 +1,48 @@
+name: Public-release preflight
+
+# `check:oss` answers "is this repository safe to make public?" - history
+# hygiene, tracked secrets, personal paths, package metadata, community files.
+#
+# It cannot pass while the repository is private: the pre-rewrite branches
+# legitimately expose an old `jdds.db`, and the check is designed to say so.
+# The job therefore skips on private repositories and becomes a real gate the
+# moment the repository is public. Run it by hand from the Actions tab first.
+#
+# Full history is required: the check reads every ref, not just HEAD.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oss-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oss:
+    if: ${{ github.event.repository.private == false }}
+    name: open-source preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Black-Eclipse-site
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+
+      # No install step: the preflight uses only Node built-ins and git.
+      - name: Public-release preflight
+        run: node scripts/oss-preflight.js

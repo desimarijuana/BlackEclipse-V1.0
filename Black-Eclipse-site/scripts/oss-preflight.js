@@ -52,6 +52,33 @@ function safeGit(args) {
   }
 }
 
+/** Refs (local/remote/tags) from which `sha` is reachable. */
+function refsContaining(sha) {
+  if (!sha) return [];
+  return [
+    ...new Set(
+      safeGit([
+        "for-each-ref",
+        "--contains",
+        sha,
+        "--format=%(refname:short)",
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+      ])
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+/** The newest commit that touched `file`, expressed as the refs that expose it. */
+function refsForPath(file) {
+  const sha = safeGit(["log", "--all", "-1", "--format=%H", "--", file]).trim();
+  return refsContaining(sha);
+}
+
 // ---------------------------------------------------------------------------
 // 1. No secret-bearing artifacts are tracked at HEAD.
 // ---------------------------------------------------------------------------
@@ -83,12 +110,29 @@ const requiredFiles = [
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml",
   ".github/ISSUE_TEMPLATE/config.yml",
+  "THIRD-PARTY-NOTICES.md",
+  "sbom.cdx.json",
 ];
 
 for (const file of requiredFiles) {
   if (!fs.existsSync(path.join(repoRoot, file))) {
     fail(`missing community file: ${file}`, "Add it before making the repository public.");
   }
+}
+
+// The dependency inventory is a release artifact, not a nicety: an SBOM that
+// predates the lockfiles is a publication blocker, the same as a missing
+// licence. The generator owns the comparison.
+try {
+  execFileSync(process.execPath, [path.join(__dirname, "generate-sbom.js"), "--check"], {
+    cwd: repoRoot,
+    stdio: "pipe",
+  });
+} catch {
+  fail(
+    "sbom.cdx.json / THIRD-PARTY-NOTICES.md are missing or stale",
+    "Run `npm run sbom` from Black-Eclipse-site, then re-run the preflight."
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -132,9 +176,23 @@ const everAdded = safeGit([
 
 const historyDatabases = [...new Set(everAdded.filter((f) => /(^|\/).*\.db$/i.test(f)))];
 if (historyDatabases.length > 0) {
+  // Name the refs, not just the file: after a rewrite the mainline is often
+  // already clean and the only remaining exposure is a stale branch. That
+  // distinction is the difference between "redo the whole rewrite" and
+  // "delete twelve branches".
+  const dbRefs = [...new Set(historyDatabases.flatMap(refsForPath))];
+  const mainClean = historyDatabases.every(
+    (file) => !safeGit(["log", "main", "-1", "--format=%H", "--", file]).trim()
+  );
+  const where = dbRefs.length ? ` — reachable from: ${dbRefs.join(", ")}` : "";
+  const mainState = mainClean
+    ? " `main` and the tags are clean; these refs are the remaining exposure."
+    : "";
   fail(
-    `git history still contains database snapshot(s): ${historyDatabases.join(", ")}`,
-    "Publish from a rewritten history (git filter-repo) or a fresh squashed repository. A seed DB can contain a real journal."
+    `git history still contains database snapshot(s): ${historyDatabases.join(", ")}${where}.${mainState}`,
+    dbRefs.length
+      ? `Delete the listed refs (git push origin --delete <ref>), git fetch --prune, then re-scan. If a cached PR still reaches them, publish from a fresh repository. A seed DB can contain a real journal.`
+      : "Publish from a rewritten history (git filter-repo) or a fresh squashed repository. A seed DB can contain a real journal."
   );
 }
 
@@ -202,9 +260,24 @@ const personalAuthors = authors.filter(
     !/\[bot\]@/i.test(email)
 );
 if (personalAuthors.length > 0) {
+  // Same evidence rule as the database check: name where the address is still
+  // reachable so the operator knows whether a rewrite or a ref deletion fixes it.
+  const wanted = new Set(personalAuthors);
+  const refsByEmail = new Map();
+  for (const row of safeGit(["log", "--all", "--format=%H%x00%ae"]).split("\n")) {
+    const [sha, email] = row.split("\0");
+    if (!sha || !wanted.has((email || "").trim())) continue;
+    if (!refsByEmail.has(email.trim())) refsByEmail.set(email.trim(), refsContaining(sha));
+  }
+  const detail = personalAuthors
+    .map((email) => {
+      const refs = refsByEmail.get(email) || [];
+      return refs.length ? `${email} (refs: ${refs.join(", ")})` : email;
+    })
+    .join("; ");
   warn(
-    `commit author email(s) will be public: ${personalAuthors.join(", ")}`,
-    "Rewriting history is the only fix; otherwise accept that they are published."
+    `commit author email(s) will be public: ${detail}`,
+    "If every listed ref is a stale branch, deleting it removes the address. Otherwise rewriting history is the only fix, or accept that it is published."
   );
 }
 

@@ -1,5 +1,7 @@
 # CFA Level I — Fixed Income
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 11-14% · 19 modules (the most of any topic) · fifth in the study order.**
 The module count overstates the difficulty — many modules are descriptive — but
 the duration, convexity, yield and credit modules are heavily computational.

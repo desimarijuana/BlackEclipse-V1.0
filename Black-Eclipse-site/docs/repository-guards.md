@@ -1,7 +1,7 @@
 ---
 title: Repository Guards
 status: Current
-last-verified: 2026-11-11
+last-verified: 2026-11-16
 ---
 
 # Repository Guards
@@ -66,9 +66,16 @@ After the upgrade, the ruleset to create on `main`:
 |---|---|
 | Restrict deletions | on |
 | Block force pushes | on |
-| Require a pull request | on, 0 required approvals (solo) |
+| Require a pull request | on, **1** required approval (`.github/ruleset.json`) |
 | Required status check | `typecheck · lint · unit · python · evals` (the `ci` job in `.github/workflows/ci.yml`), strict |
 | Bypass list | empty |
+
+The approval count is **1, not 0**, because a public repository's merge queue is
+an untrusted input: a second pair of eyes is the point of publishing. A solo
+maintainer who needs to merge their own PR must either get a review or
+temporarily lower the count in the GitHub UI; the committed file is the intended
+public posture, not a promise that a second maintainer exists yet. Re-point the
+API URL below if the repository is recreated during the public release.
 
 Then `main` can only move forward through a green PR, and the `main`-rewrite
 recovery branches (`backup/main-wip-*`) stop being a recurring need.

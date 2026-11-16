@@ -130,6 +130,14 @@ class GraphState(TypedDict, total=False):
     # this run. Consumed at the next durable checkpoint, so a crash re-delivers
     # at most once and a normal step never duplicates them.
     w7_pending: list[dict[str, Any]]
+    # Bounded answer recovery: a bare refusal is not accepted while steps and an
+    # untried permitted route remain. `recovery_pending` routes the next edge
+    # back to the agent; `tools_used`/`unavailable_tools` keep the directive
+    # from naming a route the run already exhausted.
+    answer_recoveries: int
+    recovery_pending: bool
+    tools_used: list[str]
+    unavailable_tools: list[str]
 
 
 async def _run_plugin_hook(name: str, payload: dict[str, Any]) -> Optional[str]:
@@ -466,6 +474,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     agent = spec.agent or resolve_agent(request)
     effect_authorizer = spec.effect_authorizer
     allowed = spec.allowed
+    # Disclosure hides an ADVERTISEMENT, not a tool: dispatch keeps the full
+    # resolved surface (a policy removal is absent from both).
+    dispatch_allowed = spec.dispatch_allowed or allowed
     source_sink = spec.source_sink
     lineage = spec.lineage
     resume_from = spec.resume_from
@@ -579,8 +590,13 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
 
     # C4: an explicit goal plan always gets the bounded replan path, even when
     # the generic tool/stall replan flag is off. The cap is unchanged.
+    # Ordinary chat also gets it by default: a failed or stalled tool step is
+    # exactly the moment a second look pays for itself. `HARNESS_REPLAN_ENABLED`
+    # remains the explicit switch for custom agents and for ops to force it.
     replan_budget: Optional[ReplanBudget] = (
-        ReplanBudget() if (replan_enabled() or plan is not None) else None
+        ReplanBudget()
+        if (replan_enabled() or plan is not None or agent.id == "eclipse-agent")
+        else None
     )
     # `allowed` is the policy-resolved surface from `execute_run` (a disabled
     # store's tool already removed). Fall back to the raw allowlist for direct
@@ -608,6 +624,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         resolution.settings, builder=build_chat_model, adapter=resolution.adapter
     )
     model = runtime.prepare_model(model, resolution)
+    # The allowlist was resolved (policy, intent surface, progressive disclosure)
+    # by `execute_run` BEFORE this spec was built, so this binding is already the
+    # FINAL surface: the model never sees a tool the tool turn would refuse.
     lc_tools = registry.langchain_tools(allowed)
     model_with_tools = model.bind_tools(lc_tools) if lc_tools else model
 
@@ -740,6 +759,11 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         search=search,
         workspace_id=request.workspaceId,
     )
+    # Discovery/invoke sees the PRE-disclosure surface; policy removals do not.
+    try:
+        ctx.allowed = dispatch_allowed
+    except Exception:  # noqa: BLE001 - a frozen context must not break a run
+        pass
     registry.set_active_context(ctx)
 
     def _checkpoint_payload(state: GraphState) -> dict[str, Any]:
@@ -927,6 +951,9 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
 
     async def agent_node(state: GraphState) -> GraphState:
         state = _apply_w7_context(state)
+        # The recovery flag is a one-shot edge signal, never a loop condition.
+        if state.get("recovery_pending"):
+            state = {**state, "recovery_pending": False}
         step = state.get("step", 0) + 1
         await _emit_step_started(step)
         step_now = plan.current_step if plan is not None else None
@@ -1079,62 +1106,22 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
                 request.input.query, getattr(request.input, "history", None),
                 state["messages"], _text(response),
             )
-            # A forced final turn that produced no text is not an answer. Report
-            # the honest failure rather than a blank "completed".
-            if finalizing and not final_text.strip():
-                if budget_spent:
-                    message = (
-                        f"Reached the {max_tool_calls}-tool-call limit without a final answer."
-                    )
-                    code = "TOOL_BUDGET_EXCEEDED"
-                elif token_budget_spent:
-                    message = (
-                        f"Reached the {token_budget}-token budget without a final answer."
-                    )
-                    code = "TOKEN_BUDGET_EXCEEDED"
-                else:
-                    message = f"Reached the maximum of {max_steps} steps without a final answer."
-                    code = "MAX_STEPS_EXCEEDED"
-                try:
-                    from .event_sequence import append_durable  # noqa: PLC0415
+            # The final-answer branch (empty-final failure, bounded answer
+            # recovery, C4 settlement, accepted state) lives in its own module
+            # to keep this loop under its size ratchet.
+            from .final_answer import finish_turn  # noqa: PLC0415
 
-                    append_durable(request.runId, "skill.tool_budget_exceeded", {
-                        "maxToolCalls": max_tool_calls,
-                        "toolCalls": state.get("tool_calls", 0),
-                    })
-                except Exception:  # noqa: BLE001 - audit must not break the run
-                    pass
-                await emitter.emit("run.failed", {"error": {"code": code, "message": message}})
-                await _emit_step_completed(step, status="failed", error={"code": code, "message": message})
-                return {**state, **usage_state, "step": step, "error": {"code": code, "message": message}}
-            # C4: record the answer's checkable claims, verify them against this
-            # step's evidence, and divert through one bounded replan when a
-            # specific verifier rejects a claim. No plan => exact old behavior.
-            replan_needed: Optional[dict[str, Any]] = None
-            if plan is not None:
-                try:
-                    replan_needed = plan.finish_answer(
-                        request.runId, final_text,
-                        checks=checks_from_ledger(code_ledger),
-                    )
-                except Exception:  # noqa: BLE001 - plan settlement must not break a run
-                    pass
-            completed: GraphState = {
-                **state,
-                **usage_state,
-                "step": step,
-                "messages": [*state["messages"], response],
-                "final": final_text,
-                "replan_needed": replan_needed,
-                "plan_step_id": plan_step_id,
-            }
-            await _write_checkpoint("agent_final", completed)
-            await _emit_step_completed(
-                step, status="ok",
-                tool_calls=int(state.get("tool_calls", 0) or 0),
-                tool_errors=int(state.get("tool_errors", 0) or 0),
+            return await finish_turn(
+                request=request, emitter=emitter, state=state, response=response,
+                step=step, final_text=final_text, usage_state=usage_state,
+                plan=plan, checks=checks_from_ledger(code_ledger),
+                max_steps=max_steps, max_tool_calls=max_tool_calls,
+                token_budget=token_budget, budget_spent=budget_spent,
+                token_budget_spent=token_budget_spent, finalizing=finalizing,
+                allowed=allowed, plan_step_id=plan_step_id,
+                emit_step_completed=_emit_step_completed,
+                write_checkpoint=_write_checkpoint,
             )
-            return completed
 
         tool_state: GraphState = {
             **state, **usage_state, "step": step, "messages": [*state["messages"], response],
@@ -1156,7 +1143,8 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
             ctx=ctx, effects=effects, lineage=lineage, plan=plan, gaps=gaps,
             gap_need=gap_need, deadline=deadline, run_timeout_s=run_timeout_s,
             max_tool_calls=max_tool_calls, tool_timeout_ms=tool_timeout_ms,
-            allowed=allowed, guard=tool_guard, hook=_run_plugin_hook,
+            # Dispatch sees the pre-disclosure surface; the schema is narrowed.
+            allowed=dispatch_allowed, guard=tool_guard, hook=_run_plugin_hook,
             write_checkpoint=_write_checkpoint,
             write_progress=_write_progress,
             emit_step_completed=_emit_step_completed,
@@ -1168,6 +1156,10 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
     def route_after_agent(state: GraphState) -> str:
         if state.get("error"):
             return END
+        # Answer recovery: the node appended a directive and asked for one more
+        # agent turn; there is no `final` yet and no tool call to dispatch.
+        if state.get("recovery_pending"):
+            return "agent"
         # C4: an evidence failure outranks the final answer; the replan node
         # clears the draft and sends the model back with the missing evidence.
         if state.get("replan_needed"):
@@ -1310,7 +1302,7 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         graph.add_node("replan", replan_node)
         graph.add_conditional_edges(
             "agent", route_after_agent,
-            {"tools": "tools", "replan": "replan", END: END},
+            {"tools": "tools", "replan": "replan", "agent": "agent", END: END},
         )
         graph.add_conditional_edges(
             "tools", route_after_tools,
@@ -1320,7 +1312,8 @@ def build_graph(spec: RunSpec, scope: RunScope) -> Any:
         graph.add_edge("replan", "agent")
     else:
         graph.add_conditional_edges(
-            "agent", route_after_agent, {"tools": "tools", END: END},
+            "agent", route_after_agent,
+            {"tools": "tools", "agent": "agent", END: END},
         )
         graph.add_conditional_edges(
             "tools", route_after_tools,
@@ -1598,8 +1591,9 @@ async def execute_run(
         bridge_surface = allowed
         # W3.3: progressive disclosure. Effectful/interactive tools stay bound;
         # the read-only long tail is listed in a bounded catalogue and reachable
-        # through the existing tool_search/tool_invoke pair. `auto` needs a KNOWN
-        # window; unknown stays eager.
+        # through the existing tool_search/tool_invoke pair. `auto` uses the
+        # declared window, or an absolute schema ceiling when the window is
+        # unknown, so an oversized surface can never be bound by accident.
         from .models import resolve_context_window  # noqa: PLC0415
         from .tool_disclosure import resolve_disclosure  # noqa: PLC0415
 
@@ -1607,13 +1601,11 @@ async def execute_run(
         _window = int(_declared_window) if _declared_window else resolve_context_window(
             request.modelSettings.provider, request.modelSettings.model,
         )
-        disclosure_plan = resolve_disclosure(allowed, registry, window=_window)
+        disclosure_plan = resolve_disclosure(
+            allowed, registry, window=_window, query=request.input.query,
+        )
         if disclosure_plan.enabled and disclosure_plan.allowed is not None:
             allowed = disclosure_plan.allowed
-    try:
-        ctx.allowed = bridge_surface
-    except Exception:  # noqa: BLE001 - a frozen context must not break a run
-        pass
     if disclosure_plan is not None and disclosure_plan.enabled:
         system_prompt = f"{system_prompt}\n\n{disclosure_plan.catalogue_block}"
     # Settings → Persona: a bounded user overlay appended to the authoritative
@@ -1754,6 +1746,12 @@ async def execute_run(
     app_control = _app_control_block(request.input.context)
     if app_control:
         runtime_context = f"{runtime_context}\n\n{app_control}"
+    # The concrete fallback ladder for THIS surface, next to the user turn.
+    from .final_answer import with_fallback_context  # noqa: PLC0415
+
+    runtime_context = with_fallback_context(
+        runtime_context, allowed, request.input.query,
+    )
     # A "place a trade" turn is an execution request, not a research project.
     # Only added when the broker surface (and therefore `order_submit`) is bound.
     if allowed and ("order_submit" in allowed or "position_close" in allowed):
@@ -1991,7 +1989,8 @@ async def execute_run(
             effect_authorizer=_effect_authorizer(
                 approvals, request.runId, emitter, request.workspaceId,
             ),
-            allowed=allowed, source_sink=source_collector,
+            allowed=allowed, dispatch_allowed=bridge_surface,
+            source_sink=source_collector,
             lineage=lineage, resume_from=resume_from, code_ledger=code_ledger,
             vision_sink=vision_collector.add,
             document_sink=document_collector.add,

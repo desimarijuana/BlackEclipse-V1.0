@@ -571,8 +571,17 @@ class FinancialRetrievalLayer:
         if unresolved:
             status = "CONFLICTING"
         # A precise-data request that only got a web snippet must not claim OK.
+        # An explicit `webFallback` request accepts it as PARTIAL (labelled): the
+        # caller asked for a last-resort page route, not a verified series.
         if request.dataType in ("historical_prices", "macro_series", "derived_metric") and outcome.source == WEB:
-            status = "UNAVAILABLE"
+            if request.webFallback and request.dataType in ("historical_prices", "macro_series"):
+                status = "PARTIAL"
+                warnings.append(
+                    "WEB fallback: this series is page-sourced and labelled PARTIAL, "
+                    "not a verified structured series"
+                )
+            else:
+                status = "UNAVAILABLE"
         # A statement whose newest period is beyond its cadence is honest STALE,
         # never presented as "latest".
         if statement_stale is not None:

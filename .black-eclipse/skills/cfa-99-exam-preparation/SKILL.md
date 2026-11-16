@@ -1,5 +1,7 @@
 # CFA Level I — Exam Preparation
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 Cross-cutting preparation for the whole exam. Topic content lives in
 `cfa.01` through `cfa.10`; this skill is the process around it.
 

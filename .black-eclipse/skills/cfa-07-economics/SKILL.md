@@ -1,5 +1,7 @@
 # CFA Level I — Economics
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 6-9% · 8 modules · seventh in the study order.** Descriptive and
 conceptual for the most part, with two calculation pockets (profit maximisation
 and FX cross-rates). Lower priority than the 11-14% topics but cheap marks.

@@ -184,6 +184,10 @@ class FinancialRetrievalRequest(BaseModel):
     # cache/durable identity so two cutoffs never share a cached result.
     asOf: Optional[str] = None
     allowWeb: bool = True            # caller may forbid web research
+    # A precise series normally forbids WEB. When the caller opts in, WEB is
+    # appended as the LAST route and its result is labelled PARTIAL (never OK),
+    # so a page-sourced series can answer without pretending to be structured.
+    webFallback: bool = False
     allowStale: bool = False         # caller may accept explicitly-stale cache
     metadata: Optional[dict[str, Any]] = None
 

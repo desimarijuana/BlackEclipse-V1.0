@@ -1,7 +1,7 @@
 ---
 title: Failure Intelligence & Adaptive Recovery
 status: Current
-last-verified: 2026-10-18
+last-verified: 2026-11-16
 ---
 
 # Failure Intelligence & Adaptive Recovery
@@ -33,6 +33,7 @@ no shared identity.
 | Automatic execution | `python/harness/recovery/executor.py` | `recover_operation(service, op, verify=…)` — a bounded async retry/verify loop driving the controller and recording real outcomes; strategy handlers for repair-type strategies. |
 | **Production run wiring** | `python/harness/recovery/execution.py` | `run_with_recovery(service, run_once, …)` — drives a production run THROUGH the bounded loop (classify → diagnose → retry → record). `tasks/bootstrap.build_task_executor` uses it, so a task run is *actively recovered*, not merely observed after the fact. Absent/disabled engine → one attempt, unchanged. Per-attempt run ids; the recovery trail (`recoveryIncidentId`/`recoveryAttempts`/`recoveryStrategy`) rides the task execution metrics. |
 | **Run hot path (chat/tools, R3-03)** | `python/harness/recovery/hotpath.py` | `run_tool_with_recovery` wraps every tool call in the graph loop: on failure the engine classifies + decides, then the loop retries ONCE — only a READ-ONLY tool, only a `retry`/`rate_limit_backoff` decision, backoff capped at 1.5 s — or appends the strategy directive to the failed result so the next attempt is a different route. Per-run counters (`record_failure(recovery_state=…)`); `max_total_ms` enforced when elapsed is supplied; fail-open (no engine → original result). Round 4 (W10): an identical (tool, args, signature) failure is never retried unchanged again, and no progress across N attempts appends a `STUCK LOOP` directive naming the actual blocker (`progress.py`). |
+| **Blocked-answer recovery (2026-11-16)** | `python/harness/answer_guard.py` | The model's own give-up is a recovery input, not only a tool exception. A bare route-specific refusal with no tool call behind it is sent back for at most 2 extra turns with a deterministic directive naming the untried, permitted routes (from the run's `tools_used`/`unavailable_tools`). Skipped for a source-restricted request; a refusal after the ladder is exhausted is accepted. Events `answer.recovery_started` / `answer.recovered` / `answer.recovery_exhausted`; outcome `answerRecovery`. |
 | **Autonomy envelope** | `python/harness/recovery/envelope.py` | `AutonomyEnvelope` — pre-committed, scoped, expiring permission by action class + risk/reversibility/cost/files/network caps; kill switch `HARNESS_AUTONOMY=0`. Durable (migration 29 `AutonomyEnvelope`). The executor acts unattended ONLY inside it. |
 | **Compensation** | `python/harness/recovery/compensation.py` | `compensate_pending()` — runs registered compensation handlers for pending operations, envelope-gated (`COMPENSATE`). |
 | **Auto-reproduction** | `python/harness/recovery/reproduction.py` | `ReproducerRegistry` + `reproduce()` — runs a caller-registered reproducer per failure kind under a hard timeout; a successful reproduction makes the diagnosis decisive and is recorded as evidence. |

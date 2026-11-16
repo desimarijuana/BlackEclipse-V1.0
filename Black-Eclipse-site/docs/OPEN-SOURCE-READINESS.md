@@ -1,7 +1,7 @@
 ---
 title: Open-Source Publication Readiness
 status: Current
-last-verified: 2026-11-14
+last-verified: 2026-11-16
 ---
 
 # Open-Source Publication Readiness
@@ -29,42 +29,81 @@ licence change.
 ## 1. The one-screen answer
 
 Most of the public surface already exists: `LICENSE`, `SECURITY.md`,
-`CONTRIBUTING.md`, `DCO`, `CODEOWNERS`, CI, Dependabot, hooks, and a canonical
-docs tree. What is missing is **history hygiene** and a small set of community
-files.
+`CONTRIBUTING.md`, `DCO`, `CODEOWNERS`, CI, Dependabot, hooks, a canonical docs
+tree, the `v0.4.0` release note, and a generated SBOM/notices pair. What is
+missing is **history hygiene on stale refs**, **credential rotation**, and the
+owner's legal + GitHub-settings pass.
 
 | # | Blocker | Evidence |
 |---|---|---|
-| O1 | Git history contains `jdds.db` snapshots | A 60 MB historical blob contains 106 trades, 58 journal days, 1 journal profile, 40 tags. See §2. |
+| O1 | Git history contains `jdds.db` snapshots on **stale refs only** | `main` and every tag are clean (`git log main -- '*jdds.db'` is empty). Eleven remote branches plus two local `backup-*` refs still reach pre-rewrite commits with a 60 MB blob (106 trades, 58 journal days, 1 profile, 40 tags). `check:oss` now names every ref. Delete them and purge cached PR objects; see §2. |
 | O2 | ~~History has never been scanned for credentials~~ **resolved in the mirror** | `scripts/scan-secrets.js` scans **tracked HEAD only**. A `gitleaks` 8.30.1 scan over `--all` found **two real hardcoded tokens** in old commits; both were scrubbed with `--replace-text` and **must still be rotated**. The final mirror scans clean with `.gitleaks.toml` (reviewed allowlist for fixtures). |
-| O3 | Tracked files contain absolute home-directory paths | `docs/harness/baselines/*.json`, `docs/harness/roadmap/phase-00-policy-and-baseline.md`, some `media/` artifacts. |
-| O4 | Personal author e-mail is in history | Publishing history publishes every `%ae`. |
-| O5 | Community files were incomplete | Fixed: root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `check:oss`. |
-| O6 | Legal/IP review for public distribution | `docs/legal/*` are Draft; the `cfa-*` skills and "Bloomberg-inspired" wording need a trademark read. |
+| O3 | ~~Tracked files contain absolute home-directory paths~~ **resolved** | `npm run check:oss` reports no absolute home-directory path. |
+| O4 | Personal author e-mail is on **one stale ref only** | `main` and every tag are entirely `@users.noreply.github.com`; `arkg03@gmail.com` appears only on `origin/backup-before-email-rewrite`, so deleting it closes this too. |
+| O5 | ~~Community files were incomplete~~ **resolved** | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `DCO`, `check:oss`. |
+| O6 | Legal/IP review for public distribution | `docs/legal/*` are Draft and clearly scoped to a source-only self-hosted release. A "not affiliated with CFA Institute" notice now sits in `.black-eclipse/skills/CFA-NOTICE.md` and every `cfa-*` skill; the owner still needs a trademark read of the skills and the "Bloomberg-inspired" wording. |
 | O7 | Branch protection is unavailable here | Private + Free plan returns `403`; making the repository public unlocks it for free. |
-| O8 | No code scanning | Fixed: `.github/workflows/codeql.yml`. |
+| O8 | ~~No code scanning~~ **resolved** | `.github/workflows/codeql.yml`. |
+| O9 | ~~No SBOM or third-party notices~~ **resolved** | `npm run sbom` generates `sbom.cdx.json` (CycloneDX 1.5, 1,320 components) and `THIRD-PARTY-NOTICES.md` from the locked trees; `--check` runs in CI and `release:bundle` regenerates them. |
+| O10 | ~~The tagged `v0.4.0` had no product release note~~ **resolved** | `docs/releases/v0.4.0.md`, built from the generated release bundle rather than hand-typed numbers. |
 
-**Do not flip the existing private repository to public.** That publishes O1–O4.
-Create the public repository from a rewritten history (§2), or from a fresh
-snapshot with a deliberate initial commit.
+**Do not flip the existing private repository to public.** That publishes the
+stale O1/O4 history and anything the old commits contain. Create the public
+repository from a rewritten history (§2), or delete the stale refs and prove a
+fresh clone is clean first.
 
 ---
 
 ## 2. Scrub the history (the hard blocker)
 
-`jdds.db` is untracked now (`git ls-files` shows none), but it is still in every
-old commit. A clone gets the blobs and the journal inside them.
+**Already done on the mainline.** `main` and every tag were rewritten; they
+contain no `.db` blob and no personal author e-mail. What remains is **stale
+refs**: twelve remote branches (eleven reach the `jdds.db` commits;
+`origin/backup-before-email-rewrite` carries the old author address) and two
+local `backup-*` branches still reach the old commits. GitHub also keeps commits
+alive through cached pull-request objects, so deleting branches is necessary but
+not always sufficient.
 
 Confirm for yourself:
 
 ```bash
 git log --all --oneline -- Black-Eclipse-site/jdds.db
-git rev-list --objects --all \
-  | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' \
-  | sort -k3 -n -r | head
+git branch -a --contains "$(git log --all --format=%H -- Black-Eclipse-site/jdds.db | head -1)"
 ```
 
-### Recommended: publish a rewritten mirror
+### Close it: delete the stale refs
+
+`npm run oss:prune-refs` finds exactly the refs that still expose an old
+database snapshot or the personal author address (by history, not by name),
+refuses to touch `main`, the checked-out branch, or tags, and is **dry-run by
+default**:
+
+```bash
+cd Black-Eclipse-site
+npm run oss:prune-refs              # lists the refs and the exact command
+npm run oss:prune-refs -- --apply   # deletes them locally/remotely, then prunes
+npm run check:oss                   # must now exit 0
+```
+
+It prints the equivalent manual command, so the operation is reviewable:
+
+```bash
+git push origin --delete \
+  backup-before-email-rewrite backup/main-wip-20261025-231230 production-ready \
+  feature/round-3-harness-parity fix/harness-data-integrity plugin-platform \
+  refactor/harness-folders feat/graph-quant-packs feat/eclipse-mandates-service \
+  release/graph-quant-packs \
+  dependabot/github_actions/actions/checkout-7 \
+  dependabot/pip/Black-Eclipse-site/python/python-runtime-0c19635c87
+git fetch --prune
+```
+
+If any pull request still references an old commit, open a fresh repository and
+push `main` plus re-created tags into it; that is the only way to guarantee the
+old objects are unreachable. Do not publish from the old repository until a
+`gitleaks --all` scan on a fresh clone is clean.
+
+### If you ever need to redo the rewrite
 
 `git filter-repo` is the maintained tool (install it separately; it is not a
 repo dependency). A helper wraps the same steps and never touches the live
@@ -158,6 +197,7 @@ gate does not:
 
 - no tracked `.env`, `*.db`, key, or connector artifact;
 - the community files above exist;
+- `sbom.cdx.json` and `THIRD-PARTY-NOTICES.md` exist and match the lockfiles;
 - `package.json` has `repository`, `homepage`, and `bugs`;
 - **history** has no `.db` or secret-bearing path;
 - tracked files have no absolute home-directory path;
@@ -174,21 +214,33 @@ npm run check:oss          # human output; exit 1 means do not publish
 npm run check:oss -- --json
 ```
 
+`.github/workflows/oss-preflight.yml` runs the same check on every push and pull
+request **once the repository is public**. On a private repository the job is
+skipped, because the pre-rewrite branches legitimately fail it; use the
+`workflow_dispatch` trigger to run it by hand before flipping visibility.
+
 ---
 
 ## 4. Publication-day checklist
 
 Repository content:
 
+- [ ] `npm run oss:prune-refs` reports no stale refs (apply with `-- --apply`).
 - [ ] `npm run check:oss` exits 0 on the public snapshot.
 - [ ] `git status --short` is empty; the tree is a tagged commit.
 - [ ] `npm run check:all` exits 0 on that commit.
 - [ ] `gitleaks`/`trufflehog` over `--all` is clean.
+- [ ] `node scripts/generate-sbom.js --check` exits 0 (run `npm run sbom` first
+      if a lockfile changed); `sbom.cdx.json` and `THIRD-PARTY-NOTICES.md` are current.
 - [ ] `docs/releases/<version>.md` and the `CHANGELOG.md` entry exist.
 - [ ] Root `README.md` names the current version and the measured live number.
 - [ ] `CONTRIBUTING.md` → `Black-Eclipse-site/CONTRIBUTING.md` → `DCO` resolves.
 - [ ] Issue templates, PR template, and Code of Conduct are present.
 - [ ] `media/` contains no generated build artifacts or machine-local paths.
+- [ ] If publication uses a **new repository URL**, re-point `package.json`
+      (`repository`, `homepage`, `bugs`), the README download/release links, and
+      the API URL in `repository-guards.md`; the current links all name
+      `desimarijuana/BlackEclipse-V1.0`.
 
 GitHub settings (all free once public):
 
@@ -197,6 +249,8 @@ GitHub settings (all free once public):
 - [ ] Import `.github/ruleset.json` on `main` (see `repository-guards.md`).
 - [ ] Turn on **private vulnerability reporting** (`SECURITY.md` depends on it).
 - [ ] Confirm the first **CodeQL** run is green.
+- [ ] Confirm the **Public-release preflight** job runs (it is skipped while the
+      repository is private and becomes a gate as soon as it is public).
 - [ ] Create the `@BlackEclipse/maintainers` team or replace it in `CODEOWNERS`.
 - [ ] Set repository description, topics, and the social preview.
 - [ ] Publish the release note and tag.
@@ -215,10 +269,11 @@ they are not discovered after launch.
   reviewed. A **source-only, self-hosted, single-operator** release can ship with
   the README saying so; a hosted service cannot (C11/C12 in
   `PRODUCTION-READINESS.md`).
-- **`cfa-*` skills.** `.black-eclipse/skills/cfa-*` are original study notes, but
-  "CFA" is a CFA Institute trademark and the module list tracks their
-  curriculum. Add a clear "not affiliated with CFA Institute" notice or rename
-  the skills before public distribution.
+- **`cfa-*` skills.** `.black-eclipse/skills/cfa-*` are original study notes.
+  `CFA` is a CFA Institute trademark, so every skill now opens with a "not
+  affiliated with CFA Institute" notice and `.black-eclipse/skills/CFA-NOTICE.md`
+  carries the full statement. The owner should still confirm the module list and
+  naming are acceptable before distribution.
 - **"Bloomberg-inspired".** Descriptive comparison is usually nominative, but do
   not use the Bloomberg name or trade dress as branding. Keep the wording
   descriptive.
@@ -251,3 +306,7 @@ they are not discovered after launch.
 | 2026-11-14 | History credential scan | **2 real tokens found and scrubbed** | `gitleaks 8.30.1` over `--all` on the first clean mirror found two hardcoded service tokens in old commits (not present at HEAD). A second mirror was produced with `--replace-text` and a mailmap; the tokens are absent (`git log -S` empty) and the history scan is green with the new `.gitleaks.toml`. **Both tokens must be rotated**; history removal is not revocation. Remaining findings were triaged false positives (test fixtures, storage-key literals, eval `"key"` fields, a cache hash, the fake `AKIA...EXAMPLE`). |
 | 2026-11-14 | Clean mirror produced and verified | Ran `scripts/scrub-public-history.ps1` on a mirror of this repository: `jdds.db`/`eclipse-memory.db`/`agent-memory.db` are absent from every commit, pack size fell from 79.9 MiB to 40.3 MiB, and a clone of the mirror passes `npm run check:oss` with **0 warnings** after a mailmap rewrite of the personal author email. The live private history is unchanged and must not be flipped to public. Not pushed. Remaining before push: O2 (gitleaks/trufflehog over `--all`), create the new public repository, re-create/push tags. |
 | 2026-11-14 | Scaffolding added | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `package.json` metadata, CodeQL workflow, `scripts/oss-preflight.js` (`npm run check:oss`), and the mirror-only `scripts/scrub-public-history.ps1`. Personal absolute paths were removed from the bulk importers (now `BE_IMPORT_ROOT`, default `/data/imports/`, gitignored) and the roadmap/media docs. `check:oss` now reports exactly one blocker: `jdds.db` in history (O1). O2 (history credential scan) and the history rewrite remain operator steps. |
+| 2026-11-16 | SBOM and notices generated | `npm run sbom` (`scripts/generate-sbom.js`) writes `sbom.cdx.json` (CycloneDX 1.5, **1,320 components**: 1,185 npm + 135 Python, 27 licence groups) and `THIRD-PARTY-NOTICES.md` from `package-lock.json` + `python/requirements.lock`. Python licences are marked `NOASSERTION` rather than guessed. `--check` fails on drift. O9 closed. |
+| 2026-11-16 | Tagged release note added | `docs/releases/v0.4.0.md` documents the C2-C9 core-integrity work and publishes the generated bundle numbers (1,091 tools, scorecard 8/8, conformance 12/12, wheel sha256) instead of hand-typed claims. `v0.4.0` was tagged without a product note; O10 closed. |
+| 2026-11-16 | Trademark notice and ruleset posture | `.black-eclipse/skills/CFA-NOTICE.md` plus a one-line notice in all 12 `cfa-*` skills (not affiliated with CFA Institute). `.github/ruleset.json` now requires **1** approval; `repository-guards.md` explains the public posture and the solo-maintainer consequence. `SECURITY.md` now states the Python lockfile truth and lists the residual risks accepted for the source release. O6 narrowed to the owner's legal read. |
+| 2026-11-16 | Current preflight state | `check:oss` still stops on **one** blocker: `jdds.db` reachable from eleven stale remote branch refs. `main` and all tags are clean, and `main` carries only the noreply author address; the personal address survives only on `origin/backup-before-email-rewrite`. Deleting those twelve remote branches + two local backups (and purging cached PR objects) is the remaining repository operation. |

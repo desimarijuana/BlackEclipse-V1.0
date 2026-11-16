@@ -97,10 +97,32 @@ of intent, not a waiver of any third party's rights and not legal advice.
   after a suspected token theft.
 - Journals, memories and runs are plaintext SQLite protected by OS file
   permissions; only connector credentials are encrypted.
-- Python dependencies are not locked/hashed yet, and install-time downloads are
-  TLS-verified but not checksum-verified.
+- Python dependencies are hash-locked in `python/requirements.lock` and installed
+  from it in CI; some transitive Node **High** advisories remain tracked in the
+  audit. Install-time downloads are TLS-verified but not checksum-verified for
+  every desktop payload component.
 - The detailed audit, including reproduction detail, lives in `security/audit/`
   and is **not** part of the public release.
+
+### Residual risks accepted for the source release
+
+These are documented, not hidden. Read them before deploying beyond a single
+operator on the same machine.
+
+- **The agent can execute code by design.** Approval, the security gateway and
+  the destructive-command hardline are the boundary; raw PTY keystrokes remain an
+  operator-only path.
+- **The desktop runs with `HARNESS_AUTH=off`.** The same-origin/CSRF gate and the
+  loopback peer + `Host` check are the compensating controls, not a login.
+- **Multi-user is not supported.** Run creation overrides `userId` from the
+  verified identity, but other run-creating routes have not all been audited to
+  the same standard. Do not expose one instance to multiple people.
+- **Read-only routes may honour a signed token until expiry.** Revocation is
+  authoritative on privileged routes only; rotate `HARNESS_AUTH_SECRET` after any
+  suspected token theft.
+- **Journals, memories and runs are plaintext at rest.** Protection is the OS
+  account and file permissions.
+- **The optional quant container runs as root** inside a restricted sandbox.
 
 ## Operator checklist before exposing the app
 

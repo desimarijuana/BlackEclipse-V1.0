@@ -398,6 +398,12 @@ If you redistribute the app, the MIT terms cover it. If you run the Pine engine
 as part of a network service, AGPL-3.0-only applies to **that component** and its
 obligations are described in its NOTICE.
 
+The locked dependency trees are inventoried in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) (grouped by licence) and
+[`sbom.cdx.json`](sbom.cdx.json) (CycloneDX 1.5). Both are generated with
+`npm run sbom` from `package-lock.json` and `python/requirements.lock`; do not
+hand-edit them.
+
 ---
 
 **Trading disclaimer.** Black Eclipse is research and analysis software. It is

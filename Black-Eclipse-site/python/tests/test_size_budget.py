@@ -40,7 +40,9 @@ RATCHET_PY: dict[str, int] = {
     # Shrank 1296 -> 1294 (2026-11-15 audit): the verified-identity binding for
     # `/runs` moved into `security/identity.py::bind_run_identity` rather than
     # growing this facade. May only shrink from here.
-    "main.py": 1294,
+    # Shrank 1294 -> 1270 (2026-11-16): measured in-flight tree; re-pinned to the
+    # measured size (the equality test requires it). May only shrink from here.
+    "main.py": 1270,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research

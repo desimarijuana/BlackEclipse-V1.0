@@ -1,5 +1,7 @@
 # CFA Level I — Alternative Investments
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 6-9% (was 7-10%) · 7 modules · tenth in the study order.** The most
 marks-per-hour topic on the exam: descriptive, distinctive, and only seven
 modules. It also carries the digital-assets module that older material lacks.

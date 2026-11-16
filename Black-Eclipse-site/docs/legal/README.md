@@ -49,6 +49,12 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 > a Draft as Live, and no Draft is enforceable until the entity, jurisdiction,
 > and contact placeholders are completed.
 
+> **Scope of the current public artifact:** the repository is published as
+> **source for a self-hosted, single-operator install**, not as a hosted service.
+> The Draft pack is published with it as a working record of the intended
+> position; it is not executed terms for a service. See
+> [`../OPEN-SOURCE-READINESS.md`](../OPEN-SOURCE-READINESS.md) §5.
+
 | Document | Status | Owner | Notes |
 |---|---|---|---|
 | `LICENSE` (MIT) | Live | Project | Repository root |

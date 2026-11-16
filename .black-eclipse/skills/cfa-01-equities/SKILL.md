@@ -1,5 +1,7 @@
 # CFA Level I — Equities
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 11-14% · 12 modules · first topic in the study order.** Equities is the
 largest topic block alongside Fixed Income and Financial Statement Analysis, and
 it supplies the vocabulary (returns, risk, beta, valuation) the rest of the exam

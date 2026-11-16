@@ -8,6 +8,7 @@ import pytest
 
 from harness.tool_bm25 import rank_tools, tokenize
 from harness.tool_disclosure import (
+    ABSOLUTE_SCHEMA_BUDGET_TOKENS,
     CORE_TOOLS,
     build_catalogue,
     disclosure_mode,
@@ -101,6 +102,41 @@ def test_auto_stays_eager_below_the_threshold(monkeypatch):
     assert plan.reason == "below threshold"
 
 
+def test_auto_narrows_an_oversized_schema_when_the_window_is_unknown(monkeypatch):
+    """A window we cannot name is not a license to bind 100k tokens of schemas.
+
+    The surface stays honest (`window` is None / `windowUnknown` is true) while
+    the read-only tail moves behind the existing discovery pair.
+    """
+    monkeypatch.setenv("HARNESS_TOOL_DISCLOSURE", "auto")
+    reg = _registry()
+    for index in range(400):
+        reg.register(_tool(
+            f"bulk_read_{index}",
+            ("Long market data description with prices volume history and filings. " * 8),
+            domain="market", tags=("price", "series", "history"),
+        ))
+    allowed = set(reg.names())
+    plan = resolve_disclosure(allowed, reg, window=None)
+    assert plan.schema_tokens >= ABSOLUTE_SCHEMA_BUDGET_TOKENS
+    assert plan.enabled
+    assert plan.window is None
+    assert plan.to_dict()["windowUnknown"] is True
+    assert len(plan.allowed or ()) < len(allowed)
+    assert "bulk_read_200" in plan.hidden
+
+
+def test_disclosure_focuses_the_read_tail_on_the_query(monkeypatch):
+    monkeypatch.setenv("HARNESS_TOOL_DISCLOSURE", "on")
+    reg = _registry()
+    plan = resolve_disclosure(
+        set(reg.names()), reg, window=128_000,
+        query="market_read_7 prices and volume",
+    )
+    assert plan.enabled
+    assert "market_read_7" in (plan.allowed or ())
+
+
 def test_enabled_disclosure_keeps_effectful_and_interactive_and_saves_tokens(monkeypatch):
     monkeypatch.setenv("HARNESS_TOOL_DISCLOSURE", "on")
     reg = _registry()
@@ -111,7 +147,7 @@ def test_enabled_disclosure_keeps_effectful_and_interactive_and_saves_tokens(mon
     assert "portfolio_write" in plan.allowed  # effectful is never hidden
     assert "ask_user" in plan.allowed  # interactive is never hidden
     assert CORE_TOOLS & allowed <= plan.allowed
-    assert "market_read_1" in plan.hidden
+    assert "market_read_38" in plan.hidden
     assert plan.saved_tokens > 0
     assert plan.tier in (1, 2, 3)
     assert "tool_search" in plan.catalogue_block

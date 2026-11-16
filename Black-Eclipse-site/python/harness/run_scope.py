@@ -65,7 +65,12 @@ class RunSpec:
     emitter: Any
     agent: Optional[AgentConfig] = None
     effect_authorizer: Any = None
+    # `allowed` is the ADVERTISED surface (bound tool schemas). `dispatch_allowed`
+    # is the resolved pre-disclosure surface: a tool hidden from the schema is
+    # still reachable (and direct calls are not refused), while a tool removed by
+    # policy is in neither set. None means "same as allowed".
     allowed: Optional[set[str]] = None
+    dispatch_allowed: Optional[set[str]] = None
     source_sink: Any = None
     lineage: Any = None
     resume_from: Optional[dict[str, Any]] = None

@@ -1,5 +1,7 @@
 # CFA Level I — Portfolio Construction
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 8-12% · 6 modules · second topic in the study order.** Only six modules
 but a high weight — the best marks-per-module topic on the exam. It also carries
 the risk and performance machinery (beta, CAPM, Sharpe, Treynor) that Equities and

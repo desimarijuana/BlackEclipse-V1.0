@@ -1,5 +1,7 @@
 # CFA Level I — Topic Index & Curriculum Map
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 ## Purpose
 
 The entry point for CFA Level I study. Names the ten exam topics, their weights,

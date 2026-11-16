@@ -1,5 +1,7 @@
 # CFA Level I — Financial Statement Analysis
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 11-14% · 12 modules · third topic in the study order.** FSA is the
 accounting core. It is the topic candidates most often underestimate, and it
 feeds Equities multiples, Fixed Income credit analysis and Corporate Finance.

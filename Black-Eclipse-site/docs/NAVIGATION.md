@@ -1,7 +1,7 @@
 ---
 title: Navigation â€” Where Things Live
 status: Current
-last-verified: 2026-11-15
+last-verified: 2026-11-16
 ---
 
 # Navigation â€” Where Things Live
@@ -39,7 +39,10 @@ Black-Eclipse-site/
 At the **repository root**, `README.md` is the single public front door: the
 heading, the benchmark block and the install block are all governed by
 `docs/public-readme.md` (claim-to-evidence table + copy rules). There is no
-separate landing site.
+separate landing site. `LICENSE` scopes the tree (MIT, with the `pine-engine/`
+carve-out), `THIRD-PARTY-NOTICES.md` and `sbom.cdx.json` are generated from the
+lockfiles by `npm run sbom`, and `SECURITY.md` states the residual risks accepted
+for the source release.
 
 At the **repository root** (one level above `Black-Eclipse-site/`), there is also
 a project skill root:
@@ -50,7 +53,8 @@ black eclipse/
                            skill.json + SKILL.md). Currently the twelve CFA
                            Level I skills â€” `cfa.00` index, one `cfa.01`-`cfa.10`
                            per exam topic (Equities first), and `cfa.99`
-                           exam preparation.
+                           exam preparation. `CFA-NOTICE.md` records that they
+                           are original notes, not affiliated with CFA Institute.
   mobile/                  (planned) Standalone iOS/Android Bot Mode app —
                            Tauri 2 + React 19 + Rust + SQLite. Architecture:
                            docs/mobile/.

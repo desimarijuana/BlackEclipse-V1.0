@@ -216,6 +216,41 @@ def _gap_block(events: list[Any]) -> Optional[dict[str, Any]]:
     return gap
 
 
+def _recovery_block(events: list[Any]) -> Optional[dict[str, Any]]:
+    """How the bounded answer recovery ended, derived from its own events.
+
+    `None` means the run never needed it — never "recovered zero times". The
+    block is bounded and names only the routes the guard suggested, so an
+    operator can see whether a refusal was routed or accepted.
+    """
+    started = 0
+    exhausted = False
+    recovered = False
+    routes: list[str] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        etype = str(event.get("type") or "")
+        if etype == "answer.recovery_started":
+            started += 1
+            for name in (_event_data(event).get("nextRoutes") or []):
+                route = str(name)[:80]
+                if route and route not in routes:
+                    routes.append(route)
+        elif etype == "answer.recovery_exhausted":
+            exhausted = True
+        elif etype == "answer.recovered":
+            recovered = True
+    if not started and not exhausted:
+        return None
+    return {
+        "attempts": started,
+        "recovered": recovered,
+        "exhausted": exhausted,
+        "nextRoutes": routes[:8],
+    }
+
+
 def _quant_block(
     rows: list[Any],
     run: Optional[dict[str, Any]],
@@ -286,6 +321,9 @@ def build_outcome_envelope(
         "surface": _surface_block(run, rows),
         "refusalCode": _refusal_code(run, rows),
         "capabilityGap": _gap_block(rows),
+        # Bounded answer recovery: a refused answer that was sent back to an
+        # untried route (and whether it recovered or was accepted).
+        "answerRecovery": _recovery_block(rows),
         "quant": _quant_block(rows, run, tool_executions),
         # C4: the goal step this run executed and the evidence it recorded.
         "goal": _goal_block(store, run_id),

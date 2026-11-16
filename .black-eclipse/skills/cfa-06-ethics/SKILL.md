@@ -1,5 +1,7 @@
 # CFA Level I — Ethics and Professional Standards
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 10-15% (was 15-20%) · 10 modules · sixth in the study order, but the one
 topic studied continuously.** Ethics is the most reliably learnable topic on the
 exam because the question patterns repeat — and the most commonly deferred to

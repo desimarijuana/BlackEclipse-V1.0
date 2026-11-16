@@ -18,6 +18,14 @@ const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf
 const outDir = path.join(root, "docs", "harness", "releases", `v${version}`);
 fs.mkdirSync(outDir, { recursive: true });
 
+// The public dependency inventory is a release artifact too: regenerate it from
+// the locked trees so a release can never ship notices that predate its
+// lockfiles. Failures are fatal here; a stale SBOM is not a release.
+execFileSync(process.execPath, [path.join(__dirname, "generate-sbom.js")], {
+  cwd: root,
+  stdio: "inherit",
+});
+
 function readJson(relative, fallback) {
   try {
     return JSON.parse(fs.readFileSync(path.join(root, relative), "utf8"));

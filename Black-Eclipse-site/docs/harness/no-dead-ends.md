@@ -1,7 +1,7 @@
 ---
 title: No Dead Ends (capability gaps and offers)
 status: Current
-last-verified: 2026-11-10
+last-verified: 2026-11-16
 ---
 
 # No Dead Ends
@@ -27,6 +27,43 @@ This is not "ignore the context". Context decides **how** the request is done
 (chat tool, code task, profile, setup), never **whether** the user may ask.
 An approval is still required for every effectful step; an offer is not an
 authorization.
+
+## Bounded answer recovery (before the offer)
+
+A gap record answers "the capability is missing". A **blocked route** is a
+different shape: the capability exists, the model tried it, and it replied with
+a bare "UNAVAILABLE" without trying the next rung. `answer_guard.py` handles
+that shape **inside the graph loop**, before the answer seam:
+
+1. `is_bare_refusal` classifies a short, route-specific give-up. A substantive
+   partial answer that mentions one missing figure is NOT recovered; neither is
+   a policy refusal ("I can't give investment advice").
+2. `sources_restricted` refuses to route around the user's own rule ("only the
+   attached filing", "no web").
+3. `recovery_reason` permits at most **2** extra model turns, only while the run
+   has steps left and at least one permitted route is untried.
+4. `build_recovery_instruction` names the untried routes (filtered to the bound
+   surface), names what already returned UNAVAILABLE, and asks for one of: the
+   next route, a best-effort partial with its exact gap, or a computation from
+   held data.
+5. After the bound is spent, the refusal stands: an explicit `UNAVAILABLE` is a
+   valid final answer once the permitted routes are exhausted.
+
+Events: `answer.recovery_started`, `answer.recovered`,
+`answer.recovery_exhausted`; `run_outcome.answerRecovery` records attempts,
+recovered/exhausted and the suggested routes. The graph state carries
+`tools_used`/`unavailable_tools` so a route is never suggested twice. The
+settlement lives in `final_answer.py` (extracted from `graph.py`).
+`RunSpec.dispatch_allowed` carries the pre-disclosure surface, so a hidden
+read-only tool stays callable even though its schema is not advertised.
+
+The per-run `render_fallback_block` also puts the concrete ladder next to the
+user turn (structured provider → official/primary page or filing → web
+extraction → scraper → computation). It names only tools on this run's surface.
+
+A precise series/macro request can opt into `webFallback`: WEB is then appended
+as the LAST route and the result is `PARTIAL` (page-sourced), never `OK` and
+never a verified structured series. The default remains structured-only.
 
 ## The taxonomy
 
@@ -136,7 +173,11 @@ The Capability Studio's Generated section shows the open queue
 ## Files
 
 - `python/harness/gaps/` — `taxonomy.py`, `model.py`, `store.py`, `service.py`
-- `python/harness/graph.py` — records tool refusals, emits offers at the answer seam
+- `python/harness/answer_guard.py` — bounded answer recovery + the fallback block
+- `python/harness/final_answer.py` — final-answer settlement on the ONE loop
+- `python/harness/tool_disclosure.py` — the schema budget / query-focused surface
+- `python/harness/run_scope.py` — `dispatch_allowed` (advertised vs dispatchable)
+- `python/harness/graph.py` — records tool refusals, runs recovery, emits offers at the answer seam
 - `python/harness/run_outcome.py` — the envelope's `capabilityGap` reads the offer
 - `python/harness/prompts.py` — "never end with a bare refusal"
 - `python/harness/routers/capabilities.py` — the operator API

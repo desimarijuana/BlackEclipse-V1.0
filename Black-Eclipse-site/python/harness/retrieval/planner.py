@@ -108,6 +108,17 @@ def plan_retrieval(
         order = [s for s in order if s != WEB]
     if request.dataType in ("historical_prices", "macro_series", "derived_metric"):
         order = [s for s in order if s != WEB]
+        # A caller may opt into WEB as the LAST route for a series it cannot get
+        # from a structured provider. It answers as PARTIAL, never as OK, and
+        # only after every structured route has been tried.
+        if request.webFallback and request.allowWeb and request.dataType in (
+            "historical_prices", "macro_series",
+        ):
+            order.append(WEB)
+            warnings.append(
+                "web fallback enabled: a page-sourced series is labelled PARTIAL, "
+                "not a verified structured series"
+            )
 
     # Insert operator-declared MCP data sources before generic web (never before
     # a strong structured provider). An MCP source is `secondary` tier, so it is

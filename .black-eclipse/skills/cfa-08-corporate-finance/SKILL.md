@@ -1,5 +1,7 @@
 # CFA Level I — Corporate Finance
 
+> **Not affiliated with CFA Institute.** These are original study notes, not CFA Institute materials. "CFA" is a trademark of CFA Institute. See `../CFA-NOTICE.md`.
+
 **Weight 6-9% · 7 modules · eighth in the study order.** Renamed from *Corporate
 Issuers* in 2027. Conceptual with one calculation cluster (NPV/IRR/ROIC, WACC).
 The governance and stakeholder material is examined as much as the maths.

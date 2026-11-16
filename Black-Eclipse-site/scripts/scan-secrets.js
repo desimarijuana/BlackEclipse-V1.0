@@ -62,7 +62,11 @@ const FORBIDDEN_PATH = [
   // file. `.key`/`.p12`/`.pfx` are almost always secret material.
   { name: "private key material", re: /\.(p12|pfx|key)$/ },
   { name: "SSH private key", re: /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/ },
-  { name: "runtime state", re: /(^|\/)\.black-eclipse\// },
+  // Runtime state (sessions, DBs, workspace mirrors) must never ship. The
+  // project-carried skill root `.black-eclipse/skills/` is intentionally
+  // TRACKED documentation (`.black-eclipse/skills/<id>/SKILL.md` + skill.json),
+  // so it is exempt from this path rule; the content rules still scan it.
+  { name: "runtime state", re: /(^|\/)\.black-eclipse\/(?!skills\/)/ },
 ];
 
 function forbiddenPath(file) {

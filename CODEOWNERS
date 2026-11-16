@@ -8,8 +8,8 @@
 # personal account. The team resolves once the project has an org or a GitHub
 # team; until then GitHub shows it as unresolved, which is honest - the path is
 # assigned, the group does not exist yet. A personal handle was deliberately NOT
-# used here: this repository is public, and a maintainer's account should not be
-# baked into the source tree just to satisfy a review request.
+# used here: this repository will be public, and a maintainer's account should
+# not be baked into the source tree just to satisfy a review request.
 
 /Black-Eclipse-site/python/harness/            @BlackEclipse/maintainers
 /Black-Eclipse-site/python/harness/code/       @BlackEclipse/maintainers

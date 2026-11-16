@@ -1,5 +1,5 @@
 {
-  "digest": "6d3567e32e729502",
+  "digest": "52501ffa754df638",
   "manifestVersion": "1",
   "toolCount": 1100,
   "tools": [
@@ -20044,10 +20044,14 @@
     },
     {
       "deprecated": false,
-      "description": "Get a macro-economic series through the retrieval layer. Requires a precise structured source; returns UNAVAILABLE rather than web-sourcing a number.",
+      "description": "Get a macro-economic series through the retrieval layer. Structured sources are tried first. Set `allow_web_fallback=true` to try the official/statistical-agency page as a LAST resort; that result is labelled PARTIAL (page-sourced), never a verified structured series.",
       "effect": null,
       "inputSchema": {
         "properties": {
+          "allow_web_fallback": {
+            "description": "After structured sources fail, try the official agency page and label the series PARTIAL.",
+            "type": "boolean"
+          },
           "geography": {
             "description": "Country/market the series is about (US, EA, GB, …). Required to disambiguate a generic measure; never defaults to the US.",
             "type": "string"
@@ -20108,10 +20112,14 @@
     },
     {
       "deprecated": false,
-      "description": "Get a historical OHLCV series through the retrieval layer. This requires a precise structured dataset; it will never search the web for prices and returns UNAVAILABLE if none is available.",
+      "description": "Get a historical OHLCV series through the retrieval layer. Structured sources are tried first. Set `allow_web_fallback=true` to try the official/primary page as a LAST resort; that result is labelled PARTIAL (page-sourced), never presented as a verified structured series.",
       "effect": null,
       "inputSchema": {
         "properties": {
+          "allow_web_fallback": {
+            "description": "After structured sources fail, try the official/primary page and label the series PARTIAL.",
+            "type": "boolean"
+          },
           "end": {
             "description": "Optional end date (YYYY-MM-DD, inclusive).",
             "type": "string"

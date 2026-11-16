@@ -512,6 +512,19 @@ class ToolTurn:
         all_messages, _pruned_count = await maybe_prune_for_run(
             all_messages, d.emitter, int(state.get("step", 0) or 0),
         )
+        # Accumulate the route memory the answer guard needs: a name the run has
+        # already called is never suggested again, and a route that answered
+        # UNAVAILABLE is named as exhausted rather than retried unchanged.
+        turn_tools = [str(slot.name) for slot in slots]
+        turn_unavailable = [
+            str(slot.name) for slot in slots
+            if (slot.result is not None and not slot.result.ok)
+            or str(slot.result_text or "").lstrip().lower().startswith("unavailable")
+        ]
+        tools_used = sorted(set([*(state.get("tools_used") or []), *turn_tools]))
+        unavailable_tools = sorted(set([
+            *(state.get("unavailable_tools") or []), *turn_unavailable,
+        ]))
         tool_done: dict[str, Any] = {
             **state, "messages": all_messages,
             "tool_calls": tool_calls, "tool_errors": tool_errors,
@@ -519,6 +532,8 @@ class ToolTurn:
             "stalled": stalled,
             "last_turn_keys": turn_set,
             "step_failure_details": failure_details,
+            "tools_used": tools_used,
+            "unavailable_tools": unavailable_tools,
         }
         if halted is not None:
             tool_done["guardrail_halt"] = {

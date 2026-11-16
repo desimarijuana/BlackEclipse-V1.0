@@ -172,6 +172,8 @@ def _finish(ctx: ToolContext, result: Any) -> tuple[str, Any]:
         ).to_dict()
     except Exception:  # noqa: BLE001 - the envelope is additive, never fatal
         pass
+    if str(result.status) == "UNAVAILABLE":
+        payload["nextRoutes"] = [name for name, _ in _next_routes(ctx)[:8]]
     analysis = None
     try:
         from .finance_facts.analysis import analyze_result
@@ -183,7 +185,7 @@ def _finish(ctx: ToolContext, result: Any) -> tuple[str, Any]:
     # The analysis also rides the run's provenance collector so the FINAL answer
     # can be checked against what was actually retrieved (finance_facts.enforce).
     _collect(ctx, result, analysis)
-    return _summarize(result, analysis=analysis), payload
+    return _summarize(result, analysis=analysis, ctx=ctx), payload
 
 
 def _record_fetched(
@@ -211,7 +213,36 @@ def _record_fetched(
         pass
 
 
-def _summarize(result: Any, analysis: Any = None) -> str:
+#: The concrete next routes a retrieval miss should teach. Ordered by how
+#: directly the route can produce a sourced fact. Filtered by the bound surface.
+_NEXT_ROUTES: tuple[tuple[str, str], ...] = (
+    ("web_search", "search for a page that carries the fact"),
+    ("web_extract", "fetch the page/filing and turn it into evidence"),
+    ("page_extract", "extract the page's text with provenance"),
+    ("pdf_extract", "extract a PDF/filing (OCR is required for scans)"),
+    ("structured_extract", "pull one named field with a source span"),
+    ("web_scrape", "collect repeated records from one page"),
+    ("scraper_run", "write a bounded scraper for the site that has the data"),
+    ("browser_launch", "drive a rendered/login-gated page"),
+    ("get_research_health", "diagnose which research route is failing"),
+    ("get_capability_matrix", "check whether the capability is configured"),
+    ("analysis_run", "compute the answer from data already held"),
+    ("capability_request", "name the missing capability"),
+    ("tool_search", "find another bound tool for the same objective"),
+)
+
+
+def _next_routes(ctx: Any) -> list[tuple[str, str]]:
+    """The ladder filtered to tools this run may actually call."""
+    allowed = getattr(ctx, "allowed", None) if ctx is not None else None
+    names = set(allowed) if allowed is not None else None
+    return [
+        (name, instruction) for name, instruction in _NEXT_ROUTES
+        if names is None or name in names
+    ]
+
+
+def _summarize(result: Any, analysis: Any = None, ctx: Any = None) -> str:
     """A compact, honest text summary of a retrieval result."""
     lines = [
         f"Retrieval status: {result.status}",
@@ -257,10 +288,19 @@ def _summarize(result: Any, analysis: Any = None) -> str:
     if result.status == "UNAVAILABLE":
         lines.append("")
         lines.append(
-            "No data was fabricated. Before concluding, try the other eligible routes the "
-            "bound tools offer — another provider, the official filing, bounded web search, "
-            "web_scrape for one page's structured data, or the browser for a rendered page. "
-            "Only once those routes are exhausted is an explicit UNAVAILABLE the correct answer."
+            "No data was fabricated. This is a routing fact, not a verdict: the "
+            "structured routes above did not answer. Try a DIFFERENT route before "
+            "concluding — another provider, the official page/filing, a bounded "
+            "scraper, a rendered page, or a computation from data already held."
+        )
+        routes = _next_routes(ctx)
+        if routes:
+            lines.append("Next permitted routes (in order):")
+            for index, (name, instruction) in enumerate(routes[:6], start=1):
+                lines.append(f"  {index}. `{name}` — {instruction}")
+        lines.append(
+            "Only once those routes are exhausted (or the user restricted the "
+            "sources) is an explicit UNAVAILABLE the correct answer."
         )
     # Universal-financial-fact analysis (additive, §1/§3/§4/§12/§26): name the
     # accounting-definition ambiguity, the business type, any cross-source
@@ -370,7 +410,10 @@ async def market_get_ohlcv(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         # An explicit window supersedes the range default: otherwise the default
         # `period` overwrote the requested start and the full history came back.
         quantity=None if date_range else str(args.get("period", "1y") or "1y"),
-        allowWeb=False,  # a series is never sourced from search results
+        # A series is never sourced from a SEARCH RESULT, but an explicit
+        # last-resort page route is allowed: it comes back labelled PARTIAL.
+        allowWeb=bool(args.get("allow_web_fallback", False)),
+        webFallback=bool(args.get("allow_web_fallback", False)),
     )
     result = await _layer(ctx).retrieve(request)
     return _finish(ctx, result)
@@ -556,7 +599,10 @@ async def macro_get_series(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         quantity=identity.get("providerSeries") or series,
         market=identity.get("geography"),
         freshnessRequirement="slow",
-        allowWeb=False,  # precise macro history is never web-sourced
+        # Structured macro history is never sourced from a search result. An
+        # explicit last-resort page route is allowed and labelled PARTIAL.
+        allowWeb=bool(args.get("allow_web_fallback", False)),
+        webFallback=bool(args.get("allow_web_fallback", False)),
         metadata={"source": args.get("source") or identity.get("sourceId") or None},
     )
     result = await _layer(ctx).retrieve(request)
@@ -761,9 +807,10 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
         ToolDefinition(
             name=_TOOL_NAMES["market.get_ohlcv"],
             description=(
-                "Get a historical OHLCV series through the retrieval layer. This requires a "
-                "precise structured dataset; it will never search the web for prices and "
-                "returns UNAVAILABLE if none is available."
+                "Get a historical OHLCV series through the retrieval layer. Structured "
+                "sources are tried first. Set `allow_web_fallback=true` to try the "
+                "official/primary page as a LAST resort; that result is labelled PARTIAL "
+                "(page-sourced), never presented as a verified structured series."
             ),
             input_schema={
                 "type": "object",
@@ -773,6 +820,10 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
                     "period": {"type": "string", "description": "Range, e.g. 1mo, 6mo, 1y, 5y."},
                     "start": {"type": "string", "description": "Optional start date (YYYY-MM-DD). With a window, this supersedes `period`."},
                     "end": {"type": "string", "description": "Optional end date (YYYY-MM-DD, inclusive)."},
+                    "allow_web_fallback": {
+                        "type": "boolean",
+                        "description": "After structured sources fail, try the official/primary page and label the series PARTIAL.",
+                    },
                     "objective": {"type": "string", "description": "Why this data is needed (optional)."},
                 },
                 "required": ["symbol"],
@@ -884,8 +935,10 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
         ToolDefinition(
             name=_TOOL_NAMES["macro.get_series"],
             description=(
-                "Get a macro-economic series through the retrieval layer. Requires a precise "
-                "structured source; returns UNAVAILABLE rather than web-sourcing a number."
+                "Get a macro-economic series through the retrieval layer. Structured "
+                "sources are tried first. Set `allow_web_fallback=true` to try the "
+                "official/statistical-agency page as a LAST resort; that result is "
+                "labelled PARTIAL (page-sourced), never a verified structured series."
             ),
             input_schema={
                 "type": "object",
@@ -905,6 +958,10 @@ def register_retrieval_tools(registry: ToolRegistry) -> None:
                         ),
                     },
                     "source": {"type": "string", "description": "Optional macro source id, e.g. fred-analytics."},
+                    "allow_web_fallback": {
+                        "type": "boolean",
+                        "description": "After structured sources fail, try the official agency page and label the series PARTIAL.",
+                    },
                     "objective": {"type": "string", "description": "Why this series is needed."},
                 },
                 "required": ["series"],

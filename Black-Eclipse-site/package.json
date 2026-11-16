@@ -112,6 +112,8 @@
     "security:preflight": "node scripts/security-preflight.js",
     "check:all": "node scripts/check-all.js",
     "check:oss": "node scripts/oss-preflight.js",
+    "oss:prune-refs": "node scripts/prune-stale-refs.js",
+    "sbom": "node scripts/generate-sbom.js",
     "desktop:refresh": "node scripts/desktop-refresh.js"
   },
   "engines": {
