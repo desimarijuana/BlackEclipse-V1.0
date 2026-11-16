@@ -5,6 +5,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
+
 - **test(oss): pin the public SBOM artifact.** New
   `src/lib/oss/sbom-artifact.test.ts` (3 tests) asserts the committed
   `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` pair is current (`--check`),
@@ -187,7 +188,35 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `test_size_budget.py`. Docs: `docs/harness/no-dead-ends.md`,
   `docs/harness/failure-recovery.md`, `docs/harness/architecture.md`,
   `docs/harness/tool-registry.json`, `docs/harness/benchmarks.md` (regenerated).
-- **feat(response): answers are figure-first — a backtest is drawn, not tabulated.**
+- **docs(readme): say which data sources are commercial, which are not, and how to
+  add your own.** New "Data sources and commercial use" section, built from the
+  generated catalogue (`docs/data-sources.md`) rather than from memory: the three
+  tiers (included / connect your own / advanced), the commercial statuses
+  (`ok` / `attribution` / `personal-only` / `verify`), and an explicit
+  **personal-use-only** list - TradingView scanner, Yahoo Finance (`yfinance`),
+  Binance public ticker, CoinGecko keyless, DuckDuckGo HTML - with the reason they
+  are off by default. States that a source that is off cannot serve a screen because
+  `data-source-preferences.ts` is consulted at the fetch path, and that adding a
+  source is an entry in `source-catalog.ts` plus `npm run docs:data-sources`.
+  Carries the two qualifiers the catalogue itself carries: the table is an
+  informational snapshot of published terms, not legal advice or a licence grant;
+  and language models are separate (bring your own key, or Ollama locally).
+  docs updated: `docs/public-readme.md` (evidence row), `docs/CHANGELOG.md`.
+- **docs(readme): ship the Bots and Workflows screenshots, both captured from the
+  installed app.** The two surfaces that carry the product argument are now the
+  hero and the first grid row: **Bots** (13 agents with `Active`/`Completed` state,
+  the Investment Committee and Markets Desk rooms, and a real Data Quality Auditor
+  report that marks unreachable sources `UNAVAILABLE` and names the next permitted
+  route) and **Workflows** (20 typed, versioned, tagged graphs with `Open editor`
+  and *generate from prompt*). Neither came from the dev server: five earlier
+  attempts there produced `LOADING` panes and a blank canvas, so the captures were
+  taken from the **installed** desktop app - the only lane with a warm harness and a
+  live catalogue. Toast and first-run tour dismissed before capture, no machine
+  paths in frame. The bot image is deliberately shown mid-report because the
+  refusals are the product. Dashboard and Journal remain staged pending fresh
+  prices. docs updated: `docs/public-readme.md` (capture lane + staged list),
+  `docs/CHANGELOG.md`.
+ **feat(response): answers are figure-first — a backtest is drawn, not tabulated.**
   Added a top-level "Show the result, don't table it" section to the Eclipse agent
   prompt (`python/harness/prompts.py`): data and computations (backtests, equity
   curves, drawdowns, series, distributions, comparisons, allocations) are shown as
