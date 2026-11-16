@@ -53,6 +53,7 @@ longer exists, the claim comes off the README.
 
 | Claim | Evidence in the tree |
 |---|---|
+| Data-source tiers, commercial status and the "personal use only" set | `docs/data-sources.md` (generated from `src/lib/setup/source-catalog.ts`; the `commercial` field is an informational snapshot, not a licence grant); enforced at the fetch path by `src/lib/data-source-preferences.ts` |
 | One download, no Node/Python/database prerequisite | `scripts/desktop-package.js` (payload: `runtime/node.exe` + `scripts/vendor/python` + `app/`), `scripts/package-python.js`; the NSIS manifest is `RequestExecutionLevel user` with `InstallDir $LOCALAPPDATA\Programs\BlackEclipse` |
 | Optional feature packs are lazy, not required | `scripts/desktop-packs.js` header: "the harness imports them lazily, so the app runs without them and gains the capability when the folder appears" |
 | The offline `-full` installer bundles the packs | `scripts/desktop-installer.js` (`--full` adds `File /r packs/<p>/site-packages/*` and defines `FULL`); the stable alias always mirrors the slim build |
