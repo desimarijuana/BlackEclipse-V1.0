@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-22
+last-verified: 2026-11-16
 ---
 
 # Interactive Response Engine
@@ -854,12 +854,13 @@ kinds, so a `treemap`/`sunburst`/`funnel`/`gauge` is drawn as the closest
 honest shape (a bar or a pie) and the note appears under the picture, so the
 user is never looking at a chart that quietly became a different chart. Series
 colours come from the app's single source of truth
-(`DEFAULT_CHART_PALETTE`, `src/lib/chart-palette.ts`), which is **green/red by
-default** (finance up/down) and **decoupled from the theme** — applying or
-previewing a theme never recolours a chart. A user changes chart colours only
-deliberately (Settings › Charts, or a preset that carries its own
-`chartPalette`); a producer that genuinely needs colour sets it per series via
-`color`.
+(`DEFAULT_CHART_PALETTE`, `src/lib/chart-palette.ts`), which is a **categorical
+colour set by default** (ocean blue, amber, violet, rose, teal, fuchsia, with a
+conventional green/red pair for market direction). It is decoupled from the
+theme: applying or previewing a theme never recolours a chart. A user changes
+chart colours only deliberately (Settings > Charts, or a preset that carries its
+own `chartPalette`); the live figure is recoloured with that palette in the
+browser, and the drawn picture uses the engine's matching default.
 
 **The frosted tooltip recipe is gone with the browser canvas.** A chart is now
 a picture, so there is no hover tooltip to frost: the values a tooltip used to
@@ -948,6 +949,15 @@ and it is testable independently of the run loop.
   event) and no fabricated data. The schema digest remains the source of EXACT
   field names — the plan only says WHICH structure fits and reminds the model of
   the data-honesty rules.
+- **Figures first.** Every plan also appends `FIGURE_FIRST` (in
+  `response_mode.py`): when the result is data or a computation — a backtest, an
+  equity curve, a drawdown, a series, a distribution, a comparison, an
+  allocation — the answer DRAWS it (a `chart` block), and `data_table` is only
+  for rows the user asked to see or scan. A backtest is therefore its equity
+  curve, drawdown and headline metrics as figures, not a table of trades; the
+  `simulation` mode's suggested blocks lead with `chart` and its directive says
+  so explicitly. The bias never overrides `RENDER_DISCIPLINE` below: no figure is
+  drawn for data the run does not hold.
 - **When NOT to render.** Every plan also appends `RENDER_DISCIPLINE` (in
   `response_mode.py`): a checklist that overrides the mode — one sentence answers
   it → write the sentence; a lone fact/lookup/definition → prose; data you do not

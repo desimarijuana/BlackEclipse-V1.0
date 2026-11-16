@@ -58,8 +58,9 @@ _MODULES: tuple[DesignModule, ...] = (
             "Pick by shape, not by habit. `metric_grid` is a compact KPI set "
             "(2–6 small numbers); `stat_hero` is ONE to four oversized headline "
             "numbers with room for context — never a grid of them. `data_table` "
-            "is for rows a reader will scan or sort; if there are fewer than "
-            "three rows and no comparison, prose is better. `comparison_grid` is "
+            "is for rows a reader will scan or sort, never the default for a "
+            "series, a backtest or any result a `chart` can show; under three "
+            "rows with no comparison, prose is better. `comparison_grid` is "
             "options-as-columns vs attributes-as-rows (a pricing table), with "
             "booleans rendering as check/cross. `ranked_list` is a leaderboard "
             "whose bars scale to the real maximum. `badge_row` is tags only, "
@@ -111,7 +112,9 @@ _MODULES: tuple[DesignModule, ...] = (
         blocks=("chart", "financial_chart"),
         guidance=(
             "A chart block IS the drawing: put the data in the block and let the "
-            "engine draw it. For a short series use `series`; for a named market "
+            "engine draw it. A computed series is drawn here too: a backtest is "
+            "its equity curve, with a drawdown panel beside it — not a table of "
+            "trades. For a short series use `series`; for a named market "
             "series use `dataSource` (symbol + optional interval/start/end/field) "
             "so 250 prices never travel in the message. Use `financial_chart` "
             "only when the user named a symbol and wants the live terminal view. "

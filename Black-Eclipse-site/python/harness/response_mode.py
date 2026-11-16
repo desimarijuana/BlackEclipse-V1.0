@@ -46,6 +46,17 @@ _MODE_ORDER: tuple[str, ...] = (
 # data-bearing mode co-occurs with another real mode.
 _DATA_MODES = frozenset({"workflow", "simulation", "visualization"})
 
+# The presentation bias every mode inherits: a result you can see is drawn, not
+# tabulated. It never forces a figure for data the run does not hold (the
+# discipline below still applies).
+FIGURE_FIRST = (
+    "Figures first: when the result is data or a computation (a backtest, an "
+    "equity curve, a drawdown, a series, a distribution, a comparison, an "
+    "allocation), SHOW it — a `chart` block, not a table. A `data_table` is only "
+    "for rows the user asked to see or scan; it is never the default way to "
+    "report a series."
+)
+
 # The discipline that overrides every mode. A forced widget is a worse failure
 # than a plain answer, so this is stated as a checklist the model can apply even
 # when a mode is suggested.
@@ -218,9 +229,9 @@ def _suggested_blocks(mode: str, learning: bool) -> tuple[str, ...]:
             return ("learning_map", "stepper", "details", "diagram", "comparison_grid")
         return ("stepper", "details", "comparison_grid", "diagram", "callout")
     if mode == "visualization":
-        return ("chart", "financial_chart", "data_table", "metric_grid", "citations")
+        return ("chart", "financial_chart", "metric_grid", "data_table", "citations")
     if mode == "simulation":
-        return ("simulation", "controls", "chart", "metric_grid", "key_value")
+        return ("chart", "metric_grid", "controls", "simulation", "key_value")
     if mode == "workflow":
         return ("workflow", "flow", "node_graph", "timeline", "stepper")
     if mode == "composite":
@@ -248,25 +259,28 @@ def _directive_body(mode: str, learning: bool) -> str:
     if mode == "visualization":
         return (
             "present a DATA VISUALIZATION. Retrieve the real values with tools "
-            "FIRST, then render them with `chart`/`financial_chart`/`data_table`/"
-            "`metric_grid`; every number must come from a tool result you hold or "
+            "FIRST, then DRAW them with a `chart` block (or `financial_chart` for "
+            "a symbol the user named); a `metric_grid` carries the headline "
+            "numbers beside it and `data_table` only the rows that were asked "
+            "for. Every number must come from a tool result you hold or "
             "be marked `unavailable`. A price/OHLCV chart is a `chart` block with "
             "`chartType: \"candlestick\"` and one [open, high, low, close] point "
-            "per bar (use `financial_chart` only for a symbol the user named). "
+            "per bar. "
             "Carry the source and as-of where relevant. "
-            "Never invent a series, price or metric."
+            "Never invent a series, price or metric, and never fall back to a "
+            "markdown table where a figure fits."
         )
     if mode == "simulation":
         return (
-            "present an INTERACTIVE SIMULATION. For a simple, trusted formula the "
-            "user should drive (e.g. a risk/reward or break-even explorer) use a "
-            "`simulation` block — it computes a result locally and is always "
-            "labelled illustrative. For anything needing real data or a backtest, "
-            "ground the parameters in the quant/backtest tools, expose adjustable "
-            "inputs with a `controls` block and show results with `chart`/"
-            "`metric_grid`/`key_value`. NEVER imply a real backtest re-ran when "
-            "only illustrative values changed — route any real run through the "
-            "backtest tools."
+            "present an INTERACTIVE SIMULATION. A backtest is shown as its "
+            "equity curve and drawdown in a `chart` block, with the headline "
+            "metrics in `metric_grid` and its parameters in `controls` — never a "
+            "table of trades. For a simple, trusted formula the user should drive "
+            "(e.g. a risk/reward or break-even explorer) use a `simulation` block "
+            "— it computes a result locally and is always labelled illustrative. "
+            "Ground the parameters in the quant/backtest tools; NEVER imply a "
+            "real backtest re-ran when only illustrative values changed — route "
+            "any real run through the backtest tools."
         )
     if mode == "workflow":
         return (
@@ -296,6 +310,7 @@ def response_mode_prompt_block(plan: ResponsePlan) -> str:
     lines = [
         "## Response plan (presentation guidance, chosen by the orchestrator)",
         f"Mode: {plan.mode}. {body}",
+        FIGURE_FIRST,
     ]
     if plan.suggested_blocks:
         lines.append("Suggested blocks: " + ", ".join(plan.suggested_blocks) + ".")
@@ -498,6 +513,7 @@ def classify_response_mode(
 
 
 __all__ = [
+    "FIGURE_FIRST",
     "MODE_CLASSIFIER_SYSTEM",
     "RENDER_DISCIPLINE",
     "Confidence",

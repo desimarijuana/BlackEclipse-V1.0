@@ -178,6 +178,32 @@ def test_prompt_block_lists_suggested_blocks_for_rich_modes() -> None:
     assert "controls" in block
 
 
+def test_a_backtest_is_figure_first_not_a_table() -> None:
+    # The user's result is a curve, not rows: the chart leads the suggested
+    # blocks and the directive says so in words.
+    plan = classify_response_mode("Backtest my strategy")
+    assert plan.mode == "simulation"
+    assert plan.suggested_blocks[0] == "chart"
+    assert "controls" in plan.suggested_blocks
+    block = response_mode_prompt_block(plan)
+    assert "Figures first" in block
+    assert "never a table of trades" in block
+
+
+def test_every_prompt_block_carries_the_figure_first_bias() -> None:
+    for query in ("Backtest my strategy", "Compare BTC and ETH", "Explain RSI"):
+        assert "Figures first" in response_mode_prompt_block(
+            classify_response_mode(query)
+        )
+
+
+def test_the_base_prompt_puts_visuals_before_tables() -> None:
+    from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
+
+    assert "## Show the result, don't table it" in prompt
+    assert "never the default way to report a series" in prompt
+
+
 def test_plan_is_json_safe() -> None:
     payload = classify_response_mode("compare BTC and ETH").to_dict()
     assert set(payload) == {
