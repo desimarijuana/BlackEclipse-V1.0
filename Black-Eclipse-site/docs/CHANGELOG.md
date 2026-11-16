@@ -5,39 +5,6 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
-- **fix(charts): charts are coloured by default again; an untouched greyscale
-  palette is migrated.** The shipped default palette (`src/lib/chart-palette.ts`)
-  and the Python chart theme (`python/harness/charts/theme.py`) had become a
-  near-white/grey ramp, so every chart Eclipse drew - the live Plotly figure, the
-  drawn PNG fallback and the artifact/PDF export - read as black and white. The
-  default is now a categorical colour set (ocean blue, amber, violet, rose, teal,
-  fuchsia) with the conventional green/red market pair, and the Settings presets
-  (`chart-settings.tsx`) lead with "Eclipse" while "Black & white" stays one
-  click away. `chart-palette-store.ts` migrates a stored palette that is exactly
-  the old neutral default once (revision marker `be_chart_palette_rev`, written
-  on explicit saves), so existing installs get colour without losing a later
-  deliberate choice. Tests: `src/lib/chart-palette-store.test.ts`. Docs updated:
-  `docs/chart-engine.md`, `docs/interactive-response-engine.md`.
-- **fix(runtime): Eclipse no longer ends a run on the first blocked route.** Four
-  linked changes. (1) `tool_disclosure.py`: `auto` now narrows an oversized
-  schema even when the model's context window is unknown (`ABSOLUTE_SCHEMA_BUDGET_TOKENS`
-  = 20k), and the read-only tail is query-focused (`FOCUS_READ_TOOLS` +
-  `rank_tools`, 32 extras) instead of all-or-nothing. Measured on the live
-  registry: 853 bound tools / 103,265 schema tokens → 142–174 bound / 20–26k
-  (≈77–82k saved per step). (2) `answer_guard.py` + `graph.py`: a bare,
-  route-specific refusal is sent back for at most 2 extra turns with a
-  deterministic directive naming the untried permitted routes; a substantive
-  partial answer, a policy refusal and an explicitly source-restricted request
-  are never recovered. (3) `retrieval_tools.py`: every UNAVAILABLE result names
-  concrete next routes and returns `nextRoutes`; an explicit `webFallback`
-  (series/macro only) adds WEB as the LAST route and labels the result `PARTIAL`.
-  (4) the static prompt's contradictory "one attempt per route" guidance is
-  replaced with one ladder and one stop condition. Events
-  `answer.recovery_started`/`answer.recovered`/`answer.recovery_exhausted`;
-  outcome `answerRecovery`. Tests: `python/tests/test_answer_guard.py`,
-  `test_tool_disclosure_bm25.py`, `test_retrieval.py`, `test_replan.py`. Docs:
-  `docs/harness/no-dead-ends.md`, `docs/harness/failure-recovery.md`,
-  `docs/harness/architecture.md`.
 - **feat(response): answers are figure-first — a backtest is drawn, not tabulated.**
   Added a top-level "Show the result, don't table it" section to the Eclipse agent
   prompt (`python/harness/prompts.py`): data and computations (backtests, equity

@@ -854,13 +854,12 @@ kinds, so a `treemap`/`sunburst`/`funnel`/`gauge` is drawn as the closest
 honest shape (a bar or a pie) and the note appears under the picture, so the
 user is never looking at a chart that quietly became a different chart. Series
 colours come from the app's single source of truth
-(`DEFAULT_CHART_PALETTE`, `src/lib/chart-palette.ts`), which is a **categorical
-colour set by default** (ocean blue, amber, violet, rose, teal, fuchsia, with a
-conventional green/red pair for market direction). It is decoupled from the
-theme: applying or previewing a theme never recolours a chart. A user changes
-chart colours only deliberately (Settings > Charts, or a preset that carries its
-own `chartPalette`); the live figure is recoloured with that palette in the
-browser, and the drawn picture uses the engine's matching default.
+(`DEFAULT_CHART_PALETTE`, `src/lib/chart-palette.ts`), which is **green/red by
+default** (finance up/down) and **decoupled from the theme** — applying or
+previewing a theme never recolours a chart. A user changes chart colours only
+deliberately (Settings › Charts, or a preset that carries its own
+`chartPalette`); a producer that genuinely needs colour sets it per series via
+`color`.
 
 **The frosted tooltip recipe is gone with the browser canvas.** A chart is now
 a picture, so there is no hover tooltip to frost: the values a tooltip used to
