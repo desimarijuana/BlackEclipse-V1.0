@@ -5,6 +5,32 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
+- **fix(desktop): `npm run desktop:live` actually exists now.** The live-mode
+  note above landed the bootstrap half (`.next-live-<channel>` + `next dev`)
+  but no entry point: `package.json` had no `desktop:live`, no script set
+  `BE_DESKTOP_LIVE`, and a live server left no owner marker, so a second live
+  launch would have been refused as a port conflict. Added
+  `scripts/desktop-live.js` (verify the channel runs THIS checkout — Stable
+  refuses without the dev bridge, Dev refuses without its shell — then stop the
+  channel window + owned server and relaunch with `BE_DESKTOP_LIVE=1`),
+  `launchShell(channel, extraEnv)`, the npm script, and
+  `.next-live-stable/types/**/*.ts` / `.next-live-dev/types/**/*.ts` in
+  `tsconfig.json` plus `.next-live-*/**` in the eslint ignores, so a live
+  session cannot make Next rewrite `tsconfig.json` or lint generated output.
+  Docs updated: `docs/QUICKSTART.md`.
+- **feat(desktop): live mode — the window updates on every save.** The desktop
+  serves an immutable pinned build, so a `src/` edit was invisible until
+  `desktop:refresh` rebuilt, promoted and reopened the app (Python changes were
+  live immediately, which is how a chart could be coloured in the PNG and grey
+  in the window). Added `npm run desktop:live` (`scripts/desktop-live.js`):
+  it closes the channel window/server and relaunches it with
+  `BE_DESKTOP_LIVE=1`, which makes `scripts/desktop-server.js` run `next dev`
+  against its own `.next-live-<channel>` dist dir instead of `next start`
+  against a pin. Saving under `src/` now hot-reloads the open window; leaving
+  live mode is the ordinary `desktop:refresh` / `desktop:dev`. Also added the
+  npm script, the gitignore entry, a standing AGENTS rule ("a UI change is not
+  done until the window serves it") and docs. Docs updated:
+  `docs/environments.md`.
 - **fix(charts): charts are coloured by default again; an untouched greyscale
   palette is migrated.** The shipped default palette (`src/lib/chart-palette.ts`)
   and the Python chart theme (`python/harness/charts/theme.py`) had become a
@@ -14,9 +40,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   fuchsia) with the conventional green/red market pair, and the Settings presets
   (`chart-settings.tsx`) lead with "Eclipse" while "Black & white" stays one
   click away. `chart-palette-store.ts` migrates a stored palette that is exactly
-  the old neutral default once (revision marker `be_chart_palette_rev`, written
-  on explicit saves), so existing installs get colour without losing a later
-  deliberate choice. Tests: `src/lib/chart-palette-store.test.ts`. Docs updated:
+  one of the pre-colour greyscale defaults once (revision marker
+  `be_chart_palette_rev`, written on explicit saves), so existing installs get
+  colour without losing a later deliberate choice. The desktop had also been
+  serving a Nov-13 pinned UI bundle, so `npm run desktop:refresh` was required to
+  ship the palette change to the app window. Tests:
+  `src/lib/chart-palette-store.test.ts`. Docs updated:
   `docs/chart-engine.md`, `docs/interactive-response-engine.md`.
 - **fix(runtime): Eclipse no longer ends a run on the first blocked route.** Four
   linked changes. (1) `tool_disclosure.py`: `auto` now narrows an oversized
@@ -32,12 +61,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   concrete next routes and returns `nextRoutes`; an explicit `webFallback`
   (series/macro only) adds WEB as the LAST route and labels the result `PARTIAL`.
   (4) the static prompt's contradictory "one attempt per route" guidance is
-  replaced with one ladder and one stop condition. Events
+  replaced with one ladder and one stop condition. The final-answer branch moved
+  to `final_answer.py` (graph.py stays under its ratchet); `RunSpec.dispatch_allowed`
+  keeps the pre-disclosure surface for dispatch, so hiding a tool's schema is an
+  advertising choice, never a revocation. Events
   `answer.recovery_started`/`answer.recovered`/`answer.recovery_exhausted`;
   outcome `answerRecovery`. Tests: `python/tests/test_answer_guard.py`,
-  `test_tool_disclosure_bm25.py`, `test_retrieval.py`, `test_replan.py`. Docs:
-  `docs/harness/no-dead-ends.md`, `docs/harness/failure-recovery.md`,
-  `docs/harness/architecture.md`.
+  `test_disclosure_dispatch.py` (a hidden read tool still dispatches),
+  `test_tool_disclosure_bm25.py`, `test_retrieval.py`, `test_replan.py`,
+  `test_size_budget.py`. Docs: `docs/harness/no-dead-ends.md`,
+  `docs/harness/failure-recovery.md`, `docs/harness/architecture.md`,
+  `docs/harness/tool-registry.json`, `docs/harness/benchmarks.md` (regenerated).
 - **feat(response): answers are figure-first — a backtest is drawn, not tabulated.**
   Added a top-level "Show the result, don't table it" section to the Eclipse agent
   prompt (`python/harness/prompts.py`): data and computations (backtests, equity
@@ -101,6 +135,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **docs(readme): ship the Bots and Workflows screenshots, both captured from the
+  installed app.** The two surfaces that carry the product argument are now the
+  hero and the first grid row: **Bots** (13 agents with `Active`/`Completed` state,
+  the Investment Committee and Markets Desk rooms, and a real Data Quality Auditor
+  report that marks unreachable sources `UNAVAILABLE` and names the next permitted
+  route) and **Workflows** (20 typed, versioned, tagged graphs with `Open editor`
+  and *generate from prompt*). Neither came from the dev server: five earlier
+  attempts there produced `LOADING` panes and a blank canvas, so the captures were
+  taken from the **installed** desktop app - the only lane with a warm harness and a
+  live catalogue. Toast and first-run tour dismissed before capture, no machine
+  paths in frame. The bot image is deliberately shown mid-report because the
+  refusals are the product. Dashboard and Journal remain staged pending fresh
+  prices. docs updated: `docs/public-readme.md` (capture lane + staged list),
+  `docs/CHANGELOG.md`.
 - **docs(readme): state the install prerequisites the installer actually removes.**
   Added a "One download, nothing to install first" block to Install, because the
   page implied a prerequisite-free install without saying which ones or proving it.
