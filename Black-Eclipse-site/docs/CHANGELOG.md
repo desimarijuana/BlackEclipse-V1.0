@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **test(harness): the hardcore prompt suite has published run evidence.**
+  Added `docs/harness/prompt-tests/README.md` plus one file per run under
+  `docs/harness/prompt-tests/runs/`: 31 of the 38 prompts completed with full
+  prompt + answer + run id/steps/tools/errors; `#28/#32/#33` stopped at real
+  approval gates (browser action / portfolio write), `#13/#16/#18` were skipped
+  as mutating, `#19` needs a scanned-PDF attachment. `#10` was rerun to
+  completion after a restart. No runtime behavior changed by the export itself.
+  Docs: `docs/harness/prompt-tests/`.
 - **style(chat): dark prompt bubble defaults to `#2e2e2e`.** The user's own
   messages (Eclipse Agent) now paint a dedicated charcoal instead of a 24%
   foreground tint (~#414141), so the bubble separates from the near-black
