@@ -53,6 +53,9 @@ longer exists, the claim comes off the README.
 
 | Claim | Evidence in the tree |
 |---|---|
+| One download, no Node/Python/database prerequisite | `scripts/desktop-package.js` (payload: `runtime/node.exe` + `scripts/vendor/python` + `app/`), `scripts/package-python.js`; the NSIS manifest is `RequestExecutionLevel user` with `InstallDir $LOCALAPPDATA\Programs\BlackEclipse` |
+| Optional feature packs are lazy, not required | `scripts/desktop-packs.js` header: "the harness imports them lazily, so the app runs without them and gains the capability when the folder appears" |
+| The offline `-full` installer bundles the packs | `scripts/desktop-installer.js` (`--full` adds `File /r packs/<p>/site-packages/*` and defines `FULL`); the stable alias always mirrors the slim build |
 | MetaTrader 5 integration for trading operations | `python/harness/trade/` (`terminal.py`, `tools.py`), `computer/applications/adapters.py` (`MT5Adapter`); doc `docs/trading.md` |
 | Provider-agnostic models (OpenAI, Anthropic, Google, Mistral, Groq, OpenAI-compatible, Ollama) | `python/harness/models.py`, `python/harness/model_runtime/`, extras in `Black-Eclipse-site/pyproject.toml` |
 | The model never computes a metric; formula, inputs, assumptions and seed are recorded | `docs/harness/financial-analysis-engine.md`, `python/harness/research/calculations.py` |

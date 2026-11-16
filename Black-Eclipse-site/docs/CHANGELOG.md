@@ -39,6 +39,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
+- **docs(readme): state the install prerequisites the installer actually removes.**
+  Added a "One download, nothing to install first" block to Install, because the
+  page implied a prerequisite-free install without saying which ones or proving it.
+  Verified in the code, not the plan doc: `desktop-installer.js` builds the payload
+  with `runtime/node.exe` and `scripts/vendor/python`, so Node/Python/SQLite are
+  bundled; the NSIS manifest is `RequestExecutionLevel user` with
+  `InstallDir $LOCALAPPDATA\Programs\BlackEclipse`, so no administrator rights;
+  `desktop-packs.js` imports feature packs lazily, so a missing pack degrades one
+  capability rather than blocking install; and only `--full` bundles those packs,
+  which is why the stable `BlackEclipse-Setup.exe` alias intentionally mirrors the
+  slim build. Internet and a model key are the two real prerequisites, and both are
+  now stated as such. docs updated: `docs/public-readme.md` (three new evidence
+  rows), `docs/CHANGELOG.md`.
 - **fix(readme): the three download buttons now fit one line.** At 340px each the
   row wrapped, leaving Windows alone with Linux and macOS stranded underneath. The
   trio is resized to 300 + 210 + 210 (736px inside GitHub's ~880px column) with

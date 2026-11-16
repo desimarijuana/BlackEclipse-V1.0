@@ -172,6 +172,29 @@ Or take the installer for your platform — [Windows](https://github.com/desimar
 [macOS](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) ·
 [all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).
 
+### One download, nothing to install first
+
+The installer **is** the application: a bundled Node runtime, a vendored Python
+runtime, the agent stack, the database schema and a seeded vault. You do not
+install Node.js, Python or a database, and there is no setup step before the first
+window opens.
+
+| Requirement | Detail |
+|---|---|
+| **Operating system** | Windows 10/11 (x64) · Debian/Ubuntu amd64 (`.deb`) · macOS on Apple silicon (`.dmg`) |
+| **Administrator rights** | **None.** Per-user install to `%LOCALAPPDATA%\Programs\BlackEclipse`; the NSIS manifest is `RequestExecutionLevel user` |
+| **Node.js, Python, SQLite** | **Not required** — all three ship inside the payload |
+| **Account, sign-in, telemetry** | None. The app runs entirely on your machine |
+| **Download size** | ~141 MB, and that is the whole thing |
+| **Internet** | Needed for live prices, news and every model call. The app still opens, seeds its vault and runs offline — data simply reads `UNAVAILABLE` until something can be fetched |
+| **A language model** | A key for a hosted provider, or Ollama running locally. Without one, everything except the agent still works |
+
+Optional feature packs (extra Python capabilities) are **lazy**: the harness imports
+them only when the folder is present, so a missing pack degrades one capability
+instead of blocking the install. The release also carries an offline
+`BlackEclipse-Setup-<version>-full.exe` that bundles those packs for machines with
+no network at all.
+
 No account and no manual database setup. First boot provisions and seeds the local
 vault and starts the agent runtime. To use a model, either add a key for a
 supported hosted provider or configure a local Ollama provider in
