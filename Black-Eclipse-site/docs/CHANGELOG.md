@@ -4,6 +4,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 — one file per month. This file keeps the newest seven dated sections;
 `npm run rotate:changelog -- --write` performs the move.
 
+## 2026-11-16
+- **fix(runtime): a finished run's SSE stream can no longer hang after the answer
+  arrives.** `GET /runs/{id}/stream` waited only for the event-bus sentinel when
+  the run looked active. `end_stream()` runs in a `finally` BEFORE the task is
+  marked done, so a stream opened in that window never got the sentinel and held
+  the connection open forever — the UI showed the full answer and stayed
+  "writing". The frame producer moved to the new `python/harness/run_stream.py`
+  (out of the size-ratcheted `main.py`) and now closes on a terminal event, on an
+  inactive run, and re-checks the durable trace on each keep-alive tick.
+  `EventBus.end_stream` also makes room for the sentinel when a slow client's
+  queue is full instead of silently dropping it. Tests:
+  `python/tests/test_run_stream_close.py`. no doc change — behavioral bug fix,
+  contracts unchanged.
+
 ## 2026-11-15
 - **security(audit): close drive-by CSRF and DNS-rebinding paths; add a full
   audit report set.** The default desktop runs `HARNESS_AUTH=off`, and 59

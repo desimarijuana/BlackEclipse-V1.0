@@ -64,12 +64,23 @@ class EventBus:
             self._streams.pop(run_id, None)
 
     def end_stream(self, run_id: str) -> None:
-        """Signal all live consumers that a run is finished (sentinel None)."""
+        """Signal all live consumers that a run is finished (sentinel None).
+
+        The sentinel must never be dropped: it is the only signal that closes a
+        live SSE stream. If a consumer's queue is full (a slow client that has
+        already buffered the maximum), make room by discarding the OLDEST live
+        event — token deltas are best-effort and the durable trace is replayed
+        on reconnect — then enqueue the sentinel.
+        """
         for queue in list(self._streams.get(run_id, [])):
             try:
                 queue.put_nowait(None)
             except asyncio.QueueFull:
-                pass
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(None)
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    pass
 
 
 class RunEmitter:
