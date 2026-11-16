@@ -182,7 +182,7 @@ export function ResponseChart({ block, height = 260, className, focusable = true
             height={
               focused
                 ? typeof window !== 'undefined'
-                  ? Math.round(window.innerHeight * 0.82)
+                  ? Math.round(window.innerHeight * 0.78)
                   : 640
                 : Math.max(420, height)
             }

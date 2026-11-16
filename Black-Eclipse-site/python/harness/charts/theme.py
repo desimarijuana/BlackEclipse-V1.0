@@ -14,9 +14,10 @@ Two rules shape it:
   app has a light mode, and a chart that is unreadable in light mode is a
   broken chart — not a cosmetic detail.
 
-The palette below is NEUTRAL: a near-white ink and a grey ramp, so a hue never
-implies a meaning the numbers do not carry. (The app's accent colours live in
-the UI, not in the data.)
+The palette below is the app's default CATEGORICAL set: six distinct hues that
+read on both the dark and the light surface. Market direction keeps the
+conventional green / red pair. A greyscale ("Black & white") palette is still
+available in Settings › General › Charts.
 """
 
 from __future__ import annotations
@@ -24,29 +25,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-#: The categorical series palette — NEUTRAL (black & white) by default, matching
-#: the app's default chart palette on the client. A chart is data, not
-#: decoration: a greyscale ramp never invents meaning from a hue and reads on
-#: both the dark and the light surface. Users can choose another palette (or pick
-#: individual colours) in Settings › General › Charts; the browser then recolours
-#: the live figure, and this palette is what a static export is drawn with.
+#: The categorical series palette — the app's default chart colours. It matches
+#: the browser's DEFAULT_CHART_PALETTE so a static export (the PNG fallback and
+#: the Artifact Center copy) is drawn with the same colours the live figure
+#: shows. A greyscale palette is still one click away in Settings › General ›
+#: Charts ("Black & white"); the browser recolours the live figure from that
+#: saved palette, and this default is what a fresh install draws with.
 SERIES_COLORS: tuple[str, ...] = (
-    "#fafafa",  # near-white
-    "#a1a1aa",  # mid grey
-    "#d4d4d8",  # light grey
-    "#71717a",  # dark grey
-    "#e4e4e7",  # pale grey
-    "#52525b",  # deep grey
-    "#c4c4cc",
-    "#8b8b94",
-    "#b8b8bf",
-    "#6b6b73",
+    "#38bdf8",  # ocean blue
+    "#fbbf24",  # amber
+    "#a78bfa",  # violet
+    "#fb7185",  # rose
+    "#2dd4bf",  # teal
+    "#e879f9",  # fuchsia
+    "#60a5fa",
+    "#4ade80",
+    "#f472b6",
+    "#facc15",
 )
 
-#: Market direction: a light / dark pair rather than green / red, so a neutral
-#: chart stays neutral. The green / rose pair is still available as a theme.
-UP_COLOR = "#e5e7eb"
-DOWN_COLOR = "#6b7280"
+#: Market direction: the conventional green / red pair, matching the browser
+#: default. A neutral (light / dark) pair is available as a theme.
+UP_COLOR = "#22c55e"
+DOWN_COLOR = "#ef4444"
 
 
 @dataclass(frozen=True)
@@ -62,9 +63,9 @@ class ChartTheme:
     up: str = UP_COLOR
     down: str = DOWN_COLOR
     palette: tuple[str, ...] = SERIES_COLORS
-    #: The colour a heatmap's extremes take — neutral by default.
-    heat_low: str = "#52525b"
-    heat_high: str = "#e5e7eb"
+    #: The colour a heatmap's extremes take — low (down) / high (up).
+    heat_low: str = "#ef4444"
+    heat_high: str = "#22c55e"
     rc: dict[str, Any] = field(default_factory=dict)
 
     def series_color(self, index: int) -> str:

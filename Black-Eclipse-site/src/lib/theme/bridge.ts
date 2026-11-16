@@ -1,10 +1,10 @@
 // ── Theme → chart palette bridge ─────────────────────────────────────────────
 // Charts are DECOUPLED from the theme. A user's chart colours come from the
-// shipped green/red default (or their explicit Settings › Charts edits, or a
+// shipped categorical default (or their explicit Settings › Charts edits, or a
 // preset that carries its own `chartPalette`), and an ambient theme edit never
 // recolours a chart. These helpers are the single seam the customization flow
 // calls; they normalise the palette and deliberately ignore the theme's colors,
-// so charts stay green/red unless the user asked for a change.
+// so charts keep their own colours unless the user asked for a change.
 //
 // Called only on explicit user customization, never on hydration, so a
 // separately-saved chart palette is not clobbered on page load.
@@ -21,7 +21,7 @@ import type { EclipseTheme } from './tokens';
 
 /**
  * The chart palette a theme implies — which is the palette already in effect.
- * The theme is intentionally ignored: charts keep their shipped green/red (or
+ * The theme is intentionally ignored: charts keep their shipped categorical (or
  * the user's own) colours when a theme is applied or previewed.
  */
 export function chartPaletteFromTheme(

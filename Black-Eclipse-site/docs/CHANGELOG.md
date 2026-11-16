@@ -5,6 +5,64 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
+- **chore(oss): a dry-run-by-default tool to prune the stale history refs.**
+  New `scripts/prune-stale-refs.js` (`npm run oss:prune-refs`) finds the branches
+  whose history still contains a `.db` snapshot or a personal author address,
+  refuses to touch `main`/the checked-out branch/tags, prints the exact
+  `git push origin --delete` command, and only executes with `--apply` (then
+  `git fetch --prune`). On this tree it identifies exactly the 12 stale remote
+  branches, 0 local branches and 0 tags, with `main` clean. `check:oss` now also
+  requires `sbom.cdx.json` and `THIRD-PARTY-NOTICES.md` to exist and match the
+  lockfiles. Docs updated:
+  `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
+- **ci(oss): make the public-release preflight automatic once the repository is
+  public.** New `.github/workflows/oss-preflight.yml` runs `check:oss` with full
+  history on every push/PR, but the job is skipped while
+  `github.event.repository.private` is true - a private working repository
+  legitimately fails it. It becomes a real gate at the moment of publication and
+  can be dispatched by hand first. README licensing now links the generated
+  `THIRD-PARTY-NOTICES.md` and `sbom.cdx.json`. Docs updated:
+  `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
+- **chore(oss): generate an SBOM and third-party notices from the locked trees.**
+  New `scripts/generate-sbom.js` (`npm run sbom`) writes `sbom.cdx.json`
+  (CycloneDX 1.5, 1,320 components: 1,185 npm + 135 Python) and
+  `THIRD-PARTY-NOTICES.md` at the repository root from `package-lock.json` and
+  `python/requirements.lock`. Licences use SPDX ids where the lockfile declares
+  one, SPDX expressions for compound values, and `NOASSERTION` for packages that
+  declare none (all Python entries) instead of guessing; `--check` fails on
+  drift, CI enforces it, and `npm run release:bundle` regenerates it. This
+  closes the SBOM gap in the open-source release checklist. Docs
+  updated: `docs/OPEN-SOURCE-READINESS.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **docs(release): add the missing v0.4.0 product release note.**
+  `docs/releases/v0.4.0.md` documents the C2-C9 core-integrity work and uses the
+  generated `docs/harness/releases/v0.4.0/report.json` numbers (1,091 tools,
+  scorecard 8/8, conformance 12/12, wheel sha256) rather than hand-typed claims.
+  The tag existed with no note in the release index. Docs updated:
+  `docs/releases/v0.4.0.md`, `docs/OPEN-SOURCE-READINESS.md`,
+  `docs/CHANGELOG.md`.
+- **chore(oss): CFA trademark notice, a 1-approval ruleset, and honest residual
+  risks.** Added `.black-eclipse/skills/CFA-NOTICE.md` and a one-line "not
+  affiliated with CFA Institute" notice to all 12 `cfa-*` skills; changed
+  `.github/ruleset.json` to require 1 approval (the public posture) and recorded
+  the solo-maintainer consequence in `docs/repository-guards.md`; corrected the
+  `CODEOWNERS` comment that already claimed the repository was public; fixed
+  `SECURITY.md`'s stale claim that Python dependencies are not locked and added
+  the residual risks accepted for the source release. Docs updated:
+  `docs/repository-guards.md`, `docs/OPEN-SOURCE-READINESS.md`,
+  `docs/legal/README.md`, `SECURITY.md`.
+- **fix(charts): type the Plotly layout so `tsc --noEmit` passes.** The dual-axis
+  work wrote `layout.scene` on an inferred `{ autosize, height }` literal, which
+  failed the release gate. The layout is now annotated as
+  `Record<string, unknown>`; no runtime change. no doc change - type-only fix.
+- **chore(oss): `check:oss` names the refs that still expose old history.**
+  The history checks previously reported only the offending path or address,
+  which after a rewrite reads like "redo everything". They now use
+  `git for-each-ref --contains` to list the exact branches/tags, and say when
+  `main` and the tags are already clean. On this tree it proves the remaining
+  `jdds.db` exposure is eleven stale remote branches and the personal address
+  survives only on `origin/backup-before-email-rewrite`. No doc change beyond
+  this entry (the readiness doc already owns the deletion runbook).
 - **fix(charts): a chart can no longer paint over text, and dual-axis charts use
   a real second scale.** Two defects from the six-chart stress session.
   (1) `plotly-chart.tsx`: the zoom/reset/save controls were overlaid in the
@@ -17,8 +75,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   accepted by the contract and then ignored, so both series shared one scale
   (the index line flattened under the turnover bars). Scene panels now create
   an overlaying right axis (`yaxis2...`), route the mark's trace to `y2...`, and
-  reserve a 64 px right margin for its ticks. Tests: 72 Python chart tests;
-  `npx tsc --noEmit`. Docs updated: `docs/chart-engine.md`.
+  reserve a 64 px right margin for its ticks. (3) 3-D scenes inherited the 2-D
+  `dragmode: "pan"`, so dragging only panned and the chart never orbited: the
+  engine now states `scene.dragmode: "turntable"` and the browser enforces it
+  for any 3-D figure (on first draw AND on reset view, via the tested
+  `layoutWithSceneOrbit` helper). Tests: 74 Python chart tests; 4 client tests
+  for the orbit guard; `npx tsc --noEmit`. Docs updated: `docs/chart-engine.md`.
 - **fix(desktop): live mode sets itself up, and names the one change it cannot
   hot-reload.** `desktop:live` no longer refuses on an unbridged Stable install:
   it runs `scripts/desktop-dev-bridge.js` itself (bundled payload preserved as

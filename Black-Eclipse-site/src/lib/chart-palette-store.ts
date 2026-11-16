@@ -32,6 +32,48 @@ interface ChartPaletteStore {
 }
 
 const STORAGE_KEY = "be_chart_palette_v2";
+// One-time migration marker. The app used to ship a greyscale default (and the
+// old theme bridge persisted it), so a stored palette identical to that default
+// means "never chose anything" — it is moved to the coloured default once. The
+// marker then protects a later, deliberate "Black & white" choice.
+const PALETTE_REVISION_KEY = "be_chart_palette_rev";
+const PALETTE_REVISION = "2";
+
+/** The greyscale palette shipped before colour became the default. */
+const LEGACY_NEUTRAL_PALETTE: ChartPalette = {
+  candles: { up: "#e5e7eb", down: "#6b7280", neutral: "#a3a3a3" },
+  lines: { primary: "#fafafa", series: ["#fafafa", "#a1a1aa", "#d4d4d8", "#71717a", "#e4e4e7", "#52525b"] },
+  heatmap: { up: "#e5e7eb", mid: "#27272a", down: "#52525b" },
+};
+
+/**
+ * Also the "Black & white" preset that shipped in Settings › Charts (its
+ * heatmap ramp differs from the engine default). A palette equal to any of
+ * these, saved before colour returned, is the bug's output — not a choice.
+ */
+const LEGACY_NEUTRAL_VARIANTS: ChartPalette[] = [
+  LEGACY_NEUTRAL_PALETTE,
+  {
+    candles: LEGACY_NEUTRAL_PALETTE.candles,
+    lines: LEGACY_NEUTRAL_PALETTE.lines,
+    heatmap: { up: "#f5f5f5", mid: "#3f3f46", down: "#525252" },
+  },
+];
+
+function samePalette(a: ChartPalette, b: ChartPalette): boolean {
+  return (
+    a.candles.up === b.candles.up &&
+    a.candles.down === b.candles.down &&
+    a.candles.neutral === b.candles.neutral &&
+    a.lines.primary === b.lines.primary &&
+    a.lines.series.length === b.lines.series.length &&
+    a.lines.series.every((color, index) => color === b.lines.series[index]) &&
+    a.heatmap.up === b.heatmap.up &&
+    a.heatmap.mid === b.heatmap.mid &&
+    a.heatmap.down === b.heatmap.down
+  );
+}
+
 const SECTIONS: PaletteSection[] = ["candles", "lines", "heatmap"];
 let listening = false;
 
@@ -47,6 +89,9 @@ function persistPalette(palette: ReturnType<typeof normalizeChartPalette>): bool
   if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(palette));
+    // An explicit save is a real choice — even "Black & white" — so mark the
+    // palette as chosen and never migrate it again.
+    window.localStorage.setItem(PALETTE_REVISION_KEY, PALETTE_REVISION);
     return true;
   } catch {
     return false;
@@ -82,7 +127,20 @@ export const useChartPaletteStore = create<ChartPaletteStore>((set, get) => ({
     let palette = normalizeChartPalette(null);
     let storageAvailable = true;
     try {
-      palette = parseStoredPalette(window.localStorage.getItem(STORAGE_KEY));
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      palette = parseStoredPalette(stored);
+      // A stored greyscale palette with no revision marker predates the
+      // coloured default (the old theme bridge wrote it), so it was never a
+      // choice. Move it to the default once; the marker keeps a later,
+      // deliberate "Black & white" save intact.
+      if (
+        stored !== null &&
+        LEGACY_NEUTRAL_VARIANTS.some((variant) => samePalette(palette, variant)) &&
+        !window.localStorage.getItem(PALETTE_REVISION_KEY)
+      ) {
+        palette = normalizeChartPalette(null);
+        window.localStorage.setItem(PALETTE_REVISION_KEY, PALETTE_REVISION);
+      }
     } catch {
       storageAvailable = false;
     }

@@ -1,6 +1,6 @@
 # The chart engine — Eclipse draws its charts with Python
 
-**Status:** Active. **Last verified:** 2026-11-13.
+**Status:** Active. **Last verified:** 2026-11-16.
 
 Eclipse renders every chart with the Python runtime's chart engine: a validated
 **chart spec** goes in, `matplotlib` draws a transparent PNG, and the picture is
@@ -167,19 +167,25 @@ snake_case field names stay valid too.
 
 `python/harness/charts/theme.py`. The background is **transparent** so the
 figure sits on the frosted glass card without hiding the frost; the ink is
-light because the surface behind it is dark. The default series palette is
-**neutral** (a near-white → grey ramp) because a chart is data, not decoration:
-a hue should not imply a meaning the numbers do not carry, and a greyscale ramp
-reads on both the dark and the light surface. Candlesticks use a light/dark pair
-for the same reason. The light theme is a real theme, not an inversion, because
-the app has a light mode.
+light because the surface behind it is dark. The default series palette is a
+**categorical colour set** (ocean blue → amber → violet → rose → teal →
+fuchsia), matching the browser default, because a chart the reader has to
+decode by shade is a chart that hides its own data. Market direction keeps the
+conventional green / red pair, and heatmaps use the same diverging pair. The
+light theme is a real theme, not an inversion, because the app has a light
+mode.
+
+Greyscale is still a real choice, not a missing colour: the "Black & white"
+presets in Settings › General › Charts replace the default for the live figure
+and the drawn picture alike. Nothing forces a hue on a chart whose author
+wanted none.
 
 Colours are the user's, not the engine's: the browser applies the palette from
 Settings › General › Charts to the live figure (`components/charts/apply-palette.ts`),
 so a colour change repaints instantly without asking the runtime to redraw, and
 "Save as PNG" exports exactly what is on screen. The Python palette is what a
 static export (the PNG fallback and the Artifact Center copy) is drawn with, so
-the two start from the same neutral default.
+the two start from the same coloured default.
 
 ### 2.4 The honesty rules
 
@@ -277,12 +283,14 @@ asks the engine to draw the same chart twice. The chart registry is keyed by
 the block id and points at the artifact, which is what remains the export
 source.
 
-Every live chart carries its own view controls in the bottom-left corner:
-**zoom in**, **zoom out** and **reset**. Zoom scales the current 2-D axis
-ranges around their centre (or the 3-D camera eye) instead of jumping to a
-preset, and reset restores the figure the engine authored (axes or camera).
-Plotly's own modebar stays available for pan/box-zoom and PNG download;
-double-clicking the chart also resets it.
+Every live chart carries its own view controls in a compact row directly
+**under the plot** (not floating over it): **zoom in**, **zoom out** and
+**reset**. Zoom scales the current 2-D axis ranges around their centre (or the
+3-D camera eye) instead of jumping to a preset, and reset restores the figure
+the engine authored (axes or camera). A 3-D scene is **orbitable by drag**
+(`scene.dragmode: "turntable"`; the 2-D `dragmode: "pan"` must never be
+inherited by the scene). Plotly's own modebar stays available for pan/box-zoom
+and PNG download; double-clicking the chart also resets it.
 
 ### 3.2 The picture is hoverable
 

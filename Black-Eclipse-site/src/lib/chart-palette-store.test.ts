@@ -37,6 +37,31 @@ describe("chart palette storage lifecycle", () => {
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
+  it("moves an untouched greyscale palette to the coloured default once, but keeps a deliberate choice", async () => {
+    const legacy = {
+      candles: { up: "#e5e7eb", down: "#6b7280", neutral: "#a3a3a3" },
+      lines: { primary: "#fafafa", series: ["#fafafa", "#a1a1aa", "#d4d4d8", "#71717a", "#e4e4e7", "#52525b"] },
+      heatmap: { up: "#e5e7eb", mid: "#27272a", down: "#52525b" },
+    };
+    values.set(key, JSON.stringify(legacy));
+    const { getChartPalette, useChartPaletteStore } = await import("./chart-palette-store");
+    expect(getChartPalette()).toEqual(DEFAULT_CHART_PALETTE);
+    expect(values.get("be_chart_palette_rev")).toBe("2");
+
+    // The user then deliberately picks "Black & white": the marker protects it.
+    useChartPaletteStore.getState().setPalette(legacy);
+    useChartPaletteStore.setState({ hydrated: false });
+    expect(getChartPalette()).toEqual(legacy);
+  });
+
+  it("does not rewrite a palette that was customised before the coloured default", async () => {
+    const custom = { lines: { primary: "#abc" } };
+    values.set(key, JSON.stringify(custom));
+    const { getChartPalette } = await import("./chart-palette-store");
+    expect(getChartPalette().lines.primary).toBe("#aabbcc");
+    expect(values.has("be_chart_palette_rev")).toBe(false);
+  });
+
   it("notifies on hydration and edits, and unsubscribes", async () => {
     values.set(key, JSON.stringify({ candles: { up: "#abc" } }));
     const { subscribeChartPalette, useChartPaletteStore } = await import("./chart-palette-store");

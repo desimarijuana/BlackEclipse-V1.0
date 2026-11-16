@@ -22,14 +22,16 @@ export interface ChartPalette {
 }
 
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
-  candles: { up: "#e5e7eb", down: "#6b7280", neutral: "#a3a3a3" },
-  // Neutral (black & white) by default: a chart is data, not decoration, and a
-  // greyscale ramp reads on both the dark and the light surface without a hue
-  // clash. Candles keep a light/dark pair so up and down still separate.
-  // Users change these deliberately in Settings › General › Charts, or pick a
-  // preset (Black & white, Silver, Ocean & amber, …).
-  lines: { primary: "#fafafa", series: ["#fafafa", "#a1a1aa", "#d4d4d8", "#71717a", "#e4e4e7", "#52525b"] },
-  heatmap: { up: "#e5e7eb", mid: "#27272a", down: "#52525b" },
+  candles: { up: "#22c55e", down: "#ef4444", neutral: "#94a3b8" },
+  // Colour is the DEFAULT: a multi-series chart drawn in a greyscale ramp makes
+  // the reader work to tell one series from the next, and a chart the agent drew
+  // for you should not look like a wireframe. These six hues are distinct, read
+  // on both the dark and the light surface, and start with the app's own ocean
+  // blue. Market direction keeps its conventional green / red pair.
+  // "Black & white" is still one click away in Settings › General › Charts, and
+  // a saved palette always wins over this default.
+  lines: { primary: "#38bdf8", series: ["#38bdf8", "#fbbf24", "#a78bfa", "#fb7185", "#2dd4bf", "#e879f9"] },
+  heatmap: { up: "#22c55e", mid: "#27272a", down: "#ef4444" },
 };
 
 export function normalizeChartColor(raw: unknown): string | null {

@@ -73,8 +73,31 @@ type PlotlyHost = HTMLElement & {
   _fullLayout?: Record<string, PlotlyAxis | PlotlyScene>;
 };
 
-const PLOTLY_CONFIG = {
-  // The library's own modebar is a dark pill that floats over the chart. Eclipse
+/**
+ * A 3-D figure must ORBIT. The flat layout's `dragmode: "pan"` is inherited by
+ * the plotly scene and turns drag into a pan, so the scene states `turntable`
+ * explicitly. Exported as a pure helper so the rule is testable and is applied
+ * by BOTH the first draw and "reset view" (otherwise a reset would silently put
+ * the scene back into pan mode).
+ */
+export function layoutWithSceneOrbit(
+  layout: Record<string, unknown>,
+  data: Array<Record<string, unknown>> | undefined,
+): Record<string, unknown> {
+  const has3d = (data ?? []).some(
+    (trace) => trace.type === 'scatter3d' || trace.type === 'surface',
+  );
+  if (!has3d) return layout;
+  return {
+    ...layout,
+    scene: {
+      ...((layout.scene as Record<string, unknown> | undefined) ?? {}),
+      dragmode: 'turntable',
+    },
+  };
+}
+
+const PLOTLY_CONFIG = {  // The library's own modebar is a dark pill that floats over the chart. Eclipse
   // draws its own frosted toolbar (zoom / reset / save) instead, so the native
   // one is off — no black bar on the picture.
   displayModeBar: false,
@@ -200,11 +223,10 @@ export function PlotlyChart({
             setState('unavailable');
             return;
           }
-          const layout = {
-            ...(styled.layout ?? {}),
-            autosize: true,
-            height,
-          };
+          const layout = layoutWithSceneOrbit(
+            { ...(styled.layout ?? {}), autosize: true, height },
+            styled.data,
+          );
           try {
             // A colour-only change must not blink: react() reuses the drawn
             // chart (and keeps the user's zoom); newPlot() is the first draw.
@@ -307,7 +329,10 @@ export function PlotlyChart({
         void Plotly.react(
           host,
           styled.data ?? [],
-          { ...(styled.layout ?? {}), autosize: true, height },
+          layoutWithSceneOrbit(
+            { ...(styled.layout ?? {}), autosize: true, height },
+            styled.data,
+          ),
           PLOTLY_CONFIG,
         );
         return;
@@ -363,30 +388,55 @@ export function PlotlyChart({
   const showPicture = state !== 'ready' && Boolean(fallbackSrc);
 
   return (
-    <div className={cn('relative w-full', className)} style={{ height }}>
+    <div className={cn('w-full', className)}>
+      {/* `isolate` + `overflow-hidden` make the chart's own geometry the
+          boundary of its paint: no legend, axis label, hover label or 3-D
+          canvas can spill out and cover the text or the next block. */}
       <div
-        ref={hostRef}
-        className={cn(
-          'h-full w-full transition-opacity duration-300',
-          state === 'ready' ? 'opacity-100' : 'opacity-0',
-        )}
-        data-testid="plotly-chart"
-      />
-      {showPicture && (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={fallbackSrc ?? ''}
-          alt={alt ?? 'Chart'}
-          loading="eager"
-          decoding="async"
-          className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+        className="relative isolate w-full overflow-hidden"
+        style={{ height }}
+      >
+        <div
+          ref={hostRef}
+          className={cn(
+            'h-full w-full transition-opacity duration-300',
+            state === 'ready' ? 'opacity-100' : 'opacity-0',
+          )}
+          data-testid="plotly-chart"
         />
-      )}
+        {showPicture && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={fallbackSrc ?? ''}
+            alt={alt ?? 'Chart'}
+            loading="eager"
+            decoding="async"
+            className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+          />
+        )}
+        {state === 'unavailable' && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end p-1">
+            <p className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] italic text-muted-foreground/70">
+              The interactive chart library is unavailable — showing the picture.
+            </p>
+          </div>
+        )}
+        {state === 'unavailable' && !fallbackSrc && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <p className="text-xs italic text-muted-foreground/70">
+              The interactive chart library is unavailable.
+            </p>
+          </div>
+        )}
+      </div>
+      {/* The view controls live in their own row UNDER the plot. Overlaid in
+          the bottom-left corner they sat on the x-axis labels of short charts,
+          which read as chart text hidden behind a control bar. */}
       {state === 'ready' && (
         <div
           role="group"
           aria-label="Chart view controls"
-          className="glass-card-subtle absolute bottom-2 left-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5 opacity-80 transition-opacity hover:opacity-100 focus-within:opacity-100"
+          className="mt-1 flex items-center justify-end gap-0.5 opacity-80 transition-opacity hover:opacity-100 focus-within:opacity-100"
           data-testid="chart-view-controls"
         >
           <button
@@ -425,20 +475,6 @@ export function PlotlyChart({
           >
             <Download size={13} />
           </button>
-        </div>
-      )}
-      {state === 'unavailable' && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end p-1">
-          <p className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] italic text-muted-foreground/70">
-            The interactive chart library is unavailable — showing the picture.
-          </p>
-        </div>
-      )}
-      {state === 'unavailable' && !fallbackSrc && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <p className="text-xs italic text-muted-foreground/70">
-            The interactive chart library is unavailable.
-          </p>
         </div>
       )}
     </div>

@@ -74,6 +74,35 @@ def test_a_scene_stacks_its_panels_on_their_own_axes():
     assert "yaxis2" in figure["layout"]
 
 
+def test_a_right_axis_mark_gets_its_own_overlaying_scale():
+    """`yAxis: "right"` is a real second scale, not a label the engine ignores."""
+    spec = ChartSpec(
+        kind="scene",
+        panels=[{
+            "marks": [
+                {"type": "line", "y": [100, 101]},
+                {"type": "bar", "y": [500, 700], "yAxis": "right"},
+            ],
+        }],
+    )
+    figure = _figure(spec)
+    assert figure["data"][1]["yaxis"] == "y2"
+    assert figure["data"][0].get("yaxis", "y") == "y"
+    right = figure["layout"]["yaxis2"]
+    assert right["overlaying"] == "y"
+    assert right["side"] == "right"
+    assert figure["layout"]["margin"]["r"] >= 60
+
+
+def test_a_3d_scene_orbits_instead_of_panning():
+    """The 2-D `dragmode: "pan"` must never disable orbiting a 3-D scene."""
+    spec = ChartSpec(
+        kind="scene",
+        panels=[{"marks": [{"type": "scatter3d", "x": [1, 2], "y": [1, 2], "z": [1, 2]}]}],
+    )
+    assert _figure(spec)["layout"]["scene"]["dragmode"] == "turntable"
+
+
 @pytest.mark.parametrize(
     "mark,expected",
     [

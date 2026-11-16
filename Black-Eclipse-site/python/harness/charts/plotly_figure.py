@@ -521,7 +521,31 @@ def _simple_traces(spec: ChartSpec, theme: ChartTheme) -> list[dict[str, Any]]:
     return traces
 
 
-def _scene_layout(spec: ChartSpec, theme: ChartTheme, panels: list[ChartPanel]) -> dict[str, Any]:
+def _right_axes(panels: list[ChartPanel]) -> dict[int, str]:
+    """Panel index (0-based) → the Plotly layout key of its right-hand axis.
+
+    A mark may set `yAxis: "right"` (a dual-axis chart). Plotly needs a NEW axis
+    that overlays the panel's own: the left axis keeps the panel's slot and the
+    right one takes the next free number, so the two scales never share ticks.
+    """
+    out: dict[int, str] = {}
+    next_number = len(panels) + 1
+    for index, panel in enumerate(panels):
+        if not any(getattr(mark, "y_axis", "left") == "right" for mark in panel.marks):
+            continue
+        if next_number < 2:
+            next_number = 2
+        out[index] = f"yaxis{next_number}"
+        next_number += 1
+    return out
+
+
+def _scene_layout(
+    spec: ChartSpec,
+    theme: ChartTheme,
+    panels: list[ChartPanel],
+    right_axes: dict[int, str] | None = None,
+) -> dict[str, Any]:
     """A scene's layout: one row per panel, each with its own axes."""
     layout = _base_layout(spec, theme)
     layout.pop("xaxis", None)
@@ -537,6 +561,13 @@ def _scene_layout(spec: ChartSpec, theme: ChartTheme, panels: list[ChartPanel]) 
         layout[xaxis] = _axis_layout(panel.x_label, showgrid=False)
         if index > 1:
             layout[xaxis]["matches"] = "x"
+        right = (right_axes or {}).get(index - 1)
+        if right:
+            # A dual-axis panel: the right ticks/title get their own margin so
+            # they are never drawn on top of the plot or clipped at the edge.
+            layout[right] = _axis_layout(None, showgrid=False)
+            layout[right].update({"overlaying": f"y{suffix}", "side": "right", "position": 1.0})
+            layout["margin"]["r"] = 64
     return layout
 
 
@@ -549,6 +580,10 @@ def _scene3d_layout(spec: ChartSpec) -> dict[str, Any]:
             "yaxis": {"title": {"text": spec.y_label or "y"}, "backgroundcolor": "rgba(0,0,0,0)", "gridcolor": GRID, "showbackground": False},
             "zaxis": {"title": {"text": "z"}, "backgroundcolor": "rgba(0,0,0,0)", "gridcolor": GRID, "showbackground": False},
             "aspectmode": "cube",
+            # The 2-D layout pans (`dragmode: "pan"`). A 3-D scene inherits that
+            # value and then drag only PANS: the chart cannot be orbited. A 3-D
+            # figure must say so explicitly.
+            "dragmode": "turntable",
             "camera": {"eye": {"x": 1.6, "y": 1.5, "z": 1.1}},
         }
     }
@@ -563,6 +598,7 @@ def build_figure(spec: ChartSpec, theme: ChartTheme) -> dict[str, Any]:
 
     if spec.panels:
         panels = spec.panels
+        right_axes = _right_axes(panels)
         traces: list[dict[str, Any]] = []
         for panel_index, panel in enumerate(panels):
             for mark_index, mark in enumerate(panel.marks):
@@ -574,8 +610,14 @@ def build_figure(spec: ChartSpec, theme: ChartTheme) -> dict[str, Any]:
                         suffix = str(panel_index + 1)
                         trace["xaxis"] = f"x{suffix}"
                         trace["yaxis"] = f"y{suffix}"
+                    if (
+                        getattr(mark, "y_axis", "left") == "right"
+                        and panel_index in right_axes
+                    ):
+                        # A dual-axis mark rides the panel's right-hand scale.
+                        trace["yaxis"] = right_axes[panel_index].replace("axis", "")
                     traces.append(trace)
-        layout = _scene_layout(spec, theme, panels)
+        layout = _scene_layout(spec, theme, panels, right_axes)
         if any(trace.get("type") in ("scatter3d", "surface") for trace in traces):
             # A 3D chart lives in its own scene; the flat axes would fight it.
             layout.pop("xaxis", None)
