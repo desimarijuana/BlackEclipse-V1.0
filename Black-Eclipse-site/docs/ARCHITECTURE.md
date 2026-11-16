@@ -392,7 +392,8 @@ Two mechanisms:
       The **prompt bubble** (the user's own messages) has its own scheme-aware
       fill (`chatBubbleColor` dark / `chatBubbleColorLight` light; empty → a
       neutral `color-mix(var(--foreground) 10%, transparent)` tint in light,
-      `24%` in dark so the bubble reads grey instead of near-black), applied as
+      `#2e2e2e` charcoal in dark so the bubble separates from the near-black
+      surface without going light), applied as
       `--chat-bubble-bg-light/-dark` onto a `.chat-bubble` class by
       `ChatHistory`; unlike the surface it has no enable toggle.
       The giant landing wordmark (`ChatWordmark`) is **opt-in for Image** (the

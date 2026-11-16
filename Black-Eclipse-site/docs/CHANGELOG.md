@@ -6,6 +6,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **style(chat): dark prompt bubble defaults to `#2e2e2e`.** The user's own
+  messages (Eclipse Agent) now paint a dedicated charcoal instead of a 24%
+  foreground tint (~#414141), so the bubble separates from the near-black
+  conversation surface without reading light. Updated `DEFAULT_CHAT_BUBBLE_BG_DARK`,
+  the `.chat-bubble` CSS fallback, and the Prompt-bubble settings defaults.
+  Docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 - **test(oss): pin the public SBOM artifact.** New
   `src/lib/oss/sbom-artifact.test.ts` (3 tests) asserts the committed
   `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` pair is current (`--check`),

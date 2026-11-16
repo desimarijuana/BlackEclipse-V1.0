@@ -192,8 +192,8 @@ function ChatBackgroundCard() {
             <Field label="Color — dark" hint="Bubble fill in dark mode. Leave on Default for the neutral tint.">
               <ColorRow
                 value={bubbleDark}
-                fallback="color-mix(in srgb, var(--foreground) 24%, transparent)"
-                pickFallback="#414141"
+                fallback="#2e2e2e"
+                pickFallback="#2e2e2e"
                 onChange={(v) => setPrefs({ chatBubbleColor: v })}
                 label="Prompt bubble color (dark)"
                 resetLabel="Default"

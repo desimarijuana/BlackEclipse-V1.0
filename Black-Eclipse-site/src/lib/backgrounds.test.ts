@@ -65,10 +65,10 @@ describe('chat surface', () => {
 });
 
 describe('chat bubble', () => {
-  it('falls back to the neutral tint when no color is set', () => {
+  it('falls back to the shipped fills when no color is set', () => {
     const css = resolveChatBubbleCss({ ...DEFAULT_BACKGROUND, chatBubbleColor: '', chatBubbleColorLight: '' });
     expect(css.light).toContain('color-mix');
-    expect(css.dark).toContain('color-mix');
+    expect(css.dark).toBe('#2e2e2e');
   });
 
   it('uses the per-scheme picks when set', () => {
