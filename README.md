@@ -13,7 +13,7 @@
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python)
 
-![Market Discover: earnings calendar, indices and daily sector returns inside Black Eclipse](Black-Eclipse-site/docs/figures/readme/04-market-discover.png)
+![Bots: a scheduled audit bot reporting what it could and could not retrieve](Black-Eclipse-site/docs/figures/readme/06-bots.png)
 
 Financial intelligence is fragmented.
 
@@ -42,24 +42,26 @@ operate tools, and execute controlled financial workflows.
 
 | | |
 |---|---|
+| ![Bots: scheduled agents and group rooms](Black-Eclipse-site/docs/figures/readme/06-bots.png) | ![Workflows: the Graph Studio library of typed, versioned graphs](Black-Eclipse-site/docs/figures/readme/05-graph-studio.png) |
+| **Bots** — 13 scheduled agents, each `Active` or `Completed`, with the group rooms that run them as a committee | **Workflows** — every graph is typed, versioned and tagged; open one in the editor, or generate one from a prompt |
 | ![Eclipse Agent research surface](Black-Eclipse-site/docs/figures/readme/02-agent.png) | ![Turnover map of real instruments sized by traded value](Black-Eclipse-site/docs/figures/readme/03-market-bubbles.png) |
 | **Eclipse Agent** — the research surface, driven by slash commands and tools | **Market Bubbles** — real instruments sized by 24h traded value |
 
 These are captures of the running application. They are not mockups.
 
+The bot above is shown mid-report on purpose: it lists what each source returned,
+marks the ones it could not retrieve as `UNAVAILABLE`, and names the next permitted
+route instead of filling the gap. That is the product.
+
 <!--
-  STAGED, NOT YET CAPTURED. Capture a seeded install, then add rows here:
+  STAGED, NOT YET CAPTURED:
 
   | ![Dashboard with a live book](Black-Eclipse-site/docs/figures/readme/01-dashboard.png) | ![Journal with demo trades](Black-Eclipse-site/docs/figures/readme/07-journal.png) |
   | **Dashboard** - the daily decision surface | **Journal** - trades, analytics and reviews |
-  | ![Graph Studio: the visual workflow editor](Black-Eclipse-site/docs/figures/readme/05-graph-studio.png) | ![Bots: scheduled agents and group rooms](Black-Eclipse-site/docs/figures/readme/06-bots.png) |
-  | **Graph Studio** - workflows as a typed node graph | **Bots** - agents with schedules, packs and group rooms |
 
-  Why they are not here: a capture needs FRESH prices and a warm harness.
-  A vault whose prices are days old makes the app render LIVE PRICES UNAVAILABLE
-  (correctly), the bots pane sits on LOADING while it fetches threads, and the
-  Graph Studio gallery needs the workflow catalog. See docs/public-readme.md §3
-  and scripts/capture-readme-shots.js.
+  Both need FRESH prices and a warm harness: a stale vault correctly renders
+  LIVE PRICES UNAVAILABLE, which is honest but unusable as a screenshot. See
+  docs/public-readme.md section 3.
 -->
 
 

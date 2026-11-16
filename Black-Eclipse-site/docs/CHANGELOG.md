@@ -5,6 +5,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
+- **docs(readme): ship the Bots and Workflows screenshots, both captured from the
+  installed app.** The two surfaces that carry the product argument are now the
+  hero and the first grid row: **Bots** (13 agents with `Active`/`Completed` state,
+  the Investment Committee and Markets Desk rooms, and a real Data Quality Auditor
+  report that marks unreachable sources `UNAVAILABLE` and names the next permitted
+  route) and **Workflows** (20 typed, versioned, tagged graphs with `Open editor`
+  and *generate from prompt*). Neither came from the dev server: five earlier
+  attempts there produced `LOADING` panes and a blank canvas, so the captures were
+  taken from the **installed** desktop app - the only lane with a warm harness and a
+  live catalogue. Toast and first-run tour dismissed before capture, no machine
+  paths in frame. The bot image is deliberately shown mid-report because the
+  refusals are the product. Dashboard and Journal remain staged pending fresh
+  prices. docs updated: `docs/public-readme.md` (capture lane + staged list),
+  `docs/CHANGELOG.md`.
 - **feat(response): answers are figure-first — a backtest is drawn, not tabulated.**
   Added a top-level "Show the result, don't table it" section to the Eclipse agent
   prompt (`python/harness/prompts.py`): data and computations (backtests, equity

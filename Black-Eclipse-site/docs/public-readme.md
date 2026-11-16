@@ -76,17 +76,22 @@ longer exists, the claim comes off the README.
 ## 3. Screenshots
 
 - Captures live in `Black-Eclipse-site/docs/figures/readme/`, 1600px wide,
-  PNG, ≤ 170 KB each.
+  PNG, ≤ 200 KB each.
 - **They are real captures of the running app.** No mockups, no stock imagery, no
   invented dashboards. A screenshot that shows a state the product cannot reach is
-  a fabricated benchmark with better lighting.
-- **Crop the bottom of the app window.** The composer's status strip renders a
-  machine-local path (`C:\Users\<name>\AppData\Local\Temp\...`), which leaks a
-  user profile into a public repo. The committed figures are cropped to 1600×868
-  for exactly this reason — see `docs/OPEN-SOURCE-READINESS.md` O3.
+  a fabricated benchmark with better lighting. The Bots and Workflows figures were
+  taken from the **installed** desktop app (`%LOCALAPPDATA%\Programs\BlackEclipse`),
+  not the dev server — that is the only lane that serves a warm harness and a live
+  workflow catalogue.
+- **Crop the bottom of the app window.** On some routes the composer's status strip
+  renders a machine-local path (`C:\Users\<name>\AppData\Local\Temp\...`), which
+  leaks a user profile into a public repo. The committed figures were checked for
+  this. See `docs/OPEN-SOURCE-READINESS.md` O3.
 - Screenshots that show demo data must keep the `DEMO` badge visible.
-- Missing shots (quant/strategy, portfolio, MT5) are pending a clean capture. Do
-  not substitute a competitor's image or a stock chart; leave the gap.
+- **Two shots are still staged** (Dashboard, Journal). They need fresh prices: a
+  stale vault correctly renders `LIVE PRICES UNAVAILABLE`, which is honest and
+  useless as a screenshot. Do not substitute a competitor's image or a stock chart;
+  leave the gap.
 
 Regenerate from the launch assets with `sharp` (run from `Black-Eclipse-site/`,
 where it is installed): resize to 1600 wide, `extract` to height 868, then
