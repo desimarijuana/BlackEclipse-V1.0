@@ -69,6 +69,19 @@ const PIN_MANIFEST = path.join(PIN_ROOT, "pin.json");
 // The channel's own build output. Stable uses `.next`; Dev uses its own dir so
 // a dev build can never rewrite the artifact stable pins from.
 const SOURCE_DIST = path.join(ROOT, CHANNEL.buildDir);
+
+// ── live (development) mode ─────────────────────────────────────────────────
+//
+// `npm run desktop:live` launches the window with BE_DESKTOP_LIVE=1. The
+// bootstrap then runs `next dev` behind the window instead of pinning a
+// production build: saving a file under `src/` hot-reloads the open window, so
+// there is nothing to rebuild, re-pin or relaunch while iterating.
+//
+// It writes to its OWN dist dir, so live mode can never clobber `.next` (the
+// artifact `desktop:refresh` builds and promotes). Leaving live mode is the
+// ordinary `desktop:refresh` / `desktop:dev` command.
+const LIVE = /^(1|true|yes|on)$/i.test(String(process.env.BE_DESKTOP_LIVE || ""));
+const LIVE_DIST = `.next-live-${CHANNEL.id}`;
 // Never copy Next's multi-GB cache or diagnostics into the pin.
 const PIN_SKIP = new Set(["cache", "diagnostics", "standalone", "types", "trace", ".build-hash"]);
 
@@ -668,6 +681,23 @@ function startServerLoopback() {
     return child;
   }
 
+  if (LIVE) {
+    // Hot-reloading development server, behind the native window. It keeps its
+    // own dist dir so a save can never overwrite the production `.next` that
+    // `desktop:refresh` builds and promotes.
+    const child = spawn(process.execPath, [nextBin(), "dev", "-p", String(PORT), "-H", HOST], {
+      cwd: ROOT,
+      stdio: "inherit",
+      env: { ...process.env, NEXT_DIST_DIR: LIVE_DIST, NODE_ENV: "development" },
+      windowsHide: true,
+    });
+    child.on("exit", (code) => {
+      log(`live server exited (code ${code ?? "signal"})`);
+      process.exit(code ?? 0);
+    });
+    return child;
+  }
+
   // Repository: `startServer()` from lib/server.js would bind every interface
   // (§5 requires loopback only), and it is shared with the browser path, so the
   // desktop path spawns its own child with an explicit hostname.
@@ -731,7 +761,20 @@ async function main() {
   // install started itself (owner marker) and that serves the same pinned build.
   let pin = null;
 
-  if (STANDALONE) {
+  if (LIVE) {
+    // Live mode never serves a pin: an old server on the channel port would
+    // keep showing the previous code while the developer edits new code.
+    const existing = await probeLiveness(PORT);
+    if (existing.up) {
+      marker(
+        "CONFLICT",
+        `Port ${PORT} is already serving something. Close the running ${CHANNEL.label} window ` +
+          "(or stop its server), then run `npm run desktop:live` again."
+      );
+      process.exitCode = 5;
+      return;
+    }
+  } else if (STANDALONE) {
     const first = await classify(PORT);
     if (first.kind === "ours") {
       const want = expectedVersion();
@@ -859,7 +902,10 @@ async function main() {
 
   Object.assign(process.env, channelEnv(CHANNEL, { dataDir }));
   process.env.PORT = String(PORT);
-  if (pin) {
+  if (LIVE) {
+    process.env.NEXT_DIST_DIR = LIVE_DIST;
+    marker("WARN", "Live mode: the window hot-reloads from source on every save.");
+  } else if (pin) {
     // Serve the pinned copy, never the live `.next`. A concurrent agent build
     // can now rewrite `.next` from first file to last without touching the
     // window. `pin.dist` is relative so `next start` resolves it from ROOT.
@@ -874,7 +920,12 @@ async function main() {
     }
   }
 
-  marker("WARN", "Starting the server…");
+  marker(
+    "WARN",
+    LIVE
+      ? "Live mode: compiling the UI for this window — the first start can take a minute."
+      : "Starting the server…",
+  );
   startServerLoopback();
 
   // We spawned it, so it is ours by construction: liveness is the bar for
@@ -896,7 +947,8 @@ async function main() {
   log(`server is up (HTTP ${live.status})`);
   // Record ownership AFTER readiness: a later shell may attach to this server
   // (crash recovery), but only because it is this install's pinned build.
-  if (pin) writeOwner(pin.buildId);
+  if (LIVE) writeOwner("live");
+  else if (pin) writeOwner(pin.buildId);
   marker("READY", String(PORT));
 
   // Only now, so it can never delay the first paint.

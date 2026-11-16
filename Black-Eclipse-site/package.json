@@ -24,6 +24,7 @@
     "setup:desktop": "node scripts/desktop-shortcut.js",
     "desktop:dev-bridge": "node scripts/desktop-dev-bridge.js",
     "desktop:dev": "node scripts/desktop-dev.js",
+    "desktop:live": "node scripts/desktop-live.js",
     "desktop:build:dev": "node scripts/desktop-build.js --channel dev",
     "desktop:build:dev-shell": "node scripts/desktop-build-shell.js",
     "desktop:promote": "node scripts/desktop-promote.js",

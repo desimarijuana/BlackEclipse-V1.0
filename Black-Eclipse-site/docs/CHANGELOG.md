@@ -5,6 +5,39 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
+- **fix(charts): a chart can no longer paint over text, and dual-axis charts use
+  a real second scale.** Two defects from the six-chart stress session.
+  (1) `plotly-chart.tsx`: the zoom/reset/save controls were overlaid in the
+  chart's bottom-left corner, on top of the x-axis labels of short charts, and
+  the plot wrapper had no paint boundary, so a legend/hover/3-D element could
+  spill over the caption or the next block. The wrapper is now
+  `relative isolate overflow-hidden` and the controls are their own row under
+  the plot; the focus view height drops 0.82 -> 0.78 to leave room for them.
+  (2) `python/harness/charts/plotly_figure.py`: a mark's `yAxis: "right"` was
+  accepted by the contract and then ignored, so both series shared one scale
+  (the index line flattened under the turnover bars). Scene panels now create
+  an overlaying right axis (`yaxis2...`), route the mark's trace to `y2...`, and
+  reserve a 64 px right margin for its ticks. Tests: 72 Python chart tests;
+  `npx tsc --noEmit`. Docs updated: `docs/chart-engine.md`.
+- **fix(desktop): live mode sets itself up, and names the one change it cannot
+  hot-reload.** `desktop:live` no longer refuses on an unbridged Stable install:
+  it runs `scripts/desktop-dev-bridge.js` itself (bundled payload preserved as
+  `app.bundled-<version>`) and builds the Dev shell once when it is missing, so
+  the command is the only thing to run. It also compares `desktop/src-tauri`
+  mtimes with the window binary and prints the exact rebuild command
+  (`desktop:build:dev-shell` / `desktop:installer`) when the Rust shell is stale
+  - a compiled binary still cannot hot-reload, so the caveat is surfaced instead
+  of discovered. The live splash now says "compiling the UI for this window"
+  rather than "Starting the server…", matching the one-minute first compile.
+  Docs updated: `docs/environments.md`, `docs/QUICKSTART.md`.
+- **fix(desktop): live relaunch waits for the old window to exit.** Verified end
+  to end (shell up, `next dev` on 3100, `.next` untouched). The first attempt
+  left the app on the splash: `stopShell` returned as soon as taskkill was
+  issued, and Tauri's single-instance plugin handed the new launch to the OLD
+  process while it was still exiting, so no bootstrap ran. `desktop-process.js`
+  now exposes `waitForShellExit(channel)` and `desktop-live.js` blocks on it
+  before relaunching. No doc change beyond this entry — the behaviour is what
+  `docs/environments.md` already describes.
 - **fix(desktop): `npm run desktop:live` actually exists now.** The live-mode
   note above landed the bootstrap half (`.next-live-<channel>` + `next dev`)
   but no entry point: `package.json` had no `desktop:live`, no script set

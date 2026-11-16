@@ -129,6 +129,7 @@ python/csess_*/
 /dist/
 /.next-desktop/
 /.next-desktop-dev/
+/.next-live-*/
 # Desktop channel release artifacts + promotion pointers (runtime state).
 /releases/
 # Desktop runtime state beside the checkout data directory (locks, owner marker,

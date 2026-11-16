@@ -1,7 +1,7 @@
 ---
 title: Development and production servers
 status: Current
-last-verified: 2026-11-13
+last-verified: 2026-11-16
 ---
 
 # Desktop channels — Stable and Dev
@@ -18,7 +18,8 @@ the daily loop. Two independent desktop channels can run at the same time:
 | Build | `.next` → versioned release | `.next-desktop-dev` |
 | Served artifact | `releases/stable/<buildId>/.next` (immutable) | `releases/dev/<buildId>/.next` or its pin |
 | Data | repository root (checkout) / `%LOCALAPPDATA%\BlackEclipse\data` (install) | `.black-eclipse/desktop-dev/` (isolated) |
-| Changes | only via `npm run desktop:promote` | every `npm run desktop:dev` |
+| Changes | only via `npm run desktop:refresh` / `promote` (or live mode) | every `npm run desktop:dev` |
+| Iterating on UI | `npm run desktop:live` (hot reload) | `npm run desktop:live -- --channel dev` |
 | Rollback | `npm run desktop:rollback` | re-run `desktop:dev` |
 
 The channel table lives in **one file**: `scripts/lib/channels.js`. Ports are
@@ -36,6 +37,40 @@ writes `current.json` (keeping `previous.json`), then restarts the Stable
 window. A build that fails validation never becomes current. `npm run
 desktop:rollback` flips back. `npm run desktop:refresh` is build-if-needed +
 promote + reopen.
+
+## Live mode — the window updates on every save
+
+The immutable pin is right for a shipped build and wrong for development: a
+source edit is invisible until the window is rebuilt, re-pinned and reopened.
+That gap is why a change can be live in the Python runtime (it runs from
+`python/` source) while the window still shows the previous UI.
+
+**`npm run desktop:live`** closes the channel's window/server and relaunches it
+in live mode: `scripts/desktop-server.js` starts `next dev` on the channel port
+instead of `next start` against a pin, so saving a file under `src/` hot-reloads
+the open window. There is no build, no promotion and no relaunch per change.
+
+- It writes to its own dist dir (`.next-live-stable` / `.next-live-dev`), so a
+  live session can never clobber the production `.next` that `desktop:refresh`
+  builds and promotes.
+- Live mode refuses to start if the channel port is already held; the launcher
+  closes the previous window and its owned server first.
+- Python is never pinned, so harness changes need only a runtime restart - live
+  mode does not change that.
+- Live mode hot-reloads the **Next.js UI only**. The Rust shell
+  (`desktop/src-tauri`) is a compiled binary, so a shell change needs a new
+  binary: `npm run desktop:build:dev-shell` (Dev) or `npm run
+  desktop:installer` (Stable). The launcher compares the Rust source mtimes with
+  the binary and names the command when they drift, so a stale shell is never a
+  silent surprise.
+- Stable needs the installed shell to run this checkout's bootstrap. The
+  launcher does that itself (`scripts/desktop-dev-bridge.js`, which preserves the
+  bundled payload as `app.bundled-<version>`), so there is no separate setup
+  step; the Dev shell is built once on first use.
+- Leaving live mode is an ordinary command: `npm run desktop:refresh` (build,
+  promote, reopen Stable) or `npm run desktop:dev` (Dev channel).
+- Stable requires the dev bridge (`npm run desktop:dev-bridge`) so the installed
+  shell runs the repo's bootstrap; the launcher says so and refuses otherwise.
 
 **Health is cheap.** The harness serves `/health/live` (constant time) for the
 supervisor's readiness probe; `/health` remains the diagnostic document. The
@@ -104,6 +139,7 @@ Reaching Stable requires **promotion**, never an in-place rewrite:
 | Command | Effect |
 |---|---|
 | `npm run desktop:dev` | Build/pin the Dev payload and launch the Dev window (3101) |
+| `npm run desktop:live` | Launch the window against `next dev` — hot reload on every save (use `-- --channel dev` for Dev) |
 | `npm run desktop:refresh` | Build if needed, promote, reopen Stable |
 | `npm run desktop:promote` | Stage + validate the current build, make it Stable, restart |
 | `npm run desktop:rollback` | Flip Stable back to the previous release |

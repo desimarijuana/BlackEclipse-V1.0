@@ -154,6 +154,24 @@ function sleepSync(ms) {
 }
 
 /**
+ * Wait until the channel's window process is actually gone.
+ *
+ * `stopShell` returns as soon as taskkill was issued, but Tauri's
+ * single-instance plugin hands a launch to the OLD process while it is still
+ * exiting — the new window then never runs its bootstrap, and the app sits on
+ * the splash with a dead server. Waiting here makes the relaunch reliable.
+ */
+function waitForShellExit(channel, timeoutMs = 15000) {
+  const exe = shellPathFor(channel);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (shellPids(exe).length === 0) return true;
+    sleepSync(300);
+  }
+  return shellPids(exe).length === 0;
+}
+
+/**
  * Wait for the channel port to be released before relaunching.
  *
  * A stopped window can outlive its own server by a moment: the new shell then
@@ -178,8 +196,14 @@ function waitForPortFree(port, timeoutMs = 15000) {
   return false;
 }
 
-/** Launch the channel window; returns the child pid or null when absent. */
-function launchShell(channel) {
+/**
+ * Launch the channel window; returns the child pid or null when absent.
+ *
+ * `extraEnv` layers on the channel env (e.g. `BE_DESKTOP_LIVE=1`). The Tauri
+ * shell inherits its environment and the bootstrap it spawns inherits it in
+ * turn, so one variable here is enough to switch the whole tree to live mode.
+ */
+function launchShell(channel, extraEnv = {}) {
   const exe = shellPathFor(channel);
   if (!fs.existsSync(exe)) return { launched: false, exe, reason: "missing" };
   waitForPortFree(channel.appPort);
@@ -187,7 +211,7 @@ function launchShell(channel) {
     cwd: ROOT,
     detached: true,
     stdio: "ignore",
-    env: channelLaunchEnv(channel),
+    env: { ...channelLaunchEnv(channel), ...extraEnv },
     windowsHide: false,
   });
   child.unref();
@@ -207,5 +231,6 @@ module.exports = {
   shellPids,
   launchShell,
   channelLaunchEnv,
+  waitForShellExit,
   pidAlive,
 };

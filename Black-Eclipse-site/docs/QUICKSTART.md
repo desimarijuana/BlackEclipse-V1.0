@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-11-14
+last-verified: 2026-11-16
 ---
 
 # Quickstart
@@ -28,6 +28,14 @@ npm run desktop:dev      # build + launch the DEV window (port 3101)
 # or
 npm run desktop:refresh  # build + promote + open STABLE (port 3100)
 ```
+
+**While you are iterating, use `npm run desktop:live`.** The window serves an
+immutable pinned build, so a `src/` edit is invisible until `desktop:refresh`
+rebuilds, promotes and reopens the app. Live mode relaunches the same window
+against `next dev`, so every save hot-reloads it — no build per change. The
+launcher prepares the channel itself: it bridges the installed shell to this
+checkout on first use and builds the Dev shell if it is missing. Leave live mode
+with `desktop:refresh` (Stable) or `desktop:dev`.
 
 First-time/package installs use the installed `Black Eclipse.exe`. `npm run
 desktop:doctor` prints one screen: window, port, served build, harness, provider
@@ -60,8 +68,9 @@ Retry panel on failure instead of a silent exit. A second click focuses the
 existing window (Tauri single-instance).
 
 To load new code: `npm run desktop:refresh` (build if needed, promote, reopen),
-or `npm run desktop:dev` for the Dev channel. `black status` shows both channels;
-`black stop` stops only the server tree this install started.
+or `npm run desktop:dev` for the Dev channel. While iterating, `npm run
+desktop:live` hot-reloads the open window on every save. `black status` shows
+both channels; `black stop` stops only the server tree this install started.
 
 **Only one production build runs at a time.** `next build` deletes and rewrites
 `.next` in place, so a terminal `npm run build` racing another build corrupts the
@@ -114,6 +123,7 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 | Script | What it does |
 |---|---|
 | `npm run desktop:dev` | Build/pin the Dev payload and launch the **Dev window** (3101) |
+| `npm run desktop:live` | Relaunch the window on `next dev` — hot reload on every save (`-- --channel dev` for Dev) |
 | `npm run desktop:refresh` | Build if needed, promote, reopen **Stable** (3100) |
 | `npm run desktop:promote` | Stage + validate the current build, make it Stable, restart |
 | `npm run desktop:rollback` | Switch Stable back to the previous release |

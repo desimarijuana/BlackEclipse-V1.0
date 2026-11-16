@@ -29,6 +29,9 @@ const eslintConfig = [
       // machine-generated output and must be ignored or lint reports hundreds of
       // errors in vendored Next.js runtime files.
       ".next-dev/**",
+      // Live mode (`npm run desktop:live`) writes .next-live-<channel>/; also
+      // machine-generated, so lint never walks it.
+      ".next-live-*/**",
       "out/**",
       "build/**",
       "next-env.d.ts",

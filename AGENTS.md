@@ -108,6 +108,12 @@ If docs and code disagree, **the code wins** — then fix the doc.
   installer seed via `scripts/lib/seed-db.js`). See
   `.opencode/skills/black-eclipse-db/SKILL.md`.
 - **Reuse before rebuild.** Prefer existing components, hooks, and services.
+- **A UI change is not done until the WINDOW serves it.** The desktop window
+  reads an immutable pinned build, so editing `src/` does not change the running
+  app until it rebuilds. While iterating, run `npm run desktop:live` (hot reload,
+  own `.next-live-*` dir); before reporting a UI change complete, run
+  `npm run desktop:refresh` (or `desktop:dev`). Python changes are live from
+  `python/` source on the next runtime start. See `docs/environments.md`.
 - **Keep files small.** Memory is the top constraint on this machine; do not
   re-bloat large files.
 - **Do not add dependencies without justification**; prefer the lighter option.
