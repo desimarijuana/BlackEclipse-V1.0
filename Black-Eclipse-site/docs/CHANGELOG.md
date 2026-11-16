@@ -5,6 +5,26 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-16
+- **test(oss): pin the public SBOM artifact.** New
+  `src/lib/oss/sbom-artifact.test.ts` (3 tests) asserts the committed
+  `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` pair is current (`--check`),
+  is CycloneDX 1.5 with a **unique** `bom-ref` per component (the dedupe bug
+  produced 23 duplicates), every component carries type/name/version/purl/
+  licence, the app version matches `package.json`, and the notices keep the
+  AGPL carve-out and the Python `NOASSERTION` caveat. no doc change - test-only.
+- **docs(readiness): point the production roadmap at `v0.4.0` without re-baselining.**
+  `PRODUCTION-READINESS.md` still described `v0.3.2` as the current release. It
+  now names `v0.4.0` as the latest tag and states plainly that the C-gate
+  baseline was measured at `v0.3.2` and has not been re-measured, so no gate is
+  silently carried forward. Docs updated: `docs/PRODUCTION-READINESS.md`,
+  `docs/CHANGELOG.md`.
+- **docs(contributing): name the public-release checks where contributors look.**
+  `Black-Eclipse-site/CONTRIBUTING.md` now documents `check:oss`,
+  `oss:prune-refs` and `sbom` next to the release gate, with the reason they are
+  not part of `check:all` (a private tree legitimately fails them). The
+  publication checklist also covers the GitHub Discussions link and the issue
+  template URL, which break if the public repository URL changes. Docs updated:
+  `CONTRIBUTING.md`, `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
 - **chore(oss): a dry-run-by-default tool to prune the stale history refs.**
   New `scripts/prune-stale-refs.js` (`npm run oss:prune-refs`) finds the branches
   whose history still contains a `.db` snapshot or a personal author address,

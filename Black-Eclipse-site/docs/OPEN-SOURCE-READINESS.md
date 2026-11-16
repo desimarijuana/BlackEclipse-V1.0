@@ -238,8 +238,9 @@ Repository content:
 - [ ] Issue templates, PR template, and Code of Conduct are present.
 - [ ] `media/` contains no generated build artifacts or machine-local paths.
 - [ ] If publication uses a **new repository URL**, re-point `package.json`
-      (`repository`, `homepage`, `bugs`), the README download/release links, and
-      the API URL in `repository-guards.md`; the current links all name
+      (`repository`, `homepage`, `bugs`), the README download/release links,
+      `.github/ISSUE_TEMPLATE/config.yml`, and the API URL in
+      `repository-guards.md`; the current links all name
       `desimarijuana/BlackEclipse-V1.0`.
 
 GitHub settings (all free once public):
@@ -252,6 +253,8 @@ GitHub settings (all free once public):
 - [ ] Confirm the **Public-release preflight** job runs (it is skipped while the
       repository is private and becomes a gate as soon as it is public).
 - [ ] Create the `@BlackEclipse/maintainers` team or replace it in `CODEOWNERS`.
+- [ ] Enable GitHub **Discussions** (the issue chooser links to it) or re-point
+      that link in `.github/ISSUE_TEMPLATE/config.yml`.
 - [ ] Set repository description, topics, and the social preview.
 - [ ] Publish the release note and tag.
 

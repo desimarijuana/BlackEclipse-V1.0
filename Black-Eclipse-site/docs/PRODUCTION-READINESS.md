@@ -9,12 +9,14 @@ last-verified: 2026-11-09
 **Who this is for:** whoever is deciding whether BlackEclipse can serve real
 users, and whoever has to make that true.
 
-**This document is a plan, not a sign-off.** The current source release is
-`v0.3.2` for a single-operator, self-hosted install; the live quality gate
-passes at `task_success 0.9748` with `hallucination 0.0`. The open items are the
-time-based 7-day soak and the external inputs only a person can supply (a real
-alert webhook, counsel, a second reviewer). The baseline below was measured on
-the working tree on 2026-11-08, not recalled.
+**This document is a plan, not a sign-off.** The latest source tag is `v0.4.0`
+([release note](./releases/v0.4.0.md)) for a single-operator, self-hosted
+install. The **production baseline below was measured at `v0.3.2`** and has not
+been re-baselined since; the live quality gate passes at `task_success 0.9748`
+with `hallucination 0.0`. The open items are the time-based 7-day soak and the
+external inputs only a person can supply (a real alert webhook, counsel, a
+second reviewer). The baseline was measured on the working tree on 2026-11-08,
+not recalled.
 
 > **Rule for this roadmap:** a phase is done only when its **exit gate** passes
 > with evidence that can be re-run. "It works on my machine" is not evidence,
@@ -24,8 +26,9 @@ the working tree on 2026-11-08, not recalled.
 
 ## 0. The one-screen answer
 
-The functional core is healthy and the v0.3.2 source release ships; the open
-items are the time-based soak and the external inputs a person must supply.
+The functional core is healthy and a source release ships (currently `v0.4.0`);
+the open items are the time-based soak and the external inputs a person must
+supply.
 
 | # | Blocker | Current evidence |
 |---|---|---|
@@ -323,3 +326,4 @@ below. Do not mark a phase done because the code side is finished.
 | 2026-11-10 | C6 | **PASS (production build)** | On the same build, with the real data dir and model settings: `/login` 200; `/api/settings` resolved `ollama / deepseek-v4.1-flash:cloud`; a provider chat returned `OK`; a harness run `run_d54d4755-53ea-459d-9a98-bcec3a4ebbfc` completed with **1 tool call** (`finance_calc`) and returned `+25.0%` with zero tool errors, and the advisory-integrity gate labelled the stray advice as `unverified`. Restart persistence uses the same databases already proven by the P2 backup/restore drill, so it was not re-run to avoid interrupting the soak. |
 | 2026-11-10 | Soak (restart) | **running on the production build** | The app on `:3100` is now the **v0.3.2 production build** run from an isolated release checkout (`%LOCALAPPDATA%\BlackEclipse\release-v0.3.2`) with `BE_DATA_DIR` → the main data dir and junctions for `.black-eclipse`/`python/.black-eclipse`. `scripts/install-app-task.ps1` registers `BlackEclipse App` (2-min ignore-new watchdog + Startup shortcut, no admin) so a dev rebuild no longer restarts it. The main tree's dev `.next` was restored. Soak clock restarted **2026-11-10 01:09**; first sample healthy (200). |
 | 2026-11-14 | Ops evidence | **not generating (open)** | Re-checked this host: there is no `BlackEclipse App` or `Black Eclipse Backup` scheduled task, and `%LOCALAPPDATA%\BlackEclipse\health.log` does not exist. `scripts/soak-report.ps1` therefore exits 2 ("no health log") and the 7-day soak clock has **no evidence** to close against. The scripts still exist (`scripts/health-watch.sh`, `scripts/install-app-task.ps1`, `scripts/backup.sh`); an operator must reinstall the tasks and restart the clock. `ALERT_WEBHOOK_URL` is still unset, so R7 remains open. |
+| 2026-11-16 | Release pointer | **v0.4.0 is the latest source tag** | Added `docs/releases/v0.4.0.md` (C2-C9 core integrity; 1,091 tools, scorecard 8/8, conformance 12/12, wheel sha256 from the generated bundle). The production baseline in this roadmap still dates from `v0.3.2` and was **not** re-measured, so every C-gate above is unchanged. Publication mechanics are owned separately by `OPEN-SOURCE-READINESS.md`. |

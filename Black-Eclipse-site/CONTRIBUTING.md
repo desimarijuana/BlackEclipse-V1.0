@@ -46,6 +46,23 @@ network. A human must run **both** before creating a release tag:
 
 Both are deliberately never in `npm test` or CI.
 
+## Public-release checks (maintainers)
+
+`npm run check:all` asks "is this tree releasable?". It does **not** ask "is this
+repository safe to publish?". Three commands answer that, and are deliberately
+not part of `check:all` because a private working tree legitimately fails them:
+
+- **`npm run check:oss`** — tracked secrets/state, required community files,
+  absolute home paths, package metadata, the SBOM/notices pair, and git refs
+  that still expose pre-rewrite data.
+- **`npm run oss:prune-refs`** — dry run that names those refs and prints the
+  exact `git push origin --delete` command; `-- --apply` executes it and prunes.
+- **`npm run sbom`** — regenerates `sbom.cdx.json` and `THIRD-PARTY-NOTICES.md`
+  from the lockfiles. CI and `check:oss` both reject a stale pair.
+
+Read [`docs/OPEN-SOURCE-READINESS.md`](docs/OPEN-SOURCE-READINESS.md) before any
+visibility change; it owns the deletion, rotation and GitHub-settings runbook.
+
 ## Time-dependent tests
 
 Do **not** derive an assertion period from the live clock (`new Date()`,
