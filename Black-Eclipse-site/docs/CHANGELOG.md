@@ -6,6 +6,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **fix(test): the news identity test no longer fails when the live transport is
+  blocked.** `data-bridge-identity.test.ts` exercises the real web path on
+  purpose, but asserted `status === 'OK'` - so a machine that cannot reach the
+  news provider failed the release gate with `UNAVAILABLE/source_failure`, which
+  is an honest answer, not the false negative C2 forbids. The test now accepts
+  either outcome and still requires that a failure carries a `failureClass` and
+  smuggles no items. Doc change: `docs/CHANGELOG.md`.
+
+- **fix(oss): the PR-ref home-path probe used PCRE lookaround in `git grep -E`.**
+  `git grep` rejects `(?!)`, so the fallback probe printed `fatal: Invalid
+  preceding regular expression` and never inspected anything. The lookaround
+  moved into JS (placeholder filter over the matched lines), leaving the grep
+  pattern portable. Doc change: `docs/CHANGELOG.md`.
+
 - **chore(oss): the public-release gate now sees server-side `refs/pull/*`.** A
   history rewrite can leave `main`, the tags and every branch clean while
   GitHub still serves `refs/pull/N/head` for each closed or squash-merged PR;

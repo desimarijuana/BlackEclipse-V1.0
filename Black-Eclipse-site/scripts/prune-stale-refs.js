@@ -109,8 +109,11 @@ const tags = lines(safeGit(['for-each-ref', '--format=%(refname:short)', 'refs/t
 const BANNED_PATH =
   /(^|\/)(\.env(\.[^/]+)?|\.connector-key|mcp-servers\.json|.*\.(db|db-wal|db-shm|pem|pfx|key|p12))$/i;
 const ALLOWED_PATH = /\.env\.example$/i;
-const PERSONAL_HOME =
-  /([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}|\/Users\/)(?!(me|x|msi|user|username|Public|test|example)\b)[A-Za-z0-9._-]+/;
+// No lookaround: this string is handed to `git grep -E`. The placeholder filter
+// is applied in JS to the matched lines.
+const HOME_PATH_SOURCE = String.raw`([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}|/Users/)`;
+const PLACEHOLDER_HOME =
+  /[\\/]{1,2}Users[\\/]{1,2}(me|x|msi|user|username|Public|test|example)(?![A-Za-z0-9._-])/;
 
 const pullNamespace = 'refs/oss-preflight/pull';
 const includeRemote = !process.argv.includes('--no-remote');
@@ -161,10 +164,12 @@ function prRefReasons(ref) {
     reasons.push(`personal author: ${[...new Set(badAuthors)].join(', ')}`);
   }
   if (!reasons.length) {
+    // `git grep -E` has no lookaround support, so the placeholder filter runs in
+    // JS on the matched lines instead of inside the regex.
     const homeHits = lines(
-      safeGit(['grep', '-I', '-l', '-E', PERSONAL_HOME.source, ref])
-    );
-    if (homeHits.length) reasons.push(`home path in ${homeHits.length} file(s)`);
+      safeGit(['grep', '-I', '-n', '-E', HOME_PATH_SOURCE, ref])
+    ).filter((line) => !PLACEHOLDER_HOME.test(line));
+    if (homeHits.length) reasons.push(`home path in ${homeHits.length} line(s)`);
   }
   return reasons;
 }

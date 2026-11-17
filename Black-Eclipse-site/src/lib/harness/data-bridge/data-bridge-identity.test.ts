@@ -155,10 +155,18 @@ describe('news � no false negatives (C2)', () => {
     // @ts-expect-error test shim
     prismaNews.prisma.newsItem = { findMany: async () => [] };
     const result = await fetchCapability('news', { query: 'zzz-no-such-thing' });
-    // Either it found web results (OK) or it explicitly says no_data/source_failure.
-    expect(['OK'].includes(result.status)).toBe(true);
+    // This exercises the LIVE news/web transport, so both outcomes are honest:
+    //   OK + no_data          -> sources were reachable and genuinely empty
+    //   UNAVAILABLE + failure -> the network/provider refused the request
+    // C2 forbids a *false negative* (claiming "no data" over a failed lookup),
+    // not a reported failure: a UNAVAILABLE result must carry a failure class
+    // and must not smuggle in items.
+    expect(['OK', 'UNAVAILABLE']).toContain(result.status);
     if (result.status === 'OK') {
       expect(result.failureClass === 'no_data' || Array.isArray(result.items)).toBe(true);
+    } else {
+      expect(result.failureClass).toBeTruthy();
+      expect(result.items ?? []).toHaveLength(0);
     }
     void webSearch;
     // This case exercises the real news/web transport (no provider mock in this
