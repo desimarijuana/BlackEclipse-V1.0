@@ -6,6 +6,77 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **fix(desktop): an orphaned channel server can no longer leave the app stuck on
+  the "leftover server" Retry screen.** A window crash/force-close (or a
+  promotion racing the old tree's exit) left port 3100 bound by this install's
+  own `desktop-server.js`; the next launch either refused to attach or spawned
+  `next start` into `EADDRINUSE`. The bootstrap now (a) compares the owner's
+  build against the **promoted release** rather than only the ad-hoc pin, so a
+  healthy own server attaches after every promotion, (b) reclaims the port by
+  killing that owner only when the recorded pid is re-verified as a
+  `desktop-server.js` bootstrap, and (c) detects a bound-but-unresponsive
+  listener before spawning, so it starts fresh instead of dying with
+  `EADDRINUSE`. Foreign listeners are still never killed. Docs updated:
+  `docs/environments.md`, `docs/CHANGELOG.md`.
+
+- **feat(chat): multi-select bulk actions in the sidebar chat history.** The
+  history header now has a select-mode toggle: rows grow checkboxes, click or
+  Shift-click selects a range, and a bulk bar offers Select all / Clear, Pin or
+  Unpin, and Delete (one themed confirmation, then the existing delete path so
+  live runs and queues are reset). Escape leaves select mode. This exposes the
+  already-present `bulkPin`/`bulk*` organization API; no doc change — UI-only
+  behaviour over an unchanged data layer.
+
+- **chore(repo): a junk sweep that cannot be re-broken by the test suite.** The
+  checkout had accumulated ~9.6 GB of dead code-index scratch — thousands of
+  `ws_tools_*.db` per-run test indexes and `.corrupt-*` snapshots — because
+  tests that build a real workspace index wrote into
+  `.black-eclipse/code-index/`. `HARNESS_CODE_INTEL_INDEX_DIR` now really
+  relocates that store (it previously only reached the reported config), and
+  the new `HARNESS_WORKSPACE_INDEX_DIR` does the same for
+  `.black-eclipse/workspace-index/`; `python/tests/conftest.py` points both at
+  one temp dir for the session and removes it at exit, so a test run no longer
+  writes per-workspace DBs into the checkout. Added `npm run clean:junk`
+  (`scripts/clean-junk.js`): it removes corrupt index snapshots, test-created
+  `ws_tools_*` DBs, index caches older than 7 days with no live WAL, dev/prod
+  logs, `.tmp-tests`/`.pytest_cache`/`%SystemDrive%` litter, and with `--build`
+  the regenerable build output; it never touches DB vaults, credentials, pinned
+  `.black-eclipse/desktop-dist-*`/`.next-desktop*`/`.next-live-*` builds or
+  `releases/`. Docs updated: `docs/QUICKSTART.md`,
+  `docs/harness/code-intelligence.md`, `docs/CHANGELOG.md`.
+
+- **feat(install): a one-command install lane that downloads and checksum-verifies
+  the published release, instead of only offering a button or a git clone.**
+  `scripts/install-release.ps1` (Windows: resolves `releases/latest` or an
+  explicit tag, requires the SHA-256 from `SHA256SUMS.txt` when published, runs
+  the NSIS installer with `/S`, per-user, no admin) and
+  `scripts/install-release.sh` (Linux `.deb` through `apt-get`/`dpkg`; macOS
+  `.dmg` to `/Applications` with the quarantine flag cleared). Both take a
+  version tag, an out-of-band `--sha256` pin, `--dry-run` and `--repo`, print the
+  computed digest unconditionally, and refuse anything that is not an
+  `https://github.com/<repo>/releases/...` URL. Neither compiles anything nor
+  reads the git tree: the artifact is exactly the one
+  `.github/workflows/desktop-release.yml` publishes. Authenticity is unchanged
+  and is NOT claimed by these scripts (the Ed25519 manifest stays
+  `published: false`, and the README's "every release publishes SHA256SUMS.txt"
+  claim is corrected to Windows-only). Docs updated: new `docs/install.md`;
+  `README.md` §Install now leads with the installer and keeps the source build
+  as a contributor sub-section; `docs/QUICKSTART.md` disambiguates install vs
+  checkout; `docs/UPDATES.md` drops the "users clone the repo" premise;
+  `docs/NAVIGATION.md` gains the delivery row.
+
+- **feat(install): `npm run check:downloads` probes whether the README download
+  buttons actually serve a file.** `scripts/check-downloads.js` HEADs (then GETs)
+  the three `releases/latest/download/<asset>` aliases plus `SHA256SUMS.txt`,
+  prints status and size, and on failure names WHICH of the three invisible
+  causes applies: the repository is not publicly readable (a private repo 404s
+  anonymously), no published release is visible (the release workflow publishes
+  **drafts**, and `/releases/latest` ignores drafts and prereleases, so a green
+  CI run still leaves the button dead), or the asset was renamed (it lists what
+  the release actually carries via the API). Optional `--version`, `--repo`,
+  `--assets`. Network-dependent, so it is NOT in `npm run check:all`; it is a
+  pre-announce check. Docs: `docs/install.md` (delivery section).
+
 - **chore(repo): removed ~32.6 GB of dead runtime/scratch artefacts.** Deleted
   the seven `.corrupt-*.db` code-index snapshots (`CodeIndex.recover` never
   re-reads them), 11,927 empty `ws_tools_*.db` pytest leftovers and 13,710 stale

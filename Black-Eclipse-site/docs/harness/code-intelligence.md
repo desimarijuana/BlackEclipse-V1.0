@@ -1,7 +1,7 @@
 ---
 title: Code Intelligence & Understanding Engine (CIUE)
 status: Current
-last-verified: 2026-10-06
+last-verified: 2026-11-16
 ---
 
 # Code Intelligence & Understanding Engine (CIUE)
@@ -108,6 +108,12 @@ discovered automatically. Overrides and bounds live in `code/intel/config.py`
 `HARNESS_CODE_INTEL_LSP` (disable servers only), `HARNESS_CODE_INTEL_LSP_TIMEOUT`,
 `HARNESS_CODE_INTEL_INDEX_DIR`, `HARNESS_CODE_INTEL_MAX_FILES`,
 `HARNESS_CODE_INTEL_REFRESH_S`.
+
+Both index stores can be relocated away from the checkout's `.black-eclipse/`:
+`HARNESS_CODE_INTEL_INDEX_DIR` for the CIUE store, `HARNESS_WORKSPACE_INDEX_DIR`
+for the workspace-filesystem store (`code/fs/index.py`). The test suite sets
+both to one temp dir (`python/tests/conftest.py`), so a run never leaves
+per-workspace DBs behind; `npm run clean:junk` sweeps any that accumulate.
 
 ## Tree-sitter and the AST engine
 

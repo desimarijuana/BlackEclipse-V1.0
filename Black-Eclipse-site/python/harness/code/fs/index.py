@@ -60,14 +60,23 @@ CREATE INDEX IF NOT EXISTS idx_files_language ON files(language);
 
 
 def index_dir() -> Path:
-    """`<app repo>/.black-eclipse/workspace-index` — never the user's folder."""
-    try:
-        from ...eclipse_memory.config import repo_root  # noqa: PLC0415
+    """`<app repo>/.black-eclipse/workspace-index` - never the user's folder.
 
-        base = Path(repo_root())
-    except Exception:  # noqa: BLE001
-        base = Path(os.path.expanduser("~"))
-    path = base / ".black-eclipse" / "workspace-index"
+    `HARNESS_WORKSPACE_INDEX_DIR` relocates the scratch store; the test suite
+    points it at a temp dir so a run never leaves per-workspace DBs in the
+    checkout.
+    """
+    override = os.environ.get("HARNESS_WORKSPACE_INDEX_DIR")
+    if override:
+        path = Path(override)
+    else:
+        try:
+            from ...eclipse_memory.config import repo_root  # noqa: PLC0415
+
+            base = Path(repo_root())
+        except Exception:  # noqa: BLE001
+            base = Path(os.path.expanduser("~"))
+        path = base / ".black-eclipse" / "workspace-index"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -1,0 +1,122 @@
+---
+title: Install
+status: Current
+last-verified: 2026-11-16
+---
+
+# Install
+
+**Who this is for:** someone who wants the app running, and anyone changing how
+it is delivered. For running a checkout see [`QUICKSTART.md`](./QUICKSTART.md).
+
+There are two install lanes and they produce the same app:
+
+| Lane | Command | Requires |
+|---|---|---|
+| **Installer / one command** | the download button, or the scripts below | nothing |
+| **Source (contributor)** | `npm install` then `npm run desktop:refresh` | Node 20+, the installed shell or Rust |
+
+The reverse ordering matters: a source checkout does **not** replace the
+installer. The window is a compiled Rust shell, and `desktop:refresh` makes the
+installed shell run your checkout (`scripts/desktop-dev-bridge.js`). Only
+`desktop:dev` builds a shell from scratch, and that needs `cargo`.
+
+## One-command install
+
+These scripts download the **published release artifact** - the same bytes the
+README buttons serve - verify it, and install it. They never compile anything
+and never read the git tree, so they are not a source install.
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/desimarijuana/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.ps1 -OutFile install-release.ps1
+./install-release.ps1
+```
+
+```bash
+# Linux (amd64) and macOS (Apple silicon)
+curl -fsSLO https://raw.githubusercontent.com/desimarijuana/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.sh
+bash install-release.sh
+```
+
+Files: [`scripts/install-release.ps1`](../scripts/install-release.ps1),
+[`scripts/install-release.sh`](../scripts/install-release.sh).
+
+| Flag (`.ps1` / `.sh`) | Effect |
+|---|---|
+| `-Version <tag>` / `--version <tag>` | Install a specific release instead of the latest |
+| `-Sha256 <hex>` / `--sha256 <hex>` | Pin the exact digest; a mismatch aborts |
+| `-Full` | Windows only: the offline edition with the Python feature packs |
+| `-NoLaunch` / `--no-launch` | Install without starting the app |
+| `-DryRun` / `--dry-run` | Print the resolved release and target, download nothing |
+| `-Repo <owner/name>` / `--repo <owner/name>` | Override the release repository |
+
+Windows installs per-user to `%LOCALAPPDATA%\Programs\BlackEclipse` (no
+administrator prompt). Linux installs the `.deb` through `apt-get`/`dpkg`.
+macOS copies `Black Eclipse.app` to `/Applications`.
+
+## What the scripts verify - and what they do not
+
+The builds are unsigned, so there is no OS-level signature to check. What the
+scripts do:
+
+- refuse anything but `https://github.com/<repo>/releases/...`;
+- download the package and compare its SHA-256 with `SHA256SUMS.txt` from the
+  same release, aborting on a mismatch;
+- print the computed digest unconditionally, so it can be compared with the
+  release page by hand;
+- honour `--sha256` as an out-of-band pin that wins over everything else.
+
+What they do **not** do: prove the release was published by the maintainers. A
+checksum served from the same host protects against a corrupted or truncated
+download, not against that host being compromised. Authenticity is a separate,
+stronger chain: the Ed25519-signed update manifest that the app itself verifies
+(see [`UPDATES.md`](./UPDATES.md)). That manifest is published but not yet
+enabled (`config/updates.json` `published: false`), so no install path claims
+signature verification today.
+
+Windows is the only platform that currently publishes `SHA256SUMS.txt`; the
+scripts say so and continue with the printed digest when it is absent.
+
+## After install
+
+The app opens offline, seeds its local vault and provisions the agent runtime on
+first boot. Add a hosted model key in **Settings > AI**, or point it at Ollama.
+Data lives in the platform data directory and survives uninstall.
+
+## Uninstall
+
+- Windows: **Settings > Apps > Black Eclipse**, or `Uninstall.exe` in the
+  install directory.
+- Linux: `sudo apt remove blackeclipse`
+- macOS: drag `/Applications/Black Eclipse.app` to the Trash.
+
+Removing the app does not delete your data directory; delete it yourself if you
+want a truly clean slate.
+
+## Changing the delivery path
+
+Probe the buttons before announcing a release:
+
+```bash
+cd Black-Eclipse-site
+npm run check:downloads                          # latest
+npm run check:downloads -- --version 0.4.0       # a specific tag
+npm run check:downloads -- --repo owner/name     # a fork or a rename
+```
+
+A bare 404 hides three different faults, and the probe separates them: the
+repository is not publicly readable (a private repo 404s anonymously and serves
+no release files), no published release is visible (the workflow creates
+**drafts**, and `/releases/latest` ignores both drafts and prereleases, so green
+CI does not mean a working button), or the asset name changed. It needs the
+network, so it is deliberately not part of `npm run check:all`.
+
+The artifact names are a contract: the README buttons and these scripts resolve
+`BlackEclipse-Setup.exe`, `BlackEclipse-linux-amd64.deb` and
+`BlackEclipse-mac-arm64.dmg` through `releases/latest/download/`. Rename one and
+both the buttons and the scripts 404. The build side is
+[`../.github/workflows/desktop-release.yml`](../../.github/workflows/desktop-release.yml);
+`scripts/desktop-installer.js` (NSIS), `scripts/desktop-bundle.js` (`dpkg-deb`,
+`hdiutil`) and `scripts/desktop-payload.js` produce the payload.
+

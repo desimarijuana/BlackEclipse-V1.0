@@ -9,11 +9,14 @@ last-verified: 2026-11-09
 **Who this is for:** anyone publishing a Black Eclipse release, or changing how
 the app detects and applies one.
 
-Eclipse is **self-hosted**: users clone the repo and run it on their own machine.
-"There is an update" therefore means *a newer signed release exists*, and
-applying it means *check out that release and rebuild*. This document covers the
-whole path — publishing, notifying, and updating safely — plus the key handling
-that keeps a compromised account from turning into a malicious update.
+Eclipse is **self-hosted**: nothing runs on our servers. Most users take the
+signed release installer, or the one-command scripts in
+[`install.md`](./install.md); contributors run a checkout. "There is an update"
+therefore means *a newer signed release exists*, and applying it means *install
+that release* (a checkout additionally tags, builds and re-pins). This document
+covers the whole path — publishing, notifying, and updating safely — plus the
+key handling that keeps a compromised account from turning into a malicious
+update.
 
 ## The trust chain
 

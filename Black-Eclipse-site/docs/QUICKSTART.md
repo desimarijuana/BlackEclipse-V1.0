@@ -9,6 +9,11 @@ last-verified: 2026-11-16
 **Who this is for:** you just cloned the repo and want it running, then want to
 know what you are looking at.
 
+> Installing the app, rather than building a checkout? Use the installer or the
+> one-command scripts in [`install.md`](./install.md). A checkout is not a
+> substitute: the window is a compiled shell, and Stable runs the installed
+> shell against your tree.
+
 ## Prerequisites
 
 | Requirement | Notes |
@@ -40,6 +45,12 @@ with `desktop:refresh` (Stable) or `desktop:dev`.
 First-time/package installs use the installed `Black Eclipse.exe`. `npm run
 desktop:doctor` prints one screen: window, port, served build, harness, provider
 and any running build.
+
+Housekeeping: `npm run clean:junk` sweeps dead runtime scratch (corrupt index
+snapshots, test-created index DBs, stale workspace caches, logs) and reports
+what it freed; add `-- --build` to also wipe regenerable build output (`.next`,
+`dist`, Rust targets). It never touches DB vaults, credentials, pinned builds or
+`releases/`.
 
 Two channels can run at once: **Stable** (3100, harness 8767) and **Dev** (3101,
 harness 8768). Dev has isolated data, so testing can never touch your real

@@ -148,14 +148,23 @@ CREATE INDEX IF NOT EXISTS idx_diag_rel ON diagnostics(rel);
 
 
 def code_index_dir() -> Path:
-    """`<app repo>/.black-eclipse/code-index` — never the user's folder."""
-    try:
-        from ....eclipse_memory.config import repo_root  # noqa: PLC0415
+    """`<app repo>/.black-eclipse/code-index` — never the user's folder.
 
-        base = Path(repo_root())
-    except Exception:  # noqa: BLE001
-        base = Path(os.path.expanduser("~"))
-    path = base / ".black-eclipse" / "code-index"
+    `HARNESS_CODE_INTEL_INDEX_DIR` relocates the store (the same override
+    `load_config()` reports); the test suite points it at a temp dir so a run
+    never leaves per-workspace DBs in the checkout.
+    """
+    override = os.environ.get("HARNESS_CODE_INTEL_INDEX_DIR")
+    if override:
+        path = Path(override)
+    else:
+        try:
+            from ....eclipse_memory.config import repo_root  # noqa: PLC0415
+
+            base = Path(repo_root())
+        except Exception:  # noqa: BLE001
+            base = Path(os.path.expanduser("~"))
+        path = base / ".black-eclipse" / "code-index"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

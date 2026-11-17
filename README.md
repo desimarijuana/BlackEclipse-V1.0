@@ -201,18 +201,37 @@ The six steps below are the reason the pieces exist in one place.
 
 ## Install
 
-**Windows desktop** — the front door:
+**The desktop app** — take the installer for your platform:
+[Windows](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) ·
+[Linux](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) ·
+[macOS](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) ·
+[all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).
+
+Or from a terminal — the same artifact, verified and installed:
+
+```powershell
+# Windows (per-user, no administrator prompt)
+irm https://raw.githubusercontent.com/desimarijuana/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.ps1 -OutFile install-release.ps1
+./install-release.ps1
+```
+
+```bash
+# Linux (amd64) and macOS (Apple silicon)
+curl -fsSLO https://raw.githubusercontent.com/desimarijuana/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.sh
+bash install-release.sh
+```
+
+Both scripts resolve `releases/latest`, compare the download against the
+release's SHA-256, and can pin an exact version (`-Version` / `--version`) or
+digest (`-Sha256` / `--sha256`). Details: [docs/install.md](Black-Eclipse-site/docs/install.md).
+
+**From source** — for contributors, and it needs the installed shell (or Rust):
 
 ```bash
 cd Black-Eclipse-site
 npm install              # also provisions the Python agent runtime
 npm run desktop:refresh  # build + open the desktop app (port 3100)
 ```
-
-Or take the installer for your platform — [Windows](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) ·
-[Linux](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) ·
-[macOS](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) ·
-[all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).
 
 ### One download, nothing to install first
 
@@ -248,8 +267,9 @@ supported hosted provider or configure a local Ollama provider in
 | Linux (amd64) | `BlackEclipse-linux-amd64.deb` | unsigned |
 | macOS (Apple silicon) | `BlackEclipse-mac-arm64.dmg` | unsigned — no Apple Developer certificate is configured, so Gatekeeper will warn |
 
-**Verify before you run it.** The installers are unsigned, so every release
-publishes `SHA256SUMS.txt` next to the binaries. Check the file you downloaded:
+**Verify before you run it.** The installers are unsigned. Windows releases
+publish `SHA256SUMS.txt` next to the binary; the one-command scripts check it for
+you and print the digest in every case. To check by hand:
 
 ```powershell
 # Windows PowerShell
@@ -258,8 +278,8 @@ Get-FileHash .\BlackEclipse-Setup.exe -Algorithm SHA256
 ```
 
 ```bash
-# macOS / Linux
-shasum -a 256 BlackEclipse-Setup.exe   # or: sha256sum ...
+# macOS / Linux (Linux and macOS releases publish no checksum file yet)
+shasum -a 256 BlackEclipse-mac-arm64.dmg   # or: sha256sum BlackEclipse-linux-amd64.deb
 ```
 
 A mismatch means the download is not the artifact we published — delete it.

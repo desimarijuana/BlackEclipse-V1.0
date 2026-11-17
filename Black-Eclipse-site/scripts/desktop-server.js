@@ -30,7 +30,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
+const net = require("net");
 
 const { nextBin, root: SERVER_ROOT } = require("./lib/server");
 const { channelFromEnv, channelEnv } = require("./lib/channels");
@@ -312,6 +313,80 @@ function clearOwner() {
     const info = JSON.parse(fs.readFileSync(ownerFile(), "utf8"));
     if (info && info.pid === process.pid) fs.rmSync(ownerFile(), { force: true });
   } catch {}
+}
+
+/** True when `pid` is verifiably a desktop-server bootstrap (never a reused PID). */
+function isOwnedBootstrap(pid) {
+  if (!pidAlive(pid)) return false;
+  if (process.platform !== "win32") return true;
+  const script =
+    "(Get-CimInstance Win32_Process -Filter " +
+    JSON.stringify(`ProcessId=${pid}`) +
+    ").CommandLine";
+  const out = spawnSync("powershell", ["-NoProfile", "-Command", script], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return Boolean(out.stdout && out.stdout.includes("desktop-server.js"));
+}
+
+/** Cheap async TCP probe: is anything accepting connections on this port? */
+function portAccepts(port, timeoutMs = 400) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: HOST, port });
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs, () => finish(true));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
+
+/**
+ * Reclaim the channel port from THIS install's orphaned desktop server.
+ *
+ * A window can crash or be closed before its owned server tree exits, leaving a
+ * listener that the next launch refuses to attach to (different build, failed
+ * build-health probe, or an unresponsive event loop). Because the owner marker
+ * records the exact bootstrap pid and we re-verify its command line, stopping it
+ * stays within the "never kill a server this shell did not start" rule: a
+ * foreign listener has no matching owner marker and is still left alone.
+ *
+ * Returns true only when the port is actually free afterwards.
+ */
+async function reclaimOwnedPort() {
+  const owner = readOwner();
+  if (!owner || !Number.isFinite(owner.pid) || owner.pid === process.pid) return false;
+  if (!isOwnedBootstrap(owner.pid)) return false;
+
+  log(`reclaiming the channel port from this install's orphaned server (pid ${owner.pid})`);
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/F", "/T", "/PID", String(owner.pid)], { stdio: "ignore" });
+  } else {
+    try {
+      process.kill(owner.pid, "SIGTERM");
+    } catch {}
+  }
+
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    if (!(await portAccepts(PORT))) {
+      // The dead bootstrap's lock/owner files are now stale; clear the owner so
+      // the fresh server writes its own identity.
+      try {
+        fs.rmSync(ownerFile(), { force: true });
+      } catch {}
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  log(`orphaned server ${owner.pid} did not release port ${PORT}`);
+  return false;
 }
 
 function expectedVersion() {
@@ -793,17 +868,22 @@ async function main() {
     }
     if (first.kind === "stale") {
       // Identified as ours, but its build files are gone. Attaching would open a
-      // window that looks alive and does nothing, so refuse with an actionable
-      // message. Never kill it: the ownership rule still holds, even for a corpse.
-      log(`identified but unusable server: ${first.detail}`);
-      marker(
-        "CONFLICT",
-        `Port ${PORT} is held by a Black Eclipse server (version ${first.version || "unknown"}) whose build files ` +
-          `are missing or unreadable: ${first.detail}. Pages would load without styles or scripts. ` +
-          `Stop that leftover Node.js process in Task Manager (or restart the computer), then click Retry.`
-      );
-      process.exitCode = 5;
-      return;
+      // window that looks alive and does nothing. If the owner marker proves it
+      // is THIS install's orphan, reclaim the port and start a fresh server;
+      // otherwise refuse with an actionable message (never kill a foreign one).
+      if (await reclaimOwnedPort()) {
+        log("reclaimed the port from this install's orphaned server");
+      } else {
+        log(`identified but unusable server: ${first.detail}`);
+        marker(
+          "CONFLICT",
+          `Port ${PORT} is held by a Black Eclipse server (version ${first.version || "unknown"}) whose build files ` +
+            `are missing or unreadable: ${first.detail}. Pages would load without styles or scripts. ` +
+            `Stop that leftover Node.js process in Task Manager (or restart the computer), then click Retry.`
+        );
+        process.exitCode = 5;
+        return;
+      }
     }
     if (first.kind === "other") {
       log(`conflict: ${first.detail}`);
@@ -819,29 +899,41 @@ async function main() {
     const live = await probeLiveness(PORT);
     if (live.up) {
       const owner = readOwner();
-      const pinnedId = readBuildId(PIN_DIST);
-      if (owner && pinnedId && owner.buildId === pinnedId && live.html) {
+      // The server this channel serves may be the promoted release, not the
+      // ad-hoc pin; comparing only against PIN_DIST reported a live, healthy
+      // own server as "older" and parked the app on the conflict screen after
+      // every promotion.
+      const currentId = currentRelease()?.buildId || readBuildId(PIN_DIST);
+      if (owner && currentId && owner.buildId === currentId && live.html) {
         const health = await probeBuildHealth(PORT, live.html);
         if (health.ok) {
-          log(`attached to this install's own desktop server (build ${pinnedId})`);
-          marker("ATTACH", `desktop ${pinnedId}`);
+          log(`attached to this install's own desktop server (build ${currentId})`);
+          marker("ATTACH", `desktop ${currentId}`);
           return;
         }
       }
-      const id = await probeIdentity(PORT);
-      const who =
-        id.kind === "ours"
-          ? "an older Black Eclipse server (a leftover desktop/website process)"
-          : "another application";
-      log(`port ${PORT} is held by ${who}`);
-      marker(
-        "CONFLICT",
-        `Port ${PORT} is used by ${who}. The ${CHANNEL.label} desktop app needs that port for its own frozen build. ` +
-          `The website lane is retired; this is a leftover process from before. ` +
-          `Stop it (end the Node.js process in Task Manager), then click Retry.`
-      );
-      process.exitCode = 5;
-      return;
+      // It has our owner marker, so it is this install's own server (verified by
+      // command line): an orphan whose build was replaced or whose event loop is
+      // stuck. Stop it and start a fresh one instead of asking the user to open
+      // Task Manager. A foreign listener has no marker and is never killed.
+      if (owner && await reclaimOwnedPort()) {
+        log("this install's orphaned server was stopped; starting a fresh one");
+      } else {
+        const id = await probeIdentity(PORT);
+        const who =
+          id.kind === "ours"
+            ? "an older Black Eclipse server (a leftover desktop/website process)"
+            : "another application";
+        log(`port ${PORT} is held by ${who}`);
+        marker(
+          "CONFLICT",
+          `Port ${PORT} is used by ${who}. The ${CHANNEL.label} desktop app needs that port for its own frozen build. ` +
+            `The website lane is retired; this is a leftover process from before. ` +
+            `Stop it (end the Node.js process in Task Manager), then click Retry.`
+        );
+        process.exitCode = 5;
+        return;
+      }
     }
 
     // 2. Pin the newest COMPLETED build. `.next` is left to the website/agent.
@@ -852,6 +944,32 @@ async function main() {
         "No completed production build yet. Run `npm run desktop:refresh` in the project folder, then reopen Black Eclipse."
       );
       process.exitCode = 3;
+      return;
+    }
+  }
+
+  // 2b. Liveness can miss a listener that is bound but stuck (a 2 s probe
+  // timeout while the orphan's event loop is blocked). Without this check the
+  // bootstrap spawns `next start`, which dies with EADDRINUSE and leaves a bare
+  // "server exited" panel. Detect the bound port and reclaim it when the owner
+  // marker proves it is THIS install's orphan.
+  if (!LIVE && (await portAccepts(PORT))) {
+    const owner = readOwner();
+    if (owner && (await reclaimOwnedPort())) {
+      log("this install's orphaned server was stopped; starting a fresh one");
+    } else {
+      const id = await probeIdentity(PORT);
+      const who =
+        id.kind === "ours"
+          ? "an older Black Eclipse server (a leftover desktop/website process)"
+          : "another application";
+      log(`port ${PORT} is bound but did not become ready (${who})`);
+      marker(
+        "CONFLICT",
+        `Port ${PORT} is in use by ${who} and did not become ready. ` +
+          `Stop that process in Task Manager, then click Retry.`
+      );
+      process.exitCode = 5;
       return;
     }
   }

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
+  Check,
   ChevronDown,
   Clock,
   Folder,
@@ -13,8 +14,10 @@ import {
   Loader2,
   MoreHorizontal,
   Pin,
+  PinOff,
   Plus,
   Search,
+  Trash2,
   X,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -82,6 +85,10 @@ export function ChatHistoryPanel({
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const [renaming, setRenaming] = useState<RenameTarget>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
+  // Multi-select: when on, clicking rows toggles them instead of opening them.
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number; label: string } | null>(null);
   const dragRef = useRef<{ id: string; kind: 'chat' | 'folder'; startX: number; startY: number; active: boolean; label: string } | null>(null);
   const didDragRef = useRef(false);
@@ -139,6 +146,92 @@ export function ChatHistoryPanel({
     for (const c of conversations) map.set(c.id, scoreConversation(c, query)?.snippet ?? null);
     return map;
   }, [conversations, query]);
+
+  // Every row currently on screen, in render order — the selection surface.
+  const visibleIds = useMemo(
+    () => [...view.pinned, ...view.groups.flatMap((g) => g.conversations)].map((c) => c.id),
+    [view],
+  );
+
+  const exitSelection = useCallback(() => {
+    setSelecting(false);
+    setSelectedIds(new Set());
+    setAnchorId(null);
+  }, []);
+
+  // Drop ids that were deleted elsewhere so the count never lies.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(conversations.map((c) => c.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [conversations]);
+
+  // Escape leaves selection mode (without touching any chat).
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') exitSelection();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting, exitSelection]);
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    if (e.shiftKey && anchorId && anchorId !== id) {
+      const from = visibleIds.indexOf(anchorId);
+      const to = visibleIds.indexOf(id);
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from < to ? [from, to] : [to, from];
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (let i = lo; i <= hi; i++) next.add(visibleIds[i]);
+          return next;
+        });
+        return;
+      }
+    }
+    setAnchorId(id);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(visibleIds));
+    setAnchorId(visibleIds[visibleIds.length - 1] ?? null);
+  };
+
+  const selectNone = () => {
+    setSelectedIds(new Set());
+    setAnchorId(null);
+  };
+
+  const pinSelected = () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    const allPinned = ids.every((id) => conversations.find((c) => c.id === id)?.pinned);
+    bulkPin(ids, !allPinned);
+  };
+
+  const deleteSelected = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    const confirmed = await confirmDialog({
+      title: ids.length === 1
+        ? t('sidebar.confirmDeleteForever')
+        : t('sidebar.confirmDeleteMany', { count: ids.length }),
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    for (const id of ids) onDeleteConversation(id);
+    exitSelection();
+  };
 
   // ── Drag & drop (pointer-based, so it works with mouse and touch) ───────────
   const performDrop = (kind: 'chat' | 'folder', id: string, key: string) => {
@@ -228,21 +321,39 @@ export function ChatHistoryPanel({
     const queuedCount = queuedCounts[c.id] ?? 0;
     const isRenaming = renaming?.kind === 'chat' && renaming.id === c.id;
     const snippet = snippets?.get(c.id) ?? null;
+    const isSelected = selectedIds.has(c.id);
     return (
       <div key={c.id} style={{ paddingLeft: depth * 12 }}>
         <div
-          onClick={() => {
+          onClick={(e) => {
             if (didDragRef.current) return;
+            if (selecting) {
+              if (!isRenaming) toggleSelect(c.id, e);
+              return;
+            }
             if (!isRenaming) onSelectConversation(c.id);
           }}
-          onPointerDown={(e) => !isRenaming && beginDrag(e, c.id, 'chat', c.title || t('sidebar.untitledSession'))}
-          className={`flex items-center justify-between gap-1 rounded-xl px-2.5 py-1.5 text-[11px] cursor-pointer group transition-all border border-transparent ${
+          onPointerDown={(e) => !selecting && !isRenaming && beginDrag(e, c.id, 'chat', c.title || t('sidebar.untitledSession'))}
+          role={selecting ? 'checkbox' : undefined}
+          aria-checked={selecting ? isSelected : undefined}
+          className={`flex items-center justify-between gap-1 rounded-xl px-2.5 py-1.5 text-[11px] cursor-pointer group transition-all border ${
             ghost && dragRef.current?.id === c.id && dragRef.current?.active ? 'opacity-40' : ''
           } ${
-            isActive ? 'bg-white/[0.04] border-border/20 text-foreground font-semibold'
-              : 'bg-transparent text-foreground/70 hover:bg-accent/25 hover:text-foreground'
+            isSelected ? 'bg-primary/10 border-primary/30 text-foreground'
+              : isActive ? 'bg-white/[0.04] border-border/20 text-foreground font-semibold'
+                : 'bg-transparent border-transparent text-foreground/70 hover:bg-accent/25 hover:text-foreground'
           }`}
         >
+          {selecting && (
+            <span
+              aria-hidden
+              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-border/60 text-transparent'
+              }`}
+            >
+              <Check size={10} weight="bold" />
+            </span>
+          )}
           <span className="flex items-center gap-1.5 min-w-0 flex-1">
             {c.pinned && <Pin size={10} className="shrink-0 text-amber-400" weight="fill" />}
             {c.forkedFrom && (
@@ -278,7 +389,7 @@ export function ChatHistoryPanel({
           {!isRenaming && (c.tags?.length ?? 0) > 0 && (
             <span className="shrink-0 rounded bg-white/[0.06] px-1 text-[9px] text-muted-foreground">{c.tags!.length}</span>
           )}
-          {!isRenaming && (
+          {!isRenaming && !selecting && (
             <button
               onClick={(e) => openMenu(e, 'chat', c.id)}
               data-no-drag
@@ -346,17 +457,73 @@ export function ChatHistoryPanel({
 
   const dragging = ghost !== null;
   const hasAnything = view.pinned.length > 0 || view.groups.length > 0;
+  const allSelectedPinned = selectedIds.size > 0
+    && [...selectedIds].every((id) => conversations.find((c) => c.id === id)?.pinned);
 
   return (
     <div className="flex flex-col gap-2 pb-4">
       {/* Header + global actions */}
       <div className="flex items-center justify-between px-1">
-        <span className="text-[13px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
+        <span className="text-[13px] text-muted-foreground uppercase tracking-widest font-bold">
+          {selecting ? t('sidebar.selectedCount', { count: selectedIds.size }) : t('sidebar.chatHistory')}
+        </span>
         <div className="flex items-center gap-0.5">
-          {groupBy === 'folders' && <IconBtn title={t('sidebar.newFolder')} onClick={() => onCreateFolder()}><FolderPlus size={12} /></IconBtn>}
-          <IconBtn title={t('sidebar.newChat')} onClick={onNewChat}><Plus size={12} /></IconBtn>
+          {selecting ? (
+            <IconBtn title={t('sidebar.done')} onClick={exitSelection}><X size={12} /></IconBtn>
+          ) : (
+            <>
+              {groupBy === 'folders' && <IconBtn title={t('sidebar.newFolder')} onClick={() => onCreateFolder()}><FolderPlus size={12} /></IconBtn>}
+              {visibleIds.length > 0 && (
+                <IconBtn title={t('sidebar.select')} onClick={() => setSelecting(true)}><ListChecks size={12} /></IconBtn>
+              )}
+              <IconBtn title={t('sidebar.newChat')} onClick={onNewChat}><Plus size={12} /></IconBtn>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Bulk actions — visible only in selection mode. */}
+      {selecting && (
+        <div className="mx-1 flex items-center gap-1 rounded-lg border border-border/20 bg-white/[0.03] px-1.5 py-1">
+          <button
+            type="button"
+            onClick={selectAll}
+            className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground cursor-pointer"
+          >
+            {t('sidebar.selectAll')}
+          </button>
+          <button
+            type="button"
+            onClick={selectNone}
+            disabled={selectedIds.size === 0}
+            className="rounded-md px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+          >
+            {t('sidebar.clearSelection')}
+          </button>
+          <span className="ml-auto flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={pinSelected}
+              disabled={selectedIds.size === 0}
+              title={allSelectedPinned ? t('sidebar.unpin') : t('sidebar.pin')}
+              aria-label={allSelectedPinned ? t('sidebar.unpin') : t('sidebar.pin')}
+              className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+            >
+              {allSelectedPinned ? <PinOff size={12} /> : <Pin size={12} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => void deleteSelected()}
+              disabled={selectedIds.size === 0}
+              title={t('sidebar.delete')}
+              aria-label={t('sidebar.delete')}
+              className="rounded-md p-1 text-rose-300 hover:bg-rose-500/10 disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+            >
+              <Trash2 size={12} />
+            </button>
+          </span>
+        </div>
+      )}
 
       {/* Search — flat (2D) glass: frost without the raised bevel/drop shadow. */}
       <div

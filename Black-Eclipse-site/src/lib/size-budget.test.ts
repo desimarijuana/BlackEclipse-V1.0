@@ -72,7 +72,9 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1317->1326: the command palette surface added nine
   // `code.command.*` keys (dialog, pinned, recent, no-matches, aliases,
   // examples, search placeholder, selection hint, suggestions). May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1326,
+  // Re-pinned 1326->1330: chat-history multi-select adds `sidebar.selectAll`,
+  // `sidebar.clearSelection`, `sidebar.done` and `sidebar.confirmDeleteMany`.
+  "src/lib/i18n/dictionaries/en.ts": 1330,
   // The canonical command catalog crossed the hard ceiling when the P2
   // read-only workspace commands (alerts/news/theses/journal/jobs/artifacts/
   // sessions/git/stop) landed. Re-pinned 1379->1411 for `/history`, the

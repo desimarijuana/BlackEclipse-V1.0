@@ -38,6 +38,19 @@ window. A build that fails validation never becomes current. `npm run
 desktop:rollback` flips back. `npm run desktop:refresh` is build-if-needed +
 promote + reopen.
 
+**Orphaned server recovery.** A window can crash, be force-closed, or be
+promoted while its server tree is still exiting. The next launch then finds the
+channel port held. `scripts/desktop-server.js` records the bootstrap pid in
+`<data dir>/.runtime/desktop-owned.json`; when the listener is still that
+recorded bootstrap (command line re-verified, so a reused PID is never killed),
+the new launch stops the orphan and starts a fresh server instead of parking on
+the "leftover server" Retry screen. It also attaches to a healthy own server
+when its build matches the promoted release — not just the ad-hoc pin — and
+detects a bound-but-unresponsive listener (a liveness probe can miss a blocked
+event loop) before spawning, so `EADDRINUSE` no longer surfaces as a bare
+"server exited" panel. A listener with no matching owner marker is still never
+killed.
+
 ## Live mode — the window updates on every save
 
 The immutable pin is right for a shipped build and wrong for development: a
