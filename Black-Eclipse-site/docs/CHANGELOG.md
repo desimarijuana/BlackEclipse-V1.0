@@ -6,6 +6,44 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **chore(repo): removed ~32.6 GB of dead runtime/scratch artefacts.** Deleted
+  the seven `.corrupt-*.db` code-index snapshots (`CodeIndex.recover` never
+  re-reads them), 11,927 empty `ws_tools_*.db` pytest leftovers and 13,710 stale
+  per-workspace index caches (the index is a cache and rebuilds on demand, so
+  the live `ws_c58…db` and WAL were kept), all 205 dev/prod logs, the literal
+  `%SystemDrive%` directory (Windows cache DBs from an unexpanded path),
+  `.tmp-tests/`, empty root `eclipse-memory.db`, regenerable build output
+  (`.next`, `.next-dev`, `dist`, `build`, `src-tauri/target{,-dev}`,
+  `rust/fframes-worker/target`, `.pytest_cache`, `*.tsbuildinfo`), old rolling
+  JDdS copies (newest kept), the 1.9 GB `blackeclipse-*.tar.gz`, `_backups/`
+  working copies and stale clone, and the search-index cache. Live pinned
+  builds, `releases/stable`, `.next-desktop*`, `.next-live-stable`, the live
+  index, all `*.db` vaults, `.env`, `.connector-key` and the Nov-15 pre-rewrite
+  git bundle were preserved on purpose. Also untracked the committed
+  HyperFrames `.thumbnails/` and `.waveform-cache/` caches (now ignored by
+  `media/blackeclipse-launch/.gitignore`) and removed a duplicate harness-report
+  PDF. no doc change — runtime/scratch cleanup only, no architecture, data
+  shape, or setup contract changed.
+
+- **style(desktop): remove the last browser tells from the app window.** The
+  WebView was still inheriting its localhost-page defaults: a bright blue
+  `::selection` highlight, light-mode native widgets (`color-scheme` was
+  `normal`, so `<select>` lists / date pickers / checkbox gutters painted
+  light), selectable-and-draggable UI chrome, anchor/image drag ghosts,
+  rubber-band overscroll, Chromium's autofill wash, and the WebView context
+  menu (Reload / Save as / Print / View source / Inspect) plus Ctrl+R / Ctrl+P
+  / Ctrl+S / Ctrl+U / Ctrl+±/0 / ctrl+wheel page zoom and file-drop
+  navigation. A new unlayered "Desktop shell chrome" block in
+  `src/app/globals.css` themes the UA surface and a new
+  `DesktopShellGuards` (`src/components/layout/desktop-shell-guards.tsx`,
+  mounted in the root layout) suppresses the browser chrome — text fields
+  keep the platform undo/cut/copy/paste menu, and a text selection on content
+  gets an Eclipse-glass Copy menu instead of the WebView menu. Sidebar links
+  no longer honour Ctrl/Cmd-click "open in a new browser tab"; the desktop
+  shell has one window and its own tab strip. Helpers live in
+  `src/lib/desktop/shell-guards.ts` with unit tests. no doc change — UI
+  behaviour only, no architecture/data/setup contract changed.
+
 - **fix(ui): destructive confirmations use an Eclipse-themed centred dialog, not
   the browser's OS pop-up.** Every `window.confirm/alert/prompt` call site
   (deleting a chat, bot memory, theses, tables, artifacts, journal records,

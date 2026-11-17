@@ -1,0 +1,4 @@
+# HyperFrames render caches — regenerated per preview/render. Never commit.
+.thumbnails/
+.waveform-cache/
+.hyperframes/

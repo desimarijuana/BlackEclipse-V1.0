@@ -2011,3 +2011,91 @@ html:not(.dark) [data-aurora-glow] {
 .bots-text-scope :where(.text-\[14px\]) { font-size: calc(14px * var(--bots-font-scale, 1)); }
 .bots-text-scope :where(.text-\[15px\]) { font-size: calc(15px * var(--bots-font-scale, 1)); }
 .bots-text-scope :where(.text-\[17px\]) { font-size: calc(17px * var(--bots-font-scale, 1)); }
+
+/* Desktop shell chrome (WebView defaults that read as "a website in a window")
+ * ---------------------------------------------------------------------------
+ * Everything below removes a *WebView default* that reads as "a localhost
+ * website in a window" rather than an application:
+ *
+ *   color-scheme  native widgets (select popups, date pickers, checkboxes,
+ *                 scrollbar gutters not covered by ::-webkit-scrollbar) must
+ *                 paint dark, not Chromium's light system theme.
+ *   ::selection    the UA highlight is the browser's bright blue. Eclipse
+ *                 selections use the brand tint with readable foreground.
+ *   user-select   UI chrome (navigation, buttons, tabs, labels, keys) is not
+ *                 document text; dragging across it must not paint a
+ *                 selection. Content surfaces stay selectable.
+ *   -webkit-user-drag  stops anchor/image drag ghosts and "drag to new tab".
+ *   overscroll    no rubber-band / pull-to-refresh chrome.
+ *   autofill      Chromium's yellow/blue autofill wash does not belong in a
+ *                 themed input.
+ * The behavioural half (context menu, reload/print/zoom chords) lives in
+ * `src/components/layout/desktop-shell-guards.tsx`. */
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+::selection {
+  background: rgb(var(--brand-rgb) / 0.26);
+  color: var(--foreground);
+}
+html:not(.dark) ::selection {
+  background: rgb(var(--brand-rgb) / 0.18);
+  color: var(--foreground);
+}
+
+/* UI chrome is not a document. Text fields, editors and transcript content
+ * are explicitly re-enabled below so copy/paste keeps working everywhere it
+ * matters. Kept in the `base` layer so a page can still opt an individual
+ * element in or out with the `select-text` / `select-none` utilities. */
+@layer base {
+  :where(nav, button, [role='button'], [role='tab'], [role='menuitem'], [role='option'], [role='switch'], summary, kbd, label) {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  :where(input, textarea, [contenteditable='true'], .selectable, .markdown-body) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* No browser drag ghosts (their translucent "drag to a new tab" preview). */
+img,
+a {
+  -webkit-user-drag: none;
+}
+
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Native select popups follow the app panel colour instead of the OS list. */
+select option,
+select optgroup {
+  background-color: rgb(var(--card-rgb, 18 18 20));
+  color: var(--foreground);
+}
+html:not(.dark) select option,
+html:not(.dark) select optgroup {
+  background-color: #ffffff;
+  color: #111111;
+}
+
+/* Chromium autofill must not repaint a themed field with its own blue/yellow
+ * wash. A near-infinite inset shadow keeps the app surface; the text colour
+ * is restored separately because `-webkit-text-fill-color` overrides `color`. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  box-shadow: 0 0 0 1000px rgb(var(--card-rgb, 18 18 20)) inset;
+  transition: background-color 9999s ease-in-out 0s;
+}

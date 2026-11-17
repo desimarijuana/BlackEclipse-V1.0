@@ -427,10 +427,12 @@ export function Sidebar({
                 href={destinationToHref({ tab: tab.id })}
                 data-sound="tick"
                 aria-current={isSelected ? 'page' : undefined}
+                draggable={false}
                 onClick={(e) => {
-                  // Let Ctrl/Cmd/Shift/middle-click open in a new tab (or window)
-                  // via the href; only a plain left-click is handled in-page.
-                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  // In-app navigation only. The desktop shell has one window
+                  // and its own tab strip, so the browser affordances a real
+                  // anchor implies (Ctrl/Cmd+click for a new browser tab,
+                  // middle-click, drag-to-tab) are not part of this product.
                   e.preventDefault();
                   handleTabClick(tab.id);
                 }}
