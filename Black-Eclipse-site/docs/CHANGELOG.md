@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **docs(oss): the publication readme now records what actually unblocked it.**
+  `docs/OPEN-SOURCE-READINESS.md` still described eleven stale remote branches
+  as the blocker and treated branch deletion as sufficient. Branches were only
+  half of it: GitHub's server-side `refs/pull/*` kept 11 PRs' worth of
+  pre-rewrite commits, including the 38 MB `jdds.db`, reachable no matter what a
+  client deleted. O1/O4 are marked resolved, §2 names the PR-ref mechanism and
+  the new repository / private archive split. Docs updated:
+  `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
+
 - **chore(ci): a tag no longer turns red when `PYPI_API_TOKEN` is absent.**
   `publish-harness.yml` uploaded to PyPI on every `v*` tag, so a fresh public
   repository - which has no secrets at all - failed its release workflow with an

@@ -36,10 +36,10 @@ owner's legal + GitHub-settings pass.
 
 | # | Blocker | Evidence |
 |---|---|---|
-| O1 | Git history contains `jdds.db` snapshots on **stale refs only** | `main` and every tag are clean (`git log main -- '*jdds.db'` is empty). Eleven remote branches plus two local `backup-*` refs still reach pre-rewrite commits with a 60 MB blob (106 trades, 58 journal days, 1 profile, 40 tags). `check:oss` now names every ref. Delete them and purge cached PR objects; see §2. |
+| O1 | ~~Git history contains `jdds.db` snapshots on stale refs~~ **resolved 2026-11-16** | Branches were deleted, but that was not the whole story: GitHub permanently serves `refs/pull/N/head`, and 11 of 13 PR refs still reached the 60 MB blob (a 38 MB `jdds.db` object was fetchable from `refs/pull/1/head`). `check:oss` now audits that namespace. Resolved by publishing from a **new** repository; see §2. |
 | O2 | ~~History has never been scanned for credentials~~ **resolved in the mirror** | `scripts/scan-secrets.js` scans **tracked HEAD only**. A `gitleaks` 8.30.1 scan over `--all` found **two real hardcoded tokens** in old commits; both were scrubbed with `--replace-text` and **must still be rotated**. The final mirror scans clean with `.gitleaks.toml` (reviewed allowlist for fixtures). |
 | O3 | ~~Tracked files contain absolute home-directory paths~~ **resolved** | `npm run check:oss` reports no absolute home-directory path. |
-| O4 | Personal author e-mail is on **one stale ref only** | `main` and every tag are entirely `@users.noreply.github.com`; `arkg03@gmail.com` appears only on `origin/backup-before-email-rewrite`, so deleting it closes this too. |
+| O4 | ~~Personal author e-mail is on **one stale ref only**~~ **resolved 2026-11-16** | After the rewrite every ref, including the old PR refs, is `@users.noreply.github.com`; a fresh clone of the new repository confirms it. |
 | O5 | ~~Community files were incomplete~~ **resolved** | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `DCO`, `check:oss`. |
 | O6 | Legal/IP review for public distribution | `docs/legal/*` are Draft and clearly scoped to a source-only self-hosted release. A "not affiliated with CFA Institute" notice now sits in `.black-eclipse/skills/CFA-NOTICE.md` and every `cfa-*` skill; the owner still needs a trademark read of the skills and the "Bloomberg-inspired" wording. |
 | O7 | Branch protection is unavailable here | Private + Free plan returns `403`; making the repository public unlocks it for free. |
@@ -52,17 +52,27 @@ stale O1/O4 history and anything the old commits contain. Create the public
 repository from a rewritten history (§2), or delete the stale refs and prove a
 fresh clone is clean first.
 
+**Done 2026-11-16.** `desimarijuana/BlackEclipse-V1.0` is a *new* repository
+built from the rewritten history; the previous one is
+`desimarijuana/BlackEclipse-V1.0-archive` — **private, and it must stay that
+way**, because it still holds every leaking PR ref and the 720 MB draft release.
+A fresh clone of the new repository shows zero `refs/pull/*`, zero `.db` paths in
+history, no reachable 38 MB blob, and noreply-only authors.
+
 ---
 
 ## 2. Scrub the history (the hard blocker)
 
 **Already done on the mainline.** `main` and every tag were rewritten; they
-contain no `.db` blob and no personal author e-mail. What remains is **stale
-refs**: twelve remote branches (eleven reach the `jdds.db` commits;
-`origin/backup-before-email-rewrite` carries the old author address) and two
-local `backup-*` branches still reach the old commits. GitHub also keeps commits
-alive through cached pull-request objects, so deleting branches is necessary but
-not always sufficient.
+contain no `.db` blob and no personal author e-mail. The stale branches were
+deleted too, but **deleting branches is not sufficient**: GitHub keeps
+`refs/pull/N/head` forever for every closed and squash-merged PR, and those refs
+kept 11 PRs' worth of pre-rewrite commits reachable — including a 38 MB
+`jdds.db` object. Nothing on the client side can remove a `refs/pull` ref.
+
+That is why the resolution was a new repository rather than a cleanup, and why
+`npm run oss:prune-refs` now inspects the PR namespace before declaring the
+history clean.
 
 Confirm for yourself:
 
@@ -102,6 +112,10 @@ If any pull request still references an old commit, open a fresh repository and
 push `main` plus re-created tags into it; that is the only way to guarantee the
 old objects are unreachable. Do not publish from the old repository until a
 `gitleaks --all` scan on a fresh clone is clean.
+
+**That is the path this repository took (2026-11-16).** `oss:prune-refs` reports
+the PR refs it cannot delete and exits non-zero; the release then went out from a
+new repository, and `check:oss` (which now audits `refs/pull/*`) passes there.
 
 ### If you ever need to redo the rewrite
 
