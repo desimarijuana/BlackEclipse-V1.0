@@ -6,6 +6,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): the pipeline could not install the Python stack on Linux.** `av`
+  (PyAV 14.4.0) publishes an sdist only - no wheels on any platform - so
+  `pip install -r python/requirements.lock` builds it and needs the FFmpeg
+  development headers; the job died at `pkg-config could not find libraries
+  [avformat, avcodec, ...]` before running a single test. That only became
+  visible once the repository went public and Actions could finally start. CI
+  now installs `pkg-config`, `ffmpeg` and the `libav*-dev` packages first.
+
+- **chore(repo): remove the GitHub Actions deploy lane.** `.github/workflows/deploy.yml`
+  pushed to `main` on every commit and could only fail: this is a desktop-only
+  product, every `DEPLOY_*` secret is absent, and it was the TOFU
+  `StrictHostKeyChecking=accept-new` SSH path flagged as H-08 in the audit. It
+  fired a red X on the first public push. Self-hosting is still manual
+  (`scripts/deploy.sh` + the systemd timer); `docs/DEPLOYMENT.md` records why the
+  workflow is gone and why it should not come back without host keys verified
+  out of band. Docs updated: `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+
 - **chore(size): re-pin for the evaluation-harness fix (+11 lines).** The
   `ScriptedModel` fallback added 11 lines to `python/harness/evaluation`, putting
   both the total (515,473 vs 515,462) and that module's ratchet (13,060 vs

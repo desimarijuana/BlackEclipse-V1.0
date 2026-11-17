@@ -67,6 +67,19 @@ jobs:
       # Install the Python agent stack explicitly (rather than trusting the
       # postinstall hook) so a missing or misconfigured hook cannot silently skip
       # the Python half of the suite.
+      #
+      # `av` (PyAV 14.4.0) publishes an sdist ONLY - no wheels on any platform -
+      # so pip builds it here and needs the FFmpeg development headers. Without
+      # them the job dies with "pkg-config could not find libraries [avformat,
+      # avcodec, ...]" before a single test runs.
+      - name: System libraries for the Python stack
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config ffmpeg \
+            libavformat-dev libavcodec-dev libavdevice-dev \
+            libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
+
       - name: Install Python agent stack
         run: |
           python -m pip install --upgrade pip

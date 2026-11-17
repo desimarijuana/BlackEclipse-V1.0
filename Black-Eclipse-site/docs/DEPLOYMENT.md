@@ -120,6 +120,14 @@ changed. It is safe to run on a timer: an unchanged commit exits immediately, a
 lock prevents overlapping builds, tracked local edits make it refuse, and it
 waits for `/login` before reporting success.
 
+> **The GitHub Actions deploy lane was removed (2026-11-17).** This is a
+> desktop-only product: there is no hosted server in the tree, no `DEPLOY_*`
+> secrets, and `.github/workflows/deploy.yml` could only fail on every push to
+> `main` (it is also the TOFU `StrictHostKeyChecking=accept-new` SSH path flagged
+> as H-08 in the security audit). Self-hosting is still supported, but it is
+> manual: run the timer below on your own machine. Do not re-add a push-to-deploy
+> workflow without an explicit product decision and verified host keys.
+
 Install it once per server:
 
 ```sh
