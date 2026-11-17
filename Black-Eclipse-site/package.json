@@ -119,7 +119,7 @@
     "desktop:refresh": "node scripts/desktop-refresh.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

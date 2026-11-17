@@ -6,6 +6,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): run the pipeline on Node 22, the version the app actually ships.**
+  This was the real cause of the two "worker exited unexpectedly" crashes: the
+  only two test files that open a database load `better-sqlite3@13`, which
+  requires Node >= 22 (`npm warn EBADENGINE ... better-sqlite3@13.0.3`), while CI
+  pinned Node 20 - so the binding could never load and killed the worker instead
+  of failing an assertion. Five workflows move to Node 22 (matching the vendored
+  runtime and `desktop-release.yml`) and `package.json` now declares
+  `engines.node >= 22` instead of claiming 20. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): build the `better-sqlite3` binding that `--ignore-scripts` skipped.**
   The last runner failure was not memory at all: the same two files never
   reported, and both are the only tests that actually open a database
