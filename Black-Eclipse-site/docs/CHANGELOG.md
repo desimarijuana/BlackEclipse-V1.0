@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **chore(size): re-pin the harness budget to the measured tree before release.**
+  `npm run check:size` failed on `main` (515,462 lines against a 512,280 ceiling;
+  `.` +1,404, routers +59, portfolio +7, quant +5) because work landed after the
+  2026-11-12 pin. Re-pinned to the measured values with the dated note the file
+  requires - the total is the binding constraint and the next line over 515,462
+  fails. This is a measurement, not padding; splitting the `.` seam is the real
+  fix when someone has the appetite. Doc change: `docs/CHANGELOG.md`.
+
 - **docs(oss): the publication readme now records what actually unblocked it.**
   `docs/OPEN-SOURCE-READINESS.md` still described eleven stale remote branches
   as the blocker and treated branch deletion as sufficient. Branches were only
