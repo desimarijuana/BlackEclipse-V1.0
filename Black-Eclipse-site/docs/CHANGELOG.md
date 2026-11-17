@@ -6,6 +6,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **chore(size): re-pin for the evaluation-harness fix (+11 lines).** The
+  `ScriptedModel` fallback added 11 lines to `python/harness/evaluation`, putting
+  both the total (515,473 vs 515,462) and that module's ratchet (13,060 vs
+  13,049) over. Re-pinned to the measured values; the next line over fails.
+  Doc change: `docs/CHANGELOG.md`.
+
+- **docs(plan): trading bots.** Added `docs/trading-bots-plan.md` — how a bot
+  becomes a trading agent: a saved strategy version (or agent brain) bound to an
+  Automation, executed through the existing quant signal + broker path under the
+  existing L0/L1/L2 authority ladder and mandates. Records the reuse map (most
+  of the substrate already ships), eight decisions, phases P0–P5, a test matrix
+  and open questions. No code changed. `docs/NAVIGATION.md` gained a trigger row
+  pointing at it.
+
 - **fix(ui): a malformed `/api/setup` reply no longer white-screens the app.**
   `OnboardingGate` renders the full-screen wizard unless `state.completed` is
   truthy, and `OnboardingShell` builds its draft from `state.sources.map(...)`.
