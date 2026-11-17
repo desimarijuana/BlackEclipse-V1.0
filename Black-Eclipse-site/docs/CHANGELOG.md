@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **chore(release): regenerate the SBOM after the `av` re-lock.** `check:oss` and
+  the CI "SBOM drift check" both gate on `sbom.cdx.json` matching the lockfiles,
+  so the av 14.4.0 -> 13.1.0 change failed both. Regenerated with `npm run sbom`
+  (1,320 components); `node scripts/generate-sbom.js --check` is clean again.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(deps): pin `av` to a range that ships wheels.** PyAV 14.4.0 publishes
   an sdist only, so every `pip install -r python/requirements.lock` tried to
   compile it - and failed on Linux even with the FFmpeg headers installed. The

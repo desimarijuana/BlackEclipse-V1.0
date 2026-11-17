@@ -1313,7 +1313,7 @@ locked trees. Do not hand-edit; regenerate after a lockfile change.
 - `anyio@4.16.0` (pypi)
 - `asn1crypto@1.5.1` (pypi)
 - `attrs@26.1.0` (pypi)
-- `av@14.4.0` (pypi)
+- `av@13.1.0` (pypi)
 - `certifi@2026.10.23` (pypi)
 - `cffi@2.1.1` (pypi)
 - `charset-normalizer@3.5.2` (pypi)
