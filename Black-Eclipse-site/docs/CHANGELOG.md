@@ -41,11 +41,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   either outcome and still requires that a failure carries a `failureClass` and
   smuggles no items. Doc change: `docs/CHANGELOG.md`.
 
-- **fix(oss): the PR-ref home-path probe used PCRE lookaround in `git grep -E`.**
-  `git grep` rejects `(?!)`, so the fallback probe printed `fatal: Invalid
-  preceding regular expression` and never inspected anything. The lookaround
-  moved into JS (placeholder filter over the matched lines), leaving the grep
-  pattern portable. Doc change: `docs/CHANGELOG.md`.
+- **fix(oss): the PR-ref audit no longer blocks on home-path placeholders.** The
+  first version of the namespace probe also failed a PR ref whose history
+  mentions `C:\Users\<name>\...` - which this repository's own docs legitimately
+  do - so every future squash-merged PR would have been a permanent publication
+  blocker. Banned paths (`*.db`, `.env*`, connector keys) and personal author
+  addresses stay blocking; home paths remain a HEAD-level warning, where they
+  can be judged instead of guessed. Doc change: `docs/CHANGELOG.md`.
 
 - **chore(oss): the public-release gate now sees server-side `refs/pull/*`.** A
   history rewrite can leave `main`, the tags and every branch clean while

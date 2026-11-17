@@ -109,11 +109,6 @@ const tags = lines(safeGit(['for-each-ref', '--format=%(refname:short)', 'refs/t
 const BANNED_PATH =
   /(^|\/)(\.env(\.[^/]+)?|\.connector-key|mcp-servers\.json|.*\.(db|db-wal|db-shm|pem|pfx|key|p12))$/i;
 const ALLOWED_PATH = /\.env\.example$/i;
-// No lookaround: this string is handed to `git grep -E`. The placeholder filter
-// is applied in JS to the matched lines.
-const HOME_PATH_SOURCE = String.raw`([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}|/Users/)`;
-const PLACEHOLDER_HOME =
-  /[\\/]{1,2}Users[\\/]{1,2}(me|x|msi|user|username|Public|test|example)(?![A-Za-z0-9._-])/;
 
 const pullNamespace = 'refs/oss-preflight/pull';
 const includeRemote = !process.argv.includes('--no-remote');
@@ -163,14 +158,10 @@ function prRefReasons(ref) {
   if (badAuthors.length) {
     reasons.push(`personal author: ${[...new Set(badAuthors)].join(', ')}`);
   }
-  if (!reasons.length) {
-    // `git grep -E` has no lookaround support, so the placeholder filter runs in
-    // JS on the matched lines instead of inside the regex.
-    const homeHits = lines(
-      safeGit(['grep', '-I', '-n', '-E', HOME_PATH_SOURCE, ref])
-    ).filter((line) => !PLACEHOLDER_HOME.test(line));
-    if (homeHits.length) reasons.push(`home path in ${homeHits.length} line(s)`);
-  }
+  // Home-directory paths are a hygiene note, not a blocker: this repository's
+  // own docs legitimately quote `C:\Users\<name>\...`. They are warned about at
+  // HEAD by oss-preflight; failing a publication on a placeholder found in an
+  // old PR would be a permanent false positive.
   return reasons;
 }
 
