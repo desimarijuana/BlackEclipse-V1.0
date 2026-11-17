@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): build the `better-sqlite3` binding that `--ignore-scripts` skipped.**
+  The last runner failure was not memory at all: the same two files never
+  reported, and both are the only tests that actually open a database
+  (`src/lib/auth/*.test.ts` -> `new AuthStore(":memory:")`). `npm ci
+  --ignore-scripts` also skips better-sqlite3's install step, so the native
+  binding is absent and the worker process dies instead of failing an assertion.
+  CI now runs `npm rebuild better-sqlite3` right after the install. The previous
+  attempt's single worker and lower heap stay - they are still the right shape for
+  a 527-file suite on a 4-vCPU runner. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): one vitest worker, a lower heap ceiling, and npm retries.** Two more
   runner failures, neither a failing assertion. (1) `Worker exited unexpectedly`
   killed the run twice even with two forks: 527 files each import the agent tool

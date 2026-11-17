@@ -96,6 +96,13 @@ jobs:
       - name: Install Node dependencies
         run: npm ci --ignore-scripts
 
+      # `--ignore-scripts` also skips better-sqlite3's install step, so its native
+      # binding is never fetched. The auth tests are the only ones that really open
+      # a database, and without the binding their vitest worker dies outright
+      # ("Worker exited unexpectedly") instead of failing an assertion.
+      - name: Native modules skipped by --ignore-scripts
+        run: npm rebuild better-sqlite3
+
       # Block a production dependency with a known Critical advisory. Highs are
       # reviewed in the audit report (some are unreachable/build-only); Criticals
       # are a release gate.
