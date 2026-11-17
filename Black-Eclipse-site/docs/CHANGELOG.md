@@ -6,6 +6,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(harness): serialise every code-index statement — a read raced a write
+  and crashed the process.** `CodeIndex` opens SQLite with
+  `check_same_thread=False` and only guarded *writes* with its lock. The docs
+  require the caller to serialise access regardless, so a background indexer
+  thread computing a file signature while another thread read the same connection
+  died inside libsqlite3 instead of raising: the Windows CI run ended with
+  `Windows fatal exception: access violation` in
+  `intel/persistence/index.py::file_signature`. The connection is now wrapped in
+  a proxy that takes the store's re-entrant lock for every call (reads, writes,
+  transactions, `close`, and any call added later), with `__setattr__` forwarded
+  so `row_factory` still lands on the connection. 65 code-index tests pass,
+  including `test_intel_index_concurrency.py`. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(code): `search_text` crashed on every scan with `AttributeError`.**
   `harness/code/fs/search.py` read the size cap from `metadata.MAX_TEXT_BYTES`,
   but the constant moved to `encoding.py` and `metadata` never re-exported it, so

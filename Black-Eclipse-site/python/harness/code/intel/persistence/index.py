@@ -192,19 +192,69 @@ class IndexStats:
         }
 
 
+class _SerializedDb:
+    """Serialise EVERY statement on one lock.
+
+    `sqlite3.connect(..., check_same_thread=False)` only disables the guard; the
+    docs still require the caller to serialise access, and violating that is
+    undefined behaviour inside libsqlite3. This store had a write lock, so reads
+    ran unlocked - and a background indexer thread computing a file signature
+    while another thread read the same connection crashed the process outright
+    ("Windows fatal exception: access violation") instead of raising. Wrapping the
+    connection makes every call - reads, writes, transactions, `close` - take the
+    same re-entrant lock, including any call added later.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, lock: "threading.RLock") -> None:
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_lock", lock)
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._conn, name)
+        if not callable(attr):
+            return attr
+        lock = self._lock
+
+        def serialized(*args: Any, **kwargs: Any) -> Any:
+            with lock:
+                return attr(*args, **kwargs)
+
+        return serialized
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # `row_factory = sqlite3.Row` must land on the connection, not the proxy.
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._conn, name, value)
+
+    def __enter__(self) -> "_SerializedDb":
+        self._lock.acquire()
+        try:
+            self._conn.__enter__()
+        except BaseException:
+            self._lock.release()
+            raise
+        return self
+
+    def __exit__(self, *exc: Any) -> Any:
+        try:
+            return self._conn.__exit__(*exc)
+        finally:
+            self._lock.release()
+
+
 class CodeIndex:
     """A persistent, incremental code index over one project."""
 
     def __init__(self, project_id: str, *, path: Optional[Path] = None) -> None:
         self.project_id = project_id
         self.path = path or code_index_path(project_id)
-        self._db = self._connect(self.path)
-        # The connection is `check_same_thread=False`: several threads (the
-        # background watcher loop, a synchronous index trigger, the LSP diagnostics
-        # writer) may mutate this one project's rows. A multi-statement transaction
-        # on a shared connection is not atomic across threads, so EVERY mutation is
-        # serialized through this re-entrant lock. Reads are unaffected.
+        # The connection is used from several threads (the background watcher loop,
+        # a synchronous index trigger, the LSP diagnostics writer), so every
+        # statement - read or write - is serialized through one re-entrant lock.
         self._write_lock = threading.RLock()
+        self._db = _SerializedDb(self._connect(self.path), self._write_lock)
         try:
             self._init_schema()
         except sqlite3.DatabaseError:
@@ -269,7 +319,7 @@ class CodeIndex:
                     shutil.move(str(self.path), str(backup))
             except OSError:
                 pass
-            self._db = self._connect(self.path)
+            self._db = _SerializedDb(self._connect(self.path), self._write_lock)
             self._init_schema()
         return {"recovered": True, "backup": str(backup)}
 
