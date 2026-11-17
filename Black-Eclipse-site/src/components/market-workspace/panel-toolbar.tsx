@@ -6,6 +6,7 @@
 // vocabulary so the terminal feels native.
 
 import React from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   Copy, Grid2x2, LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Plus,
   RotateCcw, Save, Settings2, Trash2,
@@ -170,7 +171,7 @@ export function PanelToolbar({
               <Save size={12} /> Save now
             </button>
             <div className="my-1 border-t border-border/10" />
-            <button onClick={() => { if (confirm('Reset to the default workspace layout?')) onReset(); close(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-rose-400 hover:bg-rose-500/10 cursor-pointer">
+            <button onClick={async () => { if (await confirmDialog({ title: 'Reset to the default workspace layout?', tone: 'danger' })) onReset(); close(); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold text-rose-400 hover:bg-rose-500/10 cursor-pointer">
               <RotateCcw size={12} /> Reset workspace
             </button>
           </>

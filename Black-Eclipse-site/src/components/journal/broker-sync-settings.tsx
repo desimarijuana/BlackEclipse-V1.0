@@ -8,6 +8,7 @@
 // It never talks to a broker directly and never displays a credential.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   AlertTriangle,
   Check,
@@ -241,7 +242,7 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
   const unlink = async (connection: BrokerConnection) => {
     const existing = linkByConnection.get(connection.id);
     if (!existing) return;
-    if (!confirm('Unlink this broker from the journal? Imported trades are kept.')) return;
+    if (!(await confirmDialog({ title: 'Unlink this broker from the journal?', description: 'Imported trades are kept.', tone: 'danger' }))) return;
     setBusy(`unlink:${connection.id}`);
     try {
       const res = await fetch(`/api/journal/broker/links/${existing.id}`, { method: 'DELETE' });
@@ -558,11 +559,13 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
                     />
                   </label>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        confirm(
-                          'Re-request the full backfill window from the broker? It can take a while, but it will not duplicate trades.',
-                        )
+                        await confirmDialog({
+                          title: 'Re-request the full backfill window from the broker?',
+                          description: 'It can take a while, but it will not duplicate trades.',
+                          tone: 'danger',
+                        })
                       ) {
                         void runSync(connection, true);
                       }

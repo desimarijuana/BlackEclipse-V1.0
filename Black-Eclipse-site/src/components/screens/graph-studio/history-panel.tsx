@@ -7,6 +7,7 @@
 // if a fetch fails it shows the error and keeps the previous list.
 
 import { useCallback, useEffect, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { History, RefreshCw } from '@/lib/icons';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -98,7 +99,7 @@ export function HistoryPanel({
 
   const openVersion = useCallback(async (version: number) => {
     if (!workflowId) return;
-    if (dirty && typeof window !== 'undefined' && !window.confirm('Discard unsaved changes and open this version?')) return;
+    if (dirty && typeof window !== 'undefined' && !(await confirmDialog({ title: 'Discard unsaved changes and open this version?', tone: 'danger' }))) return;
     setOpening(`v${version}`);
     try {
       onOpenVersion(await getWorkflow(workflowId, version));

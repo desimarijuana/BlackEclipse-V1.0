@@ -2115,6 +2115,15 @@ backdrop roots — see the
 [`black-eclipse-ui` skill](../../.opencode/skills/black-eclipse-ui/SKILL.md).
 Do not introduce raw `backdrop-blur-*` or flat fills for cards.
 
+**Native browser dialogs are banned.** `window.confirm` / `window.alert` /
+`window.prompt` render as OS chrome pinned to the top of the desktop WebView.
+Use the queued in-app primitive instead: `confirmDialog`, `alertDialog` and
+`promptDialog` from `src/lib/ui/confirm-dialog.ts` (deliberately UI-free, so
+`src/lib` modules may call it), rendered by the single `ConfirmDialogHost`
+(`src/components/ui/confirm-dialog-host.tsx`) mounted in `src/app/layout.tsx`.
+It opens a centred frosted-glass dialog; pass `tone: 'danger'` for destructive
+confirmations.
+
 **UI sounds.** Optional terminal-style audio feedback lives in
 `src/lib/sounds/`. `sound-manager.ts` is a defensive singleton over the **Web
 Audio API** (no Howler dependency): one `AudioContext` is created on mount and

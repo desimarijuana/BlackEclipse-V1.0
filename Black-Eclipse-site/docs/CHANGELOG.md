@@ -6,6 +6,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **fix(ui): destructive confirmations use an Eclipse-themed centred dialog, not
+  the browser's OS pop-up.** Every `window.confirm/alert/prompt` call site
+  (deleting a chat, bot memory, theses, tables, artifacts, journal records,
+  skills/bundles, workspaces, graph workflows, broker actions, settings resets,
+  renames/link prompts) now goes through one queued primitive —
+  `confirmDialog`/`alertDialog`/`promptDialog` in `src/lib/ui/confirm-dialog.ts`
+  — rendered by `ConfirmDialogHost`
+  (`src/components/ui/confirm-dialog-host.tsx`, mounted in `src/app/layout.tsx`)
+  as a `.glass-card-strong` dialog centred in the window. The helper is UI-free
+  so `src/lib` widgets can use it without breaking the import boundary.
+  Docs updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
 - **test(harness): the hardcore prompt suite has published run evidence.**
   Added `docs/harness/prompt-tests/README.md` plus one file per run under
   `docs/harness/prompt-tests/runs/`: 31 of the 38 prompts completed with full

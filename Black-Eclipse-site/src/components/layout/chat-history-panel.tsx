@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   ChevronDown,
   Clock,
@@ -466,7 +467,7 @@ export function ChatHistoryPanel({
           onMoveConversation={onMoveConversation}
           onTogglePin={onTogglePin}
           onForkConversation={onForkConversation}
-          onPurge={(id) => { if (confirm(t('sidebar.confirmDeleteForever'))) onDeleteConversation(id); }}
+          onPurge={async (id) => { if (await confirmDialog({ title: t('sidebar.confirmDeleteForever'), tone: 'danger' })) onDeleteConversation(id); }}
           onDeleteFolder={onDeleteFolder}
           onMoveFolder={onMoveFolder}
           onAddTag={onAddTag}

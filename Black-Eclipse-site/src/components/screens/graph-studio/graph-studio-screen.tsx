@@ -9,6 +9,7 @@
 // lives on the canvas (Tab / "+"), where it belongs.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   Check, ChevronDown, ChevronLeft, GitBranch, MoreHorizontal, Play, Redo2, Save, Sparkles, Undo2, WarningCircle, X,
   Activity, History, Settings2,
@@ -478,8 +479,8 @@ export function GraphStudioScreen({
     [operatorHardBlock, runBlockReason],
   );
 
-  const backHome = () => {
-    if (dirty && !window.confirm('You have unsaved changes. Leave the editor and keep them unsaved?')) return;
+  const backHome = async () => {
+    if (dirty && !(await confirmDialog({ title: 'You have unsaved changes.', description: 'Leave the editor and keep them unsaved?', tone: 'danger' }))) return;
     setView('home');
     setRightPanel(null);
     void refreshCatalog();

@@ -6,6 +6,7 @@
 // assumptions the evidence supports or contradicts, and never rewrites the text.
 
 import { useCallback, useEffect, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { assessAssumptionImpacts, summarizeThesis } from '@/lib/theses/analysis';
 import { THESIS_STATUSES, type ThesisEvidenceRecord, type ThesisRecord, type ThesisRevisionRecord, type ThesisStatus } from '@/lib/theses/types';
@@ -203,7 +204,7 @@ function ThesisDetail({
   };
 
   const remove = async () => {
-    if (!confirm(`Delete thesis for ${thesis.symbol}?`)) return;
+    if (!(await confirmDialog({ title: `Delete thesis for ${thesis.symbol}?`, tone: 'danger' }))) return;
     await fetch(`/api/theses/${thesis.id}`, { method: 'DELETE' });
     onChanged();
   };

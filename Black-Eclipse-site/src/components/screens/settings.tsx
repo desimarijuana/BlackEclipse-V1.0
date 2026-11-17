@@ -10,6 +10,7 @@
 // provider-registry-panel, data-sources-panel).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { confirmDialog } from "@/lib/ui/confirm-dialog";
 import {
   Cog, Bot, Globe2, Newspaper, Palette, Database,
   Trash2, RotateCcw, Check, Activity, ShieldCheck,
@@ -457,11 +458,11 @@ export function Settings({
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
-  const clearStorage = (keys: string[], label: string) => {
+  const clearStorage = async (keys: string[], label: string) => {
     // Confirmation is on by default (Settings › General). A mis-click here used
     // to wipe chats/watchlist/portfolio instantly and irreversibly.
     if (general.confirmDestructive && typeof window !== "undefined") {
-      const ok = window.confirm(`Clear ${label}? This only affects this browser and cannot be undone.`);
+      const ok = await confirmDialog({ title: `Clear ${label}?`, description: "This only affects this browser and cannot be undone.", tone: "danger" });
       if (!ok) return;
     }
     keys.forEach((k) => localStorage.removeItem(k));

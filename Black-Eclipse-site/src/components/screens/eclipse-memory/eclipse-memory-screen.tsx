@@ -7,6 +7,7 @@
 // language. All counts are real; no fabricated activity.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { promptDialog } from "@/lib/ui/confirm-dialog";
 import {
   Activity, AlertCircle, Brain, Database, FileText, MessageSquare, Plus,
   RefreshCcw, Search, Settings2, ShieldCheck, Sparkles, Trash2, Wrench, X, type LucideIcon,
@@ -1163,8 +1164,8 @@ function Sessions({ isOperator }: { isOperator: boolean }) {
                   {isOperator && (
                     <>
                       <Button size="sm" variant="outline" className="rounded-xl cursor-pointer"
-                        onClick={() => {
-                          const title = window.prompt("Rename session", session.title ?? "");
+                        onClick={async () => {
+                          const title = await promptDialog({ title: "Rename session", defaultValue: session.title ?? "" });
                           if (title !== null) void act(() => updateChatSession(session.id, { title }), "Renamed");
                         }}>Rename</Button>
                       <Button size="sm" variant="outline" className="rounded-xl cursor-pointer"

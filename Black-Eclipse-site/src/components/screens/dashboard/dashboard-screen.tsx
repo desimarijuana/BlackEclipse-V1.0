@@ -5,6 +5,7 @@
 // the dashboard switcher, onboarding, widget library, and config panel.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog, promptDialog } from '@/lib/ui/confirm-dialog';
 import { createPortal } from 'react-dom';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import {
@@ -117,9 +118,9 @@ export function DashboardScreen({ active = true }: { active?: boolean }) {
   };
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const createDashboard = () => {
+  const createDashboard = async () => {
     setSwitcherOpen(false);
-    const name = prompt('New dashboard name');
+    const name = await promptDialog({ title: 'New dashboard name' });
     if (name) dashboards.create(name, 'tape-reader');
   };
 
@@ -501,7 +502,7 @@ export function DashboardScreen({ active = true }: { active?: boolean }) {
                     {d.isDefault && <Star size={11} className="text-amber-400 shrink-0" />}
                     <span className="hidden group-hover:flex items-center gap-1 shrink-0">
                       <button
-                        onClick={(e) => { e.stopPropagation(); const n = prompt('Rename dashboard', d.name); if (n) dashboards.rename(d.id, n); }}
+                        onClick={async (e) => { e.stopPropagation(); const n = await promptDialog({ title: 'Rename dashboard', defaultValue: d.name }); if (n) dashboards.rename(d.id, n); }}
                         className="rounded p-1 text-muted-foreground hover:text-primary cursor-pointer" title="Rename"
                       ><Settings2 size={11} /></button>
                       <button
@@ -513,7 +514,7 @@ export function DashboardScreen({ active = true }: { active?: boolean }) {
                         className="rounded p-1 text-muted-foreground hover:text-amber-400 cursor-pointer" title="Set default"
                       ><Star size={11} /></button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${d.name}"?`)) dashboards.remove(d.id); }}
+                        onClick={async (e) => { e.stopPropagation(); if (await confirmDialog({ title: `Delete "${d.name}"?`, tone: 'danger' })) dashboards.remove(d.id); }}
                         className="rounded p-1 text-muted-foreground hover:text-rose-400 cursor-pointer" title="Delete"
                       ><Trash2 size={11} /></button>
                     </span>

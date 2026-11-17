@@ -11,6 +11,7 @@ import { RiskAckGate } from "@/components/legal/risk-ack-gate";
 import { GlobalSearchMount } from "@/components/layout/global-search-mount";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { AlertNotificationProvider } from "@/components/layout/alert-notification-provider";
+import { ConfirmDialogHost } from "@/components/ui/confirm-dialog-host";
 import { TaskCompletionWatcher } from "@/lib/notifications/task-watcher";
 import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
 import { ChannelActivityWatcher } from "@/lib/notifications/channel-watcher";
@@ -85,6 +86,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <SoundProvider />
         <TtsProvider />
         <AlertNotificationProvider />
+        <ConfirmDialogHost />
         <TaskCompletionWatcher />
         <BotsRunWatcher />
         <ChannelActivityWatcher />

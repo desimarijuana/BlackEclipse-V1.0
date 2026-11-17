@@ -7,6 +7,7 @@
 // bulk) calls the artifact API. No mock cards, no local-only state.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog, promptDialog } from '@/lib/ui/confirm-dialog';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle, ChartLine, Check, Download, FileCode2,
@@ -340,8 +341,8 @@ function DetailDrawer({
     }
   }, [onChanged]);
 
-  const rename = () => {
-    const next = window.prompt('Rename artifact', detail.name);
+  const rename = async () => {
+    const next = await promptDialog({ title: 'Rename artifact', defaultValue: detail.name });
     if (next && next.trim() && next !== detail.name) {
       run(async () => {
         const updated = await updateArtifact(detail.id, { name: next.trim() });
@@ -401,8 +402,8 @@ function DetailDrawer({
             </button>
           )}
           <button type="button"
-            onClick={() => {
-              if (window.confirm(t('artifacts.deleteConfirm'))) {
+            onClick={async () => {
+              if (await confirmDialog({ title: t('artifacts.deleteConfirm'), tone: 'danger' })) {
                 run(async () => { await deleteArtifact(detail.id); onClose(); });
               }
             }}
@@ -559,7 +560,7 @@ export function ArtifactsScreen() {
 
   const runBulk = async (action: string) => {
     if (selected.size === 0) return;
-    if (action === 'delete' && !window.confirm(`Delete ${selected.size} artifact(s)?`)) return;
+    if (action === 'delete' && !(await confirmDialog({ title: `Delete ${selected.size} artifact(s)?`, tone: 'danger' }))) return;
     try {
       await bulkAction([...selected], action);
       setSelected(new Set());

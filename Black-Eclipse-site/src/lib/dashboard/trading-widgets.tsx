@@ -6,6 +6,7 @@
 // an honest setup note, never fake positions or fills.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { confirmDialog, promptDialog } from '@/lib/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import {
   Select,
@@ -88,13 +89,15 @@ export function BrokerOpenPositionsWidget() {
   const [notice, setNotice] = useState<string | null>(null);
   const close = async (position: BrokerPosition) => {
     if (!connection) return;
-    const raw = window.prompt(
-      `Close how much of #${position.ticket}? Blank closes the whole ${position.volume} lot.`,
-    );
+    const raw = await promptDialog({
+      title: `Close how much of #${position.ticket}?`,
+      description: `Blank closes the whole ${position.volume} lot.`,
+      inputType: 'number',
+    });
     if (raw === null) return;
     const volume = raw.trim() === '' ? undefined : Number(raw);
     if (volume !== undefined && !Number.isFinite(volume)) return;
-    if (!window.confirm(`Close ${volume ?? position.volume} of #${position.ticket} at market?`)) return;
+    if (!(await confirmDialog({ title: `Close ${volume ?? position.volume} of #${position.ticket} at market?`, tone: 'danger' }))) return;
     try {
       const result = await closeBrokerPosition(connection.id, position.ticket, volume);
       const detail = result.result as { partial?: boolean; remainingVolume?: number; verified?: boolean };
@@ -110,13 +113,17 @@ export function BrokerOpenPositionsWidget() {
   };
   const modify = async (position: BrokerPosition) => {
     if (!connection) return;
-    const slRaw = window.prompt(
-      `New stop loss for #${position.ticket} (blank keeps ${position.stopLoss ?? 'none'}, 0 removes it)`,
-    );
+    const slRaw = await promptDialog({
+      title: `New stop loss for #${position.ticket}`,
+      description: `Blank keeps ${position.stopLoss ?? 'none'}, 0 removes it.`,
+      inputType: 'number',
+    });
     if (slRaw === null) return;
-    const tpRaw = window.prompt(
-      `New take profit for #${position.ticket} (blank keeps ${position.takeProfit ?? 'none'}, 0 removes it)`,
-    );
+    const tpRaw = await promptDialog({
+      title: `New take profit for #${position.ticket}`,
+      description: `Blank keeps ${position.takeProfit ?? 'none'}, 0 removes it.`,
+      inputType: 'number',
+    });
     if (tpRaw === null) return;
     const levels: { stopLoss?: number; takeProfit?: number } = {};
     if (slRaw.trim() !== '') levels.stopLoss = Number(slRaw);
@@ -137,7 +144,7 @@ export function BrokerOpenPositionsWidget() {
   };
   const closeAll = async () => {
     if (!connection || positions.length === 0) return;
-    if (!window.confirm(`Close ALL ${positions.length} open position(s) at market?`)) return;
+    if (!(await confirmDialog({ title: `Close ALL ${positions.length} open position(s) at market?`, tone: 'danger' }))) return;
     try {
       await closeAllBrokerPositions(connection.id);
       invalidateTradingSnapshot();
@@ -220,7 +227,7 @@ export function BrokerWorkingOrdersWidget() {
   const { connection, orders, error, loading, refresh } = useTradingData();
   const cancel = async (ticket: number) => {
     if (!connection) return;
-    if (!window.confirm(`Cancel working order #${ticket}?`)) return;
+    if (!(await confirmDialog({ title: `Cancel working order #${ticket}?`, tone: 'danger' }))) return;
     try {
       await cancelBrokerOrder(connection.id, ticket);
       invalidateTradingSnapshot();

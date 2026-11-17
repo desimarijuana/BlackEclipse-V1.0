@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft, Check, ChevronDown, Loader2, Plus, Search, Trash2, X,
@@ -130,7 +131,7 @@ export function TableGrid({
 
   const removeColumn = async (column: TableColumn) => {
     if (columns.length === 1) return;
-    if (!window.confirm(`Delete the “${column.name}” column? Its cells will no longer be shown.`)) return;
+    if (!(await confirmDialog({ title: `Delete the “${column.name}” column?`, description: 'Its cells will no longer be shown.', tone: 'danger' }))) return;
     await commitColumns(columns.filter((item) => item.id !== column.id));
   };
 
@@ -158,7 +159,7 @@ export function TableGrid({
   };
 
   const removeTable = async () => {
-    if (!window.confirm(`Delete the whole “${name}” table and all of its rows?`)) return;
+    if (!(await confirmDialog({ title: `Delete the whole “${name}” table and all of its rows?`, tone: 'danger' }))) return;
     try {
       await deleteDataTable(initial.table.id);
       onDeleted();

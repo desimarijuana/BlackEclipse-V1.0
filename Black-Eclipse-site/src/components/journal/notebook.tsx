@@ -5,6 +5,7 @@
 // notes. Backed by the JournalEntry model. Kept deliberately simple.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { Plus, Trash2, StickyNote } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
@@ -48,7 +49,7 @@ export function JournalNotebook() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this entry?')) return;
+    if (!(await confirmDialog({ title: 'Delete this entry?', tone: 'danger' }))) return;
     await fetch(`/api/journal/entries/${id}`, { method: 'DELETE' });
     await load();
   };

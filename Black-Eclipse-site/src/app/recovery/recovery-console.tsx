@@ -8,6 +8,7 @@
 // operator-gated Python routes. Renders with the frosted-glass system.
 
 import { useCallback, useEffect, useState } from "react";
+import { alertDialog } from "@/lib/ui/confirm-dialog";
 import { PromoteChange } from "@/components/chat/promote-change";
 import {
   countByStatus,
@@ -157,7 +158,7 @@ function IncidentsTab({ onError }: { onError: (e: string | null) => void }) {
         body: JSON.stringify({ strategy, approvedBy: "operator" }),
       });
       onError(null);
-      alert(`Approved '${strategy}' for ${id}. The engine may now run it.`);
+      await alertDialog({ title: `Approved '${strategy}' for ${id}.`, description: "The engine may now run it." });
     } catch (e) {
       onError(e instanceof Error ? e.message : "approve failed");
     }
@@ -209,7 +210,7 @@ function IncidentsTab({ onError }: { onError: (e: string | null) => void }) {
       });
       onError(null);
       setDiagnosis(null);
-      alert(`Promoted ${body.created.length} candidate(s); ${body.duplicates.length} duplicate(s) suppressed.`);
+      await alertDialog({ title: `Promoted ${body.created.length} candidate(s); ${body.duplicates.length} duplicate(s) suppressed.` });
     } catch (e) {
       onError(e instanceof Error ? e.message : "promote failed");
     }

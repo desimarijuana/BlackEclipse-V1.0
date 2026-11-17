@@ -26,6 +26,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/utils';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   Broom, Copy, HelpCircle, Layers, Maximize2, Minus, Plus, Search, Trash2,
 } from '@/lib/icons';
@@ -622,9 +623,10 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     }
     if (networkTest) {
       const target = String(node.config.url ?? '').trim() || '(the configured URL)';
-      const confirmed = window.confirm(
-        `This test makes a real network request to:\n\n${target}\n\nOnly this single node runs. Continue?`,
-      );
+      const confirmed = await confirmDialog({
+        title: 'This test makes a real network request.',
+        description: target,
+      });
       if (!confirmed) return;
     }
 

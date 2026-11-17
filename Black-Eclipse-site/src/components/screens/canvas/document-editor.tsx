@@ -6,6 +6,7 @@
 // the `@tiptap/markdown` extension and serialized back out on every update.
 
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { promptDialog } from '@/lib/ui/confirm-dialog';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -120,9 +121,9 @@ export default function DocumentEditor({
     return <div className="flex-1 animate-pulse rounded-lg bg-white/5" aria-hidden />;
   }
 
-  const setLink = () => {
+  const setLink = async () => {
     const previous = editor.getAttributes('link').href as string | undefined;
-    const url = window.prompt('Link URL', previous ?? 'https://');
+    const url = await promptDialog({ title: 'Link URL', defaultValue: previous ?? 'https://', inputType: 'url' });
     if (url === null) return;
     if (url === '') editor.chain().focus().extendMarkRange('link').unsetLink().run();
     else editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();

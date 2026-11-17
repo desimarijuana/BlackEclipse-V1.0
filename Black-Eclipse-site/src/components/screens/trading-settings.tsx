@@ -6,6 +6,7 @@
 // operator routes and Graph Studio; this panel never places an order.
 
 import { useCallback, useEffect, useState } from "react";
+import { confirmDialog } from "@/lib/ui/confirm-dialog";
 import { Handshake, Loader2, RefreshCw, Trash2, Wallet } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import {
@@ -131,8 +132,8 @@ export function TradingSettingsPanel() {
   const sync = (connection: BrokerConnection) =>
     run(`sync:${connection.id}`, () => syncBrokerConnection(connection.id), "Sync complete.");
 
-  const remove = (connection: BrokerConnection) => {
-    if (!window.confirm(`Remove ${connection.label}? This does not close anything at the broker.`)) {
+  const remove = async (connection: BrokerConnection) => {
+    if (!(await confirmDialog({ title: `Remove ${connection.label}?`, description: "This does not close anything at the broker.", tone: "danger" }))) {
       return;
     }
     void run(`delete:${connection.id}`, () => deleteBrokerConnection(connection.id), "Connection removed.");
@@ -148,8 +149,8 @@ export function TradingSettingsPanel() {
   const disarm = (connection: BrokerConnection) =>
     run(`disarm:${connection.id}`, () => disarmBrokerConnection(connection.id), "Live execution disarmed.");
 
-  const kill = (connection: BrokerConnection) => {
-    if (!window.confirm("Cancel every working order Eclipse owns on this connection?")) return;
+  const kill = async (connection: BrokerConnection) => {
+    if (!(await confirmDialog({ title: "Cancel every working order Eclipse owns on this connection?", tone: "danger" }))) return;
     void run(`kill:${connection.id}`, () => killBrokerConnection(connection.id), "Kill switch fired.");
   };
 
@@ -180,8 +181,8 @@ export function TradingSettingsPanel() {
     );
   };
 
-  const revokeMandate = (mandate: TradingMandate) => {
-    if (!window.confirm(`Revoke mandate ${mandate.id}?`)) return;
+  const revokeMandate = async (mandate: TradingMandate) => {
+    if (!(await confirmDialog({ title: `Revoke mandate ${mandate.id}?`, tone: "danger" }))) return;
     void run(`mandate:revoke:${mandate.id}`, () => revokeTradingMandate(mandate.id), "Mandate revoked.");
   };
 

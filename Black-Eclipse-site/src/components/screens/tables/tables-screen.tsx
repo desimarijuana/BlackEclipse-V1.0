@@ -6,6 +6,7 @@
 // datasets remain a separate read-only surface under Settings → Data Sources.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   ChevronRight, Clock, Database, Loader2, Plus, RefreshCw, Search, Settings2, Trash2,
 } from '@/lib/icons';
@@ -70,7 +71,7 @@ export function TablesScreen({ onOpenDataSources }: { onOpenDataSources?: () => 
   };
 
   const remove = async (table: DataTableSummary) => {
-    if (!window.confirm(`Delete “${table.name}” and all ${table.rowCount} row(s)?`)) return;
+    if (!(await confirmDialog({ title: `Delete “${table.name}” and all ${table.rowCount} row(s)?`, tone: 'danger' }))) return;
     try {
       await deleteDataTable(table.id);
       if (selected?.table.id === table.id) setSelected(null);

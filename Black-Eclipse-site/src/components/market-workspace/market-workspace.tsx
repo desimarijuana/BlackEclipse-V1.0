@@ -12,6 +12,7 @@
 //   • workspace CRUD + persistence (via the kernel, already automatic)
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { confirmDialog, promptDialog } from '@/lib/ui/confirm-dialog';
 import { createPortal } from 'react-dom';
 import { ChartCandlestick, Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -298,7 +299,7 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
   ]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = async (e: KeyboardEvent) => {
       if (!canHandleKeyboardEvent(e, rootRef.current)) return;
       if (matchesShortcut(e, 'escape')) {
         if (focusedPanelId) { e.preventDefault(); ops.setFocusedPanel(null); return; }
@@ -309,7 +310,7 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
         const owner = document.activeElement?.closest<HTMLElement>('[data-market-panel-id]');
         if (owner?.dataset.marketPanelId !== activePanelId || !rootRef.current?.contains(owner)) return;
         e.preventDefault();
-        if (confirm('Remove the active panel?')) ops.removePanel(activePanelId);
+        if (await confirmDialog({ title: 'Remove the active panel?', tone: 'danger' })) ops.removePanel(activePanelId);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -662,8 +663,8 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
               onApplyPreset={applyPreset}
               onSave={saveNow}
               onReset={resetWorkspace}
-              onRenameWorkspace={() => {
-                const n = prompt('Rename workspace', workspaces.active?.name ?? '');
+              onRenameWorkspace={async () => {
+                const n = await promptDialog({ title: 'Rename workspace', defaultValue: workspaces.active?.name ?? '' });
                 if (n) workspaces.rename(workspaces.activeId!, n);
               }}
               onDuplicateWorkspace={() => workspaces.duplicate(workspaces.activeId!)}

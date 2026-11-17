@@ -15,6 +15,7 @@
 // auto-scrolls mid-drag, and elementFromPoint then hits the wrong element.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { createPortal } from 'react-dom';
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
@@ -873,9 +874,9 @@ function SectionRow({
             ><Plus size={12} /></button>
           </div>
           <button
-            onClick={() => {
+            onClick={async () => {
               const count = section.columns.reduce((a, c) => a + c.widgets.length, 0);
-              if (count === 0 || confirm('Delete this section and its widgets?')) ops.removeSection(section.id);
+              if (count === 0 || (await confirmDialog({ title: 'Delete this section and its widgets?', tone: 'danger' }))) ops.removeSection(section.id);
             }}
             className="ml-1 rounded-xl border border-white/15 dark:border-white/10 glass-card-subtle p-1.5 text-muted-foreground hover:text-rose-400 hover:border-rose-500/40 transition-colors cursor-pointer"
             title="Delete this section"

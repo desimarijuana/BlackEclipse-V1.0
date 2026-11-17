@@ -7,6 +7,7 @@
 // exactly what the model receives.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   AlertTriangle,
   Bot,
@@ -323,7 +324,7 @@ export function PersonaSettingsPanel() {
   };
 
   const resetDefault = async () => {
-    if (!window.confirm('Deactivate the current persona? The built-in Eclipse prompt alone will govern.')) {
+    if (!(await confirmDialog({ title: 'Deactivate the current persona?', description: 'The built-in Eclipse prompt alone will govern.', tone: 'danger' }))) {
       return;
     }
     setBusy(true);
@@ -357,7 +358,7 @@ export function PersonaSettingsPanel() {
 
   const archive = async () => {
     if (!persona) return;
-    if (!window.confirm(`Archive “${persona.name}”? Its version history is kept.`)) return;
+    if (!(await confirmDialog({ title: `Archive “${persona.name}”?`, description: 'Its version history is kept.', tone: 'danger' }))) return;
     setBusy(true);
     try {
       await archivePersona(persona.id);

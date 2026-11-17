@@ -8,6 +8,7 @@
 //     one; the account switcher/currency equity reads from here.
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { Settings, Plus, Trash2, Check } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -73,7 +74,7 @@ export function JournalSettings({ onChanged }: { onChanged?: () => void }) {
   };
 
   const removeAccount = async (id: string) => {
-    if (!confirm('Delete this account? Trades assigned to it will keep their history.')) return;
+    if (!(await confirmDialog({ title: 'Delete this account?', description: 'Trades assigned to it will keep their history.', tone: 'danger' }))) return;
     await fetch(`/api/journal/accounts/${id}`, { method: 'DELETE' });
     await load();
     onChanged?.();

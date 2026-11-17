@@ -7,6 +7,7 @@
 // permission. This panel creates/edits and resolves bundles.
 
 import { useCallback, useEffect, useState } from "react";
+import { confirmDialog } from "@/lib/ui/confirm-dialog";
 import { Boxes, Plus, RefreshCcw, Trash2, X } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,7 +81,7 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
   };
 
   const remove = async (id: string) => {
-    if (!window.confirm(`Delete bundle "${id}"? Skills in it are not affected.`)) return;
+    if (!(await confirmDialog({ title: `Delete bundle "${id}"?`, description: 'Skills in it are not affected.', tone: 'danger' }))) return;
     setBusy(true);
     try { await deleteSkillBundle(id); setToast("Bundle deleted"); await load(); }
     catch (err) { setToast(err instanceof Error ? err.message : "delete failed"); }
@@ -101,7 +102,7 @@ export function SkillBundles({ isOperator }: { isOperator: boolean }) {
   };
 
   const rollback = async (id: string) => {
-    if (!window.confirm(`Roll bundle "${id}" back to its previous locked member versions?`)) return;
+    if (!(await confirmDialog({ title: `Roll bundle "${id}" back to its previous locked member versions?`, tone: 'danger' }))) return;
     setPreviews((prev) => {
       const next = { ...prev };
       delete next[id];

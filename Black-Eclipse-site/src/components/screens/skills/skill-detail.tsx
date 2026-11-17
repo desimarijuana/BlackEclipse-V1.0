@@ -6,6 +6,7 @@
 // server-side operator check; the UI hides/disables what the server would deny.
 
 import { useEffect, useMemo, useState } from "react";
+import { confirmDialog } from "@/lib/ui/confirm-dialog";
 import {
   AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, ChevronDown, ChevronRight,
   FlaskConical, GitBranch, History, Info, LineChart, Pencil, Play, Power, ScrollText, ShieldCheck,
@@ -214,7 +215,7 @@ export function SkillDetailPanel({
             {skill.origin === "author" && onDelete && (
               <Button
                 variant="outline" size="sm" className="rounded-xl cursor-pointer text-rose-300"
-                onClick={() => { if (window.confirm(`Delete ${skill.name}? This cannot be undone.`)) onDelete(skill.id); }}
+                onClick={async () => { if (await confirmDialog({ title: `Delete ${skill.name}?`, description: 'This cannot be undone.', tone: 'danger' })) onDelete(skill.id); }}
                 disabled={!isOperator}
               >
                 <Trash2 size={13} className="mr-1" /> Delete

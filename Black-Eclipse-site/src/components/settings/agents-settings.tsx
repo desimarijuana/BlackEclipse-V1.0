@@ -5,6 +5,7 @@
 // and versioning; this panel is a thin CRUD surface plus the tool allowlist.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { AlertTriangle, Bot, Plus, Save, Search, Trash2 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -159,7 +160,8 @@ export function AgentsSettingsPanel() {
   };
 
   const remove = async () => {
-    if (!draft.id || !window.confirm(`Archive “${draft.name}”? Existing pinned runs keep their version.`)) return;
+    if (!draft.id) return;
+    if (!(await confirmDialog({ title: `Archive “${draft.name}”?`, description: 'Existing pinned runs keep their version.', tone: 'danger' }))) return;
     setBusy(true);
     try {
       await archiveAgentPreset(draft.id);

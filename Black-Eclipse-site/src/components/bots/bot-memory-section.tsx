@@ -7,6 +7,7 @@
 // the server confirms it.
 
 import { useCallback, useEffect, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { useT } from '@/lib/i18n';
 import { Sparkles, Trash2 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
@@ -38,7 +39,7 @@ export function BotMemorySection({ botId }: { botId: string }) {
   }, [load]);
 
   const forget = useCallback(async () => {
-    if (!window.confirm(t('bots.memory.forgetConfirm'))) return;
+    if (!(await confirmDialog({ title: t('bots.memory.forgetConfirm'), tone: 'danger' }))) return;
     setBusy(true);
     try {
       const result = await forgetConversation(conversationId);

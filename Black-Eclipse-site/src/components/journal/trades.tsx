@@ -11,6 +11,7 @@
 // analytics fetch remains a single source of truth.
 
 import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
 import { Plus, Trash2, Download, FileText, ChevronLeft, ChevronRight, SlidersHorizontal, ArrowUp, ArrowDown } from '@/lib/icons';
@@ -139,7 +140,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
   };
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this trade?')) return;
+    if (!(await confirmDialog({ title: 'Delete this trade?', tone: 'danger' }))) return;
     const res = await fetch(`/api/journal/trades/${id}`, { method: 'DELETE' });
     if (res.ok) onChanged();
   };

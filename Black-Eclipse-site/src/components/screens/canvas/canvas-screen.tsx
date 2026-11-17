@@ -7,6 +7,7 @@
 // surfaces an honest conflict UI instead of overwriting.
 
 import { useCallback, useEffect, useRef, useState, type JSX, type MutableRefObject } from 'react';
+import { confirmDialog, promptDialog } from '@/lib/ui/confirm-dialog';
 import { archiveArtifact, updateArtifact } from '@/lib/harness/clients/artifacts-browser';
 import {
   createCanvasArtifact, getCanvasArtifact, listCanvasArtifacts,
@@ -153,7 +154,7 @@ export function CanvasScreen({
   // ── Create / rename / archive ───────────────────────────────────────────────
   const createArtifact = useCallback(async (kind: CanvasKind) => {
     const fallback = kind === 'code' ? 'Untitled code' : kind === 'visual' ? 'Untitled visual report' : 'Untitled document';
-    const name = window.prompt(`Name for new ${kindLabel(kind)}`, fallback);
+    const name = await promptDialog({ title: `Name for new ${kindLabel(kind)}`, defaultValue: fallback });
     if (!name || !name.trim()) return;
     setListError(null);
     try {
@@ -222,7 +223,7 @@ export function CanvasScreen({
   const deleteArtifact = useCallback(async () => {
     const snap = snapshotRef.current;
     if (!snap) return;
-    if (!window.confirm(`Archive “${snap.name}”?`)) return;
+    if (!(await confirmDialog({ title: `Archive “${snap.name}”?`, tone: 'danger' }))) return;
     try {
       await archiveArtifact(snap.artifactId);
       setItems((prev) => prev.filter((i) => i.artifactId !== snap.artifactId));

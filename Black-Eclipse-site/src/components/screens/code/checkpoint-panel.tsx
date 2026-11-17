@@ -5,6 +5,7 @@
 // pre-restore snapshot, so the panel can always say the restore is undoable.
 
 import { useCallback, useEffect, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { useT } from '@/lib/i18n/use-t';
 import {
   diffFileCheckpoint,
@@ -97,8 +98,8 @@ export function CheckpointPanel({ rootId }: { rootId?: string | null }) {
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                if (window.confirm(t('code.checkpoints.confirm'))) {
+              onClick={async () => {
+                if (await confirmDialog({ title: t('code.checkpoints.confirm'), tone: 'danger' })) {
                   void restore(item.id, true);
                 }
               }}

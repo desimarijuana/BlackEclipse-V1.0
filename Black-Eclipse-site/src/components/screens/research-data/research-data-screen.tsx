@@ -5,6 +5,7 @@
 // system). Every number shown is the runtime's; nothing is fabricated here.
 
 import { useCallback, useEffect, useState } from 'react';
+import { alertDialog } from '@/lib/ui/confirm-dialog';
 import {
   researchDataClient,
   type DatasetManifest,
@@ -90,7 +91,7 @@ function DatasetsView() {
     try {
       const data = await researchDataClient.exportDataset(selected, { format: 'csv' });
       setError(null);
-      alert(`Exported ${data.rowCount} rows to:\n${data.files.join('\n')}`);
+      await alertDialog({ title: `Exported ${data.rowCount} rows.`, description: data.files.join('\n') });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'export failed');
     } finally {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import { RefreshCw, Sparkles } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
@@ -283,8 +284,8 @@ export function GeneratedCapabilitiesSection() {
                         <button
                           type="button"
                           disabled={busy === record.capabilityId}
-                          onClick={() => {
-                            if (typeof window !== 'undefined' && !window.confirm(t('studio.generated.confirmRemove', { id: record.capabilityId }))) return;
+                          onClick={async () => {
+                            if (!(await confirmDialog({ title: t('studio.generated.confirmRemove', { id: record.capabilityId }), tone: 'danger' }))) return;
                             void run(record.capabilityId, () => removeCapability(record.capabilityId));
                           }}
                           className="rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-1 text-[10px] text-rose-200 disabled:opacity-50"

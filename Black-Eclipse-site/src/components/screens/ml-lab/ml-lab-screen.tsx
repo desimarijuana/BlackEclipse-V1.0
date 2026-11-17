@@ -5,6 +5,7 @@
 // experiment run, evaluation or registered model returned by /api/ml.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { alertDialog } from '@/lib/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
 import { parseCsv } from '@/lib/journal/import/csv';
@@ -444,7 +445,7 @@ export function MlLabScreen() {
     setError(null);
     try {
       const r = await mlClient.reproduceRun(lastResult.runId);
-      alert(`Reproduced within tolerance: ${r.withinTolerance}`);
+      await alertDialog({ title: `Reproduced within tolerance: ${r.withinTolerance}` });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'reproduce failed');
     } finally {

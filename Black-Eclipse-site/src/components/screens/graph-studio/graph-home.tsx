@@ -6,6 +6,7 @@
 // Opening a workflow switches the workspace into the full-bleed editor.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   ArrowRight, ChevronDown, Clock, GitBranch, Plus, Search, Sparkles, Trash2,
 } from '@/lib/icons';
@@ -108,17 +109,17 @@ export function GraphHome({
     );
   }, [summaries, query]);
 
-  const confirmDiscard = () => !useGraphEditor.getState().dirty || window.confirm('Discard the unsaved changes in the current workflow?');
+  const confirmDiscard = async () => !useGraphEditor.getState().dirty || confirmDialog({ title: 'Discard the unsaved changes in the current workflow?', tone: 'danger' });
 
   const beginFromTemplate = async (templateId: string) => {
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
     setTemplatesOpen(false);
     await createFromTemplate(templateId);
     if (!useWorkflowCatalog.getState().error) onOpen();
   };
 
   const plan = async () => {
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
     setPlanning(true);
     setPlanError(null);
     try {
@@ -296,8 +297,8 @@ export function GraphHome({
               <button
                 type="button"
                 aria-label={`Open ${summary.name}`}
-                onClick={() => {
-                  if (!confirmDiscard()) return;
+                onClick={async () => {
+                  if (!(await confirmDiscard())) return;
                   void open(summary.id).then(() => {
                     if (!useWorkflowCatalog.getState().error) onOpen();
                   });
@@ -334,8 +335,8 @@ export function GraphHome({
                   variant="ghost"
                   size="icon-xs"
                   title="Delete workflow"
-                  onClick={() => {
-                    if (window.confirm(`Delete “${summary.name}”? This removes its saved versions.`)) void remove(summary.id);
+                  onClick={async () => {
+                    if (await confirmDialog({ title: `Delete “${summary.name}”?`, description: 'This removes its saved versions.', tone: 'danger' })) void remove(summary.id);
                   }}
                   className="pointer-events-auto relative z-[2] text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-400"
                 >

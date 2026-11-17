@@ -6,6 +6,7 @@
 // bounded windows. A card never contains the whole file, whatever its size.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { confirmDialog } from '@/lib/ui/confirm-dialog';
 import {
   AlertCircle, Database, FileText, FolderPlus, Server as HardDrive,
   Image as ImageIcon, Layers, Loader2, Play, RefreshCw, Search, Table2,
@@ -129,7 +130,7 @@ export function SourcesScreen({ active = true }: { active?: boolean }) {
   };
 
   const onRemove = async (root: SourceRoot) => {
-    if (!window.confirm(`Remove "${root.label}" from the catalog? The folder itself is not touched.`)) return;
+    if (!(await confirmDialog({ title: `Remove "${root.label}" from the catalog?`, description: 'The folder itself is not touched.', tone: 'danger' }))) return;
     try {
       await removeRoot(root.id);
       setResult(null);

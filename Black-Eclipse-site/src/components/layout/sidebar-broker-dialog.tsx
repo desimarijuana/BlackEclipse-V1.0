@@ -13,6 +13,7 @@
 // never bypasses the arm + kill-switch contract.
 
 import { useCallback, useEffect, useState } from "react";
+import { confirmDialog } from "@/lib/ui/confirm-dialog";
 import {
   Activity,
   Briefcase,
@@ -448,12 +449,14 @@ function SidebarBrokerDialog({
     );
   };
 
-  const remove = () => {
+  const remove = async () => {
     if (!selected) return;
     if (
-      !window.confirm(
-        `Remove ${selected.label} from Eclipse? This does not close anything at the broker.`,
-      )
+      !(await confirmDialog({
+        title: `Remove ${selected.label} from Eclipse?`,
+        description: "This does not close anything at the broker.",
+        tone: "danger",
+      }))
     ) {
       return;
     }
@@ -490,23 +493,23 @@ function SidebarBrokerDialog({
     );
   };
 
-  const closeOne = (ticket: number) => {
+  const closeOne = async (ticket: number) => {
     if (!selected) return;
-    if (!window.confirm(`Close position #${ticket} at market? This cannot be undone.`)) return;
+    if (!(await confirmDialog({ title: `Close position #${ticket} at market?`, description: "This cannot be undone.", tone: "danger" }))) return;
     void run(`close:${ticket}`, () => closeBrokerPosition(selected.id, ticket), `Position #${ticket} closed.`);
   };
 
-  const closeAll = () => {
+  const closeAll = async () => {
     if (!selected || positions.length === 0) return;
-    if (!window.confirm(`Close all ${positions.length} open positions at market? This cannot be undone.`)) {
+    if (!(await confirmDialog({ title: `Close all ${positions.length} open positions at market?`, description: "This cannot be undone.", tone: "danger" }))) {
       return;
     }
     void run("close-all", () => closeAllBrokerPositions(selected.id), "Close-all sent to the broker.");
   };
 
-  const cancel = (ticket: number) => {
+  const cancel = async (ticket: number) => {
     if (!selected) return;
-    if (!window.confirm(`Cancel working order #${ticket}?`)) return;
+    if (!(await confirmDialog({ title: `Cancel working order #${ticket}?`, tone: "danger" }))) return;
     void run(`cancel:${ticket}`, () => cancelBrokerOrder(selected.id, ticket), `Order #${ticket} cancelled.`);
   };
 
@@ -524,9 +527,9 @@ function SidebarBrokerDialog({
     void run("disarm", () => disarmBrokerConnection(selected.id), "Live execution disarmed.");
   };
 
-  const kill = () => {
+  const kill = async () => {
     if (!selected) return;
-    if (!window.confirm("Cancel every working order Eclipse owns on this connection?")) return;
+    if (!(await confirmDialog({ title: "Cancel every working order Eclipse owns on this connection?", tone: "danger" }))) return;
     void run("kill", () => killBrokerConnection(selected.id), "Kill switch fired.");
   };
 

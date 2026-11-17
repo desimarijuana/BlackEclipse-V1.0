@@ -17,6 +17,7 @@
 // persist callback, keeping the merge additive and the parent shell thin.
 
 import { useEffect, useState } from "react";
+import { alertDialog, confirmDialog } from "@/lib/ui/confirm-dialog";
 import { Loader2, Download, Monitor, RefreshCcw, RotateCcw, ShieldCheck, Sparkles } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -134,9 +135,10 @@ export function GeneralSettingsPanel({
   const [setupBusy, setSetupBusy] = useState(false);
   const restartOnboarding = async () => {
     if (general.confirmDestructive) {
-      const ok = window.confirm(
-        "Open the Eclipse setup questions again? Your API keys, chats and portfolio are kept.",
-      );
+      const ok = await confirmDialog({
+        title: "Open the Eclipse setup questions again?",
+        description: "Your API keys, chats and portfolio are kept.",
+      });
       if (!ok) return;
     }
     setSetupBusy(true);
@@ -150,7 +152,7 @@ export function GeneralSettingsPanel({
       if (!res.ok) throw new Error(data.error || "Could not restart setup");
       window.location.assign(data.reload || "/?setup=1");
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Could not restart setup");
+      await alertDialog({ title: err instanceof Error ? err.message : "Could not restart setup" });
       setSetupBusy(false);
     }
   };
