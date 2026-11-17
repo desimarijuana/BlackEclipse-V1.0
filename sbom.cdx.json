@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:c67a9320-0b17-4d80-8a68-d80c515859b9",
+  "serialNumber": "urn:uuid:b7854c91-7bc2-4975-8878-bae0fa24e7a9",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-17T16:47:10.602Z",
+    "timestamp": "2026-11-17T19:30:22.563Z",
     "tools": [
       {
         "vendor": "BlackEclipse",
@@ -32104,6 +32104,21 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/beautifulsoup4@4.15.0",
+      "name": "beautifulsoup4",
+      "version": "4.15.0",
+      "purl": "pkg:pypi/beautifulsoup4@4.15.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/certifi@2026.10.23",
       "name": "certifi",
       "version": "2026.10.23",
@@ -32228,6 +32243,21 @@
       "name": "ctranslate2",
       "version": "4.9.0",
       "purl": "pkg:pypi/ctranslate2@4.9.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/curl-cffi@0.17.0",
+      "name": "curl-cffi",
+      "version": "0.17.0",
+      "purl": "pkg:pypi/curl-cffi@0.17.0",
       "scope": "required",
       "licenses": [
         {
@@ -33169,6 +33199,21 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/peewee@4.5.3",
+      "name": "peewee",
+      "version": "4.5.3",
+      "purl": "pkg:pypi/peewee@4.5.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/pg8000@1.31.6",
       "name": "pg8000",
       "version": "1.31.6",
@@ -33188,6 +33233,21 @@
       "name": "pillow",
       "version": "13.0.0",
       "purl": "pkg:pypi/pillow@13.0.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/platformdirs@4.14.6",
+      "name": "platformdirs",
+      "version": "4.14.6",
+      "purl": "pkg:pypi/platformdirs@4.14.6",
       "scope": "required",
       "licenses": [
         {
@@ -33544,6 +33604,21 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/pytz@2026.6",
+      "name": "pytz",
+      "version": "2026.6",
+      "purl": "pkg:pypi/pytz@2026.6",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/pywin32@312",
       "name": "pywin32",
       "version": "312",
@@ -33683,6 +33758,21 @@
       "name": "sniffio",
       "version": "1.3.1",
       "purl": "pkg:pypi/sniffio@1.3.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/soupsieve@4.1.1",
+      "name": "soupsieve",
+      "version": "4.1.1",
+      "purl": "pkg:pypi/soupsieve@4.1.1",
       "scope": "required",
       "licenses": [
         {
@@ -33998,6 +34088,21 @@
       "name": "xxhash",
       "version": "4.1.0",
       "purl": "pkg:pypi/xxhash@4.1.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "NOASSERTION"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/yfinance@1.8.0",
+      "name": "yfinance",
+      "version": "1.8.0",
+      "purl": "pkg:pypi/yfinance@1.8.0",
       "scope": "required",
       "licenses": [
         {

@@ -172,3 +172,10 @@ faster-whisper>=1.0,<2
 # 13.x publishes manylinux/macos/windows wheels for cp312, so the stack installs
 # from a wheel. Raise this only if 14.x starts shipping wheels again.
 av>=12,<14
+
+# The live-price bridge (`scripts/yfinance_bridge.py`) needs this, and it used to
+# be installed only by `scripts/setup-python.js` - so CI installed the lock, had
+# no yfinance, and every market-data test failed with
+# "ModuleNotFoundError: No module named 'yfinance'". Declaring it here makes the
+# lock the single source of truth for the runtime.
+yfinance>=1.7,<2

@@ -6,6 +6,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(deps): declare `yfinance` so CI installs the runtime the app installs.**
+  `scripts/setup-python.js` pip-installed yfinance as an extra, so the lock never
+  contained it: CI installed the lock, had no yfinance, and every market-data
+  test died with `ModuleNotFoundError: No module named 'yfinance'` (including a
+  collection error in `test_yfinance_bridge_window.py`). It is now declared in
+  `python/requirements.txt` and locked (1.8.0), so the lock is the single source
+  of truth for the runtime. SBOM regenerated: 1,327 components.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): the job needed more than 30 minutes, not a code change.**
   The last run was `cancelled` at exactly 30:15 with **every** step before the
   tests green - the `timeout-minutes: 30` cap was itself the failure. One vitest
