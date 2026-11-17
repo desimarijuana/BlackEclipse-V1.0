@@ -284,6 +284,28 @@ if (personalAuthors.length > 0) {
 // ---------------------------------------------------------------------------
 // 5. Server-side refs: GitHub serves refs/pull/* that no local scan can see.
 // ---------------------------------------------------------------------------
+// One evaluation for both "audit ran and exited 0" and "audit ran and exited 1
+// because it found something" - the JSON is printed either way.
+function consumeRemoteAudit(raw) {
+  const audit = JSON.parse(raw);
+  if (audit.remoteChecked === false) {
+    warn(
+      "the remote could not be read, so refs/pull/* were not audited",
+      "Run `npm run oss:prune-refs` with network access before publishing; an empty list here means 'not checked', not 'clean'."
+    );
+    return;
+  }
+  const leaking = audit.pullRequests || [];
+  if (leaking.length > 0) {
+    fail(
+      `${leaking.length} pull-request ref(s) still reach old history: ${leaking
+        .map((pr) => `${pr.ref} (${pr.reasons.join("; ")})`)
+        .join(", ")}`,
+      "refs/pull/* are server-managed and survive both branch deletion and a force-push. Publish from a freshly created repository (or ask GitHub Support to purge), then re-run this check against the new remote."
+    );
+  }
+}
+
 if (!process.argv.includes("--no-remote") && safeGit(["remote", "get-url", "origin"]).trim()) {
   try {
     const raw = execFileSync(
@@ -291,30 +313,11 @@ if (!process.argv.includes("--no-remote") && safeGit(["remote", "get-url", "orig
       [path.join(siteRoot, "scripts", "prune-stale-refs.js"), "--json"],
       { cwd: siteRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
     );
-    const audit = JSON.parse(raw);
-    const leaking = audit.pullRequests || [];
-    if (leaking.length > 0) {
-      fail(
-        `${leaking.length} pull-request ref(s) still reach old history: ${leaking
-          .map((pr) => `${pr.ref} (${pr.reasons.join("; ")})`)
-          .join(", ")}`,
-        "refs/pull/* are server-managed and survive both branch deletion and a force-push. Publish from a freshly created repository (or ask GitHub Support to purge), then re-run this check against the new remote."
-      );
-    }
+    consumeRemoteAudit(raw);
   } catch (error) {
     if (error.stdout) {
-      // The audit exits non-zero on findings but still prints JSON.
       try {
-        const audit = JSON.parse(error.stdout);
-        const leaking = audit.pullRequests || [];
-        if (leaking.length > 0) {
-          fail(
-            `${leaking.length} pull-request ref(s) still reach old history: ${leaking
-              .map((pr) => `${pr.ref} (${pr.reasons.join("; ")})`)
-              .join(", ")}`,
-            "refs/pull/* are server-managed. Publish from a freshly created repository, then re-run this check."
-          );
-        }
+        consumeRemoteAudit(error.stdout);
       } catch {
         warn(
           "could not audit remote pull-request refs",

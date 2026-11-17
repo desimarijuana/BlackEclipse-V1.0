@@ -27,6 +27,9 @@ function git(args, options = {}) {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
+    // execFileSync inherits stderr by default, which leaked git's own "fatal:"
+    // lines while probing ancestry of objects that are not fetched yet.
+    stdio: ['ignore', 'pipe', 'pipe'],
     ...options,
   });
 }
@@ -114,22 +117,17 @@ const pullNamespace = 'refs/oss-preflight/pull';
 const includeRemote = !process.argv.includes('--no-remote');
 
 function remoteTips() {
-  try {
-    return lines(
-      safeGit([
-        'ls-remote',
-        'origin',
-        'refs/heads/*',
-        'refs/tags/*',
-        'refs/pull/*/head',
-      ]).replace(/\r/g, '')
-    ).map((line) => {
-      const [sha, name] = line.split('\t');
-      return { sha, name };
-    });
-  } catch {
-    return [];
-  }
+  // Throws when the remote cannot be read: "could not check" must never look
+  // like "nothing to find".
+  return lines(
+    git(['ls-remote', 'origin', 'refs/heads/*', 'refs/tags/*', 'refs/pull/*/head']).replace(
+      /\r/g,
+      ''
+    )
+  ).map((line) => {
+    const [sha, name] = line.split('\t');
+    return { sha, name };
+  });
 }
 
 function pruneTempRefs() {
@@ -166,8 +164,17 @@ function prRefReasons(ref) {
 }
 
 const prRefs = [];
+let remoteChecked = false;
 if (includeRemote) {
-  const tips = remoteTips();
+  let tips = [];
+  try {
+    tips = remoteTips();
+    remoteChecked = true;
+  } catch {
+    // Leave remoteChecked false so the caller can say "not checked" instead of
+    // reading an empty list as "clean".
+    tips = [];
+  }
   const live = tips
     .filter((tip) => !tip.name.startsWith('refs/pull/'))
     .map((tip) => tip.sha);
@@ -231,6 +238,7 @@ if (asJson) {
         local: staleLocal,
         tags: staleTags,
         pullRequests: prRefs,
+        remoteChecked,
       },
       null,
       2

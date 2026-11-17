@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **fix(oss): "could not check the remote" is now a warning, not a silent pass.**
+  The first version of the namespace audit returned an empty list when
+  `git ls-remote` failed, so a machine with no network or a missing `origin`
+  reported a clean history it had never looked at - the same failure mode the
+  audit exists to catch. The JSON now carries `remoteChecked`; `check:oss` warns
+  when it is false, and says plainly that an empty list means "not checked".
+  Ancestry probes also stop leaking git's own `fatal:` lines to stderr.
+  Doc change: `docs/CHANGELOG.md`.
+
 - **chore(size): re-pin the harness budget to the measured tree before release.**
   `npm run check:size` failed on `main` (515,462 lines against a 512,280 ceiling;
   `.` +1,404, routers +59, portfolio +7, quant +5) because work landed after the
