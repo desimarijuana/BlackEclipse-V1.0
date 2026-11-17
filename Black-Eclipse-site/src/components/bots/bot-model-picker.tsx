@@ -148,7 +148,7 @@ export function BotModelPicker({ provider, model, onChange }: BotModelPickerProp
       )}
       {phase === 'ready' && usable.length > 0 && !model && (
         <p className="text-[10px] text-muted-foreground">
-          Unpinned bots use the app's default model.
+          Unpinned bots use the app&apos;s default model.
         </p>
       )}
     </div>

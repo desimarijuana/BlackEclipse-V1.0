@@ -40,6 +40,9 @@ const eslintConfig = [
       ".next-desktop/**",
       ".next-desktop-dev/**",
       "releases/**",
+      // The installer payload assembled by `npm run desktop:package` (it vendors
+      // the Python packs, so it contains thousands of plotly/chart JS files).
+      "dist/**",
       "out/**",
       "build/**",
       "next-env.d.ts",

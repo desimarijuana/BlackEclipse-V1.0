@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): the trading-bot commit left three gates red.** `bot-model-picker.tsx`
+  rendered `app's` in JSX text, which `react/no-unescaped-entities` rejects (the
+  only real lint error in the new feature); `eslint .` also walked `dist/`, the
+  installer payload assembled by `npm run desktop:package`, and reported 21k
+  errors inside vendored plotly bundles, so `dist/**` is now ignored; and the size
+  ratchet moves to the measurement taken on a clean clone of the release tree
+  (total 518,087, `.` 40,215, quant 26,984, routers 24,040). Verified: `eslint .`
+  0 errors / 119 warnings, and the size budget passes on a clean clone of HEAD.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **docs(plan): trading bots — real execution and the test ladder.** Added
   `docs/trading-bot-live-testing-plan.md`: (a) demo must be an operator choice,
   not a cage — Live is selectable and the live authorization grants L2 in one
