@@ -6,6 +6,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(eval): a scripted agent repeats its answer instead of scoring a
+  placeholder.** The answer guard (added 2026-11-16) asks for another turn when
+  a reply looks like a bare refusal after a blocked tool route. A scripted
+  evaluation agent cannot improvise, so `ScriptedModel` ran out of script and
+  returned `(evaluation script exhausted)` - which is what the `exact` grader
+  then scored. `adversarial.unavailable.001` (the task asserting an unavailable
+  quote service stays unavailable) regressed from passing to failing that way,
+  and the committed-corpus gate correctly flagged it: task_success 0.9958 →
+  0.9919. The scripted model now repeats its final answer on exhaustion, so the
+  guard's extra turn lands on the same honest reply. Corpus gate: PASS, no
+  regressions; 62 evaluation tests pass. Doc change: `docs/CHANGELOG.md`.
+
 - **fix(ci): three gates that could not pass on a working machine.** (1)
   `npx eslint .` walked `.next-desktop/`, `.next-desktop-dev/` and `releases/` -
   all gitignored build output - reporting 152,862 errors inside vendored

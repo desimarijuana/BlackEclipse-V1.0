@@ -62,6 +62,11 @@ for (let i = 0; i < args.length; i += 1) {
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "be-rsl-nightly-"));
 const env = {
   ...process.env,
+  // The nightly report prints arrows (→) and other non-ASCII; a Windows console
+  // defaults to cp1252 and the CLI then dies with UnicodeEncodeError before it
+  // can report pass/fail. Force UTF-8 for the child instead of degrading the
+  // report to ASCII.
+  PYTHONIOENCODING: process.env.PYTHONIOENCODING || "utf-8",
   PYTHONPATH: pythonDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
   AGENT_MEMORY_DB_PATH:
     process.env.AGENT_MEMORY_DB_PATH || path.join(tempDir, "agent-memory.db"),

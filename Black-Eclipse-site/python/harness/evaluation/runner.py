@@ -93,6 +93,15 @@ class ScriptedModel:
 
     def __init__(self, messages: list[Any]) -> None:
         self._messages = list(messages)
+        # The answer guard can ask for another turn after a scripted final answer
+        # (a "blocked route" recovery). A scripted agent cannot improvise, so the
+        # honest fallback is to repeat its final answer rather than fail the task
+        # with an exhausted-script placeholder - that placeholder used to be what
+        # the `exact` grader scored, turning a correct refusal into a failure.
+        self._final: Any = next(
+            (m for m in reversed(self._messages) if not getattr(m, "tool_calls", None)),
+            None,
+        )
         self.bound_tools: Any = None
 
     def bind_tools(self, tools: Any) -> "ScriptedModel":
@@ -103,6 +112,8 @@ class ScriptedModel:
         from langchain_core.messages import AIMessage  # noqa: PLC0415
 
         if not self._messages:
+            if self._final is not None:
+                return self._final
             return AIMessage(content="(evaluation script exhausted)")
         return self._messages.pop(0)
 
