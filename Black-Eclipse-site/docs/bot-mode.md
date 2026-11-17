@@ -1,7 +1,7 @@
 ---
 title: Bots Mode
 status: Current
-last-verified: 2026-11-10
+last-verified: 2026-11-17
 ---
 
 # Bots Mode
@@ -32,8 +32,10 @@ dialog owns Escape).
 - **Identity**: name, title/description, ghost face (Bot / Generate / Upload /
   Pet) or an uploaded photo.
 - **Brain**: a live agent preset (built-ins + the operator's Settings › Agents
-  presets) or a saved Graph Studio workflow. A workflow bot's message becomes the
-  graph run's Start value. The preset list is never hardcoded in the UI.
+  presets), a saved Graph Studio workflow, or a saved quant **strategy** version.
+  A workflow bot's message becomes the graph run's Start value. A strategy bot
+  decides on the last closed bar and trades; it does not answer from an agent
+  loop. The preset list is never hardcoded in the UI.
   **The same brain answers both chat and scheduled runs**: the interactive turn
   forwards the bot's `agentId` to the chat run, so a bot set to a specialist
   preset does not secretly answer as `eclipse-agent`. An unpinned bot defaults to
@@ -44,6 +46,83 @@ dialog owns Escape).
   bot created elsewhere does not silently shift.
 - **Run behaviour**: misfire policy, concurrency conflict rule, max concurrent
   runs, max attempts, per-run timeout, and an optional provider/model pin.
+
+## Trading bots
+
+A **strategy bot** (`action.type = "run_strategy"`) is an automation whose brain
+is one saved strategy version. It is created as a draft, then **prepared**: the
+server checks the approval + backtest, creates a bounded trial/mandate and stores
+the operator's standing consent on the bot. Only then is it activated.
+
+- **Modes**: `shadow` (decide, send nothing), `demo`, `live`.
+- **Auto mode**: the operator types the consent phrase ONCE. `action.config.consent`
+  is a standing grant (modes, symbols, orders/day, margin, positions, expiry); the
+  bot renews its own bounded mandate while it is valid. Revoking is one PATCH; an
+  objective/strategy edit bumps the version and invalidates the mandate.
+- **Authority**: L0 proposes, L1 fills demo, L2 fills live. It lives on
+  `definition.executionAuthority` and is enforced at submit by `trade/authority.py`.
+  Live also needs an armed connection and a bot-pinned mandate.
+- **Decisions**: every run persists a `DecisionRecord` on the execution —
+  including "no signal", "session closed" and every refusal code. Run history and
+  the Trading section both read it, so "why didn't it trade?" is answerable.
+- **Learning**: repeated failures (same code, N times) become one concrete
+  proposal in `src/lib/bots/trading/learning.ts`. The bot shows the proposal and
+  waits; applying it patches config/authority and re-prepares under the standing
+  consent. It can only tighten on its own.
+- **Visual teaching**: up to 4 bounded images with captions. In a chat turn and
+  on a scheduled agent run the image is sent as a REAL image part (the provider
+  decides whether it can see it); a text block labels it as pattern guidance,
+  never live market data.
+- **Multi-symbol**: with "scan the universe each bar", the runner evaluates every
+  symbol and acts on the first actionable signal (exits first, then the highest
+  score). Without it, the bot is pinned to its first symbol. The trading panel's
+  **Find trades** button runs the same last-bar scan and can adopt the
+  actionable symbols as the universe (then re-prepares under the standing
+  consent). A scan is a condition, never an order.
+- **Learning in chat**: a trading bot's chat turn carries a lesson digest built
+  from its own recent decisions, so "why didn't you trade?" and "can we improve?"
+  are answered from real refusal codes. The bot may propose; it may not apply.
+
+Lifecycle: pausing, disabling, archiving or deleting a trading bot revokes its
+mandates and stops its trial. Open positions are **never** closed automatically;
+the operator closes them explicitly.
+
+### Agent trading bots
+
+An **agent** bot (the normal LLM brain) can trade too. Turning trading on gives it
+the same leash and a bot-pinned mandate: `prepare` takes an agent bot straight to a
+`MANDATE DEMO|LIVE <label>` (no strategy trial), then stores the same standing
+consent. At L0 it proposes with `order_preview`; at L1 it may fill a demo account;
+at L2 it may fill live under the mandate. The agent still decides with its tools —
+this does not create a second order path.
+
+- **Brain is editable after creation**: an agent bot's preset and model, a
+  workflow bot's workflow (with a Graph Studio link), and a strategy bot's pinned
+  strategy (re-prepared under the standing consent). Every edit goes through the
+  real automation API and bumps the version.
+- **The New-bot strategy list is a catalog, not a dropdown**: search, evidence
+  badges (backtest/approval/paper), archived toggle, Refresh, and “Open in
+  Strategy Studio”. It reads the same shared catalog as the studio, so an
+  agent-made strategy appears after the next refresh or turn completion.
+- **Trading authorization is gated and remembered**: Authorize is disabled while
+  the selected broker is unavailable (with the terminal reason), live needs L2
+  plus an armed connection; the L0/L1/L2 ladder shows what L2 requires and offers
+  the request once the measurable gates pass; the last used venue is preselected
+  when a bot has none.
+
+### The EUR/USD 1-minute starter
+The Bots empty state has one button, **EUR/USD 1-minute bot**. It seeds a complete,
+honest vertical: the strategy `eurusd_m1_ema_rsi` (EMA 9/21 cross with an RSI veto,
+ATR 1.5 stop, 1.5R target, spread/slippage modelled), a **90-day 1-minute
+backtest** as evidence, an approval note for shadow execution, the automation
+(a 60-second interval, `misfire: skip`, one position, four orders a day, a
+5-minute cooldown, London hours) and a **shadow** trial. It is idempotent by name
+and every gate failure says which gate blocked it.
+
+It starts in shadow so it cannot place money without you. Open its **Trading**
+panel, type the consent phrase once (demo or live), and from then on it renews its
+own bounded mandate — no repeated phrases. Live additionally needs tier L2 and an
+armed connection.
 
 ## Conversation durability
 

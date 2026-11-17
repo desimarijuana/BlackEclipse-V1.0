@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS QuantLiveTrial (
   maxMargin REAL NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'ready',
   note TEXT,
+  mode TEXT NOT NULL DEFAULT 'live',
+  botId TEXT,
+  botVersion INTEGER,
+  automationId TEXT,
   lastSignalJson TEXT,
   lastResultJson TEXT,
   ordersUsed INTEGER NOT NULL DEFAULT 0,
@@ -116,12 +120,20 @@ class LiveStrategyService:
         self._oms = OrderStore(quant_store)
         self._risk = RiskState(quant_store)
         self._db.executescript(_SCHEMA)
-        for column in ("stopLossPoints", "takeProfitPoints"):
-            cols = {row["name"] for row in
-                    self._db.execute("PRAGMA table_info(QuantLiveTrial)").fetchall()}
+        # Additive migrations: a trial gained SL/TP points, then the bot binding
+        # (mode + bot/automation pins) for strategy bots. CREATE-if-not-exists is
+        # not enough for an existing database.
+        cols = {row["name"] for row in self._db.execute("PRAGMA table_info(QuantLiveTrial)")}
+        for column, ddl in (
+            ("stopLossPoints", "REAL NOT NULL DEFAULT 0"),
+            ("takeProfitPoints", "REAL NOT NULL DEFAULT 0"),
+            ("mode", "TEXT NOT NULL DEFAULT 'live'"),
+            ("botId", "TEXT"),
+            ("botVersion", "INTEGER"),
+            ("automationId", "TEXT"),
+        ):
             if column not in cols:
-                self._db.execute(
-                    f"ALTER TABLE QuantLiveTrial ADD COLUMN {column} REAL NOT NULL DEFAULT 0")
+                self._db.execute(f"ALTER TABLE QuantLiveTrial ADD COLUMN {column} {ddl}")
         self._db.commit()
 
     @property
@@ -170,8 +182,9 @@ class LiveStrategyService:
         *,
         strategy_id: str,
         version: str,
-        connection_id: str,
+        connection_id: str = "",
         symbols: list[str],
+        mode: str = "live",
         timeframe: str = "H1",
         volume: float = 0.01,
         stop_loss_points: float = 100.0,
@@ -181,53 +194,137 @@ class LiveStrategyService:
         ttl_seconds: int = 3600,
         confirmation: str = "",
         note: str = "",
+        bot_id: str = "",
+        bot_version: int | None = None,
+        automation_id: str = "",
+        standing_consent: bool = False,
     ) -> dict[str, Any]:
+        """Prepare a governed trial for a strategy, a live trial or a bot.
+
+        `shadow` needs no broker and no phrase: it only evaluates the strategy.
+        `demo`/`live` create a bounded mandate (the executive authority) and the
+        operator types the phrase ONCE. A bot carries `botId` + `botVersion`; the
+        mandate is pinned to both, so editing the bot invalidates it.
+        """
+        mode = str(mode or "live").lower()
+        if mode not in ("shadow", "demo", "live"):
+            raise QuantError("mode must be shadow, demo or live")
         spec = self.store.get_strategy(strategy_id, version)
-        self._approval(strategy_id, version)
+        if spec is None:
+            raise LiveGateError(
+                "STRATEGY_UNAVAILABLE",
+                f"strategy {strategy_id!r} version {version!r} does not exist",
+            )
+        # Evidence is required for every mode; approval is a money gate.
         self._backtest(strategy_id, version)
-        expected = f"LIVE TRIAL {strategy_id} {version}"
-        if str(confirmation or "").strip() != expected:
-            raise LiveGateError("CONFIRMATION_REQUIRED", f"type {expected!r} exactly to create this live trial", detail={"requiredPhrase": expected})
         if not symbols:
             raise QuantError("symbols are required")
-        connection = self.broker.get_connection(connection_id)
-        if str(connection.get("mode") or "") != "live":
-            raise LiveGateError("LIVE_CONNECTION_REQUIRED", "the selected broker connection is not live")
-        if not _future(connection.get("armedUntil")):
-            raise LiveGateError("LIVE_NOT_ARMED", "arm the live connection before creating a live trial", detail={"connectionId": connection_id})
-        if max_margin <= 0:
-            raise LiveGateError("MAX_MARGIN_REQUIRED", "a positive maxMargin is required for a live trial")
+        cleaned = [str(s).strip().upper() for s in symbols if str(s).strip()]
         pin = f"strategy:{strategy_id}:{version}"
-        mandate = self.broker.create_mandate(connection_id, {
-            "mode": "live",
-            "symbols": [s.upper() for s in symbols],
+
+        if mode == "shadow":
+            return self._insert_trial(
+                strategy_id=strategy_id, version=version, connection_id="",
+                mandate_id="", pin=pin, symbols=cleaned, mode=mode,
+                timeframe=timeframe, volume=volume,
+                stop_loss_points=stop_loss_points,
+                take_profit_points=take_profit_points,
+                max_orders=max_orders, max_margin=max_margin,
+                note=note, bot_id=bot_id, bot_version=bot_version,
+                automation_id=automation_id, warnings=[],
+            )
+
+        self._approval(strategy_id, version)
+        if not connection_id:
+            raise QuantError("a demo/live trial needs a broker connection")
+        connection = self.broker.get_connection(connection_id)
+        if str(connection.get("mode") or "") != mode:
+            raise LiveGateError(
+                "MODE_MISMATCH",
+                f"the selected connection is {connection.get('mode')!s}, not {mode}",
+            )
+        label = str(connection.get("label") or "")
+        if mode == "live":
+            expected = f"LIVE TRIAL {strategy_id} {version}"
+            if not _future(connection.get("armedUntil")):
+                raise LiveGateError(
+                    "LIVE_NOT_ARMED",
+                    "arm the live connection before creating a live trial",
+                    detail={"connectionId": connection_id},
+                )
+            if max_margin <= 0:
+                raise LiveGateError(
+                    "MAX_MARGIN_REQUIRED",
+                    "a positive maxMargin is required for a live trial",
+                )
+        else:
+            expected = f"MANDATE DEMO {label}"
+        if str(confirmation or "").strip() != expected and not standing_consent:
+            raise LiveGateError(
+                "CONFIRMATION_REQUIRED",
+                f"type {expected!r} exactly to create this trial",
+                detail={"requiredPhrase": expected},
+            )
+
+        mandate_payload: dict[str, Any] = {
+            "mode": mode,
+            "symbols": cleaned,
             "maxOrders": int(max_orders),
             "maxMargin": float(max_margin),
             "ttlSeconds": int(ttl_seconds),
-            "workflowId": pin,
-            "workflowVersion": 1,
-            "confirmation": f"MANDATE LIVE {connection.get('label', '')}",
-            "note": f"live strategy trial {strategy_id} v{version}",
-        })
+            "confirmation": f"MANDATE {mode.upper()} {label}",
+            "note": f"{mode} strategy trial {strategy_id} v{version}",
+        }
+        if bot_id:
+            # Exactly one pin: a live mandate requires it; a demo mandate accepts
+            # it so the same invalidation rule applies to demo authority too.
+            mandate_payload["botId"] = bot_id
+            mandate_payload["botVersion"] = bot_version
+        else:
+            mandate_payload["workflowId"] = pin
+            mandate_payload["workflowVersion"] = 1
+        mandate = self.broker.create_mandate(connection_id, mandate_payload)
+
+        return self._insert_trial(
+            strategy_id=strategy_id, version=version,
+            connection_id=str(connection_id), mandate_id=mandate["id"], pin=pin,
+            symbols=cleaned, mode=mode, timeframe=timeframe, volume=volume,
+            stop_loss_points=stop_loss_points,
+            take_profit_points=take_profit_points,
+            max_orders=max_orders, max_margin=max_margin, note=note,
+            bot_id=bot_id, bot_version=bot_version, automation_id=automation_id,
+            warnings=self._paper_warning(strategy_id) if mode == "live" else [],
+            mandate=mandate,
+        )
+
+    def _insert_trial(
+        self, *, strategy_id: str, version: str, connection_id: str,
+        mandate_id: str, pin: str, symbols: list[str], mode: str,
+        timeframe: str, volume: float, stop_loss_points: float,
+        take_profit_points: float, max_orders: int, max_margin: float,
+        note: str, bot_id: str, bot_version: int | None, automation_id: str,
+        warnings: list[str], mandate: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         trial_id = f"live_{uuid.uuid4().hex[:16]}"
         now = _now()
         self._db.execute(
             "INSERT INTO QuantLiveTrial "
             "(id,strategyId,strategyVersion,connectionId,mandateId,pin,symbolsJson,"
             "timeframe,volume,stopLossPoints,takeProfitPoints,maxOrders,maxMargin,"
-            "status,note,lastSignalJson,lastResultJson,ordersUsed,createdAt,"
-            "updatedAt,stoppedAt) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
-            (trial_id, strategy_id, version, connection_id, mandate["id"], pin,
-             _json([s.upper() for s in symbols]), timeframe, float(volume),
-             float(stop_loss_points), float(take_profit_points),
-             int(max_orders), float(max_margin), "ready", note, None, None, 0,
-             now, now),
+            "status,note,mode,botId,botVersion,automationId,lastSignalJson,"
+            "lastResultJson,ordersUsed,createdAt,updatedAt,stoppedAt) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
+            (trial_id, strategy_id, version, connection_id, mandate_id, pin,
+             _json(symbols), timeframe, float(volume), float(stop_loss_points),
+             float(take_profit_points), int(max_orders), float(max_margin),
+             "ready", note, mode, bot_id or None, bot_version, automation_id or None,
+             None, None, 0, now, now),
         )
         self._db.commit()
         trial = self.get(trial_id)
-        trial["warnings"] = self._paper_warning(strategy_id)
-        trial["mandate"] = mandate
+        trial["warnings"] = list(warnings)
+        if mandate is not None:
+            trial["mandate"] = mandate
         return trial
 
     def get(self, trial_id: str) -> dict[str, Any]:
@@ -270,6 +367,10 @@ class LiveStrategyService:
             "maxMargin": row["maxMargin"],
             "status": row["status"],
             "note": row["note"],
+            "mode": row["mode"] if "mode" in row.keys() else "live",
+            "botId": row["botId"] if "botId" in row.keys() else None,
+            "botVersion": row["botVersion"] if "botVersion" in row.keys() else None,
+            "automationId": row["automationId"] if "automationId" in row.keys() else None,
             "lastSignal": _loads(row["lastSignalJson"], None),
             "lastResult": _loads(row["lastResultJson"], None),
             "ordersUsed": row["ordersUsed"],
@@ -350,6 +451,8 @@ class LiveStrategyService:
     async def run_once(
         self, trial_id: str, *, gateway: Any = None, volume: float | None = None,
         symbol: str | None = None, dataset: Any = None,
+        automation_id: str = "", bot_version: int | None = None,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         trial = self.get(trial_id)
         if trial["status"] not in ("ready", "running", "paused"):
@@ -451,6 +554,23 @@ class LiveStrategyService:
                         return result
                     key = order_key(trial["strategyId"], trial["strategyVersion"],
                                     trial.get("timeframe"), bar_ts)
+                    if dry_run:
+                        # Preview only: the broker's own order_check + policy +
+                        # guardrails. No send, no approval row, no mandate use.
+                        order = self.broker.preview_order(
+                            trial["connectionId"], payload,
+                            record_approval=False, run_id="",
+                        )
+                        result["order"] = order
+                        result["dryRun"] = True
+                        result["message"] = (
+                            "Preview allowed: " + str(order.get("status") or "checked")
+                            if order.get("status") not in ("REFUSED",)
+                            else "Preview refused: " + "; ".join(order.get("reasons") or [])
+                        )
+                        self._runner.finish(run_id, state="done")
+                        self._update(trial_id, lastResultJson=_json(result))
+                        return result
                     oms = self._oms.create(payload, key=key)
                     self._oms.transition(oms["id"], "validated",
                                          detail="risk passed")
@@ -461,6 +581,10 @@ class LiveStrategyService:
                         mandate_id=trial["mandateId"] or "",
                         run_id=trial_id, workflow_id=trial["pin"],
                         node_id="quant_strategy",
+                        automation_id=automation_id,
+                        automation_version=bot_version,
+                        bot_id=automation_id,
+                        bot_version=bot_version,
                     )
                     oms = self._oms.reconcile(oms["id"], order)
                     result["oms"] = oms
@@ -480,9 +604,26 @@ class LiveStrategyService:
             trial_id,
             status="running" if action != "none" else trial["status"],
             lastResultJson=_json(result),
-            ordersUsed=int(trial["ordersUsed"]) + (1 if result.get("order") else 0),
+            ordersUsed=int(trial["ordersUsed"]) + (
+                1 if result.get("order") and not dry_run else 0),
         )
         return result
+
+    def stop_by_bot(self, bot_id: str) -> list[dict[str, Any]]:
+        """Stop every trial pinned to this bot. Positions are never closed here."""
+        if not bot_id:
+            return []
+        rows = self._db.execute(
+            "SELECT id FROM QuantLiveTrial WHERE botId=? AND status!='stopped'",
+            (str(bot_id),),
+        ).fetchall()
+        stopped: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                stopped.append(self.stop(row["id"]))
+            except Exception:  # noqa: BLE001 - one bad row must not block the rest
+                continue
+        return stopped
 
     def _open_positions(self, trial: dict[str, Any], symbol: str) -> list[dict[str, Any]]:
         try:

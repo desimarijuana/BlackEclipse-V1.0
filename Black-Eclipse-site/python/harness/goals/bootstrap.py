@@ -51,11 +51,39 @@ class AutonomyService:
     def resume_goal(self, goal_id: str) -> Any:
         return self.goals.resume(goal_id)
 
+    def extend_goal(self, goal_id: str, extra_turns: int = 5) -> Any:
+        return self.goals.extend(goal_id, extra_turns)
+
+    async def reevaluate_goal(self, goal_id: str) -> Any:
+        return await self.goals.reevaluate(goal_id)
+
+    def repair_open_turns(self) -> int:
+        return self.goals.repair_open_turns()
+
     def cancel_goal(self, goal_id: str) -> Any:
         return self.goals.cancel(goal_id)
 
     def verdicts(self, goal_id: str) -> list[dict[str, Any]]:
         return self.goals.verdicts(goal_id)
+
+    def view(self, goal: Any) -> dict[str, Any]:
+        """The goal DTO plus its current task phase (queued/running/...).
+
+        A goal is `active` from the moment it is created, but its turn may be
+        QUEUED behind the scheduler for a while. The status strip needs that
+        distinction to say "queued" instead of implying work is in flight.
+        """
+        data = goal.to_dict()
+        task_status = None
+        try:
+            manager = getattr(self.service, "tasks", None)
+            task = manager.get_task(goal.task_id) if manager and goal.task_id else None
+            if task is not None:
+                task_status = task.status.value
+        except Exception:  # noqa: BLE001 - a missing task is not a failed view
+            task_status = None
+        data["taskStatus"] = task_status
+        return data
 
     # ── Loops ────────────────────────────────────────────────────────────────
     def create_loop(self, session_id: str, **kwargs: Any) -> Any:

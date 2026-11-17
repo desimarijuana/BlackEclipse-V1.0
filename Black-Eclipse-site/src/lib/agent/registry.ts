@@ -248,6 +248,7 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
     uiContext: options?.uiContext,
     memoryScope: options?.memoryScope,
     projectId,
+    images: options?.images,
   };
 }
 

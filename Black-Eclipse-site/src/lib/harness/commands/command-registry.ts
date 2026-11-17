@@ -84,6 +84,8 @@ export interface CommandFlagSpec {
   default?: string | number | boolean;
   /** A single-dash alias, e.g. `-d` for `--depth`. */
   alias?: string;
+  /** A valued flag may be repeated; the value is then an array. */
+  repeatable?: boolean;
 }
 
 export interface CommandPermissionSpec {

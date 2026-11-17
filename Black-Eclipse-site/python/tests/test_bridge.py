@@ -92,6 +92,50 @@ async def test_a_timeout_is_never_retried(monkeypatch):
     assert factory.calls == 1
 
 
+@pytest.mark.asyncio
+async def test_price_history_serves_the_last_good_read_on_timeout(monkeypatch):
+    """A slow series read falls back to the cached one, marked STALE."""
+    calls = {"n": 0}
+    payload = {
+        "status": "OK", "symbol": "MSFT", "series": [{"close": 1.0}],
+        "retrievedAt": "2026-11-17T00:00:00Z",
+    }
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return payload
+
+    class _Client:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _Resp()
+            raise httpx.ReadTimeout("slow")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    bridge = HttpDataBridge("http://127.0.0.1:3000", None)
+    first = await bridge.fetch("price_history", {"symbol": "MSFT"})
+    assert first["status"] == "OK"
+    second = await bridge.fetch("price_history", {"symbol": "MSFT"})
+    assert second["status"] == "STALE"
+    assert second["stale"] is True and second["cached"] is True
+    assert second["series"] == payload["series"]
+    # A different query never borrows another symbol's series.
+    third = await bridge.fetch("price_history", {"symbol": "AAPL"})
+    assert third["status"] == "UNAVAILABLE"
+
+
 # --- the live lane's preflight -------------------------------------------
 from harness.evaluation import live_gate  # noqa: E402
 

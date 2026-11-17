@@ -6,9 +6,9 @@
 // from a `'use client'` component is what pulled `fs`/`child_process` into the
 // browser bundle and broke the build.
 
-import type { GoalView, LoopView } from './autonomy-client';
+import type { AutonomyHealth, GoalView, GoalVerdictView, LoopView } from './autonomy-client';
 
-export type { GoalView, LoopView };
+export type { AutonomyHealth, GoalView, GoalVerdictView, LoopView };
 
 async function request<T>(url: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const { timeoutMs = 30_000, ...rest } = init;
@@ -41,6 +41,11 @@ function queryString(params: { sessionId?: string; status?: string }): string {
 
 // ── Goals ────────────────────────────────────────────────────────────────────
 
+export async function getHealth(): Promise<AutonomyHealth> {
+  const body = await request<{ health: AutonomyHealth }>('/api/autonomy/health', { method: 'GET' });
+  return body.health;
+}
+
 export async function listGoals(params: { sessionId?: string; status?: string } = {}): Promise<GoalView[]> {
   const body = await request<{ goals: GoalView[] }>(`/api/goals${queryString(params)}`, { method: 'GET' });
   return body.goals ?? [];
@@ -68,6 +73,31 @@ export async function cancelGoal(id: string): Promise<GoalView> {
     body: JSON.stringify({}),
   });
   return body.goal;
+}
+
+export async function extendGoal(id: string, turns = 5): Promise<GoalView> {
+  const body = await request<{ goal: GoalView }>(`/api/goals/${encodeURIComponent(id)}/extend`, {
+    method: 'POST',
+    body: JSON.stringify({ turns }),
+  });
+  return body.goal;
+}
+
+export async function reevaluateGoal(id: string): Promise<GoalView> {
+  const body = await request<{ goal: GoalView }>(`/api/goals/${encodeURIComponent(id)}/reevaluate`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    timeoutMs: 180_000,
+  });
+  return body.goal;
+}
+
+export async function goalVerdictHistory(id: string): Promise<GoalVerdictView[]> {
+  const body = await request<{ verdicts: GoalVerdictView[] }>(
+    `/api/goals/${encodeURIComponent(id)}/verdicts`,
+    { method: 'GET' },
+  );
+  return body.verdicts ?? [];
 }
 
 // ── Loops / heartbeats ───────────────────────────────────────────────────────

@@ -51,23 +51,29 @@ def _has_any(text: str, phrases: tuple[str, ...]) -> bool:
     return False
 
 
-# Ordered most-specific-first; the FIRST matching class wins. Every phrase is
-# matched on word boundaries so "performance" never matches "form".
+# An explicit construction verb makes the work CODE regardless of the domain
+# nouns around it ("build a portfolio dashboard"). A bare code NOUN is only a
+# fallback: "data available in this app" must not turn a finance/backtest goal
+# into a code task whose verifier can never pass.
+_CODE_ACTIONS: tuple[str, ...] = (
+    "build", "implement", "code", "refactor", "fix", "debug", "compile",
+    "script", "program",
+)
+_CODE_NOUNS: tuple[str, ...] = (
+    "app", "application", "api", "endpoint", "function", "class", "component",
+    "module", "library", "cli", "website", "web app", "widget", "dashboard",
+    "page", "route", "tests", "unit test", "integration test", "bug", "patch",
+)
+
+# Ordered most-specific-first; the FIRST matching class wins. CODE is handled
+# separately above (an action verb wins; a bare noun is the last fallback), so
+# a domain signal always beats a passing mention of a code noun.
 _TASK_TYPE_RULES: tuple[tuple[TaskType, tuple[str, ...]], ...] = (
-    (TaskType.CODE, (
-        "build", "implement", "code", "refactor", "fix", "debug", "compile",
-        "script", "program", "app", "application", "api", "endpoint", "function",
-        "class", "component", "module", "library", "cli", "website", "web app",
-        "tests", "unit test", "integration test", "bug", "patch",
-        # UI construction (the W0 clock class of request): a widget/page change
-        # is code work even when it never says "code".
-        "widget", "dashboard", "page", "route",
-    )),
     (TaskType.WORKFLOW, (
         "automate", "automation", "schedule", "recurring", "every day", "daily",
         "weekly", "pipeline", "workflow", "monitor", "trigger", "cron", "etl",
     )),
-    # A named production verb ("write a report") makes the DOCUMENT the goal —
+    # A named production verb ("write a report") makes the DOCUMENT the goal -
     # checked before the research words it may also contain.
     (TaskType.DOCUMENT, (
         "report", "document", "memo", "write up", "write-up", "draft",
@@ -198,9 +204,13 @@ def parse_required_sections(text: str) -> list[str]:
 def classify_task_type(request: str) -> TaskType:
     """The deterministic task-type key for a request (never a model call)."""
     text = (request or "").lower()
+    if _has_any(text, _CODE_ACTIONS):
+        return TaskType.CODE
     for task_type, phrases in _TASK_TYPE_RULES:
         if _has_any(text, phrases):
             return task_type
+    if _has_any(text, _CODE_NOUNS):
+        return TaskType.CODE
     return TaskType.GENERAL
 
 

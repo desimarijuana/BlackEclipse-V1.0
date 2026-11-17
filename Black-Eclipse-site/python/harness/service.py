@@ -1867,6 +1867,23 @@ class AgenticService:
         if scheduler is None:
             return
         try:
+            # Re-queue goal turns stranded by the old `start_task` enqueue path
+            # before the scheduler starts, or they stay invisible forever.
+            manager = getattr(self, "tasks", None)
+            if manager is not None:
+                repaired = manager.repair_orphaned_goal_tasks()
+                if repaired:
+                    log.warning("recovered %d stranded goal turn(s)", repaired)
+            # A turn queued inside a COMPLETED plan is equally invisible; reopen
+            # the plan for an active/paused goal that still has work.
+            autonomy = getattr(self, "autonomy", None)
+            if autonomy is not None:
+                reopened = autonomy.repair_open_turns()
+                if reopened:
+                    log.warning("reopened %d goal plan(s) with queued turns", reopened)
+        except Exception:  # noqa: BLE001 - a repair must never block boot
+            log.warning("stranded goal repair failed", exc_info=True)
+        try:
             await scheduler.start()
         except Exception:  # noqa: BLE001 - the scheduler must never block boot
             log.warning("task scheduler failed to start", exc_info=True)

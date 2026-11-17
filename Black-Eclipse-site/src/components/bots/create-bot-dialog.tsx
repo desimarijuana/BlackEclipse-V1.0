@@ -22,8 +22,13 @@ import { BotModelPicker } from '@/components/bots/bot-model-picker';
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { createAutomation, type AutomationView } from '@/lib/harness/clients/automation-browser';
+import { createAutomation, prepareBotTrading, updateAutomation, type AutomationView } from '@/lib/harness/clients/automation-browser';
 import { listWorkflows, type WorkflowSummary } from '@/lib/graph-studio/persistence-client';
+import { TradingSetupPanel } from '@/components/bots/trading/trading-setup-panel';
+import {
+  buildTradingAction, buildTradingAuthority, parseSymbols, validateTradingDraft,
+  type TradingConsent, type TradingContext,
+} from '@/lib/bots/trading';
 import { useBotAvatarStore } from '@/lib/bots/avatar-store';
 import { fileToAvatarDataUrl } from '@/lib/bots/image';
 import { useAgentChoices } from '@/lib/agent-presets/use-agent-choices';
@@ -74,6 +79,11 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
   const [description, setDescription] = useState('');
   const [draft, setDraft] = useState<BotDraft>(() => emptyBotDraft());
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [tradingConsent, setTradingConsent] = useState<TradingConsent | null>(null);
+  const [tradingContext, setTradingContext] = useState<TradingContext>({
+    strategies: [],
+    connections: [],
+  });
   // True once the operator edits the schedule by hand in Advanced — after that,
   // a schedule phrase in the description must NOT override their explicit choice.
   const [scheduleTouched, setScheduleTouched] = useState(false);
@@ -220,7 +230,14 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
     setName(candidate);
     setTitle(source.description ?? '');
     setDescription(source.action.objective ?? source.description ?? '');
-    setDraft({ ...base, name: candidate });
+    setDraft({
+      ...base,
+      name: candidate,
+      // A copy never inherits another bot's market authority: the trial and the
+      // consent are per-bot and must be granted again.
+      trading: { ...base.trading, trialId: '', consent: null, consentPhrase: '' },
+    });
+    setTradingConsent(null);
     setIssues([]);
     // The objective text must not re-detect a schedule over the copied one.
     setScheduleTouched(true);
@@ -245,6 +262,14 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
     }
   };
 
+  const tradingCheck = useMemo(
+    () =>
+      validateTradingDraft(draft.trading, tradingContext, tradingConsent, {
+        requireStrategy: draft.kind === 'strategy',
+      }),
+    [draft.trading, draft.kind, tradingContext, tradingConsent],
+  );
+
   const create = useCallback(async () => {
     if (saving) return;
     const nextDraft: BotDraft = { ...draft, name: name.trim(), objective: description.trim() };
@@ -257,6 +282,16 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
     if (nameKey && existingNames.some((n) => n.trim().toLowerCase() === nameKey)) {
       found.push({ field: 'name', message: t('bots.create.duplicate') });
     }
+    const isStrategy = nextDraft.kind === 'strategy';
+    const agentTrading =
+      nextDraft.kind === 'agent' &&
+      nextDraft.trading.enabled &&
+      nextDraft.trading.mode !== 'shadow';
+    if (isStrategy || agentTrading) {
+      for (const issue of tradingCheck.issues) {
+        if (issue.severity === 'error') found.push({ field: 'trading', message: issue.message });
+      }
+    }
     setIssues(found);
     if (found.length) return;
     // A reused bot that runs on a cadence starts PAUSED: two copies firing at
@@ -266,29 +301,99 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
     setSaving(true);
     setError(null);
     try {
-      const bot = await createAutomation({
+      let bot = await createAutomation({
         name: nextDraft.name,
         description: title.trim() || undefined,
-        state: cloneScheduled ? 'draft' : 'active',
+        // A strategy bot is created as a DRAFT: trading is prepared (trial +
+        // mandate + consent) before it is allowed to run. A failure leaves a
+        // visible draft instead of a bot that silently never trades.
+        state: isStrategy || agentTrading ? 'draft' : cloneScheduled ? 'draft' : 'active',
         trigger: buildTrigger(nextDraft),
-        action: nextDraft.kind === 'workflow'
+        action: isStrategy
           ? {
-              type: 'execute_workflow',
+              type: 'run_strategy' as const,
               objective: nextDraft.objective,
+              config: buildTradingAction(nextDraft.trading, nextDraft.objective, tradingConsent)
+                .config as unknown as Record<string, unknown>,
               workflowId: null,
+              agentId: null,
               workflowInput: {},
-              config: {
-                graphWorkflowId: nextDraft.workflowId,
-                graphWorkflowName: workflows.find((w) => w.id === nextDraft.workflowId)?.name ?? null,
-              },
+              toolName: null,
+              toolArgs: {},
+              taskTitle: null,
+              skillId: null,
+              skillVersion: null,
+              workspaceRoot: null,
+              autonomy: null,
+              notificationTemplate: null,
+              credentialRef: null,
             }
-          : {
-              type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId,
-              config: buildModelConfig(nextDraft),
-            },
+          : nextDraft.kind === 'workflow'
+            ? {
+                type: 'execute_workflow',
+                objective: nextDraft.objective,
+                workflowId: null,
+                workflowInput: {},
+                config: {
+                  graphWorkflowId: nextDraft.workflowId,
+                  graphWorkflowName: workflows.find((w) => w.id === nextDraft.workflowId)?.name ?? null,
+                },
+              }
+            : {
+                type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId,
+                config: {
+                  ...buildModelConfig(nextDraft),
+                  // A trading agent carries its mode and reference images into
+                  // every chat/scheduled turn (the persona reads them).
+                  ...(nextDraft.trading.enabled
+                    ? {
+                        mode: nextDraft.trading.mode,
+                        visuals: nextDraft.trading.visuals,
+                      }
+                    : {}),
+                },
+              },
+        executionAuthority: buildTradingAuthority(nextDraft.trading),
         ...buildPolicies(nextDraft),
-        tags: ['bot'],
+        tags: isStrategy ? ['bot', 'trading'] : ['bot'],
       });
+
+      if (isStrategy || agentTrading) {
+        const trading = nextDraft.trading;
+        try {
+          const prepared = await prepareBotTrading(bot.id, {
+            strategyId: isStrategy ? trading.strategyId : "",
+            strategyVersion: isStrategy ? trading.strategyVersion : "",
+            mode: trading.mode,
+            connectionId: trading.connectionId,
+            symbols: parseSymbols(trading.symbolsText),
+            timeframe: trading.timeframe,
+            volume: trading.volume,
+            stopLossPoints: trading.stopLossPoints,
+            takeProfitPoints: trading.takeProfitPoints,
+            maxOrders: trading.maxOrdersPerDay,
+            maxMargin: trading.maxMarginPerOrder,
+            confirmation: trading.mode === 'shadow' ? '' : trading.consentPhrase,
+          });
+          bot = prepared.automation;
+          if (!cloneScheduled) {
+            bot = await updateAutomation(bot.id, { state: 'active' });
+          }
+        } catch (err) {
+          // The bot exists as a draft; say exactly that. No half-prepared bot is
+          // ever activated, and the operator can retry from its panel.
+          setAvatar(bot.id, spec);
+          setAvatarImage(bot.id, image);
+          onCreated(bot);
+          setError(
+            `Bot created as a draft, but trading could not be prepared: ${
+              err instanceof Error ? err.message : 'unknown error'
+            }. Open it and retry.`,
+          );
+          return;
+        }
+      }
+
       setAvatar(bot.id, spec);
       setAvatarImage(bot.id, image);
       onCreated(bot);
@@ -298,7 +403,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
     } finally {
       setSaving(false);
     }
-  }, [saving, draft, name, description, title, nameKey, existingNames, t, spec, image, workflows, onCreated, onOpenChange, setAvatar, setAvatarImage, agentChoices, agentChoicesError, reuseSource]);
+  }, [saving, draft, name, description, title, nameKey, existingNames, t, spec, image, workflows, onCreated, onOpenChange, setAvatar, setAvatarImage, agentChoices, agentChoicesError, reuseSource, tradingCheck, tradingConsent]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
@@ -472,7 +577,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
 
         {/* Identity fields */}
         <div className="space-y-3">
-          <Field label={t('bots.dialog.name')} htmlFor="new-bot-name">
+          <Field label={`${t('bots.dialog.name')} *`} htmlFor="new-bot-name">
             <Input
               id="new-bot-name"
               value={name}
@@ -490,7 +595,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
               placeholder={t('bots.dialog.titlePlaceholder')}
             />
           </Field>
-          <Field label={t('bots.dialog.description')} htmlFor="new-bot-description">
+          <Field label={`${t('bots.dialog.description')} *`} htmlFor="new-bot-description">
             <textarea
               id="new-bot-description"
               value={description}
@@ -509,10 +614,10 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
           </Field>
         </div>
 
-        {/* Brain — the existing agent loop, or a saved workflow graph. */}
+        {/* Brain — the existing agent loop, a saved workflow graph, or a strategy. */}
         <div>
           <div className="mb-1 text-[11px] font-medium text-muted-foreground">Brain</div>
-          <div className="grid grid-cols-2 gap-1 rounded-xl glass-card-subtle p-1">
+          <div className="grid grid-cols-3 gap-1 rounded-xl glass-card-subtle p-1">
             <button
               type="button"
               onClick={() => setDraft((d) => ({ ...d, kind: 'agent' }))}
@@ -532,6 +637,22 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
               )}
             >
               Workflow
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setDraft((d) => ({
+                  ...d,
+                  kind: 'strategy',
+                  trading: { ...d.trading, enabled: true },
+                }))
+              }
+              className={cn(
+                'rounded-lg py-1.5 text-xs font-semibold transition-colors cursor-pointer',
+                draft.kind === 'strategy' ? 'bg-white/[0.09] text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Strategy
             </button>
           </div>
           {draft.kind === 'workflow' && (
@@ -561,6 +682,84 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
           )}
         </div>
 
+        {draft.kind === 'strategy' && (
+          <TradingSetupPanel
+            draft={draft.trading}
+            consent={tradingConsent}
+            issues={tradingCheck.issues}
+            disabled={saving}
+            onChange={(patch) =>
+              setDraft((d) => ({
+                ...d,
+                trading: { ...d.trading, ...patch, enabled: true },
+              }))
+            }
+            onConsent={setTradingConsent}
+            onContext={setTradingContext}
+          />
+        )}
+
+        {/* Agent brain — preset + model, visible without opening Advanced. */}
+        {draft.kind === 'agent' && (
+          <div className="space-y-2 rounded-xl border border-border/15 p-3">
+            <div>
+              <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.create.agent')}</div>
+              <Select
+                value={draft.agentId}
+                onValueChange={(v) => {
+                  setDraft((d) => ({ ...d, agentId: v ?? d.agentId }));
+                  setIssues((prev) => prev.filter((i) => i.field !== 'agentId'));
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {agentGroups.builtins.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel>Built-in</SelectLabel>
+                      {agentGroups.builtins.map((choice) => (
+                        <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                  {agentGroups.presets.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel>Your presets</SelectLabel>
+                      {agentGroups.presets.map((choice) => (
+                        <SelectItem key={choice.id} value={choice.id}>
+                          {choice.label}
+                          {choice.archived ? ' (archived)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                  {agentGroups.unknown.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel>Not found</SelectLabel>
+                      {agentGroups.unknown.map((choice) => (
+                        <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                </SelectContent>
+              </Select>
+              {agentChoicesLoading && (
+                <p className="mt-1 text-[10px] text-muted-foreground">Loading agents…</p>
+              )}
+              {agentChoicesError && (
+                <p className="mt-1 text-[10px] text-amber-300">{agentChoicesError}</p>
+              )}
+              <FieldError issue={issueFor('agentId')} />
+            </div>
+            <BotModelPicker
+              provider={draft.modelProvider}
+              model={draft.model}
+              onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+            />
+          </div>
+        )}
+
         {/* Advanced — schedule + agent, collapsed by default */}
         <div className="rounded-xl glass-card-subtle">
           <button
@@ -576,61 +775,52 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
             <div className="space-y-3 border-t border-border/10 px-3 py-3">
               {draft.kind === 'agent' && (
                 <>
-                  <div>
-                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.create.agent')}</div>
-                    <Select
-                      value={draft.agentId}
-                      onValueChange={(v) => {
-                        setDraft((d) => ({ ...d, agentId: v ?? d.agentId }));
-                        setIssues((prev) => prev.filter((i) => i.field !== 'agentId'));
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {agentGroups.builtins.length > 0 && (
-                          <SelectGroup>
-                            <SelectLabel>Built-in</SelectLabel>
-                            {agentGroups.builtins.map((choice) => (
-                              <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>
-                            ))}
-                          </SelectGroup>
-                        )}
-                        {agentGroups.presets.length > 0 && (
-                          <SelectGroup>
-                            <SelectLabel>Your presets</SelectLabel>
-                            {agentGroups.presets.map((choice) => (
-                              <SelectItem key={choice.id} value={choice.id}>
-                                {choice.label}
-                                {choice.archived ? ' (archived)' : ''}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        )}
-                        {agentGroups.unknown.length > 0 && (
-                          <SelectGroup>
-                            <SelectLabel>Not found</SelectLabel>
-                            {agentGroups.unknown.map((choice) => (
-                              <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>
-                            ))}
-                          </SelectGroup>
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {agentChoicesLoading && (
-                      <p className="mt-1 text-[10px] text-muted-foreground">Loading agents…</p>
-                    )}
-                    {agentChoicesError && (
-                      <p className="mt-1 text-[10px] text-amber-300">{agentChoicesError}</p>
-                    )}
-                    <FieldError issue={issueFor('agentId')} />
+                  {/* Agent trading: the same leash as a strategy bot, but the
+                      agent decides with its tools. L0 proposes, L1 demo, L2 live. */}
+                  <div className="rounded-lg border border-border/15 p-2.5">
+                    <label className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+                      Let this agent trade
+                      <input
+                        type="checkbox"
+                        checked={draft.trading.enabled}
+                        onChange={(event) =>
+                          setDraft((d) => ({
+                            ...d,
+                            trading: {
+                              ...d.trading,
+                              enabled: event.target.checked,
+                              mode:
+                                event.target.checked && d.trading.mode === 'shadow'
+                                  ? 'demo'
+                                  : d.trading.mode,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      At L0 the agent proposes orders for your approval. L1 fills a
+                      demo account; L2 may fill live under a bot-pinned mandate. The
+                      setup below grants that authority once.
+                    </p>
                   </div>
-                  <BotModelPicker
-                    provider={draft.modelProvider}
-                    model={draft.model}
-                    onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
-                  />
+                  {draft.trading.enabled && (
+                    <TradingSetupPanel
+                      draft={draft.trading}
+                      consent={tradingConsent}
+                      issues={tradingCheck.issues}
+                      disabled={saving}
+                      brain="agent"
+                      onChange={(patch) =>
+                        setDraft((d) => ({
+                          ...d,
+                          trading: { ...d.trading, ...patch, enabled: true },
+                        }))
+                      }
+                      onConsent={setTradingConsent}
+                      onContext={setTradingContext}
+                    />
+                  )}
                 </>
               )}
               <div>
@@ -663,6 +853,19 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
             {error}
           </div>
         )}
+
+        {(() => {
+          const missing: string[] = [];
+          if (!name.trim()) missing.push('a name');
+          if (!description.trim()) missing.push('what it should do');
+          if (draft.kind === 'workflow' && !draft.workflowId) missing.push('a workflow');
+          if (!missing.length) return null;
+          return (
+            <p className="text-[11px] text-amber-300">
+              Add {missing.join(', ')} to create the bot.
+            </p>
+          );
+        })()}
 
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>

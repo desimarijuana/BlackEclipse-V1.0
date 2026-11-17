@@ -885,6 +885,35 @@ export const en = {
   'code.command.eclipsesdk': 'Build or change something inside Eclipse.',
   'code.command.app': 'Control your Eclipse app through the typed SDK.',
 
+  // Autonomy (goals, loops, heartbeats) — the status strip above the composer.
+  // The user sees "what is happening", never the engine's vocabulary.
+  'autonomy.goal': 'Goal',
+  'autonomy.loop': 'Loop',
+  'autonomy.heartbeat': 'Heartbeat',
+  'autonomy.pause': 'Pause',
+  'autonomy.resume': 'Resume',
+  'autonomy.cancel': 'Cancel',
+  'autonomy.extend': 'Add turns',
+  'autonomy.reevaluate': 'Re-judge',
+  'autonomy.turn': 'turn {used}/{max}',
+  'autonomy.gatesPending': 'gates pending',
+  'autonomy.judgeOnly': 'judge + verifier',
+  'autonomy.gateFailing': '{check} failing',
+  'autonomy.gatesPassing': '{count} gates passing',
+  'autonomy.wakes': 'wakes {time}Z',
+  'autonomy.tick': 'tick {used}/{max}',
+  'autonomy.running': 'running {run}',
+  'autonomy.queued': 'queued',
+  'autonomy.inProgress': 'running',
+  'autonomy.loading': 'Loading…',
+  'autonomy.details': 'Details',
+  'autonomy.noneYet': 'Nothing yet.',
+  'autonomy.every': 'every {minutes}m',
+  'autonomy.next': 'next {time}Z',
+  'autonomy.loopOff': 'goal loop off',
+  'autonomy.loopOffHint': 'Turn it on with HARNESS_GOAL_LOOP=on, or shadow to record verdicts only.',
+  'autonomy.engineOff': 'The goal loop is off, so this goal cannot continue yet.',
+
   // Promotion (Phase 15) — the user's own decision to put a made change into
   // their real project. The user sees the job ("put this change in"), never a
   // patch, a diff, a repository or an approval mechanism.

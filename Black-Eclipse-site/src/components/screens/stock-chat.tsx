@@ -9,6 +9,7 @@ import { useTerminalShell } from '@/hooks/use-terminal-shell';
 import { useTerminalStore } from '@/lib/terminal/store';
 import { TerminalDock, BotSchedulerDock, ChatDock, DeferredAurora } from './lazy-chrome';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
+import { useAppNavigation } from '@/lib/navigation/use-app-navigation';
 import { TopBar } from '@/components/layout/top-bar';
 import { DesktopTabBar } from '@/components/layout/desktop-tab-bar';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
@@ -189,6 +190,7 @@ import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import type { CommandUiAction } from '@/lib/harness/commands/command-ui';
+import { useGoalVerdictWatch, type GoalVerdictLine } from '@/lib/harness/use-goal-verdict-watch';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
 import { canHandleKeyboardEvent } from '@/lib/keyboard';
 import { isFocusModeShortcut, isNewChatShortcut, isSettingsShortcut, isThemeShortcut } from '@/lib/shortcuts';
@@ -323,6 +325,10 @@ function StockChatContent() {
 
   // Selects the ACTIVE conversation; background runs keep their own stream.
   const agentRun = useAgentRun({ chatId: activeConversationId ?? undefined });
+  // Goal turns run as background tasks, so their verdicts are streamed into the
+  // transcript by a front-door poll (the hook only emits NEW verdicts).
+  const goalVerdictSink = useRef<((line: GoalVerdictLine) => void) | null>(null);
+  useGoalVerdictWatch(activeConversationId, goalVerdictSink);
   // Delegated (@-mentioned) turns remain a shell-level busy flag.
   const runInFlightRef = useRef(false);
   const agentBusy = agentRun.active || delegationBusy;
@@ -387,6 +393,7 @@ function StockChatContent() {
   const [settingsAnchor, setSettingsAnchor] = useState<string | undefined>(undefined);
 
   useEffect(() => { setMounted(true); }, []);
+  useAppNavigation(setActiveTab);
   // User-assigned F1–F12 shortcuts open their sidebar tab anywhere in the app.
   useSidebarKeybinds(setActiveTab, activeTab);
 
@@ -803,6 +810,24 @@ function StockChatContent() {
     if (activeConversationIdRef.current === chatId) {
       setMessages(newMsgList);
     }
+  };
+
+  // The goal watcher writes one transcript line per evaluated turn. It is
+  // idempotent by id, so a re-render or a second poll cannot duplicate it.
+  goalVerdictSink.current = (line: GoalVerdictLine) => {
+    const chatId = activeConversationIdRef.current;
+    if (!chatId) return;
+    const id = `goal-${line.goalId}-${line.turn}`;
+    const exists = conversationsRef.current
+      .find((conversation) => conversation.id === chatId)
+      ?.messages.some((message) => message.id === id);
+    if (exists) return;
+    appendAssistantReply(chatId, {
+      id,
+      role: 'assistant',
+      content: `**Goal · turn ${line.turn}** — **${line.verdict}**\n\n${line.reason}`,
+      status: 'completed',
+    });
   };
 
   /**

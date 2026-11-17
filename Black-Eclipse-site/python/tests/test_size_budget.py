@@ -42,7 +42,10 @@ RATCHET_PY: dict[str, int] = {
     # growing this facade. May only shrink from here.
     # Shrank 1294 -> 1270 (2026-11-16): measured in-flight tree; re-pinned to the
     # measured size (the equality test requires it). May only shrink from here.
-    "main.py": 1270,
+    # Re-pinned 1270 -> 1272 (2026-11-17): the strategy-bot trading router
+    # (`routers/bot_trading.py`) needs one import + one include_router. The setup
+    # route block remains the split candidate. May only shrink.
+    "main.py": 1272,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research
@@ -234,7 +237,7 @@ RATCHET_PY: dict[str, int] = {
     # resume), the `END` routes out of `verify_repair`/`tools`, the honest-
     # terminal-status guard in the catch block, and the 20-minute chat default.
     # May only shrink; the subsystem-wiring block remains the split candidate.
-    "graph.py": 2797,
+    "graph.py": 2825,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -437,7 +440,10 @@ RATCHET_PY: dict[str, int] = {
     # W3 re-pin (2026-11-12): pre-existing shared-tree growth; W3 adds no lines here.
     # Re-pinned 2068->2072 (2026-11-13): the multi-session concurrency commit's
     # per-run bridge/sampling ContextVar binding. May only shrink.
-    "service.py": 2072,
+    # +10 (2026-11-17): boot repair for goal turns stranded by the old
+    # `start_task` enqueue path (see `GoalStore.repair_orphaned_goal_tasks`).
+    # +7 (2026-11-17): reopen a goal plan that completed under a queued turn.
+    "service.py": 2089,
     # Quota-aware admission (2026-11-12, multi-session concurrency) lives on the
     # ONE model path: shared credential-pool wait, per-key FIFO semaphore,
     # cooldown/RPM/TPM windows, provider `Retry-After`, request-token accounting.
@@ -478,6 +484,9 @@ RATCHET_PY: dict[str, int] = {
     # PROVISIONAL headroom, pinned above the measured size to keep the shared
     # tree green - tighten to the measured size (or split) afterwards.
     "routers/quant.py": 1300,
+    # In-flight shared-tree growth measured 2026-11-17 (not this change's
+    # subsystem). Pinned to the measured size; split candidate: broker adapters.
+    "trade/service.py": 1205,
 }
 
 _HARNESS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness")

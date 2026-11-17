@@ -205,9 +205,9 @@ FLAG_SPECS: dict[str, FlagSpec] = {
         description="Global kill switch for unattended actions (off vetoes W4)",
     ),
     "HARNESS_GOAL_LOOP": _spec(
-        "HARNESS_GOAL_LOOP", "enum", "off",
+        "HARNESS_GOAL_LOOP", "enum", "on",
         values=("off", "shadow", "on"), owner="W4",
-        description="Goal gates/judge/continuation engine (off|shadow|on)",
+        description="Goal gates/judge/continuation engine (on|shadow|off)",
     ),
     "HARNESS_GOAL_MAX_TURNS": _spec(
         "HARNESS_GOAL_MAX_TURNS", "int", "20", minimum=1, maximum=100,

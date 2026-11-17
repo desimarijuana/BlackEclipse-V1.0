@@ -169,26 +169,44 @@ class LocalArtifactStorage:
         target = self._resolve(key)
         if target.exists():
             return StoredObject(key, checksum, size, mime, extension_of(display))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(src, "rb") as reader, tempfile.NamedTemporaryFile(
-                "wb", dir=target.parent, delete=False
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                while True:
-                    chunk = reader.read(_HASH_CHUNK)
-                    if not chunk:
-                        break
-                    tmp.write(chunk)
-            os.replace(tmp_path, target)
-        except OSError as exc:
+        last_exc: Optional[OSError] = None
+        for attempt in range(2):
+            tmp_path: Optional[Path] = None
             try:
-                if "tmp_path" in locals() and tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
-            raise StorageError("STORAGE_WRITE_FAILED", str(exc)) from exc
-        return StoredObject(key, checksum, size, mime, extension_of(display))
+                # Re-create the parent on every attempt: artifact discovery and
+                # the reconciler can remove an empty month directory between the
+                # temp write and the rename (observed as WinError 3 on
+                # `os.replace`). A retry is safe for a read-only import.
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not src.is_file():
+                    raise StorageError(
+                        "ARTIFACT_SOURCE_MISSING", f"source file not found: {source}"
+                    )
+                with open(src, "rb") as reader, tempfile.NamedTemporaryFile(
+                    "wb", dir=target.parent, delete=False
+                ) as tmp:
+                    tmp_path = Path(tmp.name)
+                    while True:
+                        chunk = reader.read(_HASH_CHUNK)
+                        if not chunk:
+                            break
+                        tmp.write(chunk)
+                os.replace(tmp_path, target)
+                return StoredObject(key, checksum, size, mime, extension_of(display))
+            except StorageError:
+                raise
+            except FileNotFoundError as exc:
+                last_exc = exc
+                self._cleanup_temp(tmp_path)
+                if attempt == 0:
+                    continue
+            except OSError as exc:
+                self._cleanup_temp(tmp_path)
+                raise StorageError("STORAGE_WRITE_FAILED", str(exc)) from exc
+        raise StorageError(
+            "STORAGE_WRITE_FAILED",
+            f"the artifact store path disappeared during the write: {last_exc}",
+        ) from last_exc
 
     def save_bytes_at(self, storage_key: str, data: bytes) -> Optional[str]:
         """Write bytes at an EXPLICIT key (used for derived thumbnails).
@@ -205,18 +223,37 @@ class LocalArtifactStorage:
             return None
 
     def _atomic_write(self, target: Path, data: bytes) -> None:
-        try:
-            with tempfile.NamedTemporaryFile("wb", dir=target.parent, delete=False) as tmp:
-                tmp.write(data)
-                tmp_path = Path(tmp.name)
-            os.replace(tmp_path, target)
-        except OSError as exc:
+        last_exc: Optional[OSError] = None
+        for attempt in range(2):
+            tmp_path: Optional[Path] = None
             try:
-                if "tmp_path" in locals() and tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
-            raise StorageError("STORAGE_WRITE_FAILED", str(exc)) from exc
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile("wb", dir=target.parent, delete=False) as tmp:
+                    tmp.write(data)
+                    tmp_path = Path(tmp.name)
+                os.replace(tmp_path, target)
+                return
+            except FileNotFoundError as exc:
+                last_exc = exc
+                self._cleanup_temp(tmp_path)
+                if attempt == 0:
+                    continue
+                break
+            except OSError as exc:
+                self._cleanup_temp(tmp_path)
+                raise StorageError("STORAGE_WRITE_FAILED", str(exc)) from exc
+        raise StorageError(
+            "STORAGE_WRITE_FAILED",
+            f"the artifact store path disappeared during the write: {last_exc}",
+        ) from last_exc
+
+    @staticmethod
+    def _cleanup_temp(tmp_path: Optional[Path]) -> None:
+        try:
+            if tmp_path is not None and tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
 
     # ── reads ────────────────────────────────────────────────────────────────
 

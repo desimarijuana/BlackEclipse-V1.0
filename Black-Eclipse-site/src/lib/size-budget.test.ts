@@ -74,7 +74,13 @@ const RATCHET: Record<string, number> = {
   // examples, search placeholder, selection hint, suggestions). May only shrink.
   // Re-pinned 1326->1330: chat-history multi-select adds `sidebar.selectAll`,
   // `sidebar.clearSelection`, `sidebar.done` and `sidebar.confirmDeleteMany`.
-  "src/lib/i18n/dictionaries/en.ts": 1330,
+  // Re-pinned 1330->1352: the autonomy status strip gained its `autonomy.*`
+  // keys (goal/loop labels, actions, gate/turn/wake copy, off-engine hint).
+  // Re-pinned 1352->1355 for the goal detail affordance (`details`, `noneYet`)
+  // and the live-run label.
+  // Re-pinned 1355->1358 for the multi-goal strip's queued/running/loading copy.
+  // +1 for the re-judge action.
+  "src/lib/i18n/dictionaries/en.ts": 1359,
   // The canonical command catalog crossed the hard ceiling when the P2
   // read-only workspace commands (alerts/news/theses/journal/jobs/artifacts/
   // sessions/git/stop) landed. Re-pinned 1379->1411 for `/history`, the
@@ -234,7 +240,14 @@ const RATCHET: Record<string, number> = {
   // shared `runShell` action onto the landing and follow-up composers; the mode
   // itself, the transcript card and the context assembly all live in
   // `lib/chat/shell.ts` / `chat/shell-run-card.tsx`. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1718,
+  // Re-pinned 1718→1720 (2026-11-17): the in-app navigation intent hook
+  // (`useAppNavigation`, import + one call) so a bot dialog can open Strategy
+  // Studio; the listener lives in `lib/navigation/use-app-navigation.ts`.
+  // May only shrink from here.
+  // +23 (2026-11-17): goal verdicts stream into the transcript (the watcher hook
+  // plus the idempotent sink). The polling itself lives in
+  // `lib/harness/use-goal-verdict-watch.ts`.
+  "src/components/screens/stock-chat.tsx": 1743,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

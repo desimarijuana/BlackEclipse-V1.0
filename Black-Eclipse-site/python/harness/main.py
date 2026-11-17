@@ -91,6 +91,7 @@ from .routers.quant import router as quant_router
 from .routers.quant_desk import router as quant_desk_router
 from .routers.quant_reports import router as quant_reports_router
 from .routers.quant_live import router as quant_live_router
+from .routers.bot_trading import router as bot_trading_router
 from .routers.quant_research import router as quant_research_router
 from .routers.quant_system import router as quant_system_router
 from .routers.projects import router as projects_router
@@ -137,6 +138,7 @@ app.include_router(canvas_router)
 app.include_router(charts_router)
 app.include_router(notebook_router)
 app.include_router(automation_router)
+app.include_router(bot_trading_router)
 app.include_router(code_router)
 app.include_router(delegations_router)
 app.include_router(channels_router)

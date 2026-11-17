@@ -107,6 +107,60 @@ export async function updateAutomation(id: string, patch: Record<string, unknown
   return body.automation;
 }
 
+// ── Trading ──────────────────────────────────────────────────────────────────
+
+export type {
+  BotTradingStatusView,
+  PrepareTradingInput,
+  TradingScanResult,
+  TradingTrialView,
+} from "./automation-client";
+
+export async function prepareBotTrading(
+  id: string,
+  input: import("./automation-client").PrepareTradingInput,
+): Promise<{
+  trial: import("./automation-client").TradingTrialView;
+  automation: AutomationView;
+}> {
+  const body = await api<{
+    trial: import("./automation-client").TradingTrialView;
+    automation: AutomationView;
+  }>(`/api/automations/${encodeURIComponent(id)}/trading/prepare`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return { trial: body.trial, automation: body.automation };
+}
+
+export async function getBotTrading(
+  id: string,
+  limit = 20,
+): Promise<import("./automation-client").BotTradingStatusView> {
+  return api(`/api/automations/${encodeURIComponent(id)}/trading?limit=${limit}`);
+}
+
+export async function scanBotTrading(
+  id: string,
+  symbols: string[],
+): Promise<import("./automation-client").TradingScanResult> {
+  return api(`/api/automations/${encodeURIComponent(id)}/trading/scan`, {
+    method: "POST",
+    body: JSON.stringify({ symbols }),
+  });
+}
+
+export async function panicBotTrading(id: string): Promise<{
+  stopped: { revoked: number; trials: number; reason: string };
+  paused: boolean;
+  positionsClosed: number;
+  note: string;
+}> {  return api(`/api/automations/${encodeURIComponent(id)}/trading/panic`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export async function deleteAutomation(id: string): Promise<void> {
   await api(`/api/automations/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

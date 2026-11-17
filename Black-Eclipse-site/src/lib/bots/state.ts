@@ -13,6 +13,7 @@ import type {
   TriggerKind,
   TriggerView,
 } from '@/lib/harness/clients/automation-client';
+import { draftFromTradingAction, emptyTradingDraft, type TradingDraft } from '@/lib/bots/trading/draft';
 
 // ── Execution state vocabulary ───────────────────────────────────────────────
 
@@ -365,12 +366,15 @@ export interface BotDraft {
   name: string;
   objective: string;
   /**
-   * What answers a chat turn: an agent (the existing loop) or a saved workflow
-   * (the graph's trigger receives the message as its run input).
+   * What answers a chat turn: an agent (the existing loop), a saved workflow
+   * (the graph's trigger receives the message as its run input), or a saved
+   * quant strategy (a trading bot — deterministic decisions on a schedule).
    */
-  kind: 'agent' | 'workflow';
+  kind: 'agent' | 'workflow' | 'strategy';
   /** Saved workflow id for a workflow bot. Empty for an agent bot. */
   workflowId: string;
+  /** Trading envelope for a strategy bot (ignored by the other kinds). */
+  trading: TradingDraft;
   agentId: string;
   schedule: ScheduleChoice;
   /** Event trigger preserved verbatim while an event-driven bot is edited. */
@@ -424,6 +428,7 @@ export function emptyBotDraft(): BotDraft {
     objective: '',
     kind: 'agent',
     workflowId: '',
+    trading: emptyTradingDraft(),
     agentId: 'eclipse-agent',
     schedule: 'manual',
     eventType: null,
@@ -566,6 +571,17 @@ export function validateDraft(draft: BotDraft, knownAgentIds?: readonly string[]
   if (!draft.objective.trim()) issues.push({ field: 'objective', message: 'Describe what the bot should do.' });
   if (draft.kind === 'workflow' && !draft.workflowId.trim()) {
     issues.push({ field: 'workflowId', message: 'Choose the workflow this bot runs.' });
+  }
+  if (draft.kind === 'strategy') {
+    if (!draft.trading.strategyId.trim()) {
+      issues.push({ field: 'trading', message: 'Choose the strategy this bot trades.' });
+    }
+    if (!draft.trading.strategyVersion.trim()) {
+      issues.push({ field: 'trading', message: 'Choose a strategy version.' });
+    }
+    if (!draft.trading.symbolsText.trim()) {
+      issues.push({ field: 'trading', message: 'Add at least one symbol to trade.' });
+    }
   }
   if (
     draft.kind === 'agent'
@@ -747,12 +763,19 @@ export function draftFromBot(bot: AutomationView): BotDraft {
     ...base,
     name: bot.name,
     objective: bot.action.objective ?? bot.description ?? '',
-    kind: bot.action.type === 'execute_workflow' ? 'workflow' : 'agent',
+    kind: bot.action.type === 'execute_workflow'
+      ? 'workflow'
+      : bot.action.type === 'run_strategy'
+        ? 'strategy'
+        : 'agent',
     workflowId: bot.action.type === 'execute_workflow'
       ? (typeof bot.action.config?.graphWorkflowId === 'string'
           ? bot.action.config.graphWorkflowId
           : bot.action.workflowId ?? '')
       : '',
+    trading: bot.action.type === 'run_strategy'
+      ? draftFromTradingAction(bot.action.config, bot.executionAuthority, base.trading)
+      : base.trading,
     agentId: bot.action.agentId ?? 'eclipse-agent',
   };
   const trig = bot.trigger;

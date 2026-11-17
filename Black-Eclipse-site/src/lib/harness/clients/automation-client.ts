@@ -16,7 +16,9 @@ export type TriggerKind =
 export type ActionKind =
   | "execute_task" | "execute_workflow" | "run_agent" | "run_team" | "delegate_agent"
   | "call_tool" | "create_task" | "send_notification" | "generate_report"
-  | "run_code" | "browser_action" | "custom_action";
+  | "run_code" | "browser_action" | "custom_action"
+  /** A bot whose brain is a saved quant strategy (strategy trading bot). */
+  | "run_strategy";
 export type ExecutionState =
   | "triggered" | "queued" | "running" | "waiting" | "retrying" | "completed"
   | "failed" | "cancelled" | "timed_out" | "blocked" | "skipped";
@@ -60,6 +62,26 @@ export interface ActionView {
   config: Record<string, unknown>;
 }
 
+/**
+ * The trading leash stored on the definition (P5). Mirrors
+ * `automation/model.py:ExecutionAuthority`; the server enforces it at submit.
+ */
+export interface ExecutionAuthorityView {
+  tier: "l0" | "l1" | "l2";
+  appetite: "conservative" | "normal" | "aggressive";
+  sizingMode: "risk_based" | "user_fixed";
+  requireStop: boolean;
+  maxOpenPositions: number;
+  maxMarginPerOrder: number;
+  cooldownS: number;
+  maxDailyLossPct: number;
+  /** Standing consent: the phrase was granted once; do not ask again. */
+  autoMode: boolean;
+  autoRenew: boolean;
+  learningEnabled: boolean;
+  improveAfterFailures: number;
+}
+
 export interface AutomationView {
   id: string;
   name: string;
@@ -69,6 +91,8 @@ export interface AutomationView {
   trigger: TriggerView;
   condition: ConditionView | null;
   action: ActionView;
+  /** The trading leash. Present on every definition (defaults to L0). */
+  executionAuthority?: ExecutionAuthorityView;
   execution: {
     maxRuntimeS: number;
     misfire: "skip" | "run_once" | "catch_up";
@@ -125,6 +149,28 @@ export interface AutomationView {
   breakerResetBy: string | null;
 }
 
+/** A trading decision as persisted on an execution (wire shape). */
+export interface DecisionRecordView {
+  botId?: string;
+  botVersion?: number;
+  strategyId?: string;
+  strategyVersion?: string;
+  mode?: string;
+  tier?: string;
+  barTs?: string | null;
+  symbol?: string;
+  signal?: string;
+  action?: string;
+  reason?: string;
+  indicators?: Record<string, unknown>;
+  risk?: { allowed?: boolean; quantity?: number | null; reasons?: string[] } | null;
+  outcome?: string;
+  code?: string | null;
+  orderId?: string | null;
+  orderStatus?: string | null;
+  warnings?: string[];
+}
+
 export interface ExecutionView {
   id: string;
   automationId: string;
@@ -150,6 +196,11 @@ export interface ExecutionView {
   dryRun: boolean;
   /** The run's answer, bounded. Null when the run produced nothing or failed. */
   output: string | null;
+  /**
+   * Structured trading decision for this run. Null/absent for non-trading bots
+   * and for runs recorded before this field existed.
+   */
+  decision?: DecisionRecordView | null;
   events?: Array<{ seq: number; at: string; type: string; data: Record<string, unknown> | null }>;
   deliveries?: Array<{
     adapter: string; destination: string | null; ok: boolean;
@@ -219,6 +270,7 @@ export interface CreateAutomationInput {
   trigger: Partial<TriggerView> & { type: TriggerKind };
   condition?: ConditionView;
   action: Partial<ActionView> & { type: ActionKind };
+  executionAuthority?: Partial<ExecutionAuthorityView>;
   execution?: Partial<AutomationView["execution"]>;
   retry?: Partial<AutomationView["retry"]>;
   concurrency?: Partial<AutomationView["concurrency"]>;
@@ -249,7 +301,15 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detail = (body as { detail?: string }).detail || `runtime HTTP ${res.status}`;
+    // A domain refusal may carry `detail: { code, message }` (the trading gates).
+    // Prefer its message so the operator sees the gate, not "[object Object]".
+    const raw = (body as { detail?: unknown }).detail;
+    const detail =
+      (raw && typeof raw === "object" && typeof (raw as { message?: unknown }).message === "string"
+        ? String((raw as { message: string }).message)
+        : typeof raw === "string"
+          ? raw
+          : "") || `runtime HTTP ${res.status}`;
     throw new Error(redactSecrets(detail));
   }
   return body as T;
@@ -314,6 +374,111 @@ export async function updateAutomation(id: string, patch: Record<string, unknown
 
 export async function deleteAutomation(id: string): Promise<void> {
   await request(`/automations/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ── Strategy-bot trading ─────────────────────────────────────────────────────
+
+export interface PrepareTradingInput {
+  strategyId?: string;
+  strategyVersion?: string;
+  mode: "shadow" | "demo" | "live";
+  connectionId?: string;
+  symbols: string[];
+  timeframe?: string;
+  volume?: number;
+  stopLossPoints?: number;
+  takeProfitPoints?: number;
+  maxOrders?: number;
+  maxMargin?: number;
+  ttlSeconds?: number;
+  /** The exact phrase the server computes. Typed once; stored as proof. */
+  confirmation?: string;
+  note?: string;
+}
+
+export interface TradingTrialView {
+  id: string;
+  strategyId: string;
+  strategyVersion: string;
+  connectionId: string;
+  mandateId: string | null;
+  symbols: string[];
+  timeframe: string;
+  volume: number;
+  maxOrders: number;
+  maxMargin: number;
+  status: string;
+  mode?: string;
+  botId?: string | null;
+  botVersion?: number | null;
+  ordersUsed: number;
+  createdAt: string;
+  updatedAt: string;
+  warnings?: string[];
+}
+
+export interface BotTradingStatusView {
+  botId: string;
+  version: number;
+  mode: string;
+  tier: string;
+  dryRun: boolean;
+  consent: Record<string, unknown> | null;
+  trial: TradingTrialView | null;
+  trialError: string | null;
+  account: Record<string, unknown> | null;
+  positions: Record<string, unknown> | null;
+  orders: Record<string, unknown> | null;
+  decisions: DecisionRecordView[];
+  unavailable: Array<{ field: string; reason: string }>;
+}
+
+export async function prepareBotTrading(
+  id: string,
+  input: PrepareTradingInput,
+): Promise<{ trial: TradingTrialView; automation: AutomationView }> {
+  return request(`/automations/${encodeURIComponent(id)}/trading/prepare`, {
+    method: "POST",
+    body: JSON.stringify(input),
+    timeoutMs: 60_000,
+  });
+}
+
+export async function getBotTrading(id: string, limit = 20): Promise<BotTradingStatusView> {
+  return request(`/automations/${encodeURIComponent(id)}/trading?limit=${limit}`);
+}
+
+export interface TradingScanResult {
+  scanned: number;
+  actionable: string[];
+  results: Array<{
+    symbol: string;
+    signal: string;
+    score: number;
+    reason: string;
+    actionable: boolean;
+  }>;
+  note: string;
+}
+
+export async function scanBotTrading(id: string, symbols: string[]): Promise<TradingScanResult> {
+  return request(`/automations/${encodeURIComponent(id)}/trading/scan`, {
+    method: "POST",
+    body: JSON.stringify({ symbols }),
+    timeoutMs: 60_000,
+  });
+}
+
+export async function panicBotTrading(id: string): Promise<{
+  stopped: { revoked: number; trials: number; reason: string };
+  paused: boolean;
+  positionsClosed: number;
+  note: string;
+}> {
+  return request(`/automations/${encodeURIComponent(id)}/trading/panic`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 }
 
 async function lifecycle(id: string, action: string): Promise<AutomationView> {

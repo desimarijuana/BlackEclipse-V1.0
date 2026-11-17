@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from pydantic.alias_generators import to_camel
+
 from ..persistence import now_iso
 from .engine import AutomationEngine
 from .lifecycle import TransitionError, assert_lifecycle_transition
@@ -40,7 +42,21 @@ class AutomationError(ValueError):
 _PATCHABLE = (
     "name", "description", "trigger", "condition", "action", "execution", "retry",
     "concurrency", "limits", "permissions", "delivery", "scope_id", "tags", "state",
+    "execution_authority",
 )
+
+
+def _patched(patch: dict[str, Any], key: str) -> Any:
+    """Read a patchable field from EITHER spelling.
+
+    Python callers send snake_case; the TS front door sends camelCase. Until now
+    every patchable key happened to spell the same both ways, so this never
+    mattered. `execution_authority` is the first that does not.
+    """
+    for candidate in (key, to_camel(key)):
+        if candidate in patch and patch[candidate] is not None:
+            return patch[candidate]
+    return None
 
 
 class AutomationService:
@@ -62,7 +78,23 @@ class AutomationService:
             workflow_store=self._safe_workflow_store(),
             known_agents=self._known_agents(),
             tool_names=self._tool_names(),
+            strategy_lookup=self._strategy_lookup(),
         )
+
+    def _strategy_lookup(self):
+        """`(id, version) -> record|None` from the quant store, when installed.
+
+        The strategy layer is optional (a runtime without it must still boot), so
+        a missing store yields `None` and validation simply skips the existence
+        check rather than refusing every trading bot.
+        """
+        store = getattr(self._service, "quant_store", None)
+        if store is None:
+            return None
+        try:
+            return lambda strategy_id, version: store.get_strategy(strategy_id, version)
+        except Exception:  # noqa: BLE001
+            return None
 
     def _safe_workflow_store(self) -> Any:
         try:
@@ -158,8 +190,9 @@ class AutomationService:
             raise AutomationError("NOT_FOUND", "automation not found")
         fields: dict[str, Any] = {}
         for key in _PATCHABLE:
-            if key in patch and patch[key] is not None:
-                fields[key] = patch[key]
+            value = _patched(patch, key)
+            if value is not None:
+                fields[key] = value
         if not fields:
             return current
         candidate = current.model_copy(update={**fields, "version": current.version + 1, "updated_at": now_iso()})
@@ -170,6 +203,33 @@ class AutomationService:
         self._engine.refresh_schedule(saved.id)
         return self._store.get_automation(saved.id) or saved
 
+    def attach_trading(
+        self, automation_id: str, *, trial_id: str, consent: Optional[dict[str, Any]],
+        config_patch: Optional[dict[str, Any]] = None,
+    ) -> AutomationDefinition:
+        """Record a prepared trial + the operator's standing consent.
+
+        This is NOT a semantic edit: the strategy, authority and schedule are
+        unchanged, so the definition version must not bump (a bump would
+        immediately invalidate the mandate we just created). It still validates,
+        so an incomplete setup is refused rather than saved half-prepared.
+        """
+        current = self._store.get_automation(automation_id)
+        if current is None:
+            raise AutomationError("NOT_FOUND", "automation not found")
+        config = dict(current.action.config or {})
+        config["trialId"] = trial_id
+        if consent is not None:
+            config["consent"] = consent
+        if config_patch:
+            config.update(config_patch)
+        action = current.action.model_copy(update={"config": config})
+        candidate = current.model_copy(update={"action": action, "updated_at": now_iso()})
+        candidate = self._retype(candidate, {"action": action})
+        self._assert_valid(candidate)
+        saved = self._store.save_automation(candidate, snapshot=False)
+        return self._store.get_automation(saved.id) or saved
+
     def _retype(self, candidate: AutomationDefinition, fields: dict[str, Any]) -> AutomationDefinition:
         try:
             model = AutomationDefinition(**candidate.model_dump(by_alias=False))
@@ -178,7 +238,40 @@ class AutomationService:
         return model
 
     def delete(self, automation_id: str) -> bool:
+        # Revoke trading authority BEFORE the row disappears: a deleted bot must
+        # never leave a usable mandate behind. Positions are untouched.
+        self._stop_trading(automation_id, "bot deleted")
         return self._store.delete_automation(automation_id)
+
+    def _stop_trading(self, automation_id: str, reason: str) -> dict[str, Any]:
+        """Stop a strategy bot's authority. Best-effort; never fails a lifecycle call."""
+        result: dict[str, Any] = {"revoked": 0, "trials": 0, "reason": reason}
+        try:
+            definition = self._store.get_automation(automation_id)
+        except Exception:  # noqa: BLE001
+            definition = None
+        if definition is None:
+            return result
+        if getattr(definition.action, "type", "") != "run_strategy" and not (
+            isinstance(definition.action.config, dict)
+            and definition.action.config.get("consent")
+        ):
+            return result
+        brokers = getattr(self._service, "brokers", None)
+        if brokers is not None:
+            try:
+                result["revoked"] = len(brokers.revoke_mandates_for_bot(automation_id))
+            except Exception:  # noqa: BLE001
+                pass
+        store = getattr(self._service, "quant_store", None)
+        if store is not None:
+            try:
+                from ..quant.live import LiveStrategyService  # noqa: PLC0415
+
+                result["trials"] = len(LiveStrategyService(store).stop_by_bot(automation_id))
+            except Exception:  # noqa: BLE001
+                pass
+        return result
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
     def set_state(self, automation_id: str, state: str, *, actor: str = "operator") -> AutomationDefinition:
@@ -193,6 +286,9 @@ class AutomationService:
             self._assert_valid(current)
         updated = current.model_copy(update={"state": state, "updated_at": now_iso()})
         saved = self._store.save_automation(updated, snapshot=False)
+        if state in ("paused", "disabled", "archived"):
+            # Pause/disable/archive is an operator decision to stop trading now.
+            self._stop_trading(automation_id, f"bot {state}")
         self._engine.refresh_schedule(saved.id)
         return self._store.get_automation(saved.id) or saved
 

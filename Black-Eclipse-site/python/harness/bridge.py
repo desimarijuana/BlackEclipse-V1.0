@@ -9,7 +9,9 @@ is imported lazily).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from collections import OrderedDict
 from typing import Any, Optional
 
 from .tools import DataBridge
@@ -43,6 +45,13 @@ class HttpDataBridge(DataBridge):
     _TIMEOUT_S = 15.0
     _NETWORK_TIMEOUT_S = 20.0
     _RETRY_DELAY_S = 0.4
+    #: A read that is safe to serve from the last successful response when the
+    #: live route times out. Price history is the one that can be slow enough to
+    #: cross the budget (the live `price_history` ReadTimeout); a stale series
+    #: with an explicit `STALE` status is more useful than UNAVAILABLE, and the
+    #: agent is told it is stale.
+    _CACHE_CAPABILITIES = frozenset({"price_history"})
+    _CACHE_SIZE = 32
     _NETWORK_CAPABILITIES = frozenset({
         "web_search", "web_fetch", "web_collect", "academic_search", "news_search",
         "image_search", "video_search", "playlist_search", "video_metadata",
@@ -56,6 +65,11 @@ class HttpDataBridge(DataBridge):
     def __init__(self, base_url: str, token: Optional[str]) -> None:
         self._base = base_url.rstrip("/")
         self._token = token
+        self._cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+
+    @staticmethod
+    def _cache_key(capability: str, params: dict[str, Any]) -> str:
+        return f"{capability}|{json.dumps(params, sort_keys=True, default=str)}"
 
     def _timeout_for(self, capability: str) -> float:
         return self._NETWORK_TIMEOUT_S if capability in self._NETWORK_CAPABILITIES else self._TIMEOUT_S
@@ -68,6 +82,10 @@ class HttpDataBridge(DataBridge):
             headers["Authorization"] = f"Bearer {self._token}"
         payload = {"capability": capability, "params": params}
         timeout = self._timeout_for(capability)
+        cache_key = (
+            self._cache_key(capability, params)
+            if capability in self._CACHE_CAPABILITIES else None
+        )
         last_exc: Optional[Exception] = None
         for attempt in range(2):
             try:
@@ -79,7 +97,17 @@ class HttpDataBridge(DataBridge):
                     )
                 if response.status_code >= 400:
                     return {"status": "UNAVAILABLE", "error": f"bridge HTTP {response.status_code}"}
-                return response.json()
+                data = response.json()
+                if (
+                    cache_key
+                    and isinstance(data, dict)
+                    and data.get("status") in (None, "OK")
+                ):
+                    self._cache[cache_key] = data
+                    self._cache.move_to_end(cache_key)
+                    while len(self._cache) > self._CACHE_SIZE:
+                        self._cache.popitem(last=False)
+                return data
             except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
                 # Both are "the connection was not usable": ConnectError is a
                 # refused/absent listener, RemoteProtocolError is a peer that
@@ -93,6 +121,18 @@ class HttpDataBridge(DataBridge):
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 break
+        # A slow but previously successful read is served from the last good
+        # response, explicitly marked STALE. This is the one place a timeout does
+        # not become UNAVAILABLE: the series (and its retrievedAt) is real, and
+        # the agent is told it is cached so it can label it.
+        if cache_key and cache_key in self._cache:
+            log.warning("data bridge stale (%s): serving the cached read", capability)
+            return {
+                **self._cache[cache_key],
+                "status": "STALE",
+                "stale": True,
+                "cached": True,
+            }
         # An exception whose `str()` is empty is undiagnosable - that is exactly
         # how three load-time failures were logged as `data bridge failed (...):`
         # with nothing after the colon. The TYPE is the only thing that separates

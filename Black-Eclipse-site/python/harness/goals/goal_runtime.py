@@ -39,6 +39,11 @@ _TERMINAL = frozenset({
     TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED,
     TaskStatus.BLOCKED,
 })
+#: Run-result blobs the completion verifier may read as evidence. Mirrors the
+#: chat settlement path so both goal paths prove the same thing.
+_EVIDENCE_KEYS: tuple[str, ...] = (
+    "codeVerification", "research", "documents", "images", "vision", "capability",
+)
 
 
 class GoalError(ValueError):
@@ -150,6 +155,7 @@ class GoalRuntime:
         model: Optional[Any] = None,
         autonomy: str = "edit_verify",
         start: bool = True,
+        allow_parallel: bool = False,
     ) -> Any:
         text = str(objective or "").strip()
         if not text:
@@ -173,6 +179,7 @@ class GoalRuntime:
                 "a goal with gates needs a live workspace to run them in",
             )
         if parsed_gates:
+            self._require_live_workspace(workspace_id)
             for gate in parsed_gates:
                 if gate.workspace_id and gate.workspace_id != workspace_id:
                     raise GoalError(
@@ -180,6 +187,18 @@ class GoalRuntime:
                         f"gate {gate.id!r} names a different workspace",
                     )
                 gate.workspace_id = workspace_id
+
+        # One active goal per session: a second goal in the same chat would
+        # compete for the same user and the same composer with no way to say
+        # which one is being driven. `allow_parallel` is the explicit escape.
+        if session_id and not allow_parallel:
+            existing = self.store.active_goal_for_session(session_id)
+            if existing is not None:
+                raise GoalError(
+                    "GOAL_ALREADY_ACTIVE",
+                    f"this session already has an active goal ({existing.id}); "
+                    "pause or cancel it first, or pass allowParallel",
+                )
 
         task_type = self._task_type(contract_data, text)
         contract_data["taskType"] = task_type.value
@@ -249,6 +268,27 @@ class GoalRuntime:
                 pass
         return classify_task_type(text)
 
+    def _require_live_workspace(self, workspace_id: Optional[str]) -> None:
+        """Refuse a gate goal whose workspace cannot run gates.
+
+        Only enforced when the code workspace capability is installed: a test
+        host (or a deployment without code workspaces) keeps the historical
+        path. In production this turns 20 turns of `WORKSPACE_MISSING` into one
+        honest refusal at creation.
+        """
+        if getattr(self.service, "code_store", None) is None:
+            return
+        try:
+            binding = resolve_binding(self.service, workspace_id)
+        except Exception:  # noqa: BLE001 - a broken store is not a live workspace
+            binding = None
+        if binding is None:
+            raise GoalError(
+                "WORKSPACE_UNAVAILABLE",
+                f"workspace {workspace_id!r} is missing or released; reopen it before "
+                "declaring gates",
+            )
+
     # ── Turns ────────────────────────────────────────────────────────────────
     def start_turn(self, goal_id: str) -> str:
         if self.tasks is None:
@@ -305,11 +345,26 @@ class GoalRuntime:
             "taskId": task.id,
             "usedTurns": turn,
             "noProgressCount": goal.no_progress,
+            # A new turn has no run id yet; clearing it prevents a cancel from
+            # targeting the previous turn's finished run.
+            "currentRunId": None,
         })
+        # A goal's plan goes COMPLETED when its previous turn completed, and a
+        # COMPLETED plan is terminal — the scheduler would ignore this new turn
+        # forever. Reopen it through the audited transition before enqueueing.
         try:
-            self.tasks.start_task(task.id)
-        except Exception as exc:  # noqa: BLE001 - a refused start is a typed failure
-            raise GoalError("TASK_START_FAILED", str(exc)) from exc
+            self.tasks.resume_plan_for_work(plan_id)
+        except Exception:  # noqa: BLE001 - a plan state race is reported by the schedule
+            log.warning("goal plan could not be reopened", exc_info=True)
+        # Do NOT call `start_task` here. The scheduler's atomic claim requires
+        # `status='TODO'`; `start_task` moves the row to IN_PROGRESS with no
+        # claim token and no lease, so the scheduler can never claim it and the
+        # goal sits "active" forever. The task is enqueued by `create_task`.
+        self._emit("goal.turn.queued", {
+            "goalId": goal.id, "turn": turn, "taskId": task.id,
+            "sessionId": goal.session_id,
+        })
+        return task.id
         self._emit("goal.turn.started", {
             "goalId": goal.id, "turn": turn, "taskId": task.id,
             "sessionId": goal.session_id,
@@ -341,6 +396,27 @@ class GoalRuntime:
         if gates:
             lines.append("Deterministic gates that must pass:")
             lines.extend(f"- {gate.get('id')}: {gate.get('check')}" for gate in gates[:12])
+        task_type = str(contract.get("taskType") or "").strip().lower()
+        if task_type == "finance":
+            lines.append("Finance execution requirements (this turn):")
+            lines.append(
+                "- Fetch the series with `get_historical_prices` (provider + date "
+                "range are recorded as provenance). A broker feed is LIVE-ONLY: "
+                "when the terminal is down, do not substitute it for historical bars."
+            )
+            lines.append(
+                "- Compute every metric with `analysis_run` (or the Quant Engine "
+                "`run_backtest`) and apply fees/slippage in the computation."
+            )
+            lines.append(
+                "- Do not deliver a strategy specification without an executed, "
+                "costed backtest; a spec alone fails the contract."
+            )
+        elif task_type == "data":
+            lines.append(
+                "Compute with `analysis_run` (a pinned program + inputs); a number "
+                "in prose is not evidence."
+            )
         previous = goal.last_verdict if isinstance(goal.last_verdict, dict) else None
         if previous:
             reason = str(previous.get("reason") or "")[:500]
@@ -364,7 +440,8 @@ class GoalRuntime:
     # ── Evaluation ───────────────────────────────────────────────────────────
     async def evaluate(
         self, goal_id: str, run_id: Optional[str] = None,
-        run_summary: Optional[dict[str, Any]] = None,
+        run_summary: Optional[dict[str, Any]] = None, *,
+        force: bool = False,
     ) -> Optional[dict[str, Any]]:
         mode = loop_mode()
         if mode == "off":
@@ -374,61 +451,88 @@ class GoalRuntime:
         # pause or a `wait`) is never woken by a run that was already in flight.
         if goal.status != "active":
             return None
-        if goal.last_verdict and run_id:
+        if goal.last_verdict and run_id and not force:
             if str((goal.last_verdict or {}).get("runId") or "") == str(run_id):
                 return None
-
-        gates = [GoalGate(**dict(item)) for item in (goal.gates or [])]
-        binding = resolve_binding(self.service, goal.workspace_id)
-        autonomy = str((goal.contract or {}).get("autonomy") or "edit_verify")
-        for gate in gates:
-            self._emit("goal.gate.started", {
-                "goalId": goal.id, "gateId": gate.id, "check": gate.check,
-            })
-        gate_results: list[GateResult] = (
-            run_gates(gates, binding, autonomy=autonomy) if gates else []
-        )
-        for result in gate_results:
-            self._emit("goal.gate.finished", {
-                "goalId": goal.id, "gateId": result.gate_id, "check": result.check,
-                "ok": result.ok, "exitCode": result.exit_code,
-                "durationMs": result.duration_ms, "errorCode": result.error_code,
-            })
-        gate_ok = all(result.ok for result in gate_results)
 
         summary = dict(run_summary or {})
         evidence = self._evidence(goal, run_id, summary)
         turn = max(1, int(goal.used_turns or 1))
+        run_status = str(summary.get("status") or "")
+        run_completed = run_status in ("", "completed")
+        gates: list[GoalGate] = []
+        gate_results: list[GateResult] = []
+        gate_ok = True
 
-        if gates and not gate_ok:
-            failed = [r for r in gate_results if not r.ok]
+        if not run_completed:
+            # A failed turn is already a deterministic "not done". Do not spend a
+            # gate sweep and a judge call re-proving it: the next turn gets the
+            # failure as its brief.
             if goal.used_turns >= goal.max_turns:
                 verdict = JudgeOutcome(
-                    "blocked", "gate failed and the turn budget is exhausted: "
-                    + ", ".join(r.check for r in failed[:4]),
+                    "blocked",
+                    "the turn did not complete and the turn budget is exhausted",
                 )
             else:
                 verdict = JudgeOutcome(
-                    "continue", "gate failed: "
-                    + ", ".join(f"{r.check}(exit {r.exit_code})" for r in failed[:4]),
+                    "continue",
+                    "the turn did not complete; address the failure before "
+                    "claiming completion",
+                    next_step="retry the failed work, then verify it",
                 )
         else:
-            verdict = await judge_goal(
-                dict(goal.contract or {}), gate_results, summary, evidence,
-                _settings_for(goal, judge=True),
+            gates = [GoalGate(**dict(item)) for item in (goal.gates or [])]
+            binding = resolve_binding(self.service, goal.workspace_id)
+            autonomy = str((goal.contract or {}).get("autonomy") or "edit_verify")
+            for gate in gates:
+                self._emit("goal.gate.started", {
+                    "goalId": goal.id, "gateId": gate.id, "check": gate.check,
+                })
+            gate_results = (
+                run_gates(gates, binding, autonomy=autonomy) if gates else []
             )
-            # Gates are authoritative even if the judge is wrong.
-            if verdict.verdict == "done" and not gate_ok:
-                verdict = JudgeOutcome(
-                    "continue", "the judge said done but a gate is red",
-                    downgraded=True,
+            for result in gate_results:
+                self._emit("goal.gate.finished", {
+                    "goalId": goal.id, "gateId": result.gate_id, "check": result.check,
+                    "ok": result.ok, "exitCode": result.exit_code,
+                    "durationMs": result.duration_ms, "errorCode": result.error_code,
+                })
+            gate_ok = all(result.ok for result in gate_results)
+
+            if gates and not gate_ok:
+                failed = [r for r in gate_results if not r.ok]
+                if goal.used_turns >= goal.max_turns:
+                    verdict = JudgeOutcome(
+                        "blocked", "gate failed and the turn budget is exhausted: "
+                        + ", ".join(r.check for r in failed[:4]),
+                    )
+                else:
+                    verdict = JudgeOutcome(
+                        "continue", "gate failed: "
+                        + ", ".join(f"{r.check}(exit {r.exit_code})" for r in failed[:4]),
+                    )
+            else:
+                verdict = await judge_goal(
+                    dict(goal.contract or {}), gate_results, summary, evidence,
+                    _settings_for(goal, judge=True),
                 )
-            if str(summary.get("status") or "") not in ("", "completed") \
-                    and verdict.verdict == "done":
-                verdict = JudgeOutcome(
-                    "continue", "the judge said done but the run did not complete",
-                    downgraded=True,
-                )
+                # Gates are authoritative even if the judge is wrong.
+                if verdict.verdict == "done" and not gate_ok:
+                    verdict = JudgeOutcome(
+                        "continue", "the judge said done but a gate is red",
+                        downgraded=True,
+                    )
+                # A judge verdict is ADVISORY. A `done` must also pass the
+                # task-type verifier (the same authority the chat path uses),
+                # otherwise a confident judge could complete a goal with no
+                # evidence at all.
+                if verdict.verdict == "done":
+                    verified, reason = self._verify_completion(goal, summary)
+                    if not verified:
+                        if goal.used_turns >= goal.max_turns:
+                            verdict = JudgeOutcome("blocked", reason)
+                        else:
+                            verdict = JudgeOutcome("continue", reason, downgraded=True)
 
         progress_digest = self._progress_digest(verdict, gate_results, evidence)
         previous_digest = str((goal.last_verdict or {}).get("progressDigest") or "")
@@ -469,6 +573,7 @@ class GoalRuntime:
             "lastVerdict": verdict_payload,
             "noProgressCount": no_progress,
             "nextRunAt": verdict.wake_at or None,
+            "currentRunId": run_id,
         })
         self._emit("goal.verdict", {
             "goalId": goal.id, "turn": turn, "verdict": verdict.verdict,
@@ -495,13 +600,57 @@ class GoalRuntime:
                 evidence.append(key)
         return list(dict.fromkeys(evidence))[:24]
 
+    def _verify_completion(
+        self, goal: Any, summary: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Run the task-type verifier over this turn's evidence.
+
+        The judge is advisory; this is the deterministic authority. A missing
+        verifier (unknown task type) is not a failure — the contract itself is.
+        """
+        if self.tasks is None or not goal.task_id:
+            return True, ""
+        try:
+            task = self.tasks.get_task(goal.task_id)
+        except Exception:  # noqa: BLE001 - a vanished task cannot be verified
+            return True, ""
+        if task is None:
+            return True, ""
+        evidence = {key: summary.get(key) for key in _EVIDENCE_KEYS if summary.get(key)}
+        metrics = {
+            "toolCalls": int(summary.get("toolCalls") or 0),
+            "totalTokens": int(summary.get("totalTokens") or 0),
+            "modelSteps": int(summary.get("modelSteps") or 0),
+        }
+        artifacts: list[Any] = []
+        try:
+            from ..tasks.bootstrap import _extract_artifacts  # noqa: PLC0415
+
+            artifacts = _extract_artifacts(summary, self.service)
+        except Exception:  # noqa: BLE001 - evidence extraction is best-effort
+            artifacts = []
+        try:
+            from ..tasks.verification import verify_task  # noqa: PLC0415
+
+            verification = verify_task(
+                task, status="completed", evidence=evidence,
+                artifacts=artifacts, metrics=metrics,
+            )
+        except Exception:  # noqa: BLE001 - a verifier crash must not fake success
+            return False, "the completion verifier could not run"
+        if verification is not None and not verification.ok:
+            return False, f"verified completion refused: {verification.summary()}"
+        return True, ""
+
     @staticmethod
     def _progress_digest(
         verdict: JudgeOutcome, gates: list[GateResult], evidence: list[str],
     ) -> str:
+        # The judge's free-form reason is deliberately EXCLUDED: a model that
+        # rephrases the same non-progress every turn would otherwise reset the
+        # guard and buy itself another turn for free.
         payload = json.dumps({
             "verdict": verdict.verdict,
-            "reason": verdict.reason[:300],
             "gates": [[r.gate_id, r.ok, r.exit_code] for r in gates],
             "evidence": evidence[:10],
         }, sort_keys=True, separators=(",", ":"))
@@ -515,41 +664,65 @@ class GoalRuntime:
         if mode == "shadow" and verdict.verdict == "continue":
             return  # record only: a shadow goal never starts another run
         if verdict.verdict == "done":
+            # Complete the TASK first. A goal is never "completed" while its
+            # task refuses completion — that was the one path where a goal could
+            # outlive its own verification.
+            if not self._complete_task(goal):
+                self.store.set_goal_status(goal_id, "blocked")
+                self.store.update_goal_fields(goal_id, {"currentRunId": None})
+                self._emit("goal.blocked", {
+                    "goalId": goal_id,
+                    "reason": "the task verifier refused completion",
+                })
+                return
             self.store.set_goal_status(goal_id, "completed")
-            self._complete_task(goal)
+            self.store.update_goal_fields(goal_id, {"currentRunId": None})
             self._emit("goal.completed", {"goalId": goal_id})
             return
         if verdict.verdict == "blocked":
             self.store.set_goal_status(goal_id, "blocked")
+            self.store.update_goal_fields(goal_id, {"currentRunId": None})
             self._park_task(goal, verdict.reason)
             self._emit("goal.blocked", {"goalId": goal_id, "reason": verdict.reason})
             return
         if verdict.verdict == "wait":
             if not verdict.wake_at:
                 self.store.set_goal_status(goal_id, "blocked")
+                self.store.update_goal_fields(goal_id, {"currentRunId": None})
                 self._emit("goal.blocked", {"goalId": goal_id, "reason": "wait without wakeAt"})
                 return
             self.store.set_goal_status(goal_id, "paused")
-            self.store.update_goal_fields(goal_id, {"nextRunAt": verdict.wake_at})
+            self.store.update_goal_fields(
+                goal_id, {"nextRunAt": verdict.wake_at, "currentRunId": None},
+            )
             self._emit("goal.paused", {"goalId": goal_id, "nextRunAt": verdict.wake_at})
             return
         # continue
         if goal.used_turns >= goal.max_turns:
-            self.store.set_goal_status(goal_id, "paused")
-            self.store.update_goal_fields(goal_id, {"nextRunAt": None})
-            self._emit("goal.paused", {"goalId": goal_id, "reason": "turn budget"})
+            # An honest terminal state, not a pause the operator cannot resume.
+            self.store.set_goal_status(goal_id, "blocked")
+            self.store.update_goal_fields(goal_id, {
+                "nextRunAt": None, "currentRunId": None,
+            })
+            self._emit("goal.blocked", {
+                "goalId": goal_id,
+                "reason": "the turn budget is exhausted; extend it to continue",
+            })
             return
         if self._user_active(goal, run_id):
             # The user is in the middle of their own run: do not start a second
             # agent run in the same session. Park briefly; the heartbeat retries.
             self.store.set_goal_status(goal_id, "paused")
-            self.store.update_goal_fields(goal_id, {"nextRunAt": _plus_seconds(60)})
+            self.store.update_goal_fields(
+                goal_id, {"nextRunAt": _plus_seconds(60), "currentRunId": None},
+            )
             self._emit("goal.paused", {"goalId": goal_id, "reason": "user active"})
             return
         try:
             self.start_turn(goal_id)
         except GoalError as exc:
             self.store.set_goal_status(goal_id, "blocked")
+            self.store.update_goal_fields(goal_id, {"currentRunId": None})
             self._emit("goal.blocked", {"goalId": goal_id, "reason": exc.message})
 
     def _user_active(self, goal: Any, current_run_id: Optional[str]) -> bool:
@@ -570,15 +743,18 @@ class GoalRuntime:
                 continue
         return False
 
-    def _complete_task(self, goal: Any) -> None:
+    def _complete_task(self, goal: Any) -> bool:
+        """Complete the task a goal turn produced. Returns whether it completed."""
         if self.tasks is None or not goal.task_id:
-            return
+            return True
         try:
             task = self.tasks.get_task(goal.task_id)
         except Exception:  # noqa: BLE001 - a vanished task is not a completion blocker
-            return
+            return True
+        if task is None:
+            return True
         if task.status in _TERMINAL:
-            return
+            return task.status == TaskStatus.COMPLETED
         try:
             if task.status == TaskStatus.IN_PROGRESS:
                 self.tasks.begin_verification(task.id)
@@ -589,8 +765,10 @@ class GoalRuntime:
                         evidence=f"goal:{goal.id}",
                     )
             self.tasks.complete_task(task.id, output_reference=f"goal:{goal.id}")
-        except Exception:  # noqa: BLE001 - the verdict is already durable
+            return True
+        except Exception:  # noqa: BLE001 - the caller marks the goal blocked
             log.warning("goal completion refused", exc_info=True)
+            return False
 
     def _park_task(self, goal: Any, reason: str) -> None:
         if self.tasks is None or not goal.task_id:
@@ -622,12 +800,150 @@ class GoalRuntime:
         if goal.status not in ("paused", "blocked"):
             return goal
         if goal.used_turns >= goal.max_turns:
-            raise GoalError("TURN_BUDGET", "the goal has used all of its turns")
+            raise GoalError(
+                "TURN_BUDGET",
+                "the goal has used all of its turns; extend it before resuming",
+            )
         self.store.set_goal_status(goal_id, "active")
         self.store.update_goal_fields(goal_id, {"nextRunAt": None})
         self._emit("goal.resumed", {"goalId": goal_id})
         self.start_turn(goal_id)
         return self.store.get_goal(goal_id)
+
+    async def reevaluate(self, goal_id: str) -> Optional[dict[str, Any]]:
+        """Re-judge the last finished turn WITHOUT starting a new run.
+
+        Recovery for a goal that was blocked by a transient judge/schema failure
+        (or a verifier that has since become satisfiable). The turn's evidence is
+        re-read from its run; no model turn and no new task are created.
+        """
+        goal = self._require(goal_id)
+        if loop_mode() == "off":
+            raise GoalError("GOAL_ENGINE_OFF", "the goal loop is off")
+        if goal.status in ("completed", "cancelled"):
+            raise GoalError(
+                "GOAL_TERMINAL", f"goal is {goal.status}; nothing to re-evaluate",
+            )
+        if self.tasks is None or not goal.task_id:
+            raise GoalError("NO_TURN", "this goal has no finished turn to re-evaluate")
+        try:
+            task = self.tasks.get_task(goal.task_id)
+        except Exception as exc:  # noqa: BLE001
+            raise GoalError("NO_TURN", str(exc)) from exc
+        if task is None:
+            raise GoalError("NO_TURN", "the goal's task no longer exists")
+        run_id = str(getattr(task, "output_reference", "") or "")
+        if not run_id.startswith(("run_", "taskrun_", "autorun_")):
+            run_id = str(getattr(task, "assigned_run_id", "") or "")
+        if not run_id:
+            try:
+                for execution in reversed(self.tasks.list_executions(task.id)):
+                    if execution.run_id:
+                        run_id = str(execution.run_id)
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+        run: dict[str, Any] = {}
+        if run_id:
+            try:
+                run = self.service.store.get_run(run_id) or {}
+            except Exception:  # noqa: BLE001 - a missing run is still evaluable
+                run = {}
+        summary = {
+            # Task statuses are UPPERCASE; the evaluator's vocabulary is the
+            # run vocabulary ("completed"/"failed").
+            "status": str((run or {}).get("status") or task.status.value).lower(),
+            "output": (run or {}).get("output") or "",
+            "totalTokens": int((run or {}).get("totalTokens") or 0),
+            "toolCalls": int((run or {}).get("toolCalls") or 0),
+            "modelSteps": int((run or {}).get("modelSteps") or 0),
+            "taskId": task.id,
+            "codeVerification": (run or {}).get("codeVerification"),
+            "research": (run or {}).get("research"),
+            "documents": (run or {}).get("documents"),
+            "images": (run or {}).get("images"),
+        }
+        self.store.set_goal_status(goal_id, "active")
+        self.store.update_goal_fields(goal_id, {"nextRunAt": None})
+        return await self.evaluate(
+            goal_id, run_id or None, summary, force=True,
+        )
+
+    def extend(self, goal_id: str, extra_turns: int = 5) -> Any:
+        """Grant a bounded number of additional turns to a capped goal.
+
+        The cap is a spend ceiling, so extending is an explicit, bounded,
+        audited operator action (never a silent reset). A paused or blocked goal
+        resumes immediately; an active goal simply gets more headroom.
+        """
+        goal = self._require(goal_id)
+        extra = max(1, min(int(extra_turns or 0), 100))
+        cap = max(1, min(int(goal.max_turns) + extra, 100))
+        self.store.update_goal_fields(goal_id, {"maxTurns": cap})
+        self._emit("goal.extended", {
+            "goalId": goal_id, "maxTurns": cap, "extraTurns": cap - int(goal.max_turns),
+        })
+        if goal.status in ("paused", "blocked"):
+            self.store.set_goal_status(goal_id, "active")
+            self.store.update_goal_fields(goal_id, {"nextRunAt": None})
+            self.start_turn(goal_id)
+        return self.store.get_goal(goal_id)
+
+    def repair_open_turns(self) -> int:
+        """Reopen a goal plan that completed under a still-open turn.
+
+        A turn whose task is TODO (queued or retried) inside a COMPLETED plan is
+        invisible to the scheduler. Reopen the plan so the queued turn runs.
+        """
+        if self.tasks is None:
+            return 0
+        fixed = 0
+        for status in ("active", "paused"):
+            for goal in self.store.list_goals(status=status, limit=500):
+                if not goal.plan_id or not goal.task_id:
+                    continue
+                try:
+                    task = self.tasks.get_task(goal.task_id)
+                    plan = self.tasks.get_plan(goal.plan_id)
+                except Exception:  # noqa: BLE001 - a missing row is not repairable
+                    continue
+                if task is None or plan is None:
+                    continue
+                if task.status != TaskStatus.TODO or plan.status.value == "RUNNING":
+                    continue
+                try:
+                    self.tasks.resume_plan_for_work(goal.plan_id)
+                    fixed += 1
+                except Exception:  # noqa: BLE001 - leave it for the next boot
+                    log.warning("goal plan reopen failed for %s", goal.id, exc_info=True)
+        return fixed
+
+    def _live_run_id(self, goal: Any) -> Optional[str]:
+        """The run this goal's current turn is actually executing.
+
+        `lastVerdict.runId` is the PREVIOUS turn; cancelling it does nothing to
+        an in-flight run. Resolve the live run from the task first.
+        """
+        if self.tasks is not None and goal.task_id:
+            try:
+                task = self.tasks.get_task(goal.task_id)
+            except Exception:  # noqa: BLE001
+                task = None
+            if task is not None:
+                assigned = str(getattr(task, "assigned_run_id", "") or "")
+                if assigned:
+                    return assigned
+                try:
+                    for execution in reversed(self.tasks.list_executions(goal.task_id)):
+                        run_id = str(getattr(execution, "run_id", "") or "")
+                        if run_id:
+                            return run_id
+                except Exception:  # noqa: BLE001 - executions are optional
+                    pass
+        if goal.current_run_id:
+            return str(goal.current_run_id)
+        last = (goal.last_verdict or {}).get("runId")
+        return str(last) if last else None
 
     def wake_due(self, now: str) -> list[str]:
         """Start the next turn for each paused goal whose `nextRunAt` is due.
@@ -639,7 +955,15 @@ class GoalRuntime:
         for goal in self.store.due_goals(now):
             try:
                 if goal.used_turns >= goal.max_turns:
-                    self.store.update_goal_fields(goal.id, {"nextRunAt": None})
+                    self.store.set_goal_status(goal.id, "blocked")
+                    self.store.update_goal_fields(goal.id, {
+                        "nextRunAt": None,
+                        "currentRunId": None,
+                    })
+                    self._emit("goal.blocked", {
+                        "goalId": goal.id,
+                        "reason": "the turn budget is exhausted; extend it to continue",
+                    })
                     continue
                 if self._user_active(goal, None):
                     # Leave it paused and let a later tick retry; never queue a
@@ -658,7 +982,8 @@ class GoalRuntime:
     def cancel(self, goal_id: str) -> Any:
         goal = self._require(goal_id)
         self.store.set_goal_status(goal_id, "cancelled")
-        run_id = str((goal.last_verdict or {}).get("runId") or "")
+        self.store.update_goal_fields(goal_id, {"currentRunId": None, "nextRunAt": None})
+        run_id = self._live_run_id(goal)
         if run_id:
             try:
                 self.service.cancel(run_id)

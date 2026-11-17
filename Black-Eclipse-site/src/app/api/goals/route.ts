@@ -11,6 +11,7 @@ import { HarnessRuntimeUnavailable } from "@/lib/harness";
 export const dynamic = "force-dynamic";
 
 const AUTONOMY = ["plan_only", "edit_verify", "approve_external"] as const;
+const TASK_TYPES = ["code", "research", "document", "workflow", "finance", "data", "general"] as const;
 
 export async function GET(request: Request) {
   try {
@@ -43,6 +44,9 @@ export async function POST(request: Request) {
     if (body.autonomy !== undefined && !(AUTONOMY as readonly string[]).includes(body.autonomy)) {
       return NextResponse.json({ error: "unknown autonomy" }, { status: 400 });
     }
+    if (body.taskType !== undefined && !(TASK_TYPES as readonly string[]).includes(body.taskType)) {
+      return NextResponse.json({ error: "unknown task type" }, { status: 400 });
+    }
     const model =
       body.model && (body.model.provider || body.model.model)
         ? body.model
@@ -59,16 +63,22 @@ export async function POST(request: Request) {
       sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
       workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : undefined,
       autonomy: body.autonomy,
+      taskType: body.taskType,
       model: { provider: model.provider, model: model.model, baseUrl: model.baseUrl },
       start: body.start !== false,
+      allowParallel: body.allowParallel === true,
     };
     const goal = await createGoal(input);
     return NextResponse.json({ success: true, goal });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
+    const message = err instanceof Error ? err.message : "goal create failed";
+    // Preserve the engine's 409 semantics for the two typed refusals the chat
+    // command reacts to, instead of flattening them to 400.
+    const conflict = /goal loop is off|already has an active goal/i.test(message);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "goal create failed" },
-      { status: unavailable ? 503 : 400 },
+      { error: message },
+      { status: unavailable ? 503 : conflict ? 409 : 400 },
     );
   }
 }

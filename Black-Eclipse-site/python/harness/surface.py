@@ -306,6 +306,8 @@ def resolve_surface_detail(
     registry: ToolRegistry,
     settings: Optional[dict[str, Any]],
     autonomy: Optional[str] = None,
+    *,
+    apply_code_surface: bool = True,
 ) -> SurfaceResolution:
     """Resolve ONE run's tool surface, and name everything it added and lost.
 
@@ -333,7 +335,14 @@ def resolve_surface_detail(
 
     declared = _declared_allowlist(agent, registry)
     base = effective_allowlist(agent, registry, effective_autonomy)
-    surface = chat_code_allowlist(agent, registry, autonomy)
+    # A task-dispatched run (a goal turn, a UI build, an automation) is not a
+    # chat coding request: the chat code profile would REPLACE the finance
+    # agent's data/compute tools with a code subset, hiding e.g.
+    # `get_historical_prices` and `analysis_run` from a backtest goal.
+    surface = (
+        chat_code_allowlist(agent, registry, autonomy)
+        if apply_code_surface else None
+    )
 
     # What the autonomy profile removed, from EITHER half. Both halves go
     # through the ONE policy authority, so a write/execute/external tool the
@@ -410,6 +419,8 @@ def resolve_surface_run(
     registry: ToolRegistry,
     settings: Optional[dict[str, Any]],
     autonomy: Optional[str] = None,
+    *,
+    apply_code_surface: bool = True,
 ) -> tuple[SurfaceResolution, str]:
     """Resolve ONE run's surface AND its byte-stable system prompt.
 
@@ -420,7 +431,10 @@ def resolve_surface_run(
     """
     from .prompts import filter_system_prompt  # noqa: PLC0415
 
-    resolution = resolve_surface_detail(agent, registry, settings, autonomy)
+    resolution = resolve_surface_detail(
+        agent, registry, settings, autonomy,
+        apply_code_surface=apply_code_surface,
+    )
     settings = settings or {}
     prompt = filter_system_prompt(
         agent.systemPrompt,

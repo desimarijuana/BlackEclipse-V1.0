@@ -40,6 +40,13 @@ from harness.tasks.store import TaskStore
         ("write a report summarizing the market landscape", TaskType.DOCUMENT),
         ("automate a daily pipeline that monitors filings", TaskType.WORKFLOW),
         ("compare the portfolio risk to the benchmark", TaskType.FINANCE),
+        (
+            "Research and evaluate one tradable strategy end to end using data "
+            "available in this app. Run a real backtest over two years and give "
+            "a verdict.",
+            TaskType.FINANCE,
+        ),
+        ("build a backtest dashboard for the strategy", TaskType.CODE),
         ("what is the weather", TaskType.GENERAL),
     ],
 )

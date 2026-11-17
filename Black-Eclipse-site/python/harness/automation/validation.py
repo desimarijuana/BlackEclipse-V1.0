@@ -13,7 +13,7 @@ vocabulary is open-ended by design), but the type must be a well-formed name.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .conditions import ConditionError, validate_condition
 from .model import (
@@ -41,6 +41,8 @@ _ACTION_REQUIRES = {
     "browser_action": "tool_name",
     "create_task": None,
     "custom_action": "tool_name",
+    # Required fields live on `action.config` and are checked by `_validate_trading`.
+    "run_strategy": None,
 }
 
 # Obvious secret material that must never be embedded in a definition (§29).
@@ -78,6 +80,124 @@ def _contains_secret(data: Any, path: str = "") -> Optional[str]:
     return None
 
 
+def _validate_trading(
+    definition: AutomationDefinition,
+    strategy_lookup: Optional[Callable[[str, str], Any]],
+) -> list[ValidationIssue]:
+    """Trading-bot rules. Mirrored by `src/lib/bots/trading/validate.ts`.
+
+    A draft may be saved mid-setup (so the operator can prepare trading after
+    creation); an ACTIVE bot must be complete. That distinction is the difference
+    between a recoverable draft and a bot that silently never trades.
+    """
+    from . import trading_policy  # noqa: PLC0415 - stdlib-only helper module
+
+    issues: list[ValidationIssue] = []
+    action = definition.action
+    config = action.config if isinstance(action.config, dict) else {}
+    authority = definition.execution_authority
+    active = definition.state == "active"
+
+    def error(code: str, field: str, message: str) -> None:
+        issues.append(ValidationIssue(ERROR, code, field, message))
+
+    def warning(code: str, field: str, message: str) -> None:
+        issues.append(ValidationIssue(WARNING, code, field, message))
+
+    strategy_id = str(config.get("strategyId") or "").strip()
+    version = str(config.get("strategyVersion") or "").strip()
+    mode = str(config.get("mode") or "").strip().lower()
+    connection_id = str(config.get("connectionId") or "").strip()
+    symbols = trading_policy.normalize_symbols(config.get("symbols") or [])
+
+    if not strategy_id:
+        error("STRATEGY_ID_REQUIRED", "action.config.strategyId",
+              "choose the strategy this bot trades")
+    if not version:
+        error("STRATEGY_VERSION_REQUIRED", "action.config.strategyVersion",
+              "choose the strategy version")
+    if strategy_id and version and strategy_lookup is not None:
+        try:
+            if strategy_lookup(strategy_id, version) is None:
+                error("STRATEGY_UNAVAILABLE", "action.config.strategyId",
+                      f"strategy {strategy_id!r} version {version!r} does not exist")
+        except Exception:  # noqa: BLE001 - an unreadable store is reported
+            warning("STRATEGY_UNVERIFIED", "action.config.strategyId",
+                    "the strategy store could not be read")
+
+    if mode not in trading_policy.MODES:
+        error("INVALID_TRADING_MODE", "action.config.mode",
+              "mode must be shadow, demo or live")
+        return issues
+    if mode != "shadow" and not connection_id:
+        error("CONNECTION_REQUIRED", "action.config.connectionId",
+              "choose the broker connection for this mode")
+
+    if not symbols:
+        error("SYMBOLS_REQUIRED", "action.config.symbols", "add at least one symbol")
+    if not trading_policy.timeframe_seconds(config.get("timeframe")):
+        error("INVALID_TIMEFRAME", "action.config.timeframe",
+              "choose a supported timeframe")
+    if authority.require_stop and float(config.get("stopLossPoints") or 0) <= 0:
+        error("STOP_REQUIRED", "action.config.stopLossPoints",
+              "this bot requires a stop loss, so set a stop distance")
+
+    band = {"conservative": (1, 2), "normal": (2, 4), "aggressive": (3, 8)}
+    max_positions, max_orders = band.get(str(authority.appetite), band["normal"])
+    if int(config.get("maxOrdersPerDay") or 0) > max_orders:
+        error("ORDERS_ABOVE_BAND", "action.config.maxOrdersPerDay",
+              f"{authority.appetite} allows at most {max_orders} orders/day")
+    if int(authority.max_open_positions or 0) > max_positions:
+        error("POSITIONS_ABOVE_BAND", "executionAuthority.maxOpenPositions",
+              f"{authority.appetite} allows at most {max_positions} open position(s)")
+
+    tier = str(getattr(authority, "tier", "l0") or "l0")
+    dry_run = bool(config.get("dryRun"))
+    if mode == "live" and tier != "l2":
+        error("BOT_TIER_REQUIRED", "executionAuthority.tier",
+              "live execution needs tier L2")
+    if mode == "demo" and not dry_run and tier == "l0":
+        error("BOT_TIER_REQUIRED", "executionAuthority.tier",
+              "tier L0 only proposes; use preview or raise the tier to L1")
+
+    # Misfire catching up on a trading bot would place a late order.
+    if definition.execution.misfire != "skip":
+        error("MISTRADE_RISK", "execution.misfire",
+              "a trading bot must skip a missed fire, never catch up")
+
+    trial_id = str(config.get("trialId") or "").strip()
+    if not trial_id:
+        message = "prepare trading (create the trial) before enabling this bot"
+        if active:
+            error("TRADING_NOT_PREPARED", "action.config.trialId", message)
+        else:
+            warning("TRADING_NOT_PREPARED", "action.config.trialId", message)
+
+    if mode != "shadow" and not dry_run and active:
+        request = trading_policy.consent_request_for(config, {
+            "maxMarginPerOrder": authority.max_margin_per_order,
+            "maxOpenPositions": authority.max_open_positions,
+        })
+        check = trading_policy.consent_covers(config.get("consent"), request)
+        if not check["covered"]:
+            code = {"revoked": "CONSENT_REVOKED", "expired": "CONSENT_EXPIRED"}.get(
+                check["status"], "CONSENT_REQUIRED")
+            error(code, "action.config.consent",
+                  check["reason"] or "grant standing trading consent")
+
+    session = config.get("session")
+    if isinstance(session, dict) and session:
+        try:
+            from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+            ZoneInfo(str(session.get("timezone") or "UTC"))
+        except Exception:  # noqa: BLE001
+            error("INVALID_TIMEZONE", "action.config.session.timezone",
+                  "that timezone is not available on this machine")
+
+    return issues
+
+
 def validate_automation(
     definition: AutomationDefinition,
     *,
@@ -86,6 +206,7 @@ def validate_automation(
     known_agents: Optional[set[str]] = None,
     tool_names: Optional[set[str]] = None,
     known_variables: Optional[set[str]] = None,
+    strategy_lookup: Optional[Callable[[str, str], Any]] = None,
 ) -> list[ValidationIssue]:
     """Return every validation issue for a definition (empty ⇒ valid)."""
     issues: list[ValidationIssue] = []
@@ -159,6 +280,10 @@ def validate_automation(
                 WARNING, "AUTONOMY_ABSENT", "action.autonomy",
                 "a workspace is bound but no autonomy profile is set; code tools stay unavailable",
             ))
+
+    # ── Trading action (run_strategy) ─────────────────────────────────────────
+    if action.type == "run_strategy":
+        issues.extend(_validate_trading(definition, strategy_lookup))
 
     # ── Referenced entities ──────────────────────────────────────────────────
     graph_workflow_id = action.config.get("graphWorkflowId") if isinstance(action.config, dict) else None

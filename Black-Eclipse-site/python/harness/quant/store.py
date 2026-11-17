@@ -332,6 +332,53 @@ class QuantStore:
             for r in rows
         ]
 
+    def list_strategy_catalog(
+        self, *, include_archived: bool = False, include_evidence: bool = True,
+    ) -> list[dict]:
+        """Strategies with the evidence a person needs before choosing one.
+
+        One row per strategy (its LATEST version), plus the newest backtest,
+        approval and paper run for that version. Additive to `list_strategies`;
+        every field is a real stored row, and a missing one is `None` (never a
+        green badge).
+        """
+        items = self.list_strategies(include_archived=include_archived)
+        if not include_evidence:
+            return items
+        for item in items:
+            strategy_id = item["id"]
+            version = item.get("latestVersion") or ""
+            backtest = self._db.execute(
+                "SELECT id, status, createdAt FROM QuantExperiment "
+                "WHERE strategyId=? AND strategyVersion=? AND kind='backtest' "
+                "ORDER BY createdAt DESC LIMIT 1",
+                (strategy_id, version),
+            ).fetchone()
+            approval = self._db.execute(
+                "SELECT id, status, version, createdAt FROM QuantStrategyApproval "
+                "WHERE strategyId=? AND version=? ORDER BY createdAt DESC LIMIT 1",
+                (strategy_id, version),
+            ).fetchone()
+            paper = self._db.execute(
+                "SELECT id, status, createdAt FROM QuantPaperRun "
+                "WHERE strategyId=? ORDER BY createdAt DESC LIMIT 1",
+                (strategy_id,),
+            ).fetchone()
+            item["latestBacktest"] = (
+                {"id": backtest["id"], "status": backtest["status"],
+                 "createdAt": backtest["createdAt"]} if backtest else None
+            )
+            item["approval"] = (
+                {"id": approval["id"], "status": approval["status"],
+                 "version": approval["version"], "createdAt": approval["createdAt"]}
+                if approval else None
+            )
+            item["lastPaperRun"] = (
+                {"id": paper["id"], "status": paper["status"],
+                 "createdAt": paper["createdAt"]} if paper else None
+            )
+        return items
+
     def list_versions(self, strategy_id: str) -> list[dict]:
         rows = self._db.execute(
             "SELECT version, contentHash, schemaVersion, createdAt FROM QuantStrategyVersion "

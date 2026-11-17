@@ -353,11 +353,29 @@ def build_task_executor(service: Any, manager: TaskManager):
                         "source": "task-scheduler", "taskId": task.id,
                         "planId": task.plan_id, "taskTitle": task.title,
                         "taskAttempt": attempt,
+                        # A task run is not a chat coding turn; keep the agent's
+                        # own tool surface (see `surface.resolve_surface_detail`).
+                        "taskRun": True,
                     },
                 ),
+                # A task that declares a workspace (a goal turn, a UI build) MUST
+                # bind it here. Without this the run has no workspace, so the
+                # agent cannot edit the files the goal's gates then check.
+                workspaceId=str(
+                    (task.metadata or {}).get("workspaceId")
+                    or _plan_metadata(manager, task).get("workspaceId")
+                    or ""
+                ) or None,
                 agentId=agent_id,
                 modelSettings=settings,
                 autonomy=_task_autonomy(manager, task),
+                # Task-dispatched work (a goal turn, a UI build, an automation)
+                # is user-initiated and often needs a COMPUTED answer (a
+                # backtest, a drawdown path). `analysis_run` is in the agent's
+                # allowlist but is off per run unless the caller enables it; a
+                # goal that asks for a real backtest could only narrate without
+                # this. The sandbox is bounded and read-only.
+                analysisEnabled=True,
                 callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
                 callbackToken=os.environ.get("HARNESS_CALLBACK_TOKEN") or None,
             )
@@ -542,7 +560,7 @@ def install_task_layer(service: Any) -> bool:
         except Exception:  # noqa: BLE001 - goal wiring must never block boot
             log.warning("goal runtime wiring unavailable", exc_info=True)
         # W4: the goal/loop engine rides the SAME task + automation seams. It is
-        # off by default (`HARNESS_GOAL_LOOP=off`) and must never block boot.
+        # on by default (`HARNESS_GOAL_LOOP=on`) and must never block boot.
         try:
             from ..goals.bootstrap import install_autonomy_layer  # noqa: PLC0415
 

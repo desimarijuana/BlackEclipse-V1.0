@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
-import { Ghost, Loader2, Plus, Sparkles, Users } from '@/lib/icons';
+import { Ghost, Loader2, Plus, Sparkles, TrendingUp, Users } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -25,6 +25,7 @@ import {
 } from '@/lib/harness/clients/automation-browser';
 import { duplicateBot } from '@/lib/bots/duplicate';
 import { useSeedFinancePack } from '@/lib/bots/finance-bots';
+import { useSeedEur1mBot } from '@/lib/bots/trading/eur-1m-seed';
 import { forgetBotLocally, forgetBotMemory } from '@/lib/bots/purge';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
@@ -291,6 +292,11 @@ function CenterEmpty({
 }) {
   const t = useT();
   const { seed, busy, error } = useSeedFinancePack();
+  const {
+    seed: seedEur,
+    busy: eurBusy,
+    error: eurError,
+  } = useSeedEur1mBot();
   return (
     <div className="glass-card flex h-full min-h-[20rem] flex-col items-center justify-center rounded-2xl px-6 text-center">
       <div className="glass-card-subtle flex h-14 w-14 items-center justify-center rounded-2xl text-muted-foreground">
@@ -311,9 +317,14 @@ function CenterEmpty({
         <Button variant="outline" onClick={onInstitution}>
           <Users size={14} /> Institution committee
         </Button>
+        <Button variant="outline" onClick={() => void seedEur()} disabled={eurBusy}>
+          {eurBusy ? <Loader2 size={14} className="animate-spin" /> : <TrendingUp size={14} />}
+          {eurBusy ? 'Preparing EUR 1m…' : 'EUR/USD 1-minute bot'}
+        </Button>
       </div>
       <p className="mt-3 max-w-sm text-[11px] text-muted-foreground">{t('bots.finance.hint')}</p>
       {error && <p className="mt-2 max-w-sm text-[11px] text-rose-300">{error}</p>}
+      {eurError && <p className="mt-2 max-w-sm text-[11px] text-rose-300">{eurError}</p>}
     </div>
   );
 }

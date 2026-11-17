@@ -164,6 +164,23 @@ class TaskManager:
             plan = self.set_plan_status(plan_id, PlanStatus.READY)
         return self.set_plan_status(plan_id, PlanStatus.RUNNING)
 
+    def resume_plan_for_work(self, plan_id: str) -> Plan:
+        """Make a plan schedulable again for a new unit of work.
+
+        A goal turn adds a task to the goal's existing plan. When every previous
+        turn completed, `recompute_plan` marks that plan COMPLETED — and COMPLETED
+        is terminal, so the scheduler (which only runs tasks in a RUNNING plan)
+        would ignore every later turn. The audited REOPEN operation is the legal
+        edge back to READY, then `start_plan` moves it to RUNNING.
+        """
+        plan = self.get_plan(plan_id)
+        if plan.status == PlanStatus.RUNNING:
+            return plan
+        if plan.status in (PlanStatus.COMPLETED, PlanStatus.CANCELLED,
+                           PlanStatus.FAILED):
+            plan = self.set_plan_status(plan_id, PlanStatus.READY, operation="reopen")
+        return self.start_plan(plan_id)
+
     # ── Tasks ────────────────────────────────────────────────────────────────
     def create_task(
         self, payload: CreateTaskInput | dict[str, Any], *, actor_id: Optional[str] = None
@@ -379,6 +396,10 @@ class TaskManager:
         updated = self._transition(task, TaskStatus.IN_PROGRESS, extra=extra)
         self._emit_for_status(updated, previous=task.status)
         return updated
+
+    def repair_orphaned_goal_tasks(self) -> int:
+        """Boot repair for goal turns the pre-fix runtime stranded. See the store."""
+        return self._store.repair_orphaned_goal_tasks()
 
     def begin_verification(
         self, task_id: str, *, actor_id: Optional[str] = None

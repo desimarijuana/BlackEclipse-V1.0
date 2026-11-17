@@ -33,7 +33,9 @@ function sweep(now: number): void {
   }
 }
 
-function orderedFlags(flags: Record<string, string | boolean>): Array<[string, string | boolean]> {
+function orderedFlags(
+  flags: Record<string, string | boolean | string[]>,
+): Array<[string, string | boolean | string[]]> {
   return Object.entries(flags)
     .filter(([name]) => name !== "confirm")
     .sort(([a], [b]) => a.localeCompare(b));

@@ -17,6 +17,8 @@ import type { HarnessUiEvent } from '@/lib/agent/events';
 import type { AutomationView } from '@/lib/harness/clients/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import { botModelPin } from '@/lib/bots/state';
+import { visualTeachingPrompt, type StrategyVisual } from '@/lib/bots/trading';
+import { referenceImages, tradingChatContext } from '@/lib/bots/trading/chat-context';
 import { getGraphRun, isTerminal, startWorkflowRun } from '@/lib/graph-studio/execution-client';
 
 /** Prior bot-chat turns. `error` marks a failed turn, excluded from context. */
@@ -50,8 +52,37 @@ export function botPersona(bot: AutomationView): string {
   return (
     `You are the persistent bot "${bot.name}" (id: ${bot.id}). ` +
     `Purpose: ${bot.description || '—'}. Standing instructions: ${instructions || '—'}. ` +
-    `Answer as this bot, and use your tools to act when the user asks.`
+    `Answer as this bot, and use your tools to act when the user asks.` +
+    tradingPersonaContext(bot)
   );
+}
+
+/**
+ * What a trading bot carries into every answer: its mode/authority, and the
+ * operator's reference images as PATTERN GUIDANCE (never market data).
+ */
+export function tradingPersonaContext(bot: AutomationView): string {
+  const config = bot.action.config ?? {};
+  const visuals = Array.isArray(config.visuals)
+    ? (config.visuals as StrategyVisual[])
+    : [];
+  const lines: string[] = [];
+  const mode = typeof config.mode === 'string' ? config.mode : '';
+  if (mode) lines.push(`Trading mode: ${mode}.`);
+  const tier = bot.executionAuthority?.tier;
+  if (tier) {
+    lines.push(
+      `Trading authority: ${tier.toUpperCase()} ` +
+        (tier === 'l0'
+          ? '(propose orders only; never claim an order was filled).'
+          : tier === 'l1'
+            ? '(you may fill a demo account; never claim live execution).'
+            : '(you may fill live under a bot-pinned mandate; the broker is the source of truth).'),
+    );
+  }
+  const teaching = visualTeachingPrompt(visuals);
+  if (teaching) lines.push(teaching);
+  return lines.length ? `\n\n${lines.join('\n')}` : '';
 }
 
 /** The standing identity/instructions line for one member inside a group room. */
@@ -60,7 +91,8 @@ export function groupMemberPersona(group: BotGroup, bot: AutomationView): string
     `You are "${bot.name}", one member of the group chat "${group.name}". ` +
     `Your role: ${bot.description || '—'}. Your standing instructions: ${bot.action.objective || '—'}. ` +
     `Reply ONLY as ${bot.name}, in your own distinct voice. Do not speak for other ` +
-    `members and do not summarize the room. Use your tools when asked.`
+    `members and do not summarize the room. Use your tools when asked.` +
+    tradingPersonaContext(bot)
   );
 }
 
@@ -192,12 +224,19 @@ export async function runBotTurn(args: RunBotTurnArgs): Promise<string> {
   // present; in that case the bot's provider pin is dropped so a model is never
   // paired with the wrong provider.
   const pin = botModelPin(bot);
-  return getAgentProvider().chat(buildBotMessages(bot, text, prior), undefined, {
+  // Reference images travel as real image parts; the lesson digest travels as a
+  // system message so the bot can discuss failures without re-reading the panel.
+  const images = referenceImages(bot);
+  const learning = await tradingChatContext(bot);
+  const messages = buildBotMessages(bot, text, prior);
+  if (learning) messages.splice(1, 0, { role: 'system', content: learning });
+  return getAgentProvider().chat(messages, undefined, {
     agentId: bot.action.agentId || 'eclipse-agent',
     chatId: botChatId(bot.id),
     memoryScope: 'conversation',
     model: model || pin.model,
     ...(model ? {} : { modelProvider: pin.provider }),
+    ...(images.length ? { images } : {}),
     signal,
     onDelta,
     onEvent,
@@ -226,12 +265,14 @@ export async function runGroupMemberTurn(args: RunGroupMemberTurnArgs): Promise<
     return runWorkflowTurn({ bot, text, signal, onDelta, extra: { group: group.name } });
   }
   const pin = botModelPin(bot);
+  const images = referenceImages(bot);
   return getAgentProvider().chat(buildGroupMemberMessages(group, bot, text, prior), undefined, {
     agentId: bot.action.agentId || 'eclipse-agent',
     chatId: groupMemberChatId(group.id, bot.id),
     memoryScope: 'conversation',
     model: model || pin.model,
     ...(model ? {} : { modelProvider: pin.provider }),
+    ...(images.length ? { images } : {}),
     signal,
     onDelta,
     onEvent,

@@ -237,6 +237,13 @@ approval that approves itself. Live routing is refused by the engine
 | Error / notice banners | `.../studio-alerts.tsx` |
 | Stage rail | `.../stage-rail.tsx` |
 | Saved-strategy rail | `.../strategy-library.tsx` |
+
+The rail reads the shared **strategy catalog** (`src/lib/strategies/catalog.ts`,
+`GET /quant/strategies?includeEvidence=true`): every strategy with its newest
+backtest, approval and paper run. It refreshes on focus, when the tab becomes
+visible, after an agent turn completes, and on the explicit Refresh button; it
+can show archived strategies. A strategy created in chat therefore appears here
+without a reload, and the same catalog feeds the New-bot strategy picker.
 | Thesis + run inputs | `.../thesis-panel.tsx` |
 | Spec card (builder / JSON) | `.../spec-card.tsx` |
 | No-code builder | `.../spec-builder.tsx` |

@@ -5,9 +5,15 @@
 // action config and honored by the engine's dispatcher (`_model_settings_for`).
 // This deliberately does NOT reuse the chat composer's selector, which persists
 // its choice as the GLOBAL default — a bot's model must not change the app's.
+//
+// The catalog can be slow on a cold Python runtime, so this shows loading,
+// a "runtime starting" hint, an error with Retry, and an honest "no provider"
+// message instead of a silent empty dropdown.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { RefreshCw } from '@/lib/icons';
+import { cn } from '@/lib/utils';
 import {
   Select,
   SelectContent,
@@ -39,19 +45,40 @@ export interface BotModelPickerProps {
 export function BotModelPicker({ provider, model, onChange }: BotModelPickerProps) {
   const t = useT();
   const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [error, setError] = useState<string | null>(null);
+  const [warmup, setWarmup] = useState(false);
+
+  const load = useCallback(async () => {
+    setPhase('loading');
+    setError(null);
+    try {
+      const response = await fetch('/api/harness/chat/models', {
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) throw new Error(`model catalog returned ${response.status}`);
+      const body = (await response.json()) as { providers?: ProviderOption[] };
+      setProviders(Array.isArray(body.providers) ? body.providers : []);
+      setPhase('ready');
+    } catch (err) {
+      setProviders([]);
+      setPhase('error');
+      setError(err instanceof Error ? err.message : 'could not read the model catalog');
+    }
+  }, []);
 
   useEffect(() => {
-    let live = true;
-    void fetch('/api/harness/chat/models')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => {
-        if (live && body && Array.isArray(body.providers)) setProviders(body.providers as ProviderOption[]);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (phase !== 'loading') {
+      setWarmup(false);
+      return;
+    }
+    const timer = setTimeout(() => setWarmup(true), 3000);
+    return () => clearTimeout(timer);
+  }, [phase]);
 
   const value = model ? encode(provider, model) : DEFAULT_VALUE;
   const usable = providers.filter((p) => (p.keyless || p.available) && (p.models?.length ?? 0) > 0);
@@ -60,7 +87,18 @@ export function BotModelPicker({ provider, model, onChange }: BotModelPickerProp
 
   return (
     <div className="space-y-1">
-      <div className="text-[11px] font-medium text-muted-foreground">{t('bots.model.label')}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] font-medium text-muted-foreground">{t('bots.model.label')}</div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={phase === 'loading'}
+          aria-label="Refresh models"
+          className="rounded p-0.5 text-muted-foreground hover:bg-white/5 hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw size={11} className={cn(phase === 'loading' && 'animate-spin')} />
+        </button>
+      </div>
       <Select
         value={value}
         onValueChange={(v) => {
@@ -89,6 +127,30 @@ export function BotModelPicker({ provider, model, onChange }: BotModelPickerProp
           )}
         </SelectContent>
       </Select>
+
+      {phase === 'loading' && (
+        <p className="text-[10px] text-muted-foreground">
+          {warmup ? 'Agent runtime is starting — models will appear shortly…' : 'Loading models…'}
+        </p>
+      )}
+      {phase === 'error' && (
+        <p className="text-[10px] text-amber-300">
+          {error}{' '}
+          <button type="button" onClick={() => void load()} className="underline">
+            Retry
+          </button>
+        </p>
+      )}
+      {phase === 'ready' && usable.length === 0 && (
+        <p className="text-[10px] text-amber-300">
+          No usable provider. Add an API key in Settings › Providers, or start Ollama.
+        </p>
+      )}
+      {phase === 'ready' && usable.length > 0 && !model && (
+        <p className="text-[10px] text-muted-foreground">
+          Unpinned bots use the app's default model.
+        </p>
+      )}
     </div>
   );
 }

@@ -77,6 +77,9 @@ def _exec_row(row: Any) -> dict[str, Any]:
         "snapshot": json.loads(row["snapshotJson"]) if row["snapshotJson"] else None,
         "dryRun": bool(row["dryRun"]),
         "output": row["output"] if "output" in row.keys() else None,
+        "decision": (
+            json.loads(row["decision"]) if "decision" in row.keys() and row["decision"] else None
+        ),
     }
 
 
@@ -178,6 +181,9 @@ class AutomationStore:
         # stored run `output` (the answer the unattended run produced). CREATE
         # TABLE IF NOT EXISTS would not add it, so ALTER explicitly.
         self._ensure_column("AutomationExecution", "output", "TEXT")
+        # Additive: the structured trading decision for a `run_strategy` run. A
+        # no-trade run still writes one, so "why didn't it trade?" is answerable.
+        self._ensure_column("AutomationExecution", "decision", "TEXT")
         db.execute(
             """
             CREATE TABLE IF NOT EXISTS AutomationExecutionEvent (
@@ -559,17 +565,18 @@ class AutomationStore:
         self, execution_id: str, *, state: str, outcome_reason: Optional[str] = None,
         error_class: Optional[str] = None, run_id: Optional[str] = None,
         task_id: Optional[str] = None, cost: Optional[float] = None, tokens: Optional[int] = None,
-        output: Optional[str] = None,
+        output: Optional[str] = None, decision: Optional[Any] = None,
     ) -> None:
+        payload = json.dumps(decision, sort_keys=True, default=str) if decision else None
         self._db.execute(
             """UPDATE AutomationExecution
                SET state=?, outcomeReason=?, errorClass=?, finishedAt=?,
                    runId=COALESCE(?, runId), taskId=COALESCE(?, taskId),
                    cost=COALESCE(?, cost), tokens=COALESCE(?, tokens),
-                   output=COALESCE(?, output)
+                   output=COALESCE(?, output), decision=COALESCE(?, decision)
                WHERE id=?""",
             (state, outcome_reason, error_class, now_iso(), run_id, task_id, cost, tokens,
-             output, execution_id),
+             output, payload, execution_id),
         )
         self._db.commit()
 

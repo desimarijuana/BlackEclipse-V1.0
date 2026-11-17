@@ -75,6 +75,21 @@ def _resolution(agent=ECLIPSE_AGENT, autonomy: str | None = "edit_verify",
     return resolve_surface_detail(agent, _registry(), settings or {}, autonomy)
 
 
+def test_a_task_run_does_not_get_the_chat_code_surface():
+    """A task-dispatched run keeps the agent's own surface.
+
+    The chat code profile is for a coding REQUEST. A finance goal turn also
+    carries an autonomy, but must keep `get_historical_prices`/`analysis_run`
+    instead of being replaced by the code subset.
+    """
+    res = resolve_surface_detail(
+        ECLIPSE_AGENT, _registry(), {}, "plan_only", apply_code_surface=False,
+    )
+    assert res.surfaceId == SURFACE_BASE
+    assert res.surface is None
+    assert "web_search" in (res.allowed or set())
+
+
 # ── the rule: a surface EXTENDS, it never REPLACES ─────────────────────────
 
 

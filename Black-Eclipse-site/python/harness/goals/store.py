@@ -184,6 +184,17 @@ GOAL_MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX IF NOT EXISTS idx_loop_next ON AutonomyLoop(status, nextTickAt)",
         ),
     ),
+    Migration(
+        id="2026-11-17-007-goal-live-turn",
+        description="Track the in-flight turn's run so a goal can be cancelled mid-turn",
+        statements=(
+            "ALTER TABLE GoalRecord ADD COLUMN currentRunId TEXT",
+            # A due-goal scan runs on every automation tick; without this index it
+            # is a full table scan on the hottest background path.
+            "CREATE INDEX IF NOT EXISTS idx_goal_due ON GoalRecord(status, nextRunAt)",
+            "CREATE INDEX IF NOT EXISTS idx_goal_session_status ON GoalRecord(sessionId, status)",
+        ),
+    ),
 )
 
 
@@ -249,15 +260,15 @@ class GoalStore:
             "INSERT INTO GoalRecord "
             "(id, objective, acceptance, planId, taskId, status, budget, contract, "
             "gates, maxTurns, usedTurns, lastVerdict, sessionId, nextRunAt, "
-            "noProgressCount, modelProvider, modelName, modelBaseUrl, workspaceId, "
+            "noProgressCount, currentRunId, modelProvider, modelName, modelBaseUrl, workspaceId, "
             "createdAt, updatedAt) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 goal.id, goal.objective, _json(list(goal.acceptance)), goal.plan_id,
                 goal.task_id, goal.status, _json(goal.budget),
                 _json(goal.contract) if goal.contract is not None else None,
                 _json(goal.gates), goal.max_turns, 0, None, goal.session_id, None,
-                0, goal.model_provider, goal.model_name, goal.model_base_url,
+                0, None, goal.model_provider, goal.model_name, goal.model_base_url,
                 goal.workspace_id, goal.created_at, goal.updated_at,
             ),
         )
@@ -281,6 +292,7 @@ class GoalStore:
             session_id=loaded.get("sessionId"),
             next_run_at=loaded.get("nextRunAt"),
             no_progress=int(loaded.get("noProgressCount") or 0),
+            current_run_id=loaded.get("currentRunId"),
             model_provider=loaded.get("modelProvider"),
             model_name=loaded.get("modelName"),
             model_base_url=loaded.get("modelBaseUrl"),
@@ -342,13 +354,30 @@ class GoalStore:
         ).fetchone()
         return self.get_goal(row["id"]) if row is not None else None
 
+    def active_goal_for_session(self, session_id: str) -> Optional[Goal]:
+        """The newest non-terminal goal owned by a session, or None.
+
+        Used to enforce "one active goal per session": two goals in the same
+        chat would otherwise compete for the same user and the same turn budget
+        with no way to tell which one the composer belongs to.
+        """
+        if not session_id:
+            return None
+        row = self._db.execute(
+            "SELECT id FROM GoalRecord WHERE sessionId=? "
+            "AND status IN ('active','paused','blocked') "
+            "ORDER BY updatedAt DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return self.get_goal(row["id"]) if row is not None else None
+
     def update_goal_fields(self, goal_id: str, fields: dict[str, Any]) -> None:
         """Update a small, WHITELISTED set of goal fields (W4)."""
         allowed = {
             "planId", "taskId", "status", "contract", "gates", "maxTurns",
             "usedTurns", "lastVerdict", "sessionId", "nextRunAt",
-            "noProgressCount", "modelProvider", "modelName", "modelBaseUrl",
-            "workspaceId",
+            "noProgressCount", "currentRunId", "modelProvider", "modelName",
+            "modelBaseUrl", "workspaceId",
         }
         sets: list[str] = []
         params: list[Any] = []

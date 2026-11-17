@@ -58,6 +58,10 @@ MAX_QUERY_CHARS = 100_000
 # because a big paste becomes an attached document (the composer hands it over
 # as one): it must arrive as readable as the same text would have as a message.
 MAX_DOCUMENT_CHARS = 100_000
+#: Reference images attached to a bot: same budget the UI enforces (4 × ≤2 MB,
+#: base64 is ~4/3 the byte size, with headroom for the data-URL prefix).
+MAX_RUN_IMAGES = 4
+MAX_RUN_IMAGE_CHARS = 3_000_000
 
 # The largest single PRIOR turn carried as history. It matches
 # `MAX_QUERY_CHARS` so a message the composer accepted is not silently cut
@@ -98,6 +102,29 @@ class RunDocument(BaseModel):
     original_chars: Optional[int] = Field(None, ge=0)
 
 
+class RunImage(BaseModel):
+    """A reference image the operator attached to a bot (visual teaching).
+
+    The front door already bounded the file (≤2 MB, PNG/JPEG/WebP); the runtime
+    re-checks the shape so a hand-crafted request cannot send arbitrary bytes or
+    a remote URL. The image is passed to the model as a real image part — never
+    quoted as market data (see the prompt block in `automation.trading_policy`).
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    data_url: str = Field(min_length=32, max_length=MAX_RUN_IMAGE_CHARS)
+    caption: str = Field("", max_length=280)
+    mime: str = Field("image/png", max_length=40)
+
+    @field_validator("data_url")
+    @classmethod
+    def _must_be_raster_data_url(cls, value: str) -> str:
+        if not value.lower().startswith(("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,")):
+            raise ValueError("image must be a PNG/JPEG/WebP base64 data URL")
+        return value
+
+
 class RunInput(BaseModel):
     query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
     ticker: Optional[str] = None
@@ -108,6 +135,8 @@ class RunInput(BaseModel):
     history: Optional[list[ConversationTurn]] = None
     # Attached documents, already extracted to text by the front door.
     documents: Optional[list[RunDocument]] = None
+    # Reference images attached to a bot (visual teaching). Additive/optional.
+    images: Optional[list[RunImage]] = Field(default=None, max_length=MAX_RUN_IMAGES)
 
     @field_validator("query")
     @classmethod

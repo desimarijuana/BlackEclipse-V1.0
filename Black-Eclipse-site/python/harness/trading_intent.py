@@ -22,6 +22,13 @@ from typing import Any
 #: An execution verb. Word-bounded so "seller" or "opening" never match.
 _TRADE_VERB_RE = re.compile(r"\b(place|buy|sell|submit|execute|open)\b")
 _TRADE_NOUNS = ("order", "trade", "position", "lot", "mandate")
+#: A research/backtest marker means the "entry"/"exit"/"all" words describe a
+#: rule, not an execution request. Checked before the close/trade heuristics.
+_ANALYSIS_MARKERS = (
+    "backtest", "back-test", "back test", "simulate", "simulation",
+    "in-sample", "out-of-sample", "walk-forward", "walk forward",
+    "historical bars", "historical price", "historical daily",
+)
 _TRADE_REFUSALS = (
     "do not place", "don't place", "dont place", "do not buy", "don't buy",
     "dont buy", "do not sell", "don't sell", "dont sell", "do not trade",
@@ -43,6 +50,13 @@ _TRADE_MODIFY_RE = re.compile(
 _TRADE_MODIFY_NOUNS = ("stop", "take profit", "target", "bracket", "sl", "tp")
 
 
+def _has_word(text: str, words: tuple[str, ...]) -> bool:
+    """Word-bounded noun match (never a raw substring like "all" in "allow")."""
+    return any(
+        re.search(rf"\b{re.escape(word)}(?:s|es)?\b", text) for word in words
+    )
+
+
 def trading_intent_block(query: str) -> str:
     """The per-run directive for a trade or close turn ("" when not one)."""
     text = (query or "").strip().lower()
@@ -50,9 +64,13 @@ def trading_intent_block(query: str) -> str:
         return ""
     if text.startswith(_TRADE_QUESTION_PREFIXES):
         return ""
-    if _TRADE_CLOSE_RE.search(text) and any(
-        noun in text for noun in _TRADE_CLOSE_NOUNS
-    ):
+    # A BACKTEST / simulation is research, not execution. Its rule text legitimately
+    # says "entry" and "exit", and its acceptance text says "all" — which the close
+    # heuristic used to read as "close all positions", narrowing the run to the
+    # 18-tool trade surface and hiding get_historical_prices/analysis_run.
+    if any(marker in text for marker in _ANALYSIS_MARKERS) and not _TRADE_VERB_RE.search(text):
+        return ""
+    if _TRADE_CLOSE_RE.search(text) and _has_word(text, _TRADE_CLOSE_NOUNS):
         return (
             "# Close request\n"
             "This turn asks to close exposure, so treat it as an execution task. Do "
@@ -65,9 +83,7 @@ def trading_intent_block(query: str) -> str:
             "demo or a live connection.\n"
             "Report each ticket, its close price and any broker refusal."
         )
-    if _TRADE_MODIFY_RE.search(text) and any(
-        noun in text for noun in _TRADE_MODIFY_NOUNS
-    ):
+    if _TRADE_MODIFY_RE.search(text) and _has_word(text, _TRADE_MODIFY_NOUNS):
         return (
             "# Modify request\n"
             "This turn asks to change a position's stop/target, so treat it as an "
@@ -81,7 +97,7 @@ def trading_intent_block(query: str) -> str:
         )
     if not _TRADE_VERB_RE.search(text):
         return ""
-    if not any(noun in text for noun in _TRADE_NOUNS):
+    if not _has_word(text, _TRADE_NOUNS):
         return ""
     return (
         "# Trading request\n"

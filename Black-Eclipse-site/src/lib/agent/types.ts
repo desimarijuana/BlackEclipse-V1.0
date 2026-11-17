@@ -113,6 +113,8 @@ export interface ChatOptions {
    * offer cancellation before the reply arrives.
    */
   onRunId?: (runId: string) => void;
+  /** Reference images attached to a bot; sent as real image parts. */
+  images?: import('@/lib/harness/types').RunImageInput[];
   /** Called with each streamed token fragment as the answer is written. */
   onDelta?: (text: string) => void;
   /** Called with each coarse agent step, so the UI shows it is working. */

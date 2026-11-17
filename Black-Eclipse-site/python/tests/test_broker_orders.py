@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -776,3 +777,124 @@ def test_terminal_reveal_can_be_disabled_per_connection(monkeypatch):
     result = terminal.reveal_terminal(connection)
     assert result["opened"] is False
     assert result["reason"] == "DISABLED"
+
+# -- P5 bot fence: BrokerService.submit_order is the one live gate ----------
+class CountingLiveAdapter(RealLiveAdapter):
+    """Counts previews AND submits so a refusal can prove the adapter was untouched."""
+    PREVIEW_CALLS = 0
+    SUBMIT_CALLS = 0
+
+    def order_preview(self, intent):
+        type(self).PREVIEW_CALLS += 1
+        return super().order_preview(intent)
+
+
+def _bot_definition(tier="l2", version=3):
+    return SimpleNamespace(
+        id="aut_bot",
+        version=version,
+        execution_authority=SimpleNamespace(
+            tier=tier,
+            appetite="conservative",
+            sizing_mode="risk_based",
+            require_stop=True,
+            max_open_positions=2,
+            cooldown_s=0,
+            max_margin_per_order=500,
+            max_daily_loss_pct=3,
+        ),
+    )
+
+
+def _bot_mandate(service, connection_id):
+    return service.create_mandate(connection_id, {
+        "confirmation": "MANDATE LIVE Fake live",
+        "symbols": ["EURUSD"],
+        "maxOrders": 1,
+        "maxMargin": 100,
+        "ttlSeconds": 600,
+        "botId": "aut_bot",
+        "botVersion": 3,
+    })
+
+
+def test_an_l1_bot_is_refused_before_the_adapter_is_touched(tmp_path, monkeypatch):
+    import harness.trade.authority as authority_module
+
+    service = _live_service(tmp_path, CountingLiveAdapter)
+    connection_id = _connection_id(service)
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+
+    # The grant is created while the bot is L2, then the tier is lowered.
+    monkeypatch.setattr(authority_module, "bot_definition", lambda _id: _bot_definition("l2", 3))
+    mandate = _bot_mandate(service, connection_id)
+
+    monkeypatch.setattr(authority_module, "bot_definition", lambda _id: _bot_definition("l1", 3))
+    CountingLiveAdapter.PREVIEW_CALLS = 0
+    CountingLiveAdapter.SUBMIT_CALLS = 0
+
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(
+            connection_id, _intent(stopLoss=1.09), mandate_id=mandate["id"],
+            automation_id="aut_bot", bot_id="aut_bot", bot_version=3,
+        )
+
+    assert exc.value.code == "BOT_TIER_INSUFFICIENT"
+    assert CountingLiveAdapter.PREVIEW_CALLS == 0
+    assert CountingLiveAdapter.SUBMIT_CALLS == 0
+    assert service.ledger_orders(connection_id) == []
+
+
+def test_an_l2_bot_sends_exactly_once_under_its_pinned_mandate(tmp_path, monkeypatch):
+    import harness.trade.authority as authority_module
+
+    service = _live_service(tmp_path, CountingLiveAdapter)
+    connection_id = _connection_id(service)
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+    monkeypatch.setattr(authority_module, "bot_definition", lambda _id: _bot_definition("l2", 3))
+    mandate = _bot_mandate(service, connection_id)
+
+    CountingLiveAdapter.SUBMIT_CALLS = 0
+    result = service.submit_order(
+        connection_id, _intent(stopLoss=1.09), mandate_id=mandate["id"],
+        automation_id="aut_bot", bot_id="aut_bot", bot_version=3,
+    )
+
+    assert result["status"] == "filled"
+    assert CountingLiveAdapter.SUBMIT_CALLS == 1
+    ledger = service.ledger_orders(connection_id, automation_id="aut_bot")
+    assert len(ledger) == 1
+    assert ledger[0]["automationId"] == "aut_bot"
+    assert ledger[0]["mandateId"] == mandate["id"]
+
+    # A second submit without a fresh grant must not reach the adapter again.
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(
+            connection_id, _intent(stopLoss=1.09), mandate_id=mandate["id"],
+            automation_id="aut_bot", bot_id="aut_bot", bot_version=3,
+        )
+    assert exc.value.code in ("MANDATE_INACTIVE", "MANDATE_EXHAUSTED")
+    assert CountingLiveAdapter.SUBMIT_CALLS == 1
+
+
+def test_a_stale_bot_version_is_rejected_before_any_send(tmp_path, monkeypatch):
+    import harness.trade.authority as authority_module
+
+    service = _live_service(tmp_path, CountingLiveAdapter)
+    connection_id = _connection_id(service)
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+    monkeypatch.setattr(authority_module, "bot_definition", lambda _id: _bot_definition("l2", 3))
+    mandate = _bot_mandate(service, connection_id)
+
+    # The bot's objective changed (version 4) since the mandate pinned version 3.
+    monkeypatch.setattr(authority_module, "bot_definition", lambda _id: _bot_definition("l2", 4))
+    CountingLiveAdapter.SUBMIT_CALLS = 0
+
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(
+            connection_id, _intent(stopLoss=1.09), mandate_id=mandate["id"],
+            automation_id="aut_bot", bot_id="aut_bot", bot_version=4,
+        )
+
+    assert exc.value.code == "BOT_VERSION_STALE"
+    assert CountingLiveAdapter.SUBMIT_CALLS == 0

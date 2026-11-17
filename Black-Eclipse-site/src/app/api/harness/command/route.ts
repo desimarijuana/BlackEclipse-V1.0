@@ -71,6 +71,9 @@ export async function POST(request: Request): Promise<Response> {
   const result: CommandResult | null = await executeCommandFromText(text, {
     operator: isOperatorRequest(request),
     origin: new URL(request.url).origin,
+    // A command invoked through this explicit entry point may belong to a chat
+    // session (e.g. `/goal`, which is session-scoped). Accept it explicitly.
+    chatId: typeof body.chatId === "string" ? body.chatId : undefined,
   });
 
   if (!result) {

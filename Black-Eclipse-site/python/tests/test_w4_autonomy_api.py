@@ -15,6 +15,12 @@ os.environ.setdefault(
 os.environ.setdefault("HARNESS_CALLBACK_URL", "http://127.0.0.1:3000")
 
 
+@pytest.fixture(autouse=True)
+def _goal_engine_on(monkeypatch):
+    """These are the goal API tests; the off-engine refusal has its own case."""
+    monkeypatch.setenv("HARNESS_GOAL_LOOP", "on")
+
+
 @pytest.fixture(scope="module")
 def client():
     from harness import main as main_module
@@ -76,6 +82,26 @@ def test_gates_require_a_workspace(client):
         "gates": [{"id": "g", "check": "unit_test"}],
     })
     assert res.status_code == 422
+
+
+def test_an_off_engine_refuses_to_create_a_zombie_goal(client, monkeypatch):
+    monkeypatch.setenv("HARNESS_GOAL_LOOP", "off")
+    res = client.post("/goals", json={"objective": "do the thing", "start": False})
+    assert res.status_code == 409
+    detail = res.json()["detail"]
+    assert detail["code"] == "GOAL_ENGINE_OFF"
+    assert "HARNESS_GOAL_LOOP" in detail["message"]
+
+
+def test_extend_grants_bounded_turns(client):
+    created = client.post("/goals", json={
+        "objective": "needs more room", "maxTurns": 1, "start": False,
+    }).json()["goal"]
+    extended = client.post(f"/goals/{created['id']}/extend", json={"turns": 4})
+    assert extended.status_code == 200, extended.text
+    goal = extended.json()["goal"]
+    assert goal["maxTurns"] == 5
+    assert goal["status"] == "active"
 
 
 def test_loop_lifecycle_over_http(client):

@@ -9,18 +9,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import {
-  AlertTriangle, ArrowLeft, CalendarDays, CheckCircle2, ChevronDown, Eye, ListChecks,
-  MoreHorizontal, Pause, Play, Settings, ShieldCheck, Sparkles, SquarePen, Trash2,
+  AlertTriangle, ArrowLeft, CalendarDays, CheckCircle2, ChevronDown, Eye, ExternalLink,
+  GitBranch, ListChecks, MoreHorizontal, Pause, Play, Settings, ShieldCheck, Sparkles,
+  SquarePen, Trash2,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { BotAvatar } from '@/components/bots/bot-avatar';
+import { BotTradingSection } from '@/components/bots/bot-trading-section';
 import { GhostCustomizer } from '@/components/bots/ghost-customizer';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
 import { RunBehaviourEditor } from '@/components/bots/run-behaviour-editor';
 import { BotModelPicker } from '@/components/bots/bot-model-picker';
+import { useAgentChoices } from '@/lib/agent-presets/use-agent-choices';
+import { listWorkflows, type WorkflowSummary } from '@/lib/graph-studio/persistence-client';
+import { navigateTo } from '@/lib/navigation/app-nav';
 import { BreakerPill, ExecutionPill, LifecyclePill } from '@/components/bots/status-pill';
 import { RunHistory } from '@/components/bots/run-history';
 import { BotMemorySection } from '@/components/bots/bot-memory-section';
@@ -220,6 +225,12 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
             <OverviewSection bot={bot} status={status} />
           </SectionBlock>
 
+          {(bot.action.type === 'run_strategy' || (bot.executionAuthority?.tier ?? 'l0') !== 'l0') && (
+            <SectionBlock icon={ShieldCheck} title="Trading" defaultOpen>
+              <BotTradingSection bot={bot} onChanged={onChanged} />
+            </SectionBlock>
+          )}
+
           <SectionBlock icon={SquarePen} title={t('bots.detail.instructions')}>
             <InstructionsSection bot={bot} onChanged={onChanged} />
           </SectionBlock>
@@ -227,6 +238,12 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
           <SectionBlock icon={CalendarDays} title={t('bots.detail.schedule')}>
             <ScheduleSection bot={bot} onChanged={onChanged} />
           </SectionBlock>
+
+          {bot.action.type === 'execute_workflow' && (
+            <SectionBlock icon={GitBranch} title="Workflow">
+              <WorkflowSection bot={bot} onChanged={onChanged} />
+            </SectionBlock>
+          )}
 
           <SectionBlock icon={ShieldCheck} title={t('bots.detail.capabilities')}>
             <CapabilitiesSection bot={bot} />
@@ -422,6 +439,8 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const { choices: agentChoices, loading: agentsLoading, error: agentsError } =
+    useAgentChoices(bot.action.type === 'run_agent', draft.agentId);
 
   // Re-seed only when the SAVED automation changes (id or version), not on every
   // background list refresh — a 20 s hydrate returns a new object with the same
@@ -450,7 +469,7 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
       const updated = await updateAutomation(bot.id, {
         trigger,
         ...buildPolicies(draft),
-        action: { ...bot.action, config: nextConfig },
+        action: { ...bot.action, agentId: draft.agentId, config: nextConfig },
         ...(scheduleDirty && draft.schedule === 'condition'
           ? { condition: draft.condition ?? bot.condition }
           : {}),
@@ -467,6 +486,28 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
 
   return (
     <div className="space-y-3">
+      {bot.action.type === 'run_agent' && (
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+            Agent preset
+          </span>
+          <select
+            className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring"
+            value={draft.agentId}
+            onChange={(event) => setDraft((d) => ({ ...d, agentId: event.target.value }))}
+          >
+            {agentChoices.map((choice) => (
+              <option key={choice.id} value={choice.id}>
+                {choice.label}
+                {choice.source === 'preset' ? ' (preset)' : ''}
+                {choice.archived ? ' (archived)' : ''}
+              </option>
+            ))}
+          </select>
+          {agentsLoading && <p className="mt-1 text-[10px] text-muted-foreground">Loading agents…</p>}
+          {agentsError && <p className="mt-1 text-[10px] text-amber-300">{agentsError}</p>}
+        </label>
+      )}
       <ScheduleEditor
         draft={draft}
         onChange={(p) => { setDraft((d) => ({ ...d, ...p })); setScheduleDirty(true); }}
@@ -499,6 +540,110 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
         {flash && <span className="text-xs text-emerald-300">{flash}</span>}
       </div>
       {error && <p className="text-xs text-rose-300">{error}</p>}
+    </div>
+  );
+}
+
+// ── Workflow brain (editable after creation) ────────────────────────────────
+function WorkflowSection({ bot, onChanged }: { bot: AutomationView; onChanged: () => void }) {
+  const currentId =
+    typeof bot.action.config?.graphWorkflowId === 'string'
+      ? bot.action.config.graphWorkflowId
+      : bot.action.workflowId ?? '';
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selected, setSelected] = useState(currentId);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listWorkflows()
+      .then((list) => {
+        if (cancelled) return;
+        setWorkflows(list);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'could not read workflows');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async () => {
+    if (saving || !selected) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const workflow = workflows.find((item) => item.id === selected);
+      await updateAutomation(bot.id, {
+        action: {
+          ...bot.action,
+          config: {
+            ...bot.action.config,
+            graphWorkflowId: selected,
+            graphWorkflowName: workflow?.name ?? null,
+          } as unknown as Record<string, unknown>,
+        },
+      });
+      setSaved(true);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'could not change the workflow');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 text-sm">
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Workflow</span>
+        <select
+          className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring"
+          value={selected}
+          onChange={(event) => {
+            setSelected(event.target.value);
+            setSaved(false);
+          }}
+          disabled={loading}
+        >
+          {!currentId && <option value="">Choose a saved workflow…</option>}
+          {workflows.map((workflow) => (
+            <option key={workflow.id} value={workflow.id}>
+              {workflow.name} (v{workflow.currentVersion})
+            </option>
+          ))}
+        </select>
+      </label>
+      {loading && <p className="text-[11px] text-muted-foreground">Loading workflows…</p>}
+      {loadError && <p className="text-[11px] text-amber-300">{loadError}</p>}
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Chat messages become the graph&apos;s Start value; a scheduled run uses the
+        bot&apos;s objective as its input. Editing the graph itself happens in Graph Studio.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={() => void save()} disabled={saving || !selected || selected === currentId}>
+          {saving ? 'Saving…' : 'Save workflow'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => navigateTo({ tab: 'graph-studio' })}
+        >
+          Open Graph Studio <ExternalLink size={12} />
+        </Button>
+        {saved && <span className="text-xs text-emerald-300">Workflow updated.</span>}
+        {error && <span className="text-xs text-rose-300">{error}</span>}
+      </div>
     </div>
   );
 }

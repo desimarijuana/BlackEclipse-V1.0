@@ -284,10 +284,14 @@ class FakeService:
     def __init__(self):
         self.run_ids = []
         self.autonomies = []
+        self.workspaces = []
+        self.analysis = []
 
     async def run(self, request):
         self.run_ids.append(request.runId)
         self.autonomies.append(request.autonomy)
+        self.workspaces.append(getattr(request, "workspaceId", None))
+        self.analysis.append(bool(getattr(request, "analysisEnabled", False)))
         assert request.input.context["source"] == "task-scheduler"
         return _Result(request.runId, "completed")
 
@@ -323,3 +327,44 @@ async def test_a_task_runs_with_the_autonomy_its_creator_declared(mgr):
     await _drain(scheduler)
     assert mgr.get_task(task.id).status == TaskStatus.COMPLETED
     assert service.autonomies == ["edit_verify"]
+
+
+@pytest.mark.asyncio
+async def test_a_task_run_can_compute_in_the_sandbox(mgr):
+    """A task-dispatched run must be able to compute (backtest), not only narrate.
+
+    `analysis_run` is in the agent allowlist but off per run; a finance goal that
+    asks for a real backtest could only describe one without this.
+    """
+    service = FakeService()
+    executor = build_task_executor(service, mgr)
+    scheduler = TaskScheduler(mgr, executor=executor, max_in_flight=4)
+    plan = mgr.create_plan(CreatePlanInput(name="finance"))
+    task = mgr.create_task(CreateTaskInput(
+        title="backtest the rule", plan_id=plan.id,
+    ))
+    mgr.start_plan(plan.id)
+    await _drain(scheduler)
+    assert mgr.get_task(task.id).status == TaskStatus.COMPLETED
+    assert service.analysis == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_task_runs_inside_the_workspace_it_declared(mgr):
+    """A goal turn stores its workspace on the task; the run must bind it.
+
+    Without this the agent edits nothing while the gates check the goal's
+    workspace, so `--gate typecheck` could never pass honestly.
+    """
+    service = FakeService()
+    executor = build_task_executor(service, mgr)
+    scheduler = TaskScheduler(mgr, executor=executor, max_in_flight=4)
+    plan = mgr.create_plan(CreatePlanInput(name="goal"))
+    task = mgr.create_task(CreateTaskInput(
+        title="ship the widget", plan_id=plan.id,
+        metadata={"workspaceId": "ws_goal"},
+    ))
+    mgr.start_plan(plan.id)
+    await _drain(scheduler)
+    assert mgr.get_task(task.id).status == TaskStatus.COMPLETED
+    assert service.workspaces == ["ws_goal"]

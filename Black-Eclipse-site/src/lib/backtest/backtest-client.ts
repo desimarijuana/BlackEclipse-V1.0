@@ -34,6 +34,12 @@ export interface StrategySummary {
   archived: boolean;
   createdAt?: string;
   updatedAt?: string;
+  /** The newest backtest for `latestVersion` (null when none has run). */
+  latestBacktest?: { id: string; status: string; createdAt: string } | null;
+  /** The review decision for `latestVersion`, when one exists. */
+  approval?: { id: string; status: string; version: string; createdAt: string } | null;
+  /** The newest paper run for the strategy, when one exists. */
+  lastPaperRun?: { id: string; status: string; createdAt: string } | null;
 }
 
 export interface StrategyRecord extends StrategySummary {
@@ -295,8 +301,7 @@ export interface ExperimentComparison {
 }
 
 /** A stored strategy version's immutable metadata. */
-export interface StrategyVersionMeta {
-  version: string;
+export interface StrategyVersionMeta {  version: string;
   contentHash: string;
   schemaVersion: string;
   createdAt: string;
@@ -308,6 +313,17 @@ export interface StrategyDiffChange {
   kind: "added" | "removed" | "changed";
   a?: unknown;
   b?: unknown;
+}
+
+/** A review decision for one strategy version (the live-trial gate). */
+export interface StrategyApproval {
+  id: string;
+  strategyId?: string;
+  version: string;
+  status: string;
+  actor?: string | null;
+  note?: string | null;
+  createdAt?: string;
 }
 
 export interface StrategyDiff {
@@ -584,6 +600,36 @@ export const backtestClient = {
     jsonFetch<{ strategies: StrategySummary[] }>(
       `/strategies${includeArchived ? "?includeArchived=true" : ""}`,
     ).then((r) => r.strategies),
+
+  /** Strategies plus the newest backtest/approval/paper run for each. */
+  listStrategyCatalog: (includeArchived = false) =>
+    jsonFetch<{ strategies: StrategySummary[] }>(
+      `/strategies?includeArchived=${includeArchived ? "true" : "false"}&includeEvidence=true`,
+    ).then((r) => r.strategies),
+
+  /** Review decisions for a strategy (all versions, or one version filtered by caller). */
+  listApprovals: (strategyId?: string) =>
+    jsonFetch<{ approvals: StrategyApproval[] }>(
+      `/strategy-approvals${strategyId ? `?strategyId=${encodeURIComponent(strategyId)}` : ""}`,
+    ).then((r) => r.approvals),
+
+  requestApproval: (strategyId: string, version: string, note?: string) =>
+    jsonFetch<{ approval: StrategyApproval }>(
+      `/strategies/${encodeURIComponent(strategyId)}/approvals`,
+      {
+        method: "POST",
+        body: JSON.stringify({ version, actor: "operator", note }),
+      },
+    ).then((r) => r.approval),
+
+  decideApproval: (approvalId: string, approve = true, note?: string) =>
+    jsonFetch<{ approval: StrategyApproval }>(
+      `/approvals/${encodeURIComponent(approvalId)}/decide`,
+      {
+        method: "POST",
+        body: JSON.stringify({ approve, actor: "operator", note }),
+      },
+    ).then((r) => r.approval),
 
   getStrategy: (id: string, version?: string) =>
     jsonFetch<{ strategy: StrategyRecord }>(

@@ -5,16 +5,14 @@
 // the project binding. Extracted so the screen stays about the workspace flow.
 
 import React from 'react';
-import type { StrategyRecord, StrategySummary } from '@/lib/backtest/backtest-client';
+import type { StrategyRecord } from '@/lib/backtest/backtest-client';
 import { StrategyLibrary } from './strategy-library';
 import { ThesisPanel, type ThesisInputs } from './thesis-panel';
 import { DataPreflight } from './data-preflight';
 import { ProjectLink } from './project-link';
 
 export function StudioSidebar({
-  strategies,
   templates,
-  loading,
   selectedId,
   busy,
   onOpen,
@@ -29,9 +27,7 @@ export function StudioSidebar({
   timeframe,
   saved,
 }: {
-  strategies: StrategySummary[];
   templates: Array<{ id: string; name: string; tagline: string }>;
-  loading: boolean;
   selectedId: string | null;
   busy: boolean;
   onOpen: (id: string) => void;
@@ -49,9 +45,7 @@ export function StudioSidebar({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <StrategyLibrary
-        strategies={strategies}
         templates={templates}
-        loading={loading}
         selectedId={selectedId}
         busy={busy}
         onOpen={onOpen}

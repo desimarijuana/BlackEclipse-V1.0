@@ -928,8 +928,13 @@ def apply_intent_surfaces(
     from .trading_intent import apply_trade_surface  # noqa: PLC0415
 
     query = request.input.query
-    allowed, resolution = apply_trade_surface(query, allowed, resolution)
     context = getattr(request.input, "context", None)
+    # A task-dispatched turn is never a live execution turn. Its brief also
+    # quotes the previous verdict, whose words ("order", "position", "open")
+    # must not re-classify the run and swap its surface for the trade tools.
+    task_run = bool(context.get("taskRun")) if isinstance(context, dict) else False
+    if not task_run:
+        allowed, resolution = apply_trade_surface(query, allowed, resolution)
     mode = context.get("quantMode") if isinstance(context, dict) else None
     return apply_quant_surface(
         query, allowed, resolution,

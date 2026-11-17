@@ -19,6 +19,7 @@ import {
 } from '@/lib/harness/clients/automation-browser';
 import { formatDateTime, formatDuration, formatRelative, isTerminalExecution } from '@/lib/bots/state';
 import { runErrorHelp } from '@/lib/bots/run-error-help';
+import { explainDecision, type DecisionRecord } from '@/lib/bots/trading';
 
 const POLL_MS = 4000;
 
@@ -146,6 +147,11 @@ export function RunHistory({ botId, refreshKey = 0 }: RunHistoryProps) {
                   </span>
                   {run.errorClass && (
                     <span className="block break-words text-[11px] text-rose-300">{run.errorClass}</span>
+                  )}
+                  {run.decision && (
+                    <span className="block break-words text-[11px] text-sky-300/90">
+                      {explainDecision(run.decision as unknown as DecisionRecord)}
+                    </span>
                   )}
                 </span>
               </button>

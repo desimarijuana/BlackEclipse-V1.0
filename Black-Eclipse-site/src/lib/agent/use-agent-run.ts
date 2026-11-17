@@ -14,6 +14,7 @@ import {
   type StartRunArgs,
 } from './run-manager';
 import { ChatRequestError } from './registry';
+import { invalidateStrategyCatalog } from '@/lib/strategies/catalog';
 import type { AssistantTurn } from './response-model';
 
 export { ChatRequestError };
@@ -62,6 +63,15 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     () => runManager.get(chatId),
     () => runManager.get(chatId),
   );
+
+  // An agent turn can save a strategy (or run a backtest). When it finishes,
+  // mark the shared catalog stale so the Strategies tab and the bot picker show
+  // the new work without a reload.
+  const wasActive = useRef(false);
+  useEffect(() => {
+    if (wasActive.current && !snapshot.active) invalidateStrategyCatalog();
+    wasActive.current = snapshot.active;
+  }, [snapshot.active]);
 
   // A reload/switch reattaches the conversation's live run exactly once.
   useEffect(() => {

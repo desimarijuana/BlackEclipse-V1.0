@@ -542,8 +542,12 @@ class AutomationEngine:
                     # run's max runtime; otherwise the max runtime is the bound.
                     timeout=definition.execution.timeout_s or definition.execution.max_runtime_s,
                 )
-                if result.state == "completed":
-                    state = "completed"
+                if result.state in ("completed", "skipped", "blocked"):
+                    # A decision that did not trade is still a FINISHED run. Treating
+                    # "skipped"/"blocked" as a failure would retry a refusal and mark
+                    # a normal no-trade bar as a broken bot.
+                    state = result.state
+                    reason = result.error or result.output
                     break
                 error_class = result.error_class or "INTERNAL_ERROR"
                 reason = result.error
@@ -575,11 +579,13 @@ class AutomationEngine:
         run_id_out = result.run_id if result and result.run_id else run_id
         cost = result.cost if result else None
         tokens = result.tokens if result else None
+        decision = (getattr(result, "detail", None) or {}).get("decision") if result else None
         self._apply_breaker(definition, state)
         self._store.finish_execution(
             execution_id, state=state, outcome_reason=reason, error_class=error_class,
             run_id=run_id_out, cost=cost, tokens=tokens,
             output=self._bounded_output(result.output if result else None),
+            decision=decision,
         )
         self._store.append_execution_event(execution_id, state, {"reason": reason, "errorClass": error_class})
         pending = (getattr(result, "detail", None) or {}).get("pendingApprovals") if result else None

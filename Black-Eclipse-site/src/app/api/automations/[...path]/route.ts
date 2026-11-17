@@ -14,10 +14,14 @@ import {
   getAutomationStatus,
   getAutomationStatuses,
   getAutomationTimeline,
+  getBotTrading,
   listAutomationHistory,
   listAutomationVersions,
+  panicBotTrading,
   pauseAutomation,
+  prepareBotTrading,
   resetAutomationBreaker,
+  scanBotTrading,
   resumeAutomation,
   resumeAutomationExecution,
   runAutomationNow,
@@ -121,6 +125,37 @@ async function handle(request: Request, path: string[], method: string): Promise
     }
     if (method === "GET" && action === "versions") {
       return NextResponse.json({ success: true, versions: await listAutomationVersions(id) });
+    }
+  }
+
+  // ── {id}/trading[...] ────────────────────────────────────────────────────
+  if (path.length >= 2 && path[1] === "trading") {
+    const sub = path[2];
+    try {
+      if (method === "GET" && path.length === 2) {
+        const url = new URL(request.url);
+        const limit = Number(url.searchParams.get("limit") ?? 20) || 20;
+        return NextResponse.json({ success: true, ...(await getBotTrading(id, limit)) });
+      }
+      if (method === "POST" && sub === "prepare") {
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        return NextResponse.json({
+          success: true,
+          ...(await prepareBotTrading(id, body as never)),
+        });
+      }
+      if (method === "POST" && sub === "panic") {
+        return NextResponse.json({ success: true, ...(await panicBotTrading(id)) });
+      }
+      if (method === "POST" && sub === "scan") {
+        const body = (await request.json().catch(() => ({}))) as { symbols?: unknown };
+        const symbols = Array.isArray(body.symbols)
+          ? body.symbols.filter((item): item is string => typeof item === "string")
+          : [];
+        return NextResponse.json({ success: true, ...(await scanBotTrading(id, symbols)) });
+      }
+    } catch (err) {
+      return fail(err, "trading request failed");
     }
   }
 

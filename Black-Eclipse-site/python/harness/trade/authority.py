@@ -84,8 +84,16 @@ def _eclipse_open_positions(service: Any, connection_id: str) -> Optional[int]:
         return None
     if not isinstance(payload, dict) or not payload.get("available", True):
         return None
-    data = payload.get("data") or {}
-    positions = data.get("positions") if isinstance(data, dict) else None
+    data = payload.get("data")
+    if isinstance(data, dict):
+        positions = data.get("positions")
+    elif isinstance(data, list):
+        # `BrokerService.positions` returns the adapter's list under `data`
+        # (`{"available": true, "data": [...]}`), not a nested object. An EMPTY
+        # list must count as "zero positions", not "unreadable".
+        positions = data
+    else:
+        positions = payload.get("positions")
     if not isinstance(positions, list):
         return None
     if magic <= 0:
@@ -187,12 +195,13 @@ def check_mandate_creation(
     bot_id: str,
     bot_version: Optional[int],
     max_margin: float,
+    mode: str = "live",
 ) -> None:
-    """Validate a LIVE mandate pinned to a bot, at the moment it is created.
+    """Validate a mandate pinned to a bot, at the moment it is created.
 
     The mandate is the standing grant, so this is where the bot's tier and its
-    margin ceiling must hold. Raises `TradeRefused` (imported lazily to keep this
-    module free of the model at import time).
+    margin ceiling must hold. A LIVE grant needs L2; a DEMO grant needs L1 (the
+    ladder in `docs/trading.md`: L1 fills a demo account unattended).
     """
     from .model import TradeRefused  # noqa: PLC0415
 
@@ -200,14 +209,18 @@ def check_mandate_creation(
     if definition is None:
         raise TradeRefused(
             "BOT_UNAVAILABLE",
-            "that bot does not exist, so it cannot be granted live authority",
+            "that bot does not exist, so it cannot be granted trading authority",
             status_code=404,
         )
     authority = getattr(definition, "execution_authority", None)
-    if str(getattr(authority, "tier", "l0") or "l0").lower() != "l2":
+    tier = str(getattr(authority, "tier", "l0") or "l0").lower()
+    order = {"l0": 0, "l1": 1, "l2": 2}
+    required = "l2" if str(mode) == "live" else "l1"
+    if order.get(tier, 0) < order[required]:
         raise TradeRefused(
             "BOT_TIER_INSUFFICIENT",
-            "that bot is not at tier L2; grant the tier before creating a live mandate",
+            f"that bot is at tier {tier.upper()}; a {mode} mandate needs "
+            f"{required.upper()}",
             status_code=409,
         )
     if bot_version is None or int(bot_version) != int(definition.version):

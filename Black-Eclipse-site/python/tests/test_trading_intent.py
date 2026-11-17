@@ -80,6 +80,22 @@ def test_closing_an_ui_element_is_not_a_trade():
     assert _trading_intent_block("Close the settings dialog for me") == ""
 
 
+def test_a_backtest_with_entry_exit_and_all_is_research_not_execution():
+    """A rule's "entry"/"exit" and acceptance's "all" are not a close request.
+
+    This misclassification narrowed the run to the 18-tool trade surface and
+    hid get_historical_prices/analysis_run from a finance goal.
+    """
+    text = (
+        "Backtest a long-only 20/10 Donchian breakout on MSFT. State the entry "
+        "and exit rules precisely, apply 5 bps costs, split in-sample from "
+        "out-of-sample, and report all acceptance criteria. Every number must "
+        "come from a tool result."
+    )
+    assert _trading_intent_block(text) == ""
+    assert is_trade_turn(text) is False
+
+
 def test_modify_stop_gets_the_modify_directive():
     block = _trading_intent_block("Move my gold stop to breakeven")
     assert block.startswith("# Modify request")

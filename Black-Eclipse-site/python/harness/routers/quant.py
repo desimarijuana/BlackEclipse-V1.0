@@ -86,8 +86,10 @@ def _parse_body(body: StrategyBody) -> StrategySpec:
 
 
 @router.get("/quant/strategies")
-async def list_strategies(includeArchived: bool = False, _: bool = Depends(require_operator)) -> dict:
-    return {"strategies": _store().list_strategies(include_archived=includeArchived)}
+async def list_strategies(includeArchived: bool = False, includeEvidence: bool = False,
+                          _: bool = Depends(require_operator)) -> dict:
+    return {"strategies": _store().list_strategy_catalog(
+        include_archived=includeArchived, include_evidence=includeEvidence)}
 
 
 @router.post("/quant/strategies")

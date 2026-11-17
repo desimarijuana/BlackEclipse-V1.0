@@ -114,7 +114,7 @@ export interface BoundArgs {
   /** Positional args mapped to their declared names. */
   positionals: Record<string, unknown>;
   /** Recognized flags (booleans or valued), keyed by canonical flag name. */
-  flags: Record<string, string | boolean>;
+  flags: Record<string, string | boolean | string[]>;
   /** Pass-through `--key value` flags, as a string map (skill inputs). */
   input: Record<string, string>;
   /** Every positional token, in order (for variadic access). */
@@ -167,13 +167,28 @@ function coerce(spec: CommandArgSpec, raw: string): { value: unknown; error?: Ar
 export function bindArgs(spec: CommandSpec, tokenResult: TokenizeResult): BoundArgs {
   const errors: ArgParseError[] = [...tokenResult.errors];
   const positionals: Record<string, unknown> = {};
-  const flags: Record<string, string | boolean> = {};
+  const flags: Record<string, string | boolean | string[]> = {};
   const passThrough: Record<string, string> = {};
   const positionalTokens: string[] = [];
 
   const findFlag = (name: string) => spec.flags.find((f) => f.name === name);
   const findAlias = (alias: string) => spec.flags.find((f) => f.alias === alias);
   const isSpecFlag = (name: string) => Boolean(findFlag(name));
+
+  /**
+   * Set a valued flag. A `repeatable` flag accumulates instead of overwriting:
+   * a spec that documents "repeatable" must not silently keep only the last
+   * value (that is how `/goal --gate a --gate b` lost a gate).
+   */
+  const setValue = (flag: { name: string; repeatable?: boolean }, value: string) => {
+    if (flag.repeatable) {
+      const current = flags[flag.name];
+      const list = Array.isArray(current) ? current : [];
+      flags[flag.name] = [...list, value];
+      return;
+    }
+    flags[flag.name] = value;
+  };
 
   const { tokens } = tokenResult;
   let i = 0;
@@ -202,12 +217,12 @@ export function bindArgs(spec: CommandSpec, tokenResult: TokenizeResult): BoundA
         continue;
       }
       if (inlineValue !== undefined) {
-        flags[flag.name] = inlineValue;
+        setValue(flag, inlineValue);
         i += 1;
         continue;
       }
       if (i + 1 < tokens.length) {
-        flags[flag.name] = tokens[i + 1];
+        setValue(flag, tokens[i + 1]);
         i += 2;
         continue;
       }
@@ -226,7 +241,7 @@ export function bindArgs(spec: CommandSpec, tokenResult: TokenizeResult): BoundA
           continue;
         }
         if (i + 1 < tokens.length) {
-          flags[alias.name] = tokens[i + 1];
+          setValue(alias, tokens[i + 1]);
           i += 2;
           continue;
         }

@@ -1566,8 +1566,11 @@ async def execute_run(
     # run can publish what the surface added, what the autonomy profile removed
     # and what a disabled store removed. A surface EXTENDS the agent's declared
     # tools; it never silently replaces them.
+    _context = getattr(request.input, "context", None) or {}
+    _task_run = bool(_context.get("taskRun")) if isinstance(_context, dict) else False
     surface_resolution, system_prompt = resolve_surface_run(
         agent, registry, surface_settings, request.autonomy,
+        apply_code_surface=not _task_run,
     )
     allowed = (
         set(surface_resolution.allowed)
@@ -2633,7 +2636,7 @@ def _assemble_run_messages(
         # reusable prefix (system + tools + early history) stays cacheable; it
         # still precedes the user turn so the model reads it as context.
         *([SystemMessage(content=runtime_context)] if runtime_context else []),
-        HumanMessage(content=_user_message(request)),
+        HumanMessage(content=_user_content(request)),
     ]
 
 
@@ -2688,35 +2691,15 @@ from .graph_context import (  # noqa: E402,F401
 
 
 def _user_message(request: RunRequest) -> str:
-    text = request.input.query
-    if request.input.ticker:
-        text += f"\n\nTicker: {request.input.ticker}"
-    if request.input.market:
-        text += f"\n\nMarket: {request.input.market}"
-    documents = request.input.documents or []
-    if documents:
-        # Attached documents are user-provided context, not tool output: they
-        # are wrapped and clearly attributed so the model can distinguish them
-        # from authoritative JDdS data it retrieves itself. A shortened document
-        # says so IN the turn, so the model can state the limit rather than
-        # answering confidently from only the first part.
-        parts = []
-        for doc in documents:
-            shortened = bool(getattr(doc, "truncated", False))
-            attr = ' shortened="true"' if shortened else ""
-            note = (
-                "\n(This document was shortened to fit; you are reading its "
-                "first part and must say so if the question depends on the "
-                "rest.)\n"
-                if shortened else ""
-            )
-            parts.append(f'<document name="{doc.name}"{attr}>{note}{doc.text}\n</document>')
-        text += (
-            "\n\nAttached documents (user-provided context; treat as evidence "
-            "the user supplied, and do not claim to have retrieved them):\n"
-            + "\n\n".join(parts)
-        )
-    return text
+    from .turn_content import user_message  # noqa: PLC0415
+
+    return user_message(request)
+
+
+def _user_content(request: RunRequest) -> Any:
+    from .turn_content import user_content  # noqa: PLC0415
+
+    return user_content(request)
 
 
 def _guardrail_failure(

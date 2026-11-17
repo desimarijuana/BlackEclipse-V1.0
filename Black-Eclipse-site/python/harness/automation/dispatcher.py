@@ -84,6 +84,14 @@ def plan_actions(definition: AutomationDefinition) -> list[str]:
         steps.append(f"delegate to {action.agent_id or 'eclipse-agent'}: {(action.objective or definition.name)[:120]}")
     elif action.type == "execute_workflow":
         steps.append(f"run workflow {action.workflow_id}")
+    elif action.type == "run_strategy":
+        config = action.config or {}
+        steps.append(
+            "decide on the last closed bar for "
+            f"{config.get('strategyId') or 'a strategy'}@"
+            f"{config.get('strategyVersion') or '?'} "
+            f"({config.get('mode') or 'shadow'})"
+        )
     elif action.type == "call_tool":
         steps.append(f"call tool {action.tool_name}")
     elif action.type == "send_notification":
@@ -139,9 +147,32 @@ class Dispatcher:
 
     def _run_request(self, definition: AutomationDefinition, run_id: str, objective: str) -> RunRequest:
         action = definition.action
+        query = (objective or definition.name)[:4000]
+        # Visual teaching: reference images reach a scheduled agent run as
+        # guidance, exactly as they do in the bot's chat.
+        config = action.config if isinstance(action.config, dict) else {}
+        visuals = config.get("visuals")
+        images: list[dict[str, Any]] = []
+        if isinstance(visuals, list) and visuals:
+            from . import trading_policy  # noqa: PLC0415
+
+            teaching = trading_policy.visual_teaching_prompt(visuals)
+            if teaching:
+                query = f"{query}\n\n{teaching}"
+            for visual in visuals:
+                if not isinstance(visual, dict):
+                    continue
+                data_url = visual.get("dataUrl")
+                if not isinstance(data_url, str) or not data_url.startswith("data:image/"):
+                    continue
+                images.append({
+                    "dataUrl": data_url,
+                    "caption": str(visual.get("caption") or "")[:280],
+                    "mime": str(visual.get("mime") or "image/png")[:40],
+                })
         return RunRequest(
             runId=run_id,
-            input=RunInput(query=(objective or definition.name)[:4000]),
+            input=RunInput(query=query[:8000], images=images or None),
             agentId=action.agent_id or "eclipse-agent",
             # A bot is one long-lived conversation: its scheduled runs share the
             # SAME private memory bucket as its interactive chat (`bot-<id>`), so
@@ -208,6 +239,15 @@ class Dispatcher:
                 return await self._run_agent(definition, run_id, execution_id)
             if action.type == "execute_workflow":
                 return await self._run_workflow(definition, run_id)
+            if action.type == "run_strategy":
+                # Deferred import: the runner returns a DispatchResult, which lives
+                # in this module. A module-level import would be circular.
+                from .trading_runner import run_strategy  # noqa: PLC0415
+
+                return await run_strategy(
+                    self._service, definition, run_id=run_id,
+                    execution_id=execution_id,
+                )
             if action.type in ("call_tool", "run_code", "browser_action", "custom_action"):
                 return await self._call_tool(definition, run_id)
             if action.type == "send_notification":

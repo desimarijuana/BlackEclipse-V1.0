@@ -540,6 +540,25 @@ class TaskStore:
         self._db.commit()
         return cur.rowcount == 1
 
+    def repair_orphaned_goal_tasks(self) -> int:
+        """Re-queue goal turns stranded IN_PROGRESS with no claim and no run.
+
+        `GoalRuntime` used to call `start_task()` when it enqueued a turn. That
+        moves the row to IN_PROGRESS *without* a claim token or lease, and the
+        scheduler only claims TODO — so the task was invisible forever and the
+        goal sat active with a turn it never ran. New turns stay TODO; this
+        repairs the rows the old code left behind. Scoped to goal tasks
+        (`metadata.goalId`) so a manually "started" task keeps its meaning.
+        """
+        cur = self._db.execute(
+            "UPDATE HarnessTask SET status='TODO', startedAt=NULL, updatedAt=? "
+            "WHERE status='IN_PROGRESS' AND claimToken IS NULL "
+            "AND assignedRunId IS NULL AND metadata LIKE '%\"goalId\"%'",
+            (now_iso(),),
+        )
+        self._db.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
     def heartbeat_task(
         self, task_id: str, *, claim_token: str, lease_seconds: int, now: Optional[str] = None
     ) -> bool:

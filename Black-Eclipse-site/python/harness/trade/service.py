@@ -297,6 +297,7 @@ class BrokerService:
             check_mandate_creation(
                 self, bot_id=bot_id, bot_version=bot_version,
                 max_margin=float(payload.get("maxMargin") or 0),
+                mode=mode,
             )
         mandate = self.mandates.create(
             connection=connection,
@@ -334,6 +335,24 @@ class BrokerService:
             mandate["connectionId"], "mandate", "revoked", {"mandateId": mandate_id}
         )
         return mandate
+
+    def revoke_mandates_for_bot(self, bot_id: str) -> list[dict[str, Any]]:
+        """Revoke every active mandate pinned to this bot.
+
+        Called when a bot is paused/disabled/archived/deleted. Positions are never
+        closed here: closing is the operator's risk-reducing decision.
+        """
+        if not str(bot_id or "").strip():
+            return []
+        revoked: list[dict[str, Any]] = []
+        for mandate in self.mandates.list_active(None, limit=500):
+            if str(mandate.get("botId") or "") != str(bot_id):
+                continue
+            try:
+                revoked.append(self.revoke_mandate(mandate["id"]))
+            except TradeRefused:
+                continue
+        return revoked
 
     # ── execution (P1 demo + P2 armed live) ──────────────────────────────────
     def _execution_connection(self, connection_id: str) -> tuple[BrokerConnection, str]:
@@ -652,6 +671,20 @@ class BrokerService:
         intent = OrderIntent.from_payload(
             payload, connection_id=connection.id, magic_default=self._magic(connection)
         )
+        # One fence for a bot reaching a LIVE account: every caller passes
+        # `automation_id`, so no path can forget it (graphs pass none).
+        if automation_id and execution_mode == "live":
+            from .authority import check_live_order  # noqa: PLC0415
+
+            refusal = check_live_order(
+                self, automation_id=automation_id, connection_id=connection.id,
+                mode=execution_mode, intent=intent.to_dict(),
+            )
+            if refusal is not None:
+                raise TradeRefused(
+                    str(refusal[1].get("reason") or "BOT_REFUSED"), refusal[0],
+                    status_code=409,
+                )
         approval_row: dict[str, Any] = {}
         if approval_id:
             verify_approval(self.approvals, approval_id, intent)

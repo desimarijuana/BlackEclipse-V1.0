@@ -91,6 +91,7 @@ export async function chatWithAgent(
   planMode?: "on" | "off",
   agentId?: string,
   modelProvider?: string,
+  images?: import("./types").RunImageInput[],
 ): Promise<{
   output: string;
   runId: string;
@@ -154,6 +155,7 @@ export async function chatWithAgent(
       query: effectiveQuery,
       history,
       documents: documents.length ? documents : undefined,
+      images: images?.length ? images : undefined,
       ...(Object.keys(context).length ? { context } : {}),
     },
     agentId: agent.id,
@@ -307,6 +309,7 @@ export async function startChatRun(
   agentId?: string,
   modelProvider?: string,
   resume = false,
+  images?: import("./types").RunImageInput[],
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -340,6 +343,7 @@ export async function startChatRun(
     query: effectiveQuery,
     history,
     documents: documents.length ? documents : undefined,
+    images: images?.length ? images : undefined,
     ...(Object.keys(chatContext).length ? { context: chatContext } : {}),
   });
   // A bot chat passes its own brain (its preset's prompt + tools); ordinary

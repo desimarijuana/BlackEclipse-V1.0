@@ -203,8 +203,15 @@ export async function POST(request: Request) {
     activeRunId = effectiveRunId;
     const softDeadlineMs = Number(process.env.HARNESS_CHAT_SOFT_DEADLINE_MS || 150_000);
     const running = { status: "running" as const };
+    // Reference images attached to a bot. Shape/size are re-validated centrally
+    // by `validateRunInput`; the runtime only ever receives raster data URLs.
+    const rawImages = (body as Record<string, unknown>).images;
+    const images = Array.isArray(rawImages)
+      ? (rawImages as import("@/lib/harness/types").RunImageInput[])
+      : undefined;
+
     const result = await Promise.race([
-      chatWithAgent(query, effectiveHistory, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider),
+      chatWithAgent(query, effectiveHistory, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider, images),
       new Promise<typeof running>((resolve) => {
         const timer = setTimeout(() => resolve(running), Math.max(1, softDeadlineMs));
         // Never keep the process alive for a deadline we stopped waiting on.

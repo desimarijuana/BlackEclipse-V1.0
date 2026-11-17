@@ -39,6 +39,15 @@ export interface RunInput {
    * has no filesystem access by design.
    */
   documents?: RunDocument[];
+  /** Reference images attached to a bot; sent as real image parts. */
+  images?: RunImageInput[];
+}
+
+/** One bounded reference image (visual teaching) forwarded to the runtime. */
+export interface RunImageInput {
+  dataUrl: string;
+  caption?: string;
+  mime?: string;
 }
 
 /**

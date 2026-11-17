@@ -175,6 +175,13 @@ export async function POST(request: Request) {
       ? rawResumeRunId
       : undefined;
 
+  // Reference images attached to a bot (visual teaching). Shape/size are
+  // re-validated centrally by `validateRunInput`.
+  const rawImages = body.images;
+  const images = Array.isArray(rawImages)
+    ? (rawImages as import("@/lib/harness/types").RunImageInput[])
+    : undefined;
+
   // Presentation-only UI focus (which page the user is on). Sanitized + bounded:
   // strings only, trimmed, capped; anything else is dropped.
   const uiContext = (() => {
@@ -215,7 +222,7 @@ export async function POST(request: Request) {
       history,
       chatId ? await readStoredCompaction(chatId) : null,
     );
-    id = await startChatRun(query, effectiveHistory, documents, resumeRunId ?? runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider, Boolean(resumeRunId));
+    id = await startChatRun(query, effectiveHistory, documents, resumeRunId ?? runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode, agentId, modelProvider, Boolean(resumeRunId), images);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

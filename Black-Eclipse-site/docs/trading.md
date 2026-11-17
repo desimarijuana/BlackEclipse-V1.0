@@ -1,7 +1,7 @@
 ---
 title: Broker Connectivity
 status: Current
-last-verified: 2026-11-08
+last-verified: 2026-11-17
 ---
 
 # Broker Connectivity
@@ -365,6 +365,78 @@ didn't it trade?" is answerable.
 
 A live mandate is created through the existing trading surface with `botId` +
 `botVersion` (or a workflow pin, for Graph Studio). Exactly one pin is required.
+
+### Standing consent: auto mode (P7)
+
+A bot that trades on a schedule must not ask the operator for a phrase on every
+mandate. `action.config.consent` is a **standing grant** the operator gives once:
+
+```jsonc
+{
+  "version": 1, "kind": "standing",
+  "modes": ["live"],
+  "grantedAt": "…", "expiresAt": "…", "revokedAt": null,
+  "autoRenew": true,
+  "limits": { "symbols": ["EURUSD"], "maxOrdersPerDay": 4,
+              "maxMarginPerOrder": 500, "maxOpenPositions": 1 },
+  "phrase": "LIVE TRIAL ema_trend 1.2.0"
+}
+```
+
+Rules:
+
+- The phrase is typed **once** at prepare. The server stores the grant on the bot
+  (not in a client token), so the runner verifies it without trusting the caller.
+- `prepare` accepts an EMPTY phrase when a stored grant still **covers** the new
+  request (mode, symbols, orders/day, margin, positions). That is the auto mode:
+  re-preparing after an edit or a lesson does not nag.
+- A grant that does not cover the request, has expired, or was revoked needs the
+  phrase again. Widening any limit is a new consent, by construction.
+- `autoRenew` only extends the grant; it never widens it. A revoked grant can
+  never be renewed.
+- Consent is **not** the arm. A live order still needs an armed connection and a
+  bot-pinned mandate under 24 h, and the L2 fence still runs at submit.
+- Pausing/archiving/deleting the bot revokes its mandates immediately. The
+  consent stays on the definition for audit but covers nothing while paused.
+
+Routes: `POST /automations/{id}/trading/prepare`, `GET /automations/{id}/trading`,
+`POST /automations/{id}/trading/scan`, `POST /automations/{id}/trading/panic`
+(front door: `/api/automations/{id}/trading…`). `prepare` is the only route that
+creates market authority; none of them place an order.
+
+### Visual teaching (P8)
+
+Up to four bounded images (PNG/JPEG/WebP, ≤2 MB each) can be attached to a bot.
+They are sent to the model as **real image parts** on a chat turn and on a
+scheduled agent run (`RunInput.images` → `image_url` content blocks), together
+with a text block that marks them as pattern guidance: never live market data,
+never a price quote, and the broker/JDdS data wins on conflict. A text-only model
+still receives the captions and the rule.
+
+### Find trades
+
+`POST /automations/{id}/trading/scan` evaluates the strategy across the bot's
+symbols on the last closed bar and returns each symbol's signal plus the
+actionable ones. It is the same evaluation the runner acts on, so a candidate is
+never invented. The trading panel's **Find trades** button adopts the actionable
+symbols as the universe and re-prepares under the standing consent.
+
+
+### Strategy bots
+
+`action.type = "run_strategy"` is a bot whose brain is a saved strategy version.
+The runner (`python/harness/automation/trading_runner.py`) checks consent, the
+session window and data freshness, scans the universe, then calls the SAME
+`LiveStrategyService.run_once` path. Every run records a `DecisionRecord` —
+including no-signal and every refusal — on `AutomationExecution.decision`.
+
+Tier gates: L0 proposes, L1 fills demo, L2 fills live. `check_live_order` is
+called INSIDE `submit_order` whenever `automation_id` is present, so no caller
+(tool, graph node, strategy runner) can skip the fence. The broker seam is
+covered directly: an L1 bot is refused before the adapter is touched, an L2 bot
+with a bot-pinned mandate sends exactly once, and a stale bot version is refused
+`BOT_VERSION_STALE`.
+
 
 ### Chat: one-click order approval
 

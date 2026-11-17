@@ -18,6 +18,44 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `docs/CHANGELOG.md`.
 
 
+- **feat(autonomy): goal verdicts stream into the chat transcript; a slow
+  `price_history` serves its last good read.** Each new verdict from a session's
+  open goals is appended as a transcript line (`useGoalVerdictWatch`, 5s poll,
+  idempotent by `goalId:turn`, first poll primes so reopening a chat never
+  replays history). `HttpDataBridge` keeps the last successful `price_history`
+  response (bounded 32) and returns it as `STALE`/`cached` when the live route
+  times out, instead of UNAVAILABLE; a different query never borrows another
+  series. Tests: bridge cache fallback, goal transcript wiring, loop controls.
+  Docs: `docs/harness/autonomy.md`.
+
+- **feat(bots): authorization gate, tier ladder, venue memory, library sort.**
+  **Gate:** `authorizeBlockReason` (pure, used by both the create panel and the
+  bot's Trading section) blocks Authorize when the selected broker is
+  `unavailable` — showing the terminal reason — when live is below L2, or when a
+  live connection is not armed; the button is disabled and the sentence is the
+  same in both surfaces. **Ladder:** an explicit L0/L1/L2 panel shows the current
+  tier, one-click **Enable L1** (demo), and **Request L2** only after the
+  measurable gates (`l2Eligibility`: 50 decisions, 14 days, backtest/approval when
+  known) plus an explicit acknowledgement; the journal P&L/win-rate review is
+  stated as a warning, never faked. **Venue memory:** the last demo/live venue is
+  remembered in `localStorage` and preselected only when the bot has none, still
+  exists in that mode, and never overrides an explicit choice. **Sort:** the
+  strategy library sorts by newest or name A→Z. Tests: 16 new TS cases (authorize
+  gate, venue memory, L2 eligibility, catalog sort); full suite 5015 pass,
+  `tsc --noEmit` clean, 33 targeted pytest pass. Release
+  `8DTXGoP3SAiSwhsFZXuUc` promoted and relaunched. Docs:
+  `docs/bot-mode.md`, `docs/CHANGELOG.md`.
+
+- **feat(autonomy): `/loop status|pause|resume|cancel`, and artifact-write
+  resilience.** A loop could only be started from chat; control now lives in the
+  same command (`/loop status`, `/loop pause|resume|cancel [id]`, defaulting to
+  the active loop), matching the GoalBar. `LocalArtifactStorage.import_file` /
+  `_atomic_write` retry once when the store path disappears between the temp
+  write and `os.replace` (the live `WinError 3` seen during artifact discovery),
+  and `analysis_run.purpose` accepts up to 1000 characters so a long purpose no
+  longer costs a failed sandbox call. Tests: loop status/cancel handler, artifact
+  retry. Docs: `docs/harness/autonomy.md`.
+
 - **fix(harness): serialise every code-index statement — a read raced a write
   and crashed the process.** `CodeIndex` opens SQLite with
   `check_same_thread=False` and only guarded *writes* with its lock. The docs
@@ -31,6 +69,44 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   so `row_factory` still lands on the connection. 65 code-index tests pass,
   including `test_intel_index_concurrency.py`. Doc change: `docs/CHANGELOG.md`.
 
+
+- **feat(bots): the strategy catalog and the settings fixes.** One shared
+  catalog (`src/lib/strategies/catalog.ts`) now backs both surfaces, with the
+  newest backtest/approval/paper run per strategy from a single call
+  (`GET /quant/strategies?includeEvidence=true`). **Strategy Studio** shows
+  evidence badges, a Refresh control, an archived toggle, and stays fresh on
+  focus/visibility and after any agent turn (`useAgentRun` invalidates it) — so
+  a strategy the Eclipse agent just made appears without a reload. **New bot**
+  replaces its 46-option `<select>` with a searchable `StrategyPicker` (evidence,
+  archived toggle, Refresh, “Open in Strategy Studio” through a typed in-app
+  navigation intent, no browser reload). Settings fixes: the agent preset and
+  model are visible without opening Advanced, the model picker has
+  loading/“runtime starting”/error+Retry/“no provider” states, broker venues show
+  `unavailable` with the terminal reason and a Refresh, a mode with no connection
+  explains itself, the Create button explains what is missing
+  (name/objective/workflow) instead of silently disabling, and the bot detail can
+  now change its **workflow** (with an Open Graph Studio link), **agent preset**,
+  **model**, and pinned **strategy** (re-prepared under the standing consent).
+  Tests: 3 Python catalog cases, 11 new TS cases (catalog store, navigation
+  intents, evidence badges); full TS suite 4996 pass, `tsc --noEmit` clean.
+  Docs: `docs/bot-mode.md`, `docs/strategy-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+
+- **fix(autonomy): a goal turn can bind the finance tools and compute.**
+  Live finance goals could only describe a backtest: the run query contains the
+  rule words **“entry”/“exit”** and the acceptance word **“all”**, and
+  `trading_intent` read “exit … all” as *“close all positions”*. That narrowed the
+  run to the 18-tool **trade** surface, so `get_historical_prices` and
+  `analysis_run` were not bound and the goal correctly blocked. The classifier now
+  recognizes a backtest/simulation as research (word-bounded nouns, analysis
+  markers before the close/trade heuristics), and `apply_intent_surfaces` skips the
+  trade surface entirely for task runs so a quoted previous verdict cannot
+  re-classify the run. Task runs also set `context.taskRun`
+  so they keep the agent's own surface instead of the chat-code profile, and
+  `RunRequest.analysisEnabled=True` so the sandbox is available. The goal brief
+  for `finance`/`data` names the data + compute route. Tests: the backtest query is
+  not a close request, the task surface keeps the agent's tools, `analysisEnabled`
+  reaches the run. Docs: `docs/harness/autonomy.md`.
 
 - **fix(code): `search_text` crashed on every scan with `AttributeError`.**
   `harness/code/fs/search.py` read the size cap from `metadata.MAX_TEXT_BYTES`,
@@ -51,6 +127,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   purpose: triage it before claiming Linux test parity. Doc change:
   `docs/CHANGELOG.md`.
 
+- **feat(trading): one-click EUR/USD 1-minute bot.** The Bots empty state now
+  seeds a complete 1m vertical (`src/lib/bots/trading/eur-1m.ts` +
+  `eur-1m-seed.ts`): strategy `eurusd_m1_ema_rsi` (EMA 9/21 cross, RSI veto, ATR
+  1.5 stop, 1.5R target, spread/slippage modelled on 1m bars), a **90-day 1m
+  backtest** as evidence, a shadow-only approval, a 60-second automation
+  (`misfire: skip`, one position, 4 orders/day, 5-minute cooldown, London hours,
+  L1 leash) and a **shadow** trial, then activation. Idempotent by bot name;
+  every gate failure names the gate. The Trading panel gained a one-time
+  **Authorize demo/live** form: the seeded shadow bot becomes a trading bot with
+  the phrase typed once (standing consent), and live stays gated by L2 + an
+  armed connection. Tests: 15 TS starter/seed cases, 6 Python engine cases
+  (real parser + signals on synthetic 1m bars + the real automation validator +
+  the real shadow-trial creation), 2 runner M1 freshness cases. `tsc --noEmit`
+  clean. Docs: `docs/bot-mode.md`, `docs/trading-bots-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
 - **fix(deps): declare `yfinance` so CI installs the runtime the app installs.**
   `scripts/setup-python.js` pip-installed yfinance as an extra, so the lock never
   contained it: CI installed the lock, had no yfinance, and every market-data
@@ -60,6 +152,41 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   of truth for the runtime. SBOM regenerated: 1,327 components.
   Doc change: `docs/CHANGELOG.md`.
 
+
+- **fix(autonomy): judge schema tolerance, re-judge recovery, and a multi-goal
+  strip.** Two live goals (document, finance) completed their runs but `blocked`
+  because the judge answered `status: completed` / `explanation: ...` instead of
+  `verdict` / `reason`. The judge now normalizes near-miss JSON before validation
+  (alias keys, enum synonyms, snake_case, fenced JSON, null/extra fields) while
+  still validating the VALUE, and the system prompt names the exact keys.
+  `POST /goals/{id}/reevaluate` + `/goal retry` re-judge the last finished turn
+  without paying for a new run. The status strip now lists every active goal,
+  labels `queued` vs `running` from the turn task, and offers a Re-judge action on
+  blocked goals. Also normalized one stray CRLF line in
+  `python/tests/test_broker_orders.py` that failed the repo-wide line-ending
+  guard, and re-pinned the in-flight shared-tree size ratchets (`graph.py`,
+  `main.py`, `trade/service.py`). Tests: judge alias/fenced parsing, re-judge,
+  multi-goal handler. Docs: `docs/harness/autonomy.md`.
+
+- **fix(trading): the live bot fence could not read an EMPTY position list.**
+  `trade/authority.py::_eclipse_open_positions` treated `{"available": true,
+  "data": []}` as unreadable (`[] or {}` is falsy), so an L2 bot with no open
+  positions was refused `POSITIONS_UNAVAILABLE` on every live order. It now
+  accepts the adapter-list shape (`data: [...]`) and only reports unavailable for
+  a genuinely unreadable payload. **Proof at the broker seam:** three new tests in
+  `python/tests/test_broker_orders.py` drive `BrokerService.submit_order` with a
+  counting fake adapter and a bot-pinned live mandate — an L1 bot is refused
+  before `order_preview`/`submit` are called, an L2 bot sends exactly once and
+  records `automationId`/`mandateId` on the ledger (a second submit is refused
+  without a new send), and a stale bot version is rejected `BOT_VERSION_STALE`.
+  Also extracted the human-turn builder into `harness/turn_content.py` to keep
+  `graph.py` under its size ratchet, re-pinned `main.py` 1270→1272 for the two
+  router lines, and trimmed `trade/service.py` back under 1200. Two full Python
+  runs: **11114 passed / 1 failed** (`test_learning_review`) and **11117 passed /
+  1 failed** (`test_w4_autonomy`); each failure passes alone (15 and 30) and both
+  are in-flight autonomy/learning code, not trading. Docs:
+  `docs/trading.md`, `docs/trading-bots-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
 
 - **fix(ci): the job needed more than 30 minutes, not a code change.**
   The last run was `cancelled` at exactly 30:15 with **every** step before the
@@ -79,6 +206,26 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `docs/CHANGELOG.md`.
 
 
+- **feat(trading): the four remaining gaps — real image parts, find-trades scan,
+  agent live path tested, lessons in chat.** (1) **Images**: `RunInput.images`
+  (bounded PNG/JPEG/WebP data URLs) becomes native `image_url` content blocks on
+  the human turn, both on a bot chat (`ChatOptions.images` → payload → both chat
+  routes) and on a scheduled agent run (the dispatcher forwards the bot's
+  visuals); a text block still marks them as guidance, never market data.
+  (2) **Find trades**: `POST /automations/{id}/trading/scan` evaluates the
+  strategy on the last closed bar and returns actionable symbols; the trading
+  panel can adopt them and re-prepares under the standing consent. The runner's
+  ranking moved to the pure `trading_policy.rank_evaluations` (exits first, no
+  re-entry of a held symbol). (3) **Agent live path**: new tests prove an agent
+  `prepare` creates a bot-pinned mandate + standing consent, requires the phrase
+  unless a grant covers it, and that the live fence refuses L1 / a missing stop
+  while accepting L2. (4) **Learning in chat**: a trading bot's turn carries a
+  ledger-derived lesson digest as a system message, so it can discuss repeated
+  failures and its proposed fix; applying still needs the operator. Tests: 51
+  new Python cases (policy, runner, validation, visuals, agent prepare, scan)
+  and 3 new TS bot-turn cases; `tsc --noEmit` clean. Docs:
+  `docs/bot-mode.md`, `docs/trading.md`, `docs/trading-bots-plan.md`.
+
 - **fix(ci): run the pipeline on Node 22, the version the app actually ships.**
   This was the real cause of the two "worker exited unexpectedly" crashes: the
   only two test files that open a database load `better-sqlite3@13`, which
@@ -88,6 +235,25 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   runtime and `desktop-release.yml`) and `package.json` now declares
   `engines.node >= 22` instead of claiming 20. Doc change: `docs/CHANGELOG.md`.
 
+
+- **fix(autonomy): `/goal` turns actually run (and a finance goal is not typed
+  as code).** The live DB showed every goal turn stranded: `start_turn` called
+  `start_task`, which moves a task to `IN_PROGRESS` without a claim token or
+  lease, and the scheduler only claims `TODO` — so the goal sat `active` with a
+  turn that never ran (no execution row, no run). Goal turns now stay `TODO` for
+  the scheduler's atomic claim, and `start_tasks` repairs rows the old path left
+  behind (`repair_orphaned_goal_tasks`, scoped to `metadata.goalId`). Separately,
+  the classifier treated any mention of "app" as code ("data available in this
+  app"), so a backtest/research goal was verified as a code task a `plan_only`
+  run can never satisfy; inference now requires a code *action* before a code
+  noun, and `/goal --type finance|research|code|...` pins the verifier
+  explicitly. `/api/harness/command` also accepts a `chatId`, so the explicit
+  command entry point can run session-scoped goals. A goal plan that auto-completed
+  when its turn finished is also **reopened** for the next turn (`resume_plan_for_work`,
+  plus a boot repair), because the scheduler only runs tasks in a RUNNING plan —
+  otherwise the loop stalled after turn 1. Tests: stranded-turn, boot-repair,
+  plan-reopen, explicit-type, finance-vs-app classification. Docs:
+  `docs/harness/autonomy.md`.
 
 - **fix(ci): build the `better-sqlite3` binding that `--ignore-scripts` skipped.**
   The last runner failure was not memory at all: the same two files never
@@ -121,6 +287,43 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   release build already needed. Doc change: `docs/CHANGELOG.md`.
 
 
+- **feat(trading): strategy bots with standing consent, live execution and
+  failure learning.** A bot can now use a saved quant strategy version as its
+  brain (`action.type = "run_strategy"`). One execution = one decision on the
+  last closed bar: the runner checks standing consent, the session window, data
+  freshness and the symbol universe, then calls the existing
+  `LiveStrategyService.run_once` → `BrokerService.submit_order` path. Every run
+  persists a structured decision (no-signal and refusals included) on the
+  execution, so "why didn't it trade?" is answerable in Run History and in the
+  new Trading section. **Auto mode:** the operator types the consent phrase once;
+  `action.config.consent` is a bounded standing grant and `prepare` renews the
+  mandate without asking while it still covers the request. Widening a limit,
+  expiry or revocation asks again. **Live:** `check_live_order` now runs inside
+  `submit_order` whenever `automation_id` is present, so no caller can skip the
+  L0/L1/L2 ladder; demo mandates may pin an L1 bot (the code was stricter than
+  `docs/trading.md`), live still needs L2 + arm + a bot-pinned mandate.
+  **Learning:** repeated failures become one concrete proposal with a chat-ready
+  explanation; applying it patches config/authority and re-prepares under the
+  consent, and the bot can only tighten by itself. **Visual teaching:** up to
+  four bounded images with captions, injected as pattern guidance that can never
+  be cited as market data. Pause/disable/archive/delete revoke mandates and stop
+  the trial; positions are never auto-closed. An **agent** bot can be granted a
+  bot-pinned demo/live mandate (no trial) plus the same standing consent, so it
+  can propose at L0 and fill at L1/L2 with its own tools. Tests: 106 TS domain
+  tests (plus 2 persona cases), 37 plain-Python policy checks, 33 new pytest
+  cases (policy, runner, validation); full suite 4965 TS tests + 138 touched
+  Python tests green; `tsc --noEmit` clean. Docs:
+  `docs/trading-bots-plan.md`, `docs/bot-mode.md`, `docs/trading.md`,
+  `docs/NAVIGATION.md`, ADR-080 in `docs/DECISIONS.md` + `skills/ARCHITECT.md`.
+
+- **feat(autonomy): the goal loop is ON by default.** `/goal` is user-initiated,
+  so requiring an env edit before it can work was friction, not safety:
+  `HARNESS_GOAL_LOOP` now defaults to `on` (`shadow` and `off` remain explicit
+  choices). The global `HARNESS_AUTONOMY=off` kill switch still vetoes the engine,
+  and an explicit `off` still makes `POST /goals` refuse with
+  `GOAL_ENGINE_OFF`. Updated the flag test, `.env.example`, and the autonomy
+  flag table.
+
 - **fix(ci): the wheel guard no longer rejects source modules named `seed`.**
   `publish-harness.yml` failed every `v*` tag at "The package must carry no
   data": it treated any filename containing `seed` as a data leak, which matches
@@ -144,6 +347,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   cp312 wheels for manylinux, macOS and Windows. Re-locked; the only change in
   `requirements.lock` is av 14.4.0 -> 13.1.0. Doc change: `docs/CHANGELOG.md`.
 
+- **chore(eval): regenerate the published benchmarks.** The guard
+  (`test_published_benchmarks`) caught `docs/harness/benchmarks.md` stale against
+  the current deterministic runtime: task_success 0.9940→0.9970, adversarial
+  14/14 (100%), latency 0.1384→0.1124. Generated with `npm run eval:benchmarks`;
+  no hand-editing, and the guard was green on re-run. Doc change: the generated
+  file itself.
+
 - **fix(ci): the pipeline could not install the Python stack on Linux.** `av`
   (PyAV 14.4.0) publishes an sdist only - no wheels on any platform - so
   `pip install -r python/requirements.lock` builds it and needs the FFmpeg
@@ -153,13 +363,34 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   now installs `pkg-config`, `ffmpeg` and the `libav*-dev` packages first.
 
 - **chore(repo): remove the GitHub Actions deploy lane.** `.github/workflows/deploy.yml`
-  pushed to `main` on every commit and could only fail: this is a desktop-only
+  pushed on every commit to `main` and could only fail: this is a desktop-only
   product, every `DEPLOY_*` secret is absent, and it was the TOFU
   `StrictHostKeyChecking=accept-new` SSH path flagged as H-08 in the audit. It
   fired a red X on the first public push. Self-hosting is still manual
-  (`scripts/deploy.sh` + the systemd timer); `docs/DEPLOYMENT.md` records why the
-  workflow is gone and why it should not come back without host keys verified
-  out of band. Docs updated: `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+  (`scripts/deploy.sh` + the systemd timer); `docs/DEPLOYMENT.md` records why
+  the workflow is gone. Docs updated: `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
+
+- **feat(autonomy): `/goal` is now a real, verified loop.** The command existed
+  but could not be trusted: it sent no `sessionId` (so a goal was invisible to
+  its own session and "the user always wins" could not see it), goal turns ran
+  with no `workspaceId` (so the agent edited nothing while the gates checked the
+  goal's workspace), and with `HARNESS_GOAL_LOOP=off` it created a zombie goal
+  that was never evaluated. All three are fixed: the handler binds the session
+  and resolves the session's newest live workspace, the task executor forwards
+  `workspaceId` to `RunRequest`, and `POST /goals` returns 409
+  `GOAL_ENGINE_OFF` instead of creating a goal the engine will not evaluate.
+  A judge `done` must now pass `verify_task` and the task completes before the
+  goal does; a failed run skips gates + judge; the no-progress digest excludes
+  the judge's wording; cancel targets the live run (`currentRunId`, migration
+  `2026-11-17-007-goal-live-turn`); a refused task start no longer burns a turn;
+  the turn cap is an honest `blocked` with `/goal extend <turns>` as the bounded
+  way out; one active goal per session is enforced. `/goal` also gains
+  `show <id>`, bounded `extend`, repeatable `--gate` (the parser kept only the
+  last one), `--gate unit_test=path` scoping, workspace autodetect, `--autonomy`,
+  and an actionable off-engine message. The status strip is i18n'd, polls at 5s
+  while active, exposes `extend`, shows the live run and an expandable
+  per-gate/per-verdict detail panel, and shows an off-engine chip;
+  `/api/autonomy/health` backs it. Docs: `docs/harness/autonomy.md`.
 
 - **chore(size): re-pin for the evaluation-harness fix (+11 lines).** The
   `ScriptedModel` fallback added 11 lines to `python/harness/evaluation`, putting
@@ -174,6 +405,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   of the substrate already ships), eight decisions, phases P0–P5, a test matrix
   and open questions. No code changed. `docs/NAVIGATION.md` gained a trigger row
   pointing at it.
+- **docs(plan): trading bots — implementation spec.** Expanded
+  `docs/trading-bots-plan.md` from an overview into an implementation plan:
+  locked contracts (action config, `ExecutionAuthority` matrix, decision record,
+  endpoints, refusal codes), backend work packages WP1–WP8 with file-level
+  changes and pseudo-code, frontend WP9–WP13, create/run/promote/pause
+  sequences, phases P0–P5 with exit criteria, a named test matrix, compatibility
+  notes and risks. Two design corrections landed in the plan: **shadow mode needs
+  no broker** (signal on JDdS + order preview), and **demo mandates may pin an L1
+  bot** — the code currently demands L2 for any bot pin, which is stricter than
+  `docs/trading.md` says. No code changed.
 
 - **fix(ui): a malformed `/api/setup` reply no longer white-screens the app.**
   `OnboardingGate` renders the full-screen wizard unless `state.completed` is
@@ -224,10 +465,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   demo journal, generated fresh) is the only database allowed in the payload.
   Onboarding was re-verified end-to-end on a throwaway `BE_DATA_DIR`: schema-only
   and demo-seeded databases both read `isNew: true` with no `onboarding_v1` row,
-  so a new user lands on the setup wizard. Personal skills under
-  `.black-eclipse/skills/` are no longer tracked (local runtime folder; the
-  packaged build never copies it). Docs updated: `docs/data-and-privacy.md`,
-  `docs/CHANGELOG.md`.
+  so a new user lands on the setup wizard. Docs updated:
+  `docs/data-and-privacy.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-16
 

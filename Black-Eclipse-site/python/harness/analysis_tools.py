@@ -44,7 +44,7 @@ class AnalysisRunInput(BaseModel):
     recipe: Optional[str] = Field(default=None, max_length=64)
     source: Optional[str] = Field(default=None, max_length=20_000)
     inputs: dict[str, Any] = Field(default_factory=dict)
-    purpose: str = Field(..., min_length=1, max_length=300)
+    purpose: str = Field(..., min_length=1, max_length=1000)
     timeout_s: int = Field(120, ge=1, le=600)
     # Start a fresh sandbox interpreter for this session instead of reusing the
     # warm one (a recovery escape hatch; it never changes the isolation rules).

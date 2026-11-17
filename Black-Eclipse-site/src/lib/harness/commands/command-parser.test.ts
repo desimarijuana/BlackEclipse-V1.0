@@ -118,6 +118,16 @@ describe("bindArgs", () => {
     const bound = bindArgs(resolveCommand("skill")!, tokenizeArgs("x --nope"));
     expect(bound.errors.some((e) => e.code === "UNKNOWN_FLAG")).toBe(true);
   });
+
+  it("accumulates a repeatable valued flag instead of keeping only the last", () => {
+    const goal = resolveCommand("goal")!;
+    const bound = bindArgs(goal, tokenizeArgs("ship it --gate typecheck --gate unit_test=src/a.test.ts"));
+    expect(bound.flags.gate).toEqual(["typecheck", "unit_test=src/a.test.ts"]);
+    expect(bound.errors).toEqual([]);
+    // A non-repeatable flag keeps the last value, as before.
+    const one = bindArgs(goal, tokenizeArgs("ship it --workspace a --workspace b"));
+    expect(one.flags.workspace).toBe("b");
+  });
 });
 
 describe("parseAndBind", () => {

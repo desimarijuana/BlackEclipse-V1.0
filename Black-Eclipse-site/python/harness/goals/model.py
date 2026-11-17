@@ -46,6 +46,7 @@ class Goal:
     session_id: Optional[str] = None
     next_run_at: Optional[str] = None
     no_progress: int = 0
+    current_run_id: Optional[str] = None
     model_provider: Optional[str] = None
     model_name: Optional[str] = None
     model_base_url: Optional[str] = None
@@ -63,6 +64,7 @@ class Goal:
             "usedTurns": self.used_turns, "lastVerdict": self.last_verdict,
             "sessionId": self.session_id, "nextRunAt": self.next_run_at,
             "noProgress": self.no_progress,
+            "currentRunId": self.current_run_id,
             "modelProvider": self.model_provider, "modelName": self.model_name,
             "workspaceId": self.workspace_id,
             "createdAt": self.created_at, "updatedAt": self.updated_at,

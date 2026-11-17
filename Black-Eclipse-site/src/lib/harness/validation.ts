@@ -106,6 +106,10 @@ const MAX_DOCUMENTS = 20;
  */
 const MAX_DOCUMENT_CHARS = 100_000;
 const MAX_TOTAL_DOCUMENT_CHARS = 200_000;
+/** Visual-teaching images: same budget the Bots UI enforces (4 × ≤2 MB). */
+const MAX_RUN_IMAGES = 4;
+const MAX_IMAGE_DATA_URL_CHARS = 3_000_000;
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/i;
 
 export function validateRunInput(raw: unknown): InputValidationResult {
   const issues: string[] = [];
@@ -235,8 +239,46 @@ export function validateRunInput(raw: unknown): InputValidationResult {
     }
   }
 
+  // Reference images (visual teaching). A remote URL or a non-raster mime is
+  // refused here: the runtime may only receive bytes the operator actually
+  // attached.
+  let images: import("./types").RunImageInput[] | undefined;
+  if (body.images !== undefined && body.images !== null) {
+    if (!Array.isArray(body.images)) {
+      issues.push("images must be an array");
+    } else if (body.images.length > MAX_RUN_IMAGES) {
+      issues.push(`too many images (max ${MAX_RUN_IMAGES})`);
+    } else {
+      const out: import("./types").RunImageInput[] = [];
+      body.images.forEach((rawImage, i) => {
+        if (!rawImage || typeof rawImage !== "object") {
+          issues.push(`images[${i}] must be an object`);
+          return;
+        }
+        const image = rawImage as Record<string, unknown>;
+        const dataUrl = typeof image.dataUrl === "string" ? image.dataUrl.trim() : "";
+        if (!IMAGE_DATA_URL.test(dataUrl)) {
+          issues.push(`images[${i}].dataUrl must be a PNG/JPEG/WebP base64 data URL`);
+          return;
+        }
+        if (dataUrl.length > MAX_IMAGE_DATA_URL_CHARS) {
+          issues.push(`images[${i}] is too large`);
+          return;
+        }
+        out.push({
+          dataUrl,
+          ...(typeof image.caption === "string"
+            ? { caption: image.caption.trim().slice(0, 280) }
+            : {}),
+          ...(typeof image.mime === "string" ? { mime: image.mime.slice(0, 40) } : {}),
+        });
+      });
+      images = out.length ? out : undefined;
+    }
+  }
+
   if (issues.length > 0) return { ok: false, issues };
-  return { ok: true, value: { query, ticker, market, context, history, documents }, issues: [] };
+  return { ok: true, value: { query, ticker, market, context, history, documents, images }, issues: [] };
 }
 
 /** Throwing wrapper for callers that prefer exceptions. */

@@ -67,6 +67,9 @@ export interface GoalView {
   sessionId: string | null;
   nextRunAt: string | null;
   noProgress: number;
+  currentRunId: string | null;
+  /** The current turn's task phase (TODO/IN_PROGRESS/...); null when no turn. */
+  taskStatus?: string | null;
   modelProvider: string | null;
   modelName: string | null;
   workspaceId: string | null;
@@ -114,8 +117,10 @@ export interface CreateGoalInput {
   sessionId?: string;
   workspaceId?: string;
   autonomy?: "plan_only" | "edit_verify" | "approve_external";
+  taskType?: "code" | "research" | "document" | "workflow" | "finance" | "data" | "general";
   model?: { provider?: string; model?: string; baseUrl?: string };
   start?: boolean;
+  allowParallel?: boolean;
 }
 
 export interface CreateLoopInput {
@@ -155,13 +160,26 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
         ? raw
         : raw && typeof raw === "object" && "message" in raw
           ? String((raw as { message: unknown }).message)
-          : `runtime HTTP ${res.status}`;
+          : raw && typeof raw === "object" && "error" in raw
+            ? String((raw as { error: unknown }).error)
+            : `runtime HTTP ${res.status}`;
     throw new Error(redactSecrets(detail));
   }
   return body as T;
 }
 
 // ── Goals ─────────────────────────────────────────────────────────────────────
+export interface AutonomyHealth {
+  mode: "off" | "shadow" | "on";
+  goals: { total: number; byStatus: Record<string, number> };
+  loops: { total: number; active: number; kinds: Record<string, number> };
+}
+
+export async function getAutonomyHealth(): Promise<AutonomyHealth> {
+  const body = await request<{ health: AutonomyHealth }>("/autonomy/health", { method: "GET" });
+  return body.health;
+}
+
 export async function createGoal(input: CreateGoalInput): Promise<GoalView> {
   const body = await request<{ goal: GoalView }>("/goals", {
     method: "POST",
@@ -217,6 +235,23 @@ export async function cancelGoal(id: string): Promise<GoalView> {
   return body.goal;
 }
 
+export async function extendGoal(id: string, turns = 5): Promise<GoalView> {
+  const body = await request<{ goal: GoalView }>(`/goals/${encodeURIComponent(id)}/extend`, {
+    method: "POST",
+    body: JSON.stringify({ turns }),
+  });
+  return body.goal;
+}
+
+export async function reevaluateGoal(id: string): Promise<GoalView> {
+  const body = await request<{ goal: GoalView }>(`/goals/${encodeURIComponent(id)}/reevaluate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+    timeoutMs: 180_000,
+  });
+  return body.goal;
+}
+
 // ── Loops / heartbeats ────────────────────────────────────────────────────────
 export async function createLoop(input: CreateLoopInput): Promise<LoopView> {
   const body = await request<{ loop: LoopView }>("/loops", {
@@ -258,9 +293,4 @@ export async function cancelLoop(id: string): Promise<LoopView> {
     body: JSON.stringify({}),
   });
   return body.loop;
-}
-
-export async function getAutonomyHealth(): Promise<AutonomyHealth> {
-  const body = await request<{ health: AutonomyHealth }>("/autonomy/health", { method: "GET" });
-  return body.health;
 }

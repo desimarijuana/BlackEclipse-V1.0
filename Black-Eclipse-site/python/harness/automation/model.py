@@ -41,6 +41,8 @@ ActionKind = Literal[
     "run_code",
     "browser_action",
     "custom_action",
+    # A bot whose brain is a saved quant strategy (strategy trading bot).
+    "run_strategy",
 ]
 
 # Execution states are DISTINCT from lifecycle states (§6).
@@ -77,7 +79,7 @@ TRIGGER_KINDS: tuple[str, ...] = (
 ACTION_KINDS: tuple[str, ...] = (
     "execute_task", "execute_workflow", "run_agent", "run_team", "delegate_agent",
     "call_tool", "create_task", "send_notification", "generate_report", "run_code",
-    "browser_action", "custom_action",
+    "browser_action", "custom_action", "run_strategy",
 )
 EXECUTION_STATES: tuple[str, ...] = (
     "triggered", "queued", "running", "waiting", "retrying", "completed", "failed",
@@ -329,6 +331,16 @@ class ExecutionAuthority(BaseModel):
     max_open_positions: int = Field(2, ge=1, le=50)
     max_margin_per_order: float = Field(0.0, ge=0.0)
     cooldown_s: int = Field(900, ge=0, le=86_400)
+    #: The daily loss brake the bot owns, on top of the connection's own policy.
+    max_daily_loss_pct: float = Field(3.0, ge=0.0, le=50.0)
+    #: Standing consent. When true the operator typed the phrase once and the bot
+    #: renews its bounded mandate without asking again (until expiry/revocation).
+    auto_mode: bool = False
+    auto_renew: bool = True
+    #: Failure learning. The bot raises a lesson after N repeated failures and
+    #: applies it only with the operator's consent (tighten-only by construction).
+    learning_enabled: bool = True
+    improve_after_failures: int = Field(3, ge=2, le=10)
 
 
 class AutomationDefinition(BaseModel):

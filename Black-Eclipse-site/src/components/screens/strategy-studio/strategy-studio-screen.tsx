@@ -36,6 +36,7 @@ import { StudioAlerts } from './studio-alerts';
 import { ExperimentHistory } from './experiment-history';
 import { PortfolioPanel } from './portfolio-panel';
 import { StageRail, computeCompleted, computeStudioStage } from './stage-rail';
+import { NAVIGATE_EVENT, consumeStrategyTarget, type NavigateIntent } from '@/lib/navigation/app-nav';
 import { CompactSummary } from './compact-summary';
 import { EmptyResults, ResultPanels } from './result-panels';
 import { ResearchStudio } from './research-studio';
@@ -242,9 +243,23 @@ export function StrategyStudioScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
-  // ── Persist the workspace (debounced) ────────────────────────────────────
+  // A deep link from another surface ("Open in Strategy Studio"). On first
+  // visit the intent is consumed on mount; an already-mounted tab listens.
   useEffect(() => {
-    if (!hydrated || restoring) return;
+    if (!hydrated) return;
+    const pending = consumeStrategyTarget();
+    if (pending) void openStrategy(pending, { replaceEditor: true, silent: true });
+    const onNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<NavigateIntent>).detail;
+      if (detail?.tab !== 'strategy-studio' || !detail.strategy) return;
+      void openStrategy(detail.strategy, { replaceEditor: true, silent: true });
+    };
+    window.addEventListener(NAVIGATE_EVENT, onNavigate);
+    return () => window.removeEventListener(NAVIGATE_EVENT, onNavigate);
+  }, [hydrated, openStrategy]);
+
+  // ── Persist the workspace (debounced) ────────────────────────────────────
+  useEffect(() => {    if (!hydrated || restoring) return;
     const timer = setTimeout(() => {
       saveWorkspace(
         {
@@ -671,9 +686,7 @@ export function StrategyStudioScreen() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <StudioSidebar
-          strategies={bt.strategies}
           templates={STRATEGY_TEMPLATES}
-          loading={bt.loading}
           selectedId={saved?.id ?? null}
           busy={loadingStrategy}
           onOpen={(id) => void openStrategy(id)}
