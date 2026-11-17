@@ -17,18 +17,18 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1794849898959`
+- run: `evalrun-1794953859836`
 - dataset: `eclipse-benchmark` @ `1` (checksum `ea086f46b491f84fdd3b7a87220d5533`)
 - tier: 0
 - agent version: `0.4.0`
-- git commit: `ad3b119b9609810de462cc108c0445ead8ac879d`
+- git commit: `e8d1216a6012e71ce02a0a3a6512b41e659d3d52`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
 
 | dimension | value |
 |---|---|
-| task_success | 0.9940 |
+| task_success | 0.9970 |
 | tool_accuracy | 0.9712 |
 | research_accuracy | UNKNOWN |
 | citation_accuracy | 0.0000 |
@@ -47,7 +47,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1384 |
+| latency | 0.2613 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -55,7 +55,7 @@ A deterministic script replaces the model, so this measures the
 
 | category | passed / measured | unmeasured | pass rate |
 |---|---|---|---|
-| adversarial | 13/14 | 0 | 92.9% |
+| adversarial | 14/14 | 0 | 100.0% |
 | browser | 0/0 | 1 | UNKNOWN |
 | citations | 0/1 | 1 | 0.0% |
 | coding | 4/4 | 0 | 100.0% |

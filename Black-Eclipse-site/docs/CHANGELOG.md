@@ -6,6 +6,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): the last environment gaps in the Windows suite.** Four more causes,
+  none a product change. (1) `lightgbm` was never declared, so the two ML
+  acceptance tests failed honestly with "requires an optional dependency" - it is
+  now in `requirements.txt` and locked (4.7.0). (2) `docs/harness/benchmarks.md`
+  is generated and had drifted; regenerated with `npm run eval:benchmarks`. (3)
+  `test_code_check_path.py` and `test_kits_scaffold.py` need the vendored
+  interpreter, so they skip at module level with the provisioning hint - the same
+  guard the sandbox suites already use. (4) The size budget is re-pinned by 49
+  lines for the SQLite serialisation fix. SBOM regenerated: 1,329 components.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(harness): serialise every code-index statement — a read raced a write
   and crashed the process.** `CodeIndex` opens SQLite with
   `check_same_thread=False` and only guarded *writes* with its lock. The docs

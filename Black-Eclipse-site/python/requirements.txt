@@ -179,3 +179,9 @@ av>=12,<14
 # "ModuleNotFoundError: No module named 'yfinance'". Declaring it here makes the
 # lock the single source of truth for the runtime.
 yfinance>=1.7,<2
+
+# The ML acceptance tests grade a real LightGBM fit, and the service honestly
+# reports "requires an optional dependency" without it - so a runner that only
+# installed this lock failed both ML tests. Declared here instead of installed
+# ad hoc, so the lock stays the single source of truth.
+lightgbm>=4,<5

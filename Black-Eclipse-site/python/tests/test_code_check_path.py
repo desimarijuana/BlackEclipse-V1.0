@@ -20,6 +20,17 @@ from pathlib import Path
 
 import pytest
 
+try:  # the checks these tests exercise run the VENDORED interpreter.
+    from harness.code import commands as _commands
+
+    _commands.executable_path(_commands.COMMAND_CLASSES["python_test"])
+except Exception:  # noqa: BLE001 - environment dependent, not a product failure
+    pytest.skip(
+        "the vendored python_test toolchain is not provisioned here "
+        "(run `npm run setup:python`)",
+        allow_module_level=True,
+    )
+
 from harness.code.policy import WorkspaceBinding
 from harness.code.worktree import CodeWorkspace
 from harness.code.workspace import ResolvedWorkspace

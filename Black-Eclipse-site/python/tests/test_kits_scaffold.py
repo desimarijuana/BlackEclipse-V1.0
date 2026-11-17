@@ -14,6 +14,17 @@ from pathlib import Path
 
 import pytest
 
+try:  # the checks these tests exercise run the VENDORED interpreter.
+    from harness.code import commands as _commands
+
+    _commands.executable_path(_commands.COMMAND_CLASSES["python_test"])
+except Exception:  # noqa: BLE001 - environment dependent, not a product failure
+    pytest.skip(
+        "the vendored python_test toolchain is not provisioned here "
+        "(run `npm run setup:python`)",
+        allow_module_level=True,
+    )
+
 from harness.code import sandbox as sandbox_mod
 from harness.code.kits import get_kit, render_kit
 from harness.code.tools import register_code_tools
