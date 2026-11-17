@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **fix(oss): a contributor's own email address no longer blocks the gate.** The
+  namespace audit treated any non-noreply author reachable from an orphaned
+  `refs/pull/*` as a leak. Since a required status check runs on every pull
+  request, the first outside contributor would have failed it for signing their
+  own commits - an address GitHub publishes anyway. Banned paths stay blocking;
+  non-noreply authors on PR refs are reported as a warning. Doc change:
+  `docs/CHANGELOG.md`.
+
 - **fix(oss): "could not check the remote" is now a warning, not a silent pass.**
   The first version of the namespace audit returned an empty list when
   `git ls-remote` failed, so a machine with no network or a missing `origin`

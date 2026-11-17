@@ -139,6 +139,10 @@ function pruneTempRefs() {
 }
 
 function prRefReasons(ref) {
+  // Only banned paths block a PR ref. A contributor's commit author address is
+  // their own choice and is public on GitHub anyway; treating it as a leak would
+  // make the gate reject every outside pull request. It is reported separately
+  // as a warning.
   const reasons = [];
   for (const line of lines(safeGit(['rev-list', ref, '--objects']))) {
     const tab = line.indexOf(' ');
@@ -150,20 +154,21 @@ function prRefReasons(ref) {
       break;
     }
   }
-  const badAuthors = lines(safeGit(['log', ref, '--format=%ae']))
-    .map((email) => email.trim())
-    .filter(personalEmail);
-  if (badAuthors.length) {
-    reasons.push(`personal author: ${[...new Set(badAuthors)].join(', ')}`);
-  }
-  // Home-directory paths are a hygiene note, not a blocker: this repository's
-  // own docs legitimately quote `C:\Users\<name>\...`. They are warned about at
-  // HEAD by oss-preflight; failing a publication on a placeholder found in an
-  // old PR would be a permanent false positive.
   return reasons;
 }
 
+function personalAuthorsIn(ref) {
+  return [
+    ...new Set(
+      lines(safeGit(['log', ref, '--format=%ae']))
+        .map((email) => email.trim())
+        .filter(personalEmail)
+    ),
+  ];
+}
+
 const prRefs = [];
+const prPersonalAuthors = [];
 let remoteChecked = false;
 if (includeRemote) {
   let tips = [];
@@ -202,6 +207,14 @@ if (includeRemote) {
           reasons,
         });
       }
+      const emails = personalAuthorsIn(local);
+      if (emails.length) {
+        prPersonalAuthors.push({
+          ref: orphan.name,
+          pr: number ? `#${number[1]}` : orphan.name,
+          emails,
+        });
+      }
     } catch {
       prRefs.push({
         ref: orphan.name,
@@ -238,6 +251,7 @@ if (asJson) {
         local: staleLocal,
         tags: staleTags,
         pullRequests: prRefs,
+        pullRequestPersonalAuthors: prPersonalAuthors,
         remoteChecked,
       },
       null,
@@ -252,7 +266,13 @@ console.log(`[oss-refs] personal authors in history: ${authors.size ? [...author
 console.log(`[oss-refs] main: ${mainClean ? 'clean' : 'STALE (do not delete automatically)'}`);
 console.log('');
 
-if (!staleRemote.length && !staleLocal.length && !staleTags.length && !prRefs.length) {
+if (
+  !staleRemote.length &&
+  !staleLocal.length &&
+  !staleTags.length &&
+  !prRefs.length &&
+  !prPersonalAuthors.length
+) {
   console.log('[oss-refs] no stale refs - nothing to prune.');
   process.exit(0);
 }
@@ -292,6 +312,17 @@ if (prRefs.length) {
   console.log('  a freshly created repository, or ask GitHub Support to purge the objects.');
   console.log('');
 }
+
+if (prPersonalAuthors.length) {
+  console.log(`Pull-request refs by a non-noreply author (${prPersonalAuthors.length}) - warning only:`);
+  for (const entry of prPersonalAuthors) {
+    console.log(`  ${entry.ref} (${entry.pr})  — ${entry.emails.join(', ')}`);
+  }
+  console.log('  A contributor chooses their own commit address and GitHub shows it anyway,');
+  console.log('  so this is reported, not blocked. It matters only for this project\'s own refs.');
+  console.log('');
+}
+
 
 const remoteNames = staleRemote.map((branch) => branch.name);
 const localNames = staleLocal.map((branch) => branch.name);

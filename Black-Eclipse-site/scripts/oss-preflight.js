@@ -295,6 +295,15 @@ function consumeRemoteAudit(raw) {
     );
     return;
   }
+  const personal = audit.pullRequestPersonalAuthors || [];
+  if (personal.length > 0) {
+    warn(
+      `${personal.length} pull-request ref(s) carry a non-noreply author: ${personal
+        .map((entry) => `${entry.pr} (${entry.emails.join(", ")})`)
+        .join(", ")}`,
+      "Harmless for outside contributors (their address is public on GitHub anyway); it only matters for this project's own refs, where a rewrite is the fix."
+    );
+  }
   const leaking = audit.pullRequests || [];
   if (leaking.length > 0) {
     fail(
