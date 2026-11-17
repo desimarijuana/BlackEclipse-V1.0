@@ -12,6 +12,9 @@ type Guard = {
   refusalMessage: (live: Array<Record<string, unknown>>) => string;
 };
 
+// The guard is a plain CommonJS script shared with the build tooling; a static
+// import cannot target a path resolved at runtime.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const guard = require(path.resolve(process.cwd(), "scripts/lib/build-guard.js")) as Guard;
 
 const STABLE_LIVE = [{ id: "stable", label: "Stable", appPort: 3100, pid: 1234 }];

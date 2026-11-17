@@ -32,6 +32,14 @@ const eslintConfig = [
       // Live mode (`npm run desktop:live`) writes .next-live-<channel>/; also
       // machine-generated, so lint never walks it.
       ".next-live-*/**",
+      // The desktop launchers (`npm run desktop:*`) build into .next-desktop /
+      // .next-desktop-dev, and a promotion copies whole app trees into
+      // releases/. All three are gitignored build output: linting them reports
+      // ~150k errors inside vendored Next.js/plotly files and fails the gate for
+      // anyone who has simply run the app locally.
+      ".next-desktop/**",
+      ".next-desktop-dev/**",
+      "releases/**",
       "out/**",
       "build/**",
       "next-env.d.ts",

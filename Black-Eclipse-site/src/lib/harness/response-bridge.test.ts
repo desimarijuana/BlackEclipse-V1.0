@@ -27,9 +27,9 @@ describe('response contract bridge — schema read-back', () => {
   it('reaches the chart mark vocabulary (3D included), not just the panel', () => {
     const chart = describeResponseBlocks().find((b) => b.type === 'chart')!;
     const panels = chart.fields.find((f) => f.name === 'panels')!;
-    const marks = panels.itemDetail?.find((f) => f.name === 'marks')!;
+    const marks = (panels.itemDetail ?? []).find((f) => f.name === 'marks')!;
     expect(marks.itemFields).toEqual(expect.arrayContaining(['type', 'x', 'y', 'z', 'matrix']));
-    const type = marks.itemDetail?.find((f) => f.name === 'type')!;
+    const type = (marks.itemDetail ?? []).find((f) => f.name === 'type')!;
     expect(type.kind).toContain('scatter3d');
     expect(type.kind).toContain('surface');
   });

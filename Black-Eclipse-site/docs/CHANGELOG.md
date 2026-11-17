@@ -4,6 +4,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 — one file per month. This file keeps the newest seven dated sections;
 `npm run rotate:changelog -- --write` performs the move.
 
+## 2026-11-17
+
+- **fix(ci): three gates that could not pass on a working machine.** (1)
+  `npx eslint .` walked `.next-desktop/`, `.next-desktop-dev/` and `releases/` -
+  all gitignored build output - reporting 152,862 errors inside vendored
+  Next.js and plotly files to anyone who had run the desktop app; those paths are
+  now ignored, leaving six genuine source errors. (2)
+  `docs:data-sources:check` compared the `last-verified` stamp, which the
+  generator sets to *today*, so it failed on any day the page was not
+  regenerated; the date is normalised on both sides and real drift still fails.
+  (3) The six source errors are fixed: a `useCallback` named `useMethod` renamed
+  `applyMethod` (the hooks rule cannot tell it from a hook), an `interface
+  extends` with no members (now a type alias), two non-null assertions on
+  optional chains, and one justified `require()` in a test that loads a shared
+  CommonJS script by absolute path. Docs updated: `docs/CHANGELOG.md`,
+  `docs/data-sources.md`.
+
 ## 2026-11-16
 
 - **fix(oss): a contributor's own email address no longer blocks the gate.** The

@@ -74,6 +74,14 @@ function render(): string {
 }
 
 const next = render();
+// The front matter stamps TODAY when the page is written, so comparing it
+// verbatim makes `--check` fail on any repository that was not regenerated that
+// morning - a gate that cannot stay green. It also contradicts the docs rule
+// that `last-verified` only moves when the page is re-read. Normalise it on both
+// sides: real drift still fails, a passing day does not.
+const withoutDate = (text: string) =>
+  text.replace(/^last-verified: .*$/m, "last-verified: <date>");
+
 const check = process.argv.includes("--check");
 if (check) {
   let current = "";
@@ -83,7 +91,7 @@ if (check) {
     console.error("[data-sources] docs/data-sources.md is missing; run npm run docs:data-sources");
     process.exit(1);
   }
-  if (current !== next) {
+  if (withoutDate(current) !== withoutDate(next)) {
     console.error("[data-sources] docs/data-sources.md is out of date; run npm run docs:data-sources");
     process.exit(1);
   }

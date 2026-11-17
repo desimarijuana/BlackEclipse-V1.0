@@ -15,7 +15,7 @@ export interface RectLike {
   bottom: number;
 }
 
-export interface Band extends RectLike {}
+export type Band = RectLike;
 
 export interface Filler {
   left: number;

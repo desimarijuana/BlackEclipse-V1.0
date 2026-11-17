@@ -1,7 +1,7 @@
 ---
 title: Data Sources & Licensing
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-17
 ---
 
 # Data Sources & Licensing

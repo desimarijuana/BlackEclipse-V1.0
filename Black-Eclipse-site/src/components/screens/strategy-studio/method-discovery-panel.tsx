@@ -95,7 +95,7 @@ export function MethodDiscoveryPanel({ symbol, symbols, interval, onUseSpec, onE
     setPlaybook(result.playbook);
   }), [run, symbol, interval]);
 
-  const useMethod = useCallback((methodId: string) => run(`use:${methodId}`, async () => {
+  const applyMethod = useCallback((methodId: string) => run(`use:${methodId}`, async () => {
     const result = await backtestClient.synthesizeMethod({ methodId, symbol, interval });
     if (!result.valid) {
       throw new Error(result.issues.map((i) => i.message).join('; ') || 'the method did not validate');
@@ -153,7 +153,7 @@ export function MethodDiscoveryPanel({ symbol, symbols, interval, onUseSpec, onE
                 {r.requires.length ? (
                   <span className="text-[9px] text-amber-300">needs {r.requires.join(', ')}</span>
                 ) : (
-                  <button type="button" onClick={() => void useMethod(r.methodId)}
+                  <button type="button" onClick={() => void applyMethod(r.methodId)}
                     disabled={Boolean(busy)}
                     className="glass-card-subtle ml-auto rounded-lg px-2 py-0.5 text-[10px] disabled:opacity-50">
                     Use spec
@@ -314,7 +314,7 @@ export function MethodDiscoveryPanel({ symbol, symbols, interval, onUseSpec, onE
               <span className="font-mono text-[10px] text-muted-foreground">
                 OOS Sharpe {String(mined.selected.outOfSample?.sharpe ?? '—')}
               </span>
-              <button type="button" onClick={() => void useMethod(mined.selected!.methodId)}
+              <button type="button" onClick={() => void applyMethod(mined.selected!.methodId)}
                 className="glass-card-subtle ml-2 rounded-lg px-2 py-0.5 text-[10px]">
                 Use spec
               </button>
