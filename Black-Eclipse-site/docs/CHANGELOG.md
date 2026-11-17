@@ -6,6 +6,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **chore(oss): the public-release gate now sees server-side `refs/pull/*`.** A
+  history rewrite can leave `main`, the tags and every branch clean while
+  GitHub still serves `refs/pull/N/head` for each closed or squash-merged PR;
+  those refs reached the old 38 MB `jdds.db`, so `check:oss` reported
+  "0 warnings" against a repository that would have republished it on going
+  public. `scripts/prune-stale-refs.js` now lists remote `refs/pull/*`, fetches
+  an orphaned PR head only when no live branch/tag accounts for it, and reports
+  the banned path or personal author it still reaches (`--no-remote` skips the
+  network pass; JSON gains `pullRequests`). `scripts/oss-preflight.js` consumes
+  that audit as a blocker, and also fails when `.github/ruleset.json`'s required
+  status check is not byte-identical to the `ci.yml` job name - the committed
+  blob was correct UTF-8, but the working copy on this machine had been
+  rewritten in CP1252, and applying that copy would have required a status check
+  that never matches (branch protection then blocks every merge). Docs updated:
+  `docs/CHANGELOG.md`.
+
 - **fix(desktop): an orphaned channel server can no longer leave the app stuck on
   the "leftover server" Retry screen.** A window crash/force-close (or a
   promotion racing the old tree's exit) left port 3100 bound by this install's

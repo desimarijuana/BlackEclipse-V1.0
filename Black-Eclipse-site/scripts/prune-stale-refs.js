@@ -93,6 +93,124 @@ const localBranches = lines(safeGit(['for-each-ref', '--format=%(refname:short)'
 
 const tags = lines(safeGit(['for-each-ref', '--format=%(refname:short)', 'refs/tags']));
 
+// ---------------------------------------------------------------------------
+// Remote pull-request refs.
+//
+// GitHub keeps `refs/pull/N/head` forever — including for closed, squash-merged
+// and Dependabot PRs — and serves them to anyone who can read the repository.
+// They are invisible to `git log --all` and to `for-each-ref refs/remotes`, so a
+// branch-only audit reports "clean" while the old history is still fetchable.
+// That is the exact gap that made a history rewrite look finished when it was
+// not.
+//
+// A PR head is only interesting when it is NOT an ancestor of a live ref: if the
+// commits are still on a branch or tag, that ref already accounts for them.
+// ---------------------------------------------------------------------------
+const BANNED_PATH =
+  /(^|\/)(\.env(\.[^/]+)?|\.connector-key|mcp-servers\.json|.*\.(db|db-wal|db-shm|pem|pfx|key|p12))$/i;
+const ALLOWED_PATH = /\.env\.example$/i;
+const PERSONAL_HOME =
+  /([A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}|\/Users\/)(?!(me|x|msi|user|username|Public|test|example)\b)[A-Za-z0-9._-]+/;
+
+const pullNamespace = 'refs/oss-preflight/pull';
+const includeRemote = !process.argv.includes('--no-remote');
+
+function remoteTips() {
+  try {
+    return lines(
+      safeGit([
+        'ls-remote',
+        'origin',
+        'refs/heads/*',
+        'refs/tags/*',
+        'refs/pull/*/head',
+      ]).replace(/\r/g, '')
+    ).map((line) => {
+      const [sha, name] = line.split('\t');
+      return { sha, name };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function pruneTempRefs() {
+  for (const ref of lines(
+    safeGit(['for-each-ref', '--format=%(refname)', pullNamespace])
+  )) {
+    safeGit(['update-ref', '-d', ref]);
+  }
+}
+
+function prRefReasons(ref) {
+  const reasons = [];
+  for (const line of lines(safeGit(['rev-list', ref, '--objects']))) {
+    const tab = line.indexOf(' ');
+    if (tab === -1) continue;
+    const file = line.slice(tab + 1);
+    if (ALLOWED_PATH.test(file)) continue;
+    if (BANNED_PATH.test(file)) {
+      reasons.push(`banned path: ${file}`);
+      break;
+    }
+  }
+  const badAuthors = lines(safeGit(['log', ref, '--format=%ae']))
+    .map((email) => email.trim())
+    .filter(personalEmail);
+  if (badAuthors.length) {
+    reasons.push(`personal author: ${[...new Set(badAuthors)].join(', ')}`);
+  }
+  if (!reasons.length) {
+    const homeHits = lines(
+      safeGit(['grep', '-I', '-l', '-E', PERSONAL_HOME.source, ref])
+    );
+    if (homeHits.length) reasons.push(`home path in ${homeHits.length} file(s)`);
+  }
+  return reasons;
+}
+
+const prRefs = [];
+if (includeRemote) {
+  const tips = remoteTips();
+  const live = tips
+    .filter((tip) => !tip.name.startsWith('refs/pull/'))
+    .map((tip) => tip.sha);
+  const pulls = tips.filter((tip) => tip.name.startsWith('refs/pull/'));
+  const isAncestor = (a, b) => {
+    try {
+      git(['merge-base', '--is-ancestor', a, b]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const orphans = pulls.filter((pull) => !live.some((tip) => isAncestor(pull.sha, tip)));
+  for (const orphan of orphans) {
+    const number = orphan.name.match(/^refs\/pull\/(\d+)\//);
+    const local = `${pullNamespace}/${number ? number[1] : 'x'}`;
+    try {
+      safeGit(['fetch', '--no-tags', '--quiet', 'origin', `+${orphan.name}:${local}`]);
+      const reasons = prRefReasons(local);
+      if (reasons.length) {
+        prRefs.push({
+          ref: orphan.name,
+          pr: number ? `#${number[1]}` : orphan.name,
+          head: orphan.sha,
+          reasons,
+        });
+      }
+    } catch {
+      prRefs.push({
+        ref: orphan.name,
+        pr: number ? `#${number[1]}` : orphan.name,
+        head: orphan.sha,
+        reasons: ['could not fetch to inspect'],
+      });
+    }
+  }
+  pruneTempRefs();
+}
+
 const staleRemote = remoteBranches
   .map((branch) => ({ ...branch, reasons: staleReasons(branch.ref) }))
   .filter((branch) => branch.reasons.length > 0);
@@ -116,12 +234,13 @@ if (asJson) {
         remote: staleRemote,
         local: staleLocal,
         tags: staleTags,
+        pullRequests: prRefs,
       },
       null,
       2
     )
   );
-  process.exit(staleTags.length ? 1 : 0);
+  process.exit(staleTags.length || prRefs.length ? 1 : 0);
 }
 
 console.log(`[oss-refs] database paths in history: ${bags.length ? bags.join(', ') : 'none'}`);
@@ -129,7 +248,7 @@ console.log(`[oss-refs] personal authors in history: ${authors.size ? [...author
 console.log(`[oss-refs] main: ${mainClean ? 'clean' : 'STALE (do not delete automatically)'}`);
 console.log('');
 
-if (!staleRemote.length && !staleLocal.length && !staleTags.length) {
+if (!staleRemote.length && !staleLocal.length && !staleTags.length && !prRefs.length) {
   console.log('[oss-refs] no stale refs - nothing to prune.');
   process.exit(0);
 }
@@ -159,6 +278,17 @@ if (staleTags.length) {
   console.log('');
 }
 
+if (prRefs.length) {
+  console.log(`Pull-request refs that still reach old history (${prRefs.length}):`);
+  for (const pr of prRefs) {
+    console.log(`  ${pr.ref} (${pr.pr})  — ${pr.reasons.join('; ')}`);
+  }
+  console.log('  These CANNOT be removed with `git push origin --delete`: GitHub manages');
+  console.log('  refs/pull/* itself and keeps them for every closed/merged PR. Publish from');
+  console.log('  a freshly created repository, or ask GitHub Support to purge the objects.');
+  console.log('');
+}
+
 const remoteNames = staleRemote.map((branch) => branch.name);
 const localNames = staleLocal.map((branch) => branch.name);
 
@@ -173,7 +303,7 @@ if (!apply) {
   console.log('  Re-run with --apply to execute the commands above, then `git fetch --prune`.');
   console.log('  Cached pull-request objects can still reach old commits; if a');
   console.log('  gitleaks scan of a fresh clone is not clean, publish from a new repository.');
-  process.exit(staleTags.length ? 1 : 0);
+  process.exit(staleTags.length || prRefs.length ? 1 : 0);
 }
 
 if (staleTags.length) {
@@ -191,4 +321,13 @@ if (localNames.length) {
 }
 console.log('[oss-refs] pruning remote-tracking refs…');
 git(['fetch', '--prune'], { stdio: 'inherit' });
+
+if (prRefs.length) {
+  console.error(
+    `[oss-refs] branches pruned, but ${prRefs.length} pull-request ref(s) still reach old history. ` +
+      'Those are server-managed: publish from a new repository or ask GitHub Support to purge. `check:oss` stays red until then.'
+  );
+  process.exit(1);
+}
+
 console.log('[oss-refs] done. Run `npm run check:oss` to confirm the blocker is gone.');

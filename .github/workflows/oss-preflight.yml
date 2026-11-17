@@ -1,12 +1,14 @@
 name: Public-release preflight
 
 # `check:oss` answers "is this repository safe to make public?" - history
-# hygiene, tracked secrets, personal paths, package metadata, community files.
+# hygiene, tracked secrets, personal paths, package metadata, community files,
+# and the server-side refs/pull/* namespace that a local-only audit cannot see.
 #
-# It cannot pass while the repository is private: the pre-rewrite branches
-# legitimately expose an old `jdds.db`, and the check is designed to say so.
-# The job therefore skips on private repositories and becomes a real gate the
-# moment the repository is public. Run it by hand from the Actions tab first.
+# It cannot pass on a repository whose history was rewritten in place: GitHub
+# keeps refs/pull/N/head for every closed and squash-merged PR, and those refs
+# still reach the pre-rewrite tree. The check is designed to say so. The job
+# therefore skips on private repositories; publish from a freshly created
+# repository so the refs never exist.
 #
 # Full history is required: the check reads every ref, not just HEAD.
 

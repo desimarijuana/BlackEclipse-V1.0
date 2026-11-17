@@ -282,7 +282,79 @@ if (personalAuthors.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. The tree-level secret scan (same one the release gate runs).
+// 5. Server-side refs: GitHub serves refs/pull/* that no local scan can see.
+// ---------------------------------------------------------------------------
+if (!process.argv.includes("--no-remote") && safeGit(["remote", "get-url", "origin"]).trim()) {
+  try {
+    const raw = execFileSync(
+      process.execPath,
+      [path.join(siteRoot, "scripts", "prune-stale-refs.js"), "--json"],
+      { cwd: siteRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
+    );
+    const audit = JSON.parse(raw);
+    const leaking = audit.pullRequests || [];
+    if (leaking.length > 0) {
+      fail(
+        `${leaking.length} pull-request ref(s) still reach old history: ${leaking
+          .map((pr) => `${pr.ref} (${pr.reasons.join("; ")})`)
+          .join(", ")}`,
+        "refs/pull/* are server-managed and survive both branch deletion and a force-push. Publish from a freshly created repository (or ask GitHub Support to purge), then re-run this check against the new remote."
+      );
+    }
+  } catch (error) {
+    if (error.stdout) {
+      // The audit exits non-zero on findings but still prints JSON.
+      try {
+        const audit = JSON.parse(error.stdout);
+        const leaking = audit.pullRequests || [];
+        if (leaking.length > 0) {
+          fail(
+            `${leaking.length} pull-request ref(s) still reach old history: ${leaking
+              .map((pr) => `${pr.ref} (${pr.reasons.join("; ")})`)
+              .join(", ")}`,
+            "refs/pull/* are server-managed. Publish from a freshly created repository, then re-run this check."
+          );
+        }
+      } catch {
+        warn(
+          "could not audit remote pull-request refs",
+          "Run `npm run oss:prune-refs` manually; it fails if refs/pull/* still reach old history."
+        );
+      }
+    } else {
+      warn(
+        "could not audit remote pull-request refs (no network?)",
+        "Run `npm run oss:prune-refs` manually before publishing; pass --no-remote to skip this check."
+      );
+    }
+  }
+} else {
+  notes.push("remote ref audit skipped (--no-remote); refs/pull/* were not checked.");
+}
+
+// ---------------------------------------------------------------------------
+// 6. Branch-protection ruleset must name a check that actually exists.
+// ---------------------------------------------------------------------------
+// A ruleset whose required-status context does not byte-match the workflow job
+// name blocks every merge, and a mis-encoded file (CP1252 middot instead of
+// UTF-8) is invisible when you read it in an editor.
+try {
+  const ruleset = fs.readFileSync(path.join(repoRoot, ".github", "ruleset.json"), "utf8");
+  const ci = fs.readFileSync(path.join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+  const wanted = (ruleset.match(/"context":\s*"([^"]+)"/) || [])[1];
+  const jobName = (ci.match(/^\s{4}name:\s*(.+)$/m) || [])[1];
+  if (wanted && jobName && wanted.trim() !== jobName.trim()) {
+    fail(
+      `ruleset.json requires status check "${wanted}" but ci.yml reports "${jobName}"`,
+      "Make the two strings byte-identical and save ruleset.json as UTF-8; otherwise branch protection blocks every merge."
+    );
+  }
+} catch {
+  // Missing ruleset/ci files are outside this check's scope.
+}
+
+// ---------------------------------------------------------------------------
+// 7. The tree-level secret scan (same one the release gate runs).
 // ---------------------------------------------------------------------------
 try {
   execFileSync(process.execPath, [path.join(siteRoot, "scripts", "scan-secrets.js")], {
