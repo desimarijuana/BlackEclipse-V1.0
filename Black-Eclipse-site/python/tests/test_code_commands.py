@@ -22,7 +22,16 @@ from harness.persistence import AgentMemoryStore
 from harness.tools import ToolContext, ToolRegistry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "code"
-VENDORED = commands.executable_path(commands.COMMAND_CLASSES["python_test"])
+try:
+    VENDORED = commands.executable_path(commands.COMMAND_CLASSES["python_test"])
+except commands.CommandUnavailable:  # pragma: no cover - environment dependent
+    # Same contract as test_code_sandbox.py: the vendored interpreter exists in a
+    # packaged app and locally after `npm run setup:python`, not on a bare runner.
+    pytest.skip(
+        "the vendored python_test toolchain is not provisioned in this "
+        "environment (run `npm run setup:python`)",
+        allow_module_level=True,
+    )
 
 
 class _Recorder:

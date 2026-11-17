@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(tests): skip the sandbox suites when the vendored toolchain is absent.**
+  Both files resolved `scripts/vendor/python` at import time, which exists in a
+  packaged app and locally after `npm run setup:python` but not on a CI runner
+  that only pip-installed the requirements - collection died with
+  `CommandUnavailable: the tool for 'python_test' is not installed here` before a
+  single test ran. They now `pytest.skip(..., allow_module_level=True)` with the
+  provisioning hint, the same "expected skip" shape the suite already reports for
+  opt-in lanes. 33 tests still pass locally, where the toolchain exists.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): run the pipeline on Node 22, the version the app actually ships.**
   This was the real cause of the two "worker exited unexpectedly" crashes: the
   only two test files that open a database load `better-sqlite3@13`, which
