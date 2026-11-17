@@ -1,7 +1,7 @@
 ---
 title: Data & Privacy — where your personal data lives and how it is protected
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-17
 ---
 
 # Data & privacy
@@ -172,11 +172,32 @@ the files are gone and the volume is re-encrypted, only ciphertext remains.
 | Another user on the same PC | Protected while locked; exposed while you are signed in and the vault is unlocked | **Exposed** |
 | Malware running as you | Exposed while unlocked | **Exposed** |
 | A leaked git clone / public repo | Protected (data never tracked) | Protected (data never tracked) |
+| An installer you build and hand to someone | Protected (payload scrubbed at package time; the build fails if runtime state survives) | Protected |
 | A cloud model provider | Protected with `ECLIPSE_PRIVACY=local-models` | Provider sees prompts |
 | A stolen backup file | Protected on the vault; otherwise **exposed** | **Exposed** |
 
 The app cannot defend against an attacker who already controls your Windows
 session or your unlocked vault. No local app can.
+
+## What a release installer contains
+
+The installer is assembled from a working checkout, so "not tracked by git" is
+not by itself enough: `scripts/desktop-package.js` copies whole trees. Two gates
+keep this machine's state out of the payload:
+
+- `scripts/desktop-payload.js` prunes the compiled server tree and **refuses**
+  (`exit 3`) to hand over a payload containing `.env*`, `mcp-servers.json`,
+  `.connector-key`, `jdds.db`, `agent-memory.db`, `eclipse-memory.db` or
+  `.black-eclipse/`.
+- `scripts/lib/scrub-app-state.js` does the same for the trees copied after that
+  (`.black-eclipse/`, `csess_*/` session trajectories, `__pycache__`,
+  `.pytest_cache`, `*.egg-info`, `*.db*`, `*.log`), then
+  `assertNoLocalState()` fails the build if anything survived.
+
+The only database in a release is `seed/jdds.db`, regenerated at package time
+from `prisma/schema.prisma` plus the deterministic demo journal — never a copy of
+your vault. A packaged install therefore starts empty of your data and opens the
+onboarding wizard, because a fresh database has no `onboarding_v1` row.
 
 ## Related
 

@@ -201,6 +201,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   CommonJS script by absolute path. Docs updated: `docs/CHANGELOG.md`,
   `docs/data-sources.md`.
 
+- **security(release): the installer no longer carries the build machine's
+  runtime state.** `scripts/desktop-package.js` copies whole source trees
+  (`python/`, `config/`, `skills/`) with `fs.cpSync`, so a release built from a
+  used checkout shipped `python/.black-eclipse/channels/secret.key` (the channel
+  encryption key — every install would share one), `python/csess_*/trajectory.json`
+  (the author's own agent sessions), Python caches and any stray vault. A new
+  `scripts/lib/scrub-app-state.js` strips those paths right after the copy and
+  `assertNoLocalState()` fails the build if any survive; `seed/jdds.db` (schema +
+  demo journal, generated fresh) is the only database allowed in the payload.
+  Onboarding was re-verified end-to-end on a throwaway `BE_DATA_DIR`: schema-only
+  and demo-seeded databases both read `isNew: true` with no `onboarding_v1` row,
+  so a new user lands on the setup wizard. Personal skills under
+  `.black-eclipse/skills/` are no longer tracked (local runtime folder; the
+  packaged build never copies it). Docs updated: `docs/data-and-privacy.md`,
+  `docs/CHANGELOG.md`.
+
 ## 2026-11-16
 
 - **fix(oss): a contributor's own email address no longer blocks the gate.** The

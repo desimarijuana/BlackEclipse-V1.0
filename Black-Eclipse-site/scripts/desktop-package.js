@@ -26,6 +26,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 const { ensureNode } = require("./desktop-runtime");
 const { ensureSeedDatabase } = require("./lib/seed-db");
+const { scrubAppState, assertNoLocalState } = require("./lib/scrub-app-state");
 
 const ROOT = path.join(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next-desktop", "standalone");
@@ -131,6 +132,17 @@ copyTree(path.join(ROOT, "config"), path.join(APP, "config"), "config/");
 copyTree(path.join(ROOT, "skills"), path.join(APP, "skills"), "skills/");
 copyTree(VENDOR_PY, path.join(APP, "scripts", "vendor", "python"), "vendored python");
 
+// 3. Those trees are copied from the working checkout, so they still carry this
+// machine's runtime state: the channel encryption key, the author's own agent
+// session trajectories, Python caches and any stray vault. Strip it before the
+// seed is generated, so the only database in the payload is seed/jdds.db.
+// (The standalone payload prunes its own tree; these app-root copies land after
+// that step, so they need their own pass.)
+const scrub = scrubAppState(APP);
+console.log(
+  `  scrub local state: ${scrub.removed.length} path(s), ${(scrub.bytes / 1024 / 1024).toFixed(1)} MB`
+);
+
 // 4. Only the scripts the bootstrap actually needs — not the whole toolchain.
 fs.mkdirSync(path.join(APP, "scripts"), { recursive: true });for (const file of ["desktop-server.js", "db-guard.js"]) {
   const from = path.join(ROOT, "scripts", file);
@@ -193,6 +205,10 @@ console.log(`  pruned ${pycache} __pycache__ directories`);
 // 5c. First-run seed database: schema + the shared demo journal, so a packaged
 // install opens populated instead of empty. See scripts/lib/seed-db.js.
 ensureSeedDatabase({ appDir: APP, rootDir: ROOT, fail });
+
+// 5c-2. Hard gate: a leaking installer is worse than a failed build.
+assertNoLocalState(APP, fail);
+console.log("  verified: no local state in the payload");
 
 // 5d. Permanent junk: tests, metadata and caches that never run at runtime.
 // Removing them cannot change behaviour — they are not imported.
