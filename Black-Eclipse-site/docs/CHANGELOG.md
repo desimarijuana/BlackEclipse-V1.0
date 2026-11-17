@@ -6,6 +6,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **chore(repo): the branch ruleset no longer locks a solo maintainer out of
+  `main`.** `.github/ruleset.json` asked for one approving review with no bypass
+  actor; GitHub never counts a self-approval, so the only account able to merge
+  would have been a second person who does not exist. The ruleset keeps what
+  actually protects the branch - no deletion, no force-push, PR required, the
+  `typecheck · lint · unit · python · evals` check required in strict mode - and
+  drops the approval count to 0. Raise it to 1 the day there is a second
+  maintainer; `docs/` unchanged because this is repository policy, not system
+  behaviour. Doc change: `docs/CHANGELOG.md`.
+
 - **fix(test): the news identity test no longer fails when the live transport is
   blocked.** `data-bridge-identity.test.ts` exercises the real web path on
   purpose, but asserted `status === 'OK'` - so a machine that cannot reach the
