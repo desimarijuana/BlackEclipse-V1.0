@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **docs(plan): trading bots — real execution and the test ladder.** Added
+  `docs/trading-bot-live-testing-plan.md`: (a) demo must be an operator choice,
+  not a cage — Live is selectable and the live authorization grants L2 in one
+  action while keeping the typed phrase, armed connection, bot-pinned mandate
+  and the submit fence; (b) how to prove a bot places a trade, layer by layer:
+  L0 pure, L1 runner/fake broker, L2 the real MT5 adapter against
+  `python/tests/mt5_sim.py`, L3 a full in-process chain (automation engine +
+  strategy + broker + simulator), L4 a real MT5 demo smoke, L5 a supervised
+  min-size live smoke, L6 a 48–72 h soak. Includes acceptance criteria and the
+  honest limits (no 24/7 service, no profitability claim).
+
 - **fix(ci): the last environment gaps in the Windows suite.** Four more causes,
   none a product change. (1) `lightgbm` was never declared, so the two ML
   acceptance tests failed honestly with "requires an optional dependency" - it is
