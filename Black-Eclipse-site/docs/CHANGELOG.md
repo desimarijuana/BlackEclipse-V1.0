@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): the wheel guard no longer rejects source modules named `seed`.**
+  `publish-harness.yml` failed every `v*` tag at "The package must carry no
+  data": it treated any filename containing `seed` as a data leak, which matches
+  `harness/a2a/agents_seed.py` - a source module. The check now tests data
+  suffixes (`.db`, `.sqlite`, `.parquet`, `.csv`, `.xlsx`), `jdds`, `.env`, and
+  `seed` only when it is NOT attached to a source/document file, so a real seeded
+  database still fails the release. Doc change: `docs/CHANGELOG.md`.
+
+
 - **chore(release): regenerate the SBOM after the `av` re-lock.** `check:oss` and
   the CI "SBOM drift check" both gate on `sbom.cdx.json` matching the lockfiles,
   so the av 14.4.0 -> 13.1.0 change failed both. Regenerated with `npm run sbom`

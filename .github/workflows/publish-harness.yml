@@ -67,8 +67,26 @@ jobs:
           wheels = glob.glob('dist/*.whl')
           assert wheels, 'no wheel built'
           names = zipfile.ZipFile(wheels[0]).namelist()
-          forbidden = ('.db', '.sqlite', 'jdds', 'seed', '.env')
-          hits = [n for n in names if any(f in n.lower() for f in forbidden)]
+          # A committed database, a golden fixture or a local .env must never ship.
+          # A bare 'seed' substring is not evidence of any of those: it also matches
+          # source modules (harness/a2a/agents_seed.py), which is how this gate
+          # failed a legitimate build.
+          data_suffixes = ('.db', '.db-wal', '.db-shm', '.sqlite', '.sqlite3',
+                           '.parquet', '.csv', '.xlsx')
+          code_suffixes = ('.py', '.pyi', '.typed', '.json', '.md', '.txt')
+          def offending(name):
+              low = name.lower()
+              if low.endswith(data_suffixes):
+                  return True
+              if 'jdds' in low:
+                  return True
+              if low.endswith('.env') or '/.env' in low:
+                  return True
+              # A seed DATA file, i.e. 'seed' not attached to a source/document file.
+              if 'seed' in low and not low.endswith(code_suffixes):
+                  return True
+              return False
+          hits = [n for n in names if offending(n)]
           if hits:
               raise SystemExit('package carries data: ' + ', '.join(hits))
           print(f'{len(names)} entries, no data files')
