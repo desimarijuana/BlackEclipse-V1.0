@@ -62,6 +62,10 @@ export function OnboardingGate() {
 
   if (!checked) return null;
   if (!state) return null;
+  // A reply with the wrong shape is a failed state read, not a new install:
+  // `OnboardingShell` builds its draft from `state.sources`, so rendering it
+  // with a missing list white-screens the whole app.
+  if (!Array.isArray(state.sources)) return null;
   if (state.completed && !forced) return null;
 
   return <OnboardingShell state={state} onDone={done} />;

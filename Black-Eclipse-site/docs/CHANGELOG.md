@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ui): a malformed `/api/setup` reply no longer white-screens the app.**
+  `OnboardingGate` renders the full-screen wizard unless `state.completed` is truthy, and `OnboardingShell` builds its draft from
+  `state.sources.map(...)`. A reply that is not a setup state (any other JSON
+  body) therefore crashed the whole shell with "Cannot read properties of
+  undefined (reading 'map')" instead of being ignored. The gate now treats a
+  reply without a `sources` array as a failed state read, which its own contract
+  already says must never block the app. `drift-app-smoke.mjs` also mocks
+  `/api/setup` so the wizard cannot cover the Skills screen it is testing - the
+  smoke had been failing on exactly this crash. Both drift smokes: PASS.
+  Doc change: `docs/CHANGELOG.md`.
+
 - **fix(eval): a scripted agent repeats its answer instead of scoring a
   placeholder.** The answer guard (added 2026-11-16) asks for another turn when
   a reply looks like a bare refusal after a blocked tool route. A scripted

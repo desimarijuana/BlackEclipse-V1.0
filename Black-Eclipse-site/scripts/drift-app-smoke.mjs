@@ -48,6 +48,17 @@ async function waitForServer() {
 }
 
 function apiBody(pathname) {
+  // The root layout mounts OnboardingGate, which reads /api/setup and renders a
+  // full-screen setup wizard unless the install reports `completed`. Without
+  // this mock the gate received an empty object, decided the install was new and
+  // covered the Skills screen with the wizard.
+  if (pathname.startsWith("/api/setup")) {
+    return {
+      completed: true, mode: "research", sources: [],
+      acceptedRestrictedSources: [], ai: { configured: true },
+      riskAck: { accepted: true },
+    };
+  }
   if (pathname.includes("/api/learning/journey")) {
     return {
       success: true, nodes: [], edges: [],
