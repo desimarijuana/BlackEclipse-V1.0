@@ -35,9 +35,9 @@ jobs:
     timeout-minutes: 30
     env:
       # The Next build exceeds Node's default ~4 GB heap on a runner (the desktop
-      # release job needs the same headroom). Also keeps tsc and vitest from being
-      # killed for memory rather than failing on an assertion.
-      NODE_OPTIONS: --max-old-space-size=6144
+      # release job needs 6144 for it). Here 4096 is enough for tsc and the test
+      # pool, and a lower ceiling keeps a runaway worker from being OOM-killed.
+      NODE_OPTIONS: --max-old-space-size=4096
       NEXT_TELEMETRY_DISABLED: "1"
     defaults:
       run:

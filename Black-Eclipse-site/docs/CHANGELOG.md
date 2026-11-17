@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): one vitest worker, a lower heap ceiling, and npm retries.** Two more
+  runner failures, neither a failing assertion. (1) `Worker exited unexpectedly`
+  killed the run twice even with two forks: 527 files each import the agent tool
+  registry, so each fork's resident memory grows with the files it hosts. CI now
+  runs a single worker (`maxWorkers: 1`, local runs unaffected) and the job's heap
+  ceiling drops to 4096 MB - raising it to 6144 only let a worker grow further
+  before being killed. (2) `npm ci` died on `ECONNRESET` mid-fetch; `.npmrc` now
+  sets retry/timeout hints (no registry or auth is configured there).
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): stop vitest workers from being killed on a 4-vCPU runner.** The
   suite reported `4832 passed | 3 skipped` and then exited 1 anyway: two worker
   forks died mid-run ("Worker exited unexpectedly") because 527 test files each
