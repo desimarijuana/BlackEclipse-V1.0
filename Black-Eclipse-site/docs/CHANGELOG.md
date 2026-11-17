@@ -18,6 +18,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `docs/CHANGELOG.md`.
 
 
+- **chore(registry): regenerate the published tool manifest.** `npm run eval:registry`
+  after adding the six `intel_*` tools — `docs/harness/tool-registry.json` now
+  lists 1,106 tools (digest `03177dd0162122b4`), which is what
+  `test_public_api.py::test_the_published_manifest_matches_a_fresh_generation`
+  asserts. no doc change — generated artefact, and the neighbouring intel entry
+  above records the change itself.
+
 - **fix(ci): the trading-bot commit left three gates red.** `bot-model-picker.tsx`
   rendered `app's` in JSX text, which `react/no-unescaped-entities` rejects (the
   only real lint error in the new feature); `eslint .` also walked `dist/`, the
@@ -28,6 +35,29 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   0 errors / 119 warnings, and the size budget passes on a clean clone of HEAD.
   Doc change: `docs/CHANGELOG.md`.
 
+
+- **feat(intel): alternative-intelligence signal engine (free, keyless, deterministic).**
+  New `python/harness/intel/` lane answering "what did a public record measure
+  that the price may not have absorbed yet". Four signals over two no-auth
+  sources: `insider_conviction` (EDGAR Form 4 open-market purchases, with grants,
+  option exercises, tax withholding and every Rule 10b5-1/planned sale excluded
+  so the number means discretionary conviction), `activist_stake` (Schedule 13D),
+  `filing_heat` (8-K/4 pace vs the company's own baseline) and
+  `attention_velocity` (Wikimedia daily pageviews, redirect-resolved, robust
+  median/MAD z). Pure parsers + injected fetch, so the pipeline is fully
+  fixture-testable. Scoring is deterministic: gated per signal, weights
+  renormalised over what fired, direction only from directional signals, and
+  conviction = corroboration (one loud signal stays `low`). Six read-only tools
+  (`intel_scan|entity|series|cards|watch|catalog`) registered on the SAME
+  registry and advertised on `ECLIPSE_AGENT`, so a scheduled bot inherits them
+  with no parity work. Observations, watchlist and immutable card snapshots
+  persist on the ONE `agent-memory.db`. Unmeasurable signals report
+  `UNAVAILABLE` with a reason and are never zero. Live-verified against EDGAR
+  and Wikipedia (AAPL/NVDA/MRNA). Deliberately no paid imagery: 10 m Sentinel-2
+  cannot count cars or resolve tank fill, so the shadow/occupancy lane is left
+  for a future licensed-imagery collector behind the same contract.
+  Docs: `docs/harness/intel-signals.md` (new), `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`. Tests: `python/tests/test_intel_{sec,attention,engine,service}.py`.
 
 - **docs(plan): trading bots — real execution and the test ladder.** Added
   `docs/trading-bot-live-testing-plan.md`: (a) demo must be an operator choice,

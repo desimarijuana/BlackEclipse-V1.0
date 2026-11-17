@@ -1,7 +1,7 @@
 {
-  "digest": "52501ffa754df638",
+  "digest": "03177dd0162122b4",
   "manifestVersion": "1",
-  "toolCount": 1100,
+  "toolCount": 1106,
   "tools": [
     {
       "deprecated": false,
@@ -17536,6 +17536,179 @@
         "type": "object"
       },
       "name": "inspect_trades",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the stored intelligence cards, highest priority first. Cards are immutable snapshots kept for later review and grading.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "description": "How many stored cards to return.",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "intel_cards",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Describe every intelligence signal (question, source, unit, rationale, honest limit) plus the scoring weights and the two keyless sources behind them.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "intel_catalog",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Show the latest stored observation for each intelligence signal on one ticker, with the method, source, confidence and caveat behind it.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ticker": {
+            "description": "Ticker symbol.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker"
+        ],
+        "type": "object"
+      },
+      "name": "intel_entity",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Scan tickers for alternative-intelligence signals (SEC insider conviction, activist 13D stakes, filing intensity, public-attention velocity) and return ranked research cards. Every measurement is deterministic and sourced; unmeasurable signals are reported UNAVAILABLE, never assumed to be zero. Priority is a triage order, not expected return.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "description": "Evaluate as of YYYY-MM-DD (default today).",
+            "type": "string"
+          },
+          "deadline_seconds": {
+            "description": "Time budget for the whole scan (default 20).",
+            "type": "number"
+          },
+          "max_filings": {
+            "description": "Form 4 documents to read per entity (default 8).",
+            "type": "integer"
+          },
+          "prices": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "description": "Optional price context per ticker, e.g. {\"AAPL\": {\"change5d\": 0.01, \"change30d\": -0.12}}. Enables the signal-vs-price divergence read; omit it and the card says so.",
+            "type": "object"
+          },
+          "tickers": {
+            "description": "Ticker symbols to scan (max 8). Empty = the stored watchlist.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "window_days": {
+            "description": "Lookback window in days (default 90).",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "intel_scan",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Show the stored time series for one ticker (optionally one signal) from previous scans.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "description": "Maximum points to return.",
+            "type": "integer"
+          },
+          "signal": {
+            "description": "Signal id, e.g. insider_conviction. Empty = all.",
+            "type": "string"
+          },
+          "ticker": {
+            "description": "Ticker symbol.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker"
+        ],
+        "type": "object"
+      },
+      "name": "intel_series",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List, add to, or remove from the intelligence watchlist that `intel_scan` uses by default.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "Watchlist operation.",
+            "enum": [
+              "list",
+              "add",
+              "remove"
+            ],
+            "type": "string"
+          },
+          "tickers": {
+            "description": "Tickers to add or remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "intel_watch",
       "permission": "read",
       "replacement": null,
       "risk": "low",

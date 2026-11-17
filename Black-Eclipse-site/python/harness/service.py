@@ -198,6 +198,15 @@ class AgenticService:
         from .decisions.bootstrap import install_decision_layer  # noqa: PLC0415
 
         install_decision_layer(self)
+        # Alternative-intelligence signals (SEC insider conviction, activist
+        # stakes, filing intensity, public-attention velocity) → deterministic
+        # observations → ranked research cards. Wiring in `intel/bootstrap.py`; it
+        # reuses the ONE agent-memory connection for observations/watchlist/cards
+        # and registers its read-only tools on the SAME registry. No network call
+        # happens at boot; only an actual `intel_scan` reaches EDGAR/Wikipedia.
+        from .intel.bootstrap import install_intel_layer  # noqa: PLC0415
+
+        install_intel_layer(self)
         # The Quant Engine: strategy specs â†’ event-driven backtests â†’ metrics â†’
         # experiments. Boot wiring lives in `quant/bootstrap.py`; it reuses the
         # ONE agent-memory connection (strategies + experiment metadata) and the

@@ -179,6 +179,17 @@ DOCUMENT_TOOLS = [
     "eclipse_report",
 ]
 
+#: Alternative-intelligence signals (`intel_*`). Read-only: each tool measures a
+#: public record (SEC EDGAR Form 4/13D/8-K, Wikimedia pageviews) with a
+#: deterministic method and returns ranked research cards. Unmeasurable signals
+#: are reported UNAVAILABLE, never zero, and priorities are a triage order rather
+#: than an expected return. Declared here so a scheduled bot — which inherits the
+#: interactive agent's surface — can run the same scans unattended.
+INTEL_TOOLS = [
+    "intel_scan", "intel_entity", "intel_series", "intel_cards",
+    "intel_watch", "intel_catalog",
+]
+
 #: Preservation-first editing of existing Office/PDF files. Output is a new
 #: artifact version; an untouched OOXML part that changed aborts the publish.
 DOCUMENT_EDIT_TOOLS = ["document_edit"]
@@ -624,6 +635,10 @@ ECLIPSE_AGENT = AgentConfig(
         # extract OCR text; ground UI elements to coordinates for computer-use
         # targeting. Native-first with an auxiliary vision-model fallback.
         *VISION_TOOLS,
+        # Alternative-intelligence signal engine: SEC insider conviction, activist
+        # 13D stakes, filing intensity and public-attention velocity, measured
+        # deterministically and ranked into research cards.
+        *INTEL_TOOLS,
         # Document intelligence: open/understand/search/query/compare/render
         # documents (PDF/DOCX/PPTX/XLSX/CSV/JSON/HTML/...). Read-only.
         *DOCUMENT_TOOLS,
