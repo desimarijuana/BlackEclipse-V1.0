@@ -17,6 +17,21 @@ from harness.code.eval.capabilities import (
     run_capability_eval,
 )
 
+import pytest  # noqa: E402  (kept next to its use, after the module imports)
+
+try:  # the measured classes run the VENDORED analysis interpreter.
+    from harness.code.execution import interpreter_path as _interpreter_path
+
+    _ANALYSIS_INTERPRETER = _interpreter_path()
+except Exception:  # noqa: BLE001 - environment dependent
+    _ANALYSIS_INTERPRETER = ""
+if not _ANALYSIS_INTERPRETER:
+    pytest.skip(
+        "the vendored analysis interpreter is not provisioned here "
+        "(run `npm run setup:python`)",
+        allow_module_level=True,
+    )
+
 
 def _camel(snake: str) -> str:
     head, *rest = snake.split("_")

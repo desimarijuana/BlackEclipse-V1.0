@@ -202,5 +202,17 @@ jobs:
         with:
           node-version: "22"
 
+      # Several Python tests shell out to the Node tooling (the capability-matrix
+      # check runs `node_modules/.bin/tsx`, git-hook tests commit in a scratch
+      # worktree). Without the install the helper fell back to `npx`, which is not
+      # a runnable executable name on Windows, and the commit needed an identity.
+      - name: Install Node dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Git identity for worktree tests
+        run: |
+          git config --global user.email "ci@blackeclipse.local"
+          git config --global user.name "BlackEclipse CI"
+
       - name: Tests (Python)
         run: node scripts/test-python.js

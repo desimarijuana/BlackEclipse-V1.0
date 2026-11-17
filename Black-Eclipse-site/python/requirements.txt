@@ -185,3 +185,8 @@ yfinance>=1.7,<2
 # installed this lock failed both ML tests. Declared here instead of installed
 # ad hoc, so the lock stays the single source of truth.
 lightgbm>=4,<5
+
+# lightgbm.sklearn (used by the ML fabric) requires scikit-learn at runtime;
+# it was never declared, so a runner that installed only this lock failed the ML
+# acceptance tests with "scikit-learn is required for lightgbm.sklearn".
+scikit-learn>=1.4,<2

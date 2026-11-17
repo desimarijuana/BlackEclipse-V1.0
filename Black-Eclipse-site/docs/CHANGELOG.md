@@ -6,6 +6,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): the last four Windows-suite causes.** (1) `scikit-learn` was never
+  declared, so `lightgbm.sklearn` failed with "scikit-learn is required" - now in
+  `requirements.txt` and locked (1.9.1). (2) The `python` job had no
+  `node_modules`, so the capability-matrix check fell back to `npx`, which is not
+  a runnable executable name on Windows; it now runs `npm ci --ignore-scripts`.
+  (3) That job also had no git identity, which the worktree/commit tests need.
+  (4) `test_analysis_guard.py` and `test_capability_classes.py` exercise the
+  vendored analysis interpreter and now skip with the provisioning hint when it
+  is absent, like the other sandbox suites. SBOM regenerated: 1,333 components.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): the trading-bot commit left three gates red.** `bot-model-picker.tsx`
   rendered `app's` in JSX text, which `react/no-unescaped-entities` rejects (the
   only real lint error in the new feature); `eslint .` also walked `dist/`, the

@@ -11,6 +11,19 @@ from __future__ import annotations
 
 import pytest
 
+try:  # these exercise the VENDORED analysis interpreter, absent on a bare runner.
+    from harness.code.execution import interpreter_path as _interpreter_path
+
+    _ANALYSIS_INTERPRETER = _interpreter_path()
+except Exception:  # noqa: BLE001 - environment dependent
+    _ANALYSIS_INTERPRETER = ""
+if not _ANALYSIS_INTERPRETER:
+    pytest.skip(
+        "the vendored analysis interpreter is not provisioned here "
+        "(run `npm run setup:python`)",
+        allow_module_level=True,
+    )
+
 from harness.code.execution import (
     AnalysisInput,
     AnalysisRequest,
