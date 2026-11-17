@@ -6,6 +6,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): stop vitest workers from being killed on a 4-vCPU runner.** The
+  suite reported `4832 passed | 3 skipped` and then exited 1 anyway: two worker
+  forks died mid-run ("Worker exited unexpectedly") because 527 test files each
+  import the agent tool registry and the default one-fork-per-core fan-out
+  exhausted runner memory. `vitest.config.ts` now caps `maxWorkers` at 2 **on CI
+  only** (local runs keep the default), and the job gets
+  `NODE_OPTIONS=--max-old-space-size=6144` - the same headroom the desktop
+  release build already needed. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): the wheel guard no longer rejects source modules named `seed`.**
   `publish-harness.yml` failed every `v*` tag at "The package must carry no
   data": it treated any filename containing `seed` as a data leak, which matches

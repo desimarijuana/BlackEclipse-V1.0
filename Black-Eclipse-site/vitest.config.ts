@@ -15,6 +15,11 @@ export default defineConfig({
     // Windows machine. The default 5s turned a slow import into a false failure;
     // assertions still run at full strength.
     testTimeout: 15_000,
+    // On GitHub's 4-vCPU runner the default one-fork-per-core fan-out was killed
+    // mid-run ("Worker exited unexpectedly" x2) while every test that ran passed -
+    // 527 files each importing the agent tool registry is too much resident memory.
+    // Cap the pool on CI only; local runs keep the default.
+    maxWorkers: process.env.CI ? 2 : undefined,
   },
   resolve: {
     alias: {
