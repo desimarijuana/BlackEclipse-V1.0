@@ -20,9 +20,9 @@ deployment gate:
 | What is the licence, and what is different about `pine-engine/`? | [`../LICENSE`](../../LICENSE), [`../pine-engine/NOTICE.md`](../pine-engine/NOTICE.md) |
 | What legal documents exist and what is still Draft? | [`legal/README.md`](./legal/README.md) |
 
-The app is **MIT** and already markets itself as open source; the repository is
-currently **private**. Publication is therefore a repository operation, not a
-licence change.
+The app is **MIT**. The repository went **public on 2026-11-17** from a freshly
+created history (see §2); publication was a repository operation, not a licence
+change. This page stays as the record of what had to be true first.
 
 ---
 
@@ -42,7 +42,7 @@ owner's legal + GitHub-settings pass.
 | O4 | ~~Personal author e-mail is on **one stale ref only**~~ **resolved 2026-11-16** | After the rewrite every ref, including the old PR refs, is `@users.noreply.github.com`; a fresh clone of the new repository confirms it. |
 | O5 | ~~Community files were incomplete~~ **resolved** | Root `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `DCO`, `check:oss`. |
 | O6 | Legal/IP review for public distribution | `docs/legal/*` are Draft and clearly scoped to a source-only self-hosted release. A "not affiliated with CFA Institute" notice now sits in `.black-eclipse/skills/CFA-NOTICE.md` and every `cfa-*` skill; the owner still needs a trademark read of the skills and the "Bloomberg-inspired" wording. |
-| O7 | Branch protection is unavailable here | Private + Free plan returns `403`; making the repository public unlocks it for free. |
+| O7 | ~~Branch protection is unavailable here~~ **resolved 2026-11-17** | Private + Free returned `403`. The repository is public, `.github/ruleset.json` is applied (no deletion, no force-push, PR required, the CI check required in strict mode) and an admin bypass keeps a single maintainer and a parallel agent session unblocked. |
 | O8 | ~~No code scanning~~ **resolved** | `.github/workflows/codeql.yml`. |
 | O9 | ~~No SBOM or third-party notices~~ **resolved** | `npm run sbom` generates `sbom.cdx.json` (CycloneDX 1.5, 1,320 components) and `THIRD-PARTY-NOTICES.md` from the locked trees; `--check` runs in CI and `release:bundle` regenerates them. |
 | O10 | ~~The tagged `v0.4.0` had no product release note~~ **resolved** | `docs/releases/v0.4.0.md`, built from the generated release bundle rather than hand-typed numbers. |
