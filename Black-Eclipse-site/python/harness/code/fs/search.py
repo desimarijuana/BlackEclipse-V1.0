@@ -23,6 +23,7 @@ from typing import Any, Iterator, Optional
 
 from .. import policy
 from . import errors as err
+from . import encoding as enc
 from . import metadata as meta
 from . import resolver as res
 from .context import FsContext
@@ -295,7 +296,7 @@ def _search_scan(
             size = full.stat().st_size
         except OSError:
             continue
-        if size > meta.MAX_TEXT_BYTES:
+        if size > enc.MAX_TEXT_BYTES:
             continue
         if total_bytes + size > MAX_SCAN_BYTES or files_scanned >= MAX_FILES_SCANNED:
             truncated = True
@@ -305,8 +306,6 @@ def _search_scan(
         files_scanned += 1
         total_bytes += size
         try:
-            from . import encoding as enc
-
             lines = enc.read_text(full).text.splitlines()
         except err.FsError:
             continue

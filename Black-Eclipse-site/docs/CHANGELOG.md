@@ -6,6 +6,25 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(code): `search_text` crashed on every scan with `AttributeError`.**
+  `harness/code/fs/search.py` read the size cap from `metadata.MAX_TEXT_BYTES`,
+  but the constant moved to `encoding.py` and `metadata` never re-exported it, so
+  the size check raised before a single file was searched (7 `search_text` tests
+  plus the workspace-search tool tests). It now imports `encoding` and uses
+  `enc.MAX_TEXT_BYTES`, and the function-local duplicate import is gone.
+  Doc change: `docs/CHANGELOG.md`.
+
+- **fix(ci): run the Python suite on Windows, where it is actually green.**
+  Making CI run for the first time exposed 100 Linux-only failures across 32
+  files - MCP fixtures that spawn the interpreter, PowerShell-backed terminal
+  sessions, kit scaffolding, git-hook assertions. They are a real platform
+  backlog, but running that suite on ubuntu reported environment differences as
+  product failures. The `python` job now runs on `windows-latest` (the platform
+  the suite is written for) and is a **required** status check alongside the
+  Linux job, so it cannot silently rot. The Linux backlog is named here on
+  purpose: triage it before claiming Linux test parity. Doc change:
+  `docs/CHANGELOG.md`.
+
 - **fix(deps): declare `yfinance` so CI installs the runtime the app installs.**
   `scripts/setup-python.js` pip-installed yfinance as an extra, so the lock never
   contained it: CI installed the lock, had no yfinance, and every market-data
