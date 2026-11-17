@@ -32,7 +32,11 @@ jobs:
   ci:
     name: typecheck · lint · unit · python · evals
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The suite alone is ~45 minutes on a runner: 527 vitest files on one worker
+    # (see vitest.config.ts), then 11k+ Python tests, then the eval/quant/corpus
+    # gates. The previous 30-minute cap cancelled the job mid-test - every step
+    # before it was already green, so the limit was the only failure.
+    timeout-minutes: 90
     env:
       # The Next build exceeds Node's default ~4 GB heap on a runner (the desktop
       # release job needs 6144 for it). Here 4096 is enough for tsc and the test

@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): the job needed more than 30 minutes, not a code change.**
+  The last run was `cancelled` at exactly 30:15 with **every** step before the
+  tests green - the `timeout-minutes: 30` cap was itself the failure. One vitest
+  worker plus 11k+ Python tests plus the eval, quant and corpus gates takes ~45
+  minutes on a runner. Raised to 90. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(tests): skip the sandbox suites when the vendored toolchain is absent.**
   Both files resolved `scripts/vendor/python` at import time, which exists in a
   packaged app and locally after `npm run setup:python` but not on a CI runner
