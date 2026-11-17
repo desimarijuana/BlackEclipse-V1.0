@@ -27,6 +27,11 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # A public repository has no PYPI_API_TOKEN until someone adds one. Surface it
+    # as a job-level env so the upload step can skip instead of failing every tag
+    # with an empty twine password; `secrets` is not readable from a step `if`.
+    env:
+      PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -70,9 +75,13 @@ jobs:
           PY
 
       - name: Upload to PyPI
-        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        if: ${{ (github.event_name == 'push' || inputs.dry_run == false) && env.PYPI_TOKEN != '' }}
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         working-directory: Black-Eclipse-site
         run: python -m twine upload dist/*
+
+      - name: No PyPI token configured
+        if: ${{ (github.event_name == 'push' || inputs.dry_run == false) && env.PYPI_TOKEN == '' }}
+        run: echo "PYPI_API_TOKEN is not set - built and verified the wheel but did not upload."

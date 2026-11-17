@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 
+- **chore(ci): a tag no longer turns red when `PYPI_API_TOKEN` is absent.**
+  `publish-harness.yml` uploaded to PyPI on every `v*` tag, so a fresh public
+  repository - which has no secrets at all - failed its release workflow with an
+  empty twine password. The token is now surfaced as a job-level `PYPI_TOKEN`
+  (the `secrets` context is not readable from a step `if`), the upload skips
+  when it is empty, and a one-line notice step says the wheel was built but not
+  uploaded. Doc change: `docs/CHANGELOG.md`.
+
 - **chore(repo): the branch ruleset no longer locks a solo maintainer out of
   `main`.** `.github/ruleset.json` asked for one approving review with no bypass
   actor; GitHub never counts a self-approval, so the only account able to merge
