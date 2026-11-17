@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(deps): pin `av` to a range that ships wheels.** PyAV 14.4.0 publishes
+  an sdist only, so every `pip install -r python/requirements.lock` tried to
+  compile it - and failed on Linux even with the FFmpeg headers installed. The
+  stack now needs no C toolchain: `av>=12,<14` resolves to 13.1.0, which has
+  cp312 wheels for manylinux, macOS and Windows. Re-locked; the only change in
+  `requirements.lock` is av 14.4.0 -> 13.1.0. Doc change: `docs/CHANGELOG.md`.
+
 - **fix(ci): the pipeline could not install the Python stack on Linux.** `av`
   (PyAV 14.4.0) publishes an sdist only - no wheels on any platform - so
   `pip install -r python/requirements.lock` builds it and needs the FFmpeg

@@ -164,4 +164,11 @@ faster-whisper>=1.0,<2
 # PyAV 15+ removed the `metadata_errors` keyword that faster-whisper passes to
 # av.open(), which broke local transcription with "open() got an unexpected
 # keyword argument". Pin the range that works.
-av>=12,<15
+#
+# Upper bound is 14, not 15: PyAV 14.4.0 ships an sdist ONLY (no wheels on any
+# platform), so `pip install -r requirements.lock` tries to compile it and dies
+# twice over - Linux without FFmpeg headers ("pkg-config could not find
+# libraries [avformat, ...]"), and with them on a setuptools manifest error.
+# 13.x publishes manylinux/macos/windows wheels for cp312, so the stack installs
+# from a wheel. Raise this only if 14.x starts shipping wheels again.
+av>=12,<14
