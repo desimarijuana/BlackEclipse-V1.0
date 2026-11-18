@@ -23,7 +23,7 @@ import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
 import { resolveLLMProviderId } from "@/lib/agent/presets";
 import { PYTHON_RUNTIME_DEPS } from "./runtime-config";
-import { isRecentlyHealthy, resolveStartTimeoutMs, shouldReplaceStaleRuntime } from "./runtime-supervision";
+import { isRecentlyHealthy, resolveRequestWaitMs, resolveStartTimeoutMs, shouldReplaceStaleRuntime } from "./runtime-supervision";
 
 // The URL is authoritative. When an operator overrides HARNESS_PY_URL, the
 // spawned uvicorn must bind the SAME host/port — otherwise health checks would
@@ -352,9 +352,30 @@ async function waitForHealth(deadlineMs: number): Promise<boolean> {
 }
 
 /**
+ * Wait for an in-flight start, but never longer than a page should wait.
+ *
+ * Returns false on timeout WITHOUT cancelling the work: the spawn keeps running
+ * and the next request picks up the healthy runtime from the TTL fast path. The
+ * caller gets an honest "still starting" instead of a request that blocks for the
+ * runtime's whole five-minute cold-start budget.
+ */
+async function waitWithinRequestBudget(work: Promise<boolean>, budgetMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), budgetMs);
+  });
+  try {
+    return (await Promise.race([work, expired])) === true;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Ensure the Python runtime is up. Returns true when healthy; false when it
- * could not be started (missing interpreter or dependencies). Callers must
- * treat `false` as "agent runtime unavailable", not fall back to a fake agent.
+ * could not be started (missing interpreter, dependencies) OR when it is still
+ * starting past the request budget. Callers must treat `false` as "agent runtime
+ * unavailable", not fall back to a fake agent.
  */
 export async function ensurePythonRuntime(): Promise<boolean> {
   // Fast path: a recent successful check, and no reason to suspect it changed.
@@ -363,17 +384,25 @@ export async function ensurePythonRuntime(): Promise<boolean> {
   }
   // Coalesce concurrent callers (a page load fires several routes at once) onto
   // a single probe so the runtime is not asked N times for the same page.
-  if (g.__harnessPyEnsure) return g.__harnessPyEnsure;
+  if (!g.__harnessPyEnsure) {
+    g.__harnessPyEnsure = (async () => {
+      const ok = await ensurePythonRuntimeUncached();
+      if (ok) g.__harnessPyHealthyAt = Date.now();
+      return ok;
+    })().finally(() => {
+      g.__harnessPyEnsure = undefined;
+    });
+  }
 
-  g.__harnessPyEnsure = (async () => {
-    const ok = await ensurePythonRuntimeUncached();
-    if (ok) g.__harnessPyHealthyAt = Date.now();
-    return ok;
-  })().finally(() => {
-    g.__harnessPyEnsure = undefined;
-  });
-
-  return g.__harnessPyEnsure;
+  const budget = resolveRequestWaitMs(process.env.HARNESS_PY_REQUEST_WAIT_MS);
+  const ok = await waitWithinRequestBudget(g.__harnessPyEnsure, budget);
+  if (!ok) {
+    console.warn(
+      `[harness] Python runtime still starting after ${Math.round(budget / 1000)}s — ` +
+        `answering "unavailable" and letting the start finish in the background`
+    );
+  }
+  return ok;
 }
 
 async function ensurePythonRuntimeUncached(): Promise<boolean> {

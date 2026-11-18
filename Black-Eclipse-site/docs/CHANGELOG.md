@@ -194,6 +194,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `desktop/README.md` (release-gate bullet now names the runtime
   assertion).
 
+- **fix(harness): a request no longer waits the runtime's whole cold-start
+  budget.** `DEFAULT_START_TIMEOUT_MS` is 5 minutes on purpose — the interpreter
+  imports langchain, browser, quant and ML, and a constrained host genuinely
+  needs minutes. But `ensurePythonRuntime()` let a *page request* inherit that
+  budget, so a stalled runtime made every agent/chat/research page spin silently
+  for five minutes with no reason shown: the user's "other pages are not
+  working". The budget is now split: the background spawn keeps its 5-minute
+  allowance, while a request waits at most `DEFAULT_REQUEST_WAIT_MS` (45 s,
+  `HARNESS_PY_REQUEST_WAIT_MS`) and then returns `false`, which the routes already
+  turn into a 503 with a reason. The spawn is NOT cancelled — the next request
+  hits the healthy TTL fast path, so a slow first launch recovers without a
+  restart. Test: `runtime-supervision.test.ts` pins the relationship
+  (`DEFAULT_REQUEST_WAIT_MS < DEFAULT_START_TIMEOUT_MS / 2`) and the override /
+  fallback behaviour. Checks: vitest 547 files / 5061 tests, `tsc --noEmit` clean.
+  Doc change: `desktop/README.md` (new *Agent runtime readiness* section).
+
 
 ## 2026-11-17
 

@@ -49,6 +49,25 @@ export function resolveStartTimeoutMs(raw: string | undefined): number {
 }
 
 /**
+ * How long ONE request may wait on a cold start that is already running before
+ * it gets an honest "still starting" answer instead of spinning.
+ *
+ * The budget above belongs to the BACKGROUND spawn and is deliberately long —
+ * five minutes, because this stack imports langchain/browser/quant/ML and a
+ * constrained host can genuinely need minutes. Letting a *page request* inherit
+ * that budget is what makes a stuck runtime look like a broken app: the page
+ * waits silently for five minutes with no reason shown. Past this window the
+ * request fails fast with a 503 and the spawn keeps going, so the next attempt
+ * succeeds without a restart. `HARNESS_PY_REQUEST_WAIT_MS` overrides it.
+ */
+export const DEFAULT_REQUEST_WAIT_MS = 45_000;
+
+export function resolveRequestWaitMs(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_REQUEST_WAIT_MS;
+}
+
+/**
  * Whether a healthy-looking runtime should be REPLACED because it serves code
  * older than the source on disk (a restart is how a `python/harness/**` edit
  * takes effect).

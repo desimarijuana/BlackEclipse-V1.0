@@ -102,6 +102,18 @@ Two contracts keep that safe:
   page and 500s every query; a runtime that never comes up serves the page and
   hangs every agent request. A page check alone proves nothing.
 
+### Agent runtime readiness
+
+The Python runtime's cold-start budget (`DEFAULT_START_TIMEOUT_MS`, 5 minutes) is
+for the **background spawn**, not for a page. `ensurePythonRuntime()` waits for an
+in-flight start only up to `DEFAULT_REQUEST_WAIT_MS` (45 s,
+`HARNESS_PY_REQUEST_WAIT_MS`), then answers `false` so the route returns 503 with
+a reason; the spawn keeps running and the next request hits the healthy TTL fast
+path. Without that split a stalled runtime made every agent-backed page spin
+silently for five minutes, which reads as a broken app. The release smoke test
+asserts the runtime becomes healthy on a packaged build (see the gate bullet
+above).
+
 ### Build isolation (why an update can no longer break the window)
 
 `.next` is mutable: `next build` deletes and rewrites it in place. Serving it

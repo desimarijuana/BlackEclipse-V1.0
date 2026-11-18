@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   BUSY_GRACE_MS,
+  DEFAULT_REQUEST_WAIT_MS,
   DEFAULT_START_TIMEOUT_MS,
   isRecentlyHealthy,
+  resolveRequestWaitMs,
   resolveStartTimeoutMs,
   shouldReplaceStaleRuntime,
 } from "./runtime-supervision";
@@ -77,5 +79,25 @@ describe("resolveStartTimeoutMs", () => {
     expect(resolveStartTimeoutMs("soon")).toBe(DEFAULT_START_TIMEOUT_MS);
     expect(resolveStartTimeoutMs("0")).toBe(DEFAULT_START_TIMEOUT_MS);
     expect(resolveStartTimeoutMs("-1")).toBe(DEFAULT_START_TIMEOUT_MS);
+  });
+});
+
+describe("resolveRequestWaitMs", () => {
+  it("keeps a page wait far shorter than the background cold-start budget", () => {
+    // A page must not inherit the 5-minute start budget: that is what made a
+    // stuck runtime look like a broken app with no reason shown.
+    expect(DEFAULT_REQUEST_WAIT_MS).toBeLessThan(DEFAULT_START_TIMEOUT_MS / 2);
+    expect(resolveRequestWaitMs(undefined)).toBe(DEFAULT_REQUEST_WAIT_MS);
+  });
+
+  it("honours a positive override so a slow host can be tuned", () => {
+    expect(resolveRequestWaitMs("90000")).toBe(90_000);
+  });
+
+  it("falls back to the default on a blank, non-numeric, or non-positive value", () => {
+    expect(resolveRequestWaitMs("")).toBe(DEFAULT_REQUEST_WAIT_MS);
+    expect(resolveRequestWaitMs("later")).toBe(DEFAULT_REQUEST_WAIT_MS);
+    expect(resolveRequestWaitMs("0")).toBe(DEFAULT_REQUEST_WAIT_MS);
+    expect(resolveRequestWaitMs("-5")).toBe(DEFAULT_REQUEST_WAIT_MS);
   });
 });
