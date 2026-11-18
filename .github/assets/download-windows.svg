@@ -1,17 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="300" height="56" viewBox="0 0 300 56" role="img" aria-label="Download Black Eclipse for Windows">
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="300" height="56" viewBox="0 0 300 56" role="img" aria-label="Download Black Eclipse for Windows">
   <title>Download Black Eclipse for Windows</title>
-  <!-- README download button. The three buttons are sized to sit on ONE line at
-       GitHub's default README width (~880px): 300 + 210 + 210 plus gaps.
-       Plain shapes only - GitHub renders this through <img>, so no scripts, no
-       external fonts, no network references.
+  <!-- README download button. Fill only, no border; a chevron marks the download.
+       No sublabel: the Install table carries the detail. Width is set so the label
+       clears the edge in the widest fallback font.
+       Plain shapes only - GitHub renders this through <img>.
        Name contract: releases/latest/download/BlackEclipse-Setup.exe -->
-  <rect x="1" y="1" width="298" height="54" rx="9" fill="#b4ff42" stroke="#0b0b0d" stroke-width="2"/>
-  <g fill="none" stroke="#0b0b0d" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" transform="translate(17 15)">
-    <path d="M12 0v15"/>
-    <path d="M6 9 12 15l6-6"/>
-    <path d="M1 18h22"/>
-    <path d="M1 18v5h22v-5"/>
-  </g>
-  <text x="55" y="24" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#0b0b0d" letter-spacing="0.2">Windows</text>
-  <text x="55" y="41" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#0b0b0d" fill-opacity="0.62" letter-spacing="0.3">141 MB · x64 · no admin</text>
+  <rect width="300" height="56" rx="9" fill="#b4ff42"/>
+  <path d="M20 24l7 8 7-8" fill="none" stroke="#0b0b0d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="48" y="34" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="15.5" font-weight="700" fill="#0b0b0d" letter-spacing="0.1">Download for Windows</text>
 </svg>

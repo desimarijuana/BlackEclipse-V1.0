@@ -877,6 +877,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/data-and-privacy.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-16
+- **fix(readme): cleaner download buttons.** Full labels ("Download for Windows"),
+  a chevron instead of the download-tray glyph, **no border** (fill only) and no
+  sublabel — `141 MB · x64 · no admin` and the architecture notes are gone from the
+  button and left in the Install table where they belong. Secondary buttons stay
+  visible on a dark page through their fill (`#16181a`), not a hairline. Widths
+  recut to 300 + 272 + 272 (860px) so the row still fits GitHub's column without
+  wrapping, and the first attempt at 260px was rejected on render because the label
+  clipped in the fallback font. The note under the row is now one honest line:
+  unsigned, verify the SHA-256, Linux/macOS not notarised, all releases. docs
+  updated: `docs/public-readme.md` (button contract), `docs/CHANGELOG.md`.
 - **docs(readme): merge the tagline into one sentence.** Heading is now
   **"The open-source financial agentic harness that grows with you"** with the four
   verbs underneath, instead of a category line plus a separate growth line. One

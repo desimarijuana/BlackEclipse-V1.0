@@ -6,7 +6,7 @@
 
 [![Download for Windows](.github/assets/download-windows.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) [![Download for Linux](.github/assets/download-linux.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) [![Download for macOS](.github/assets/download-macos.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg)
 
-<sub>Windows 10/11 (x64) · Linux (amd64, `.deb`) · macOS (Apple silicon, `.dmg`) — Linux and macOS builds are **not** notarised or code-signed yet, so expect a Gatekeeper warning. All installers are unsigned; [verify the SHA-256](#install) or browse [all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).</sub>
+<sub>All installers are unsigned — [verify the SHA-256](#install) before running. Linux and macOS builds are not notarised yet, so expect a Gatekeeper warning. [All releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).</sub>
 
 ![Core license: MIT](https://img.shields.io/badge/core%20license-MIT-green)
 ![Pine engine: AGPL-3.0-only](https://img.shields.io/badge/pine%20engine-AGPL--3.0--only-orange)
