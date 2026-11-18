@@ -6,6 +6,41 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **feat(autonomy): a running goal shows its activity steps in the chat.** The
+  verdict line was only the end of a turn; a goal turn runs as a background
+  task, so nothing filled the transcript while it worked. `useGoalWatch` polls
+  the session's goals and, for each, resolves the turn's live run and reads its
+  persisted tool trace (`GET /api/harness/runs/{runId}/events`), mapping rows to
+  the SAME `ActivityItem` shape the live chat feed renders
+  (`lib/harness/goal-activity.ts`). One message per goal turn is created and
+  updated in place, then finalised by the verdict
+  (`lib/harness/goal-transcript.ts`, pure builders), so steps and the verdict
+  share a bubble and a late step cannot reopen a closed turn; the card persists
+  so a reload keeps it. Two gaps the live check exposed and this closes: a turn
+  that ENDS a goal records its verdict and flips status in the same instant (so
+  open-only polling missed `done` — each goal is now swept once as it closes),
+  and a running task exposes no run id (it is derived from
+  `taskrun_<taskId>_<attempt>`). Tests: mapping, watch-target sweep, run-id
+  candidates, transcript builders, size ratchet re-pinned, plus an opt-in live
+  check (`goal-watch.live.test.ts`, `BE_LIVE_GOAL=<goalId>`). Verified in the
+  running app: "**Goal · turn 1** — working" with its steps, closing to "**done**"
+  with the steps retained. Docs: `docs/harness/autonomy.md`.
+
+- **test(trading): the demo soak runs isolated and has 119 clean minutes.** The
+  shared app is killed every few minutes, so the soak was moved to a copy of the
+  bot state (`VACUUM INTO .black-eclipse/soak-iso/agent-memory.db`), harness
+  port **8799**, its own `BE_DATA_DIR`, a restarting supervisor (25 h horizon)
+  and an MT5 watchdog. Measured 03:02→05:01Z: 119 unattended fires, **119 distinct
+  minutes, 0 duplicate minutes**, 106 `BAR_ALREADY_PROCESSED` + 13 no-signal fires
+  while MT5 was down, **0 orders, 0 ledger rows, 0 positions**. The runner now
+  carries the failed symbol's reason into the decision
+  (`no actionable signal (EURUSD: signal failed: …)`).
+  Note: a concurrent session committed the tree and a later restore discarded the
+  uncommitted doc edits; the code fix and this entry were re-applied on top of
+  `76f87305`. Tests: 32 runner/e2e/size/phase. Docs:
+  `docs/trading-bot-live-testing-plan.md` (L6), `docs/CHANGELOG.md`.
+
+
 - **release: v0.4.1.** `v0.4.0` was published from a commit that predates the
   update system, feature packs, the alternative-intelligence signal engine and the
   trading-bot work, so anyone downloading it got an older app than the source.
