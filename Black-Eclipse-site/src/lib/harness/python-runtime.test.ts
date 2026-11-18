@@ -4,6 +4,7 @@ import {
   ensurePythonRuntime,
   isBindConflict,
   isHarnessHealth,
+  isSpawnLockStale,
   parseListenerPids,
 } from "@/lib/harness/python-runtime";
 
@@ -122,5 +123,33 @@ describe("ensurePythonRuntime request budget", () => {
   it("still reports true when the in-flight start succeeds", async () => {
     const ok = await withPendingStart(Promise.resolve(true), () => ensurePythonRuntime());
     expect(ok).toBe(true);
+  });
+});
+
+// A crashed app leaves its cold-start lock behind. Waiting out the whole
+// five-minute start budget before taking it over left every later launch
+// reporting "Python runtime still starting" and spawning NOTHING - a dead app
+// for anyone who once force-quit. The owner pid makes that immediate.
+describe("isSpawnLockStale", () => {
+  const OLD = 10 * 60 * 1000;
+
+  it("takes over immediately when the owner process is gone", () => {
+    // 999999 is not a live pid; mtime is fresh, so only the pid rule can fire.
+    expect(isSpawnLockStale("999999", Date.now(), Date.now(), OLD)).toBe(true);
+  });
+
+  it("respects a live owner that is still starting the runtime", () => {
+    expect(isSpawnLockStale(String(process.pid), Date.now(), Date.now(), OLD)).toBe(false);
+  });
+
+  it("falls back to the age rule for a lock written by an older build", () => {
+    const now = Date.now();
+    expect(isSpawnLockStale("", now, now, OLD)).toBe(false);
+    expect(isSpawnLockStale("", now - OLD - 1, now, OLD)).toBe(true);
+  });
+
+  it("ignores the pid rule for a live owner once the lock is genuinely ancient", () => {
+    const now = Date.now();
+    expect(isSpawnLockStale(String(process.pid), now - OLD - 1, now, OLD)).toBe(true);
   });
 });

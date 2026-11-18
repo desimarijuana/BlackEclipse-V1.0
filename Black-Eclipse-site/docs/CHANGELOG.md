@@ -296,6 +296,26 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   fallback behaviour. Checks: vitest 547 files / 5061 tests, `tsc --noEmit` clean.
   Doc change: `desktop/README.md` (new *Agent runtime readiness* section).
 
+- **fix(harness): a stale cold-start lock left by one crash no longer kills the
+  agent runtime for five minutes.** Symptom seen on a real install: the window
+  served pages, the log repeated `[harness] Python runtime still starting (Ns)`
+  for minutes, and **no Python process existed at all** — so every chat/agent/
+  research page failed with nothing to talk to. Cause: `acquireSpawnLock()` wrote
+  an EMPTY lock file and only took it over after the whole cold-start budget plus
+  margin (315 s). The context that loses the lock does not spawn; it calls
+  `waitForHealth()` and waits. One crash or force-quit therefore left a file that
+  made every later launch wait five minutes and spawn nothing, and relaunching
+  re-read the same file. The lock now records the owner pid, and
+  `isSpawnLockStale()` takes it over **immediately** when that process is gone
+  (`process.kill(pid, 0)`), while still respecting a live owner; locks written by
+  older builds fall back to the age rule. Verified on the live install: the lock
+  was 301 s old (window 315 s) with zero harness processes; after it was removed
+  and the in-flight wait expired, the runtime spawned and
+  `/health/live`, `/api/harness/model-runtime/health` and `/api/alerts` all
+  returned 200. Tests: 4 new cases in `python-runtime.test.ts` pin
+  dead-owner-immediate / live-owner-respected / legacy-age-fallback.
+  Doc change: `desktop/README.md` (Agent runtime readiness).
+
 
 ## 2026-11-17
 

@@ -15,9 +15,11 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readFileSync,
   readdirSync,
   statSync,
   unlinkSync,
+  writeSync,
 } from "fs";
 import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
@@ -90,6 +92,40 @@ const RUNTIME_SPAWN_LOCK = path.join(
 );
 
 /**
+ * Is a lock file left by someone else safe to take over?
+ *
+ * A crashed or force-killed app leaves the file behind with no one to release
+ * it, and the old rule — wait out the whole cold-start budget — meant the next
+ * launches answered "Python runtime still starting" for five minutes, spawned
+ * nothing, and never recovered on their own. Any user who ever force-quit the
+ * app (or lost power, or had it killed by antivirus) would hit that.
+ *
+ * The owner's pid is written into the lock, so a lock whose owner is gone is
+ * stale IMMEDIATELY. Locks with no readable owner (written by an older build)
+ * fall back to the age rule, and a live owner is always respected.
+ */
+export function isSpawnLockStale(
+  contents: string,
+  mtimeMs: number,
+  now: number,
+  staleAfterMs: number,
+): boolean {
+  const pid = Number(String(contents).trim());
+  if (Number.isInteger(pid) && pid > 0 && !pidLooksAlive(pid)) return true;
+  return now - mtimeMs >= staleAfterMs;
+}
+
+/** `process.kill(pid, 0)` probes without signalling: ESRCH means no such process. */
+function pidLooksAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
  * Take the cold-start lock.
  * @returns a file descriptor (>= 0) when this caller owns the start, `null`
  *          when another context is already starting the runtime, or `-1` when
@@ -103,20 +139,40 @@ function acquireSpawnLock(): number | null {
     return -1;
   }
   try {
-    return openSync(RUNTIME_SPAWN_LOCK, "wx");
+    const fd = openSync(RUNTIME_SPAWN_LOCK, "wx");
+    // Record the owner so a later launch can tell "someone is starting it" from
+    // "someone started it and died".
+    try {
+      writeSync(fd, String(process.pid));
+    } catch {
+      /* the pid is an optimisation; the age rule still applies */
+    }
+    return fd;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") return -1;
-    // A crashed starter leaves the file behind. Only take it over once the
-    // full cold-start budget (plus a margin) has elapsed.
     try {
       const staleAfterMs = resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS) + 15_000;
-      if (Date.now() - statSync(RUNTIME_SPAWN_LOCK).mtimeMs < staleAfterMs) return null;
+      let contents = "";
+      try {
+        contents = readFileSync(RUNTIME_SPAWN_LOCK, "utf8");
+      } catch {
+        contents = "";
+      }
+      if (!isSpawnLockStale(contents, statSync(RUNTIME_SPAWN_LOCK).mtimeMs, Date.now(), staleAfterMs)) {
+        return null;
+      }
       unlinkSync(RUNTIME_SPAWN_LOCK);
     } catch {
       return null;
     }
     try {
-      return openSync(RUNTIME_SPAWN_LOCK, "wx");
+      const fd = openSync(RUNTIME_SPAWN_LOCK, "wx");
+      try {
+        writeSync(fd, String(process.pid));
+      } catch {
+        /* see above */
+      }
+      return fd;
     } catch {
       return null;
     }

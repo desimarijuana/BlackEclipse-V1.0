@@ -114,6 +114,15 @@ silently for five minutes, which reads as a broken app. The release smoke test
 asserts the runtime becomes healthy on a packaged build (see the gate bullet
 above).
 
+**The cold-start lock carries its owner's pid.** `.black-eclipse/harness-runtime-<port>.spawn.lock`
+exists so two server contexts never boot rival uvicorns. The context that loses
+the lock must NOT spawn — but it also must not wait forever on a file whose owner
+is dead: a single crash used to leave the lock looking live for the full 315 s
+window, so every later launch logged "Python runtime still starting", spawned
+nothing, and left the app with no agent runtime. `isSpawnLockStale()` takes the
+lock over immediately when the recorded pid is gone and still respects a live
+owner.
+
 ### Build isolation (why an update can no longer break the window)
 
 `.next` is mutable: `next build` deletes and rewrites it in place. Serving it
