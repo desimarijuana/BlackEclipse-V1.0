@@ -1,11 +1,11 @@
-﻿<svg xmlns="http://www.w3.org/2000/svg" width="300" height="56" viewBox="0 0 300 56" role="img" aria-label="Download Black Eclipse for Windows">
-  <title>Download Black Eclipse for Windows</title>
-  <!-- README download button. Fill only, no border; a chevron marks the download.
-       No sublabel: the Install table carries the detail. Width is set so the label
-       clears the edge in the widest fallback font.
-       Plain shapes only - GitHub renders this through <img>.
-       Name contract: releases/latest/download/BlackEclipse-Setup.exe -->
-  <rect width="300" height="56" rx="9" fill="#b4ff42"/>
-  <path d="M20 24l7 8 7-8" fill="none" stroke="#0b0b0d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="48" y="34" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="15.5" font-weight="700" fill="#0b0b0d" letter-spacing="0.1">Download for Windows</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="249" height="56" viewBox="0 0 249 56" role="img" aria-label="Download for Windows">
+  <title>Download for Windows</title>
+  <rect width="249" height="56" rx="9" fill="#b4ff42"/>
+  <g fill="none" stroke="#0b0b0d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" transform="translate(18 15)">
+    <path d="M13 0v16"/>
+    <path d="M6.5 9.5 13 16l6.5-6.5"/>
+    <path d="M1 19.5h24"/>
+    <path d="M1 19.5v5.5h24v-5.5"/>
+  </g>
+  <text x="56" y="34" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="15.5" font-weight="700" fill="#0b0b0d" letter-spacing="0.1">Download for Windows</text>
 </svg>

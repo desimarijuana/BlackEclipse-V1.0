@@ -877,6 +877,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/data-and-privacy.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-16
+- **fix(readme): download glyph back on the left, hairline border on the dark
+  buttons.** Final button pass: the download glyph (arrow into a tray) sits left of
+  the label again, the secondaries keep a **1px** `#2b2f33` border so they hold an
+  edge on a dark page, and the row measures 249 + 220 + 231 = 716px so all three stay
+  on one line well inside GitHub's column. Widths are now **measured with
+  `sharp().trim()`** rather than estimated — the previous two attempts clipped the
+  label and collided the chevron, and the generator also caught a `<rect>` emitted
+  without a `height`, which rendered the primary button as dark-on-dark. docs
+  updated: `docs/public-readme.md` (measured-width rule, border rule),
+  `docs/CHANGELOG.md`.
 - **fix(readme): cleaner download buttons.** Full labels ("Download for Windows"),
   a chevron instead of the download-tray glyph, **no border** (fill only) and no
   sublabel — `141 MB · x64 · no admin` and the architecture notes are gone from the

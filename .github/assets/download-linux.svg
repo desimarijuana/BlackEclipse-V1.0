@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="272" height="56" viewBox="0 0 272 56" role="img" aria-label="Download Black Eclipse for Linux">
-  <title>Download Black Eclipse for Linux</title>
-  <!-- README download button (secondary). Fill only, no border.
-       Name contract: releases/latest/download/BlackEclipse-linux-amd64.deb -->
-  <rect width="272" height="56" rx="9" fill="#16181a"/>
-  <path d="M20 24l7 8 7-8" fill="none" stroke="#b4ff42" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="48" y="34" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="15.5" font-weight="700" fill="#f4f5f2" letter-spacing="0.1">Download for Linux</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="56" viewBox="0 0 220 56" role="img" aria-label="Download for Linux">
+  <title>Download for Linux</title>
+  <rect x="0.5" y="0.5" width="219" height="55" rx="9" fill="#16181a" stroke="#2b2f33" stroke-width="1"/>
+  <g fill="none" stroke="#f4f5f2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" transform="translate(18 15)">
+    <path d="M13 0v16"/>
+    <path d="M6.5 9.5 13 16l6.5-6.5"/>
+    <path d="M1 19.5h24"/>
+    <path d="M1 19.5v5.5h24v-5.5"/>
+  </g>
+  <text x="56" y="34" font-family="'Segoe UI', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="15.5" font-weight="700" fill="#f4f5f2" letter-spacing="0.1">Download for Linux</text>
 </svg>

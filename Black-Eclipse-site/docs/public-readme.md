@@ -176,17 +176,22 @@ node -e "require('sharp')('../.github/assets/social-card.svg',{density:144}).res
 ```
 
 `.github/assets/download-windows.svg`, `download-linux.svg` and
-`download-macos.svg` are the README's three download buttons, and they are sized to
-sit on **one line** at GitHub's default README width (300 + 272 + 272 px plus gaps,
-860 px inside an ~880 px column). If a fourth platform is ever added, shrink the
-existing three rather than letting the row wrap — a wrapped row reads as one big
-button and two strays.
+`download-macos.svg` are the README's three download buttons. They sit on **one
+line** at GitHub's default README width (249 + 220 + 231 px plus gaps = 716 px
+inside an ~880 px column), with the download glyph on the **left** of the label.
+If a fourth platform is ever added, shrink the existing three rather than letting
+the row wrap — a wrapped row reads as one big button and two strays.
 
-The buttons carry a **label and a chevron, nothing else**: no border (fill only), no
-size, no "no admin", no architecture. That detail lives in the Install table, which
-is where someone who cares about signing and SDK requirements will look. Keeping the
-fill-only style means the secondary buttons must stay visible on a dark page through
-their fill (`#16181a`), never through a hairline stroke.
+The buttons carry **a glyph and a label, nothing else**: no size, no "no admin", no
+architecture. That detail lives in the Install table, where someone who cares about
+signing and SDK requirements will look. The primary button (Windows) is a filled
+lime surface with no border; the secondaries carry a **1px** border (`#2b2f33`) so
+they hold an edge on a dark page without out-shouting the primary.
+
+Widths are **measured, not estimated**: render the label with `sharp`, `trim()` it,
+and add `PAD_L + ICON_W + GAP + textW + PAD_R`. Two earlier attempts were rejected on
+a render because the label clipped in a wider fallback font and a chevron collided
+with the text — measure before shipping a width change.
 
 Each is pinned to a **version-independent** release alias,
 because `releases/latest/download/<name>` is the only link that survives a version
