@@ -6,6 +6,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.3.** Version bump across `package.json`,
+  `package-lock.json`, `pyproject.toml` and `harness.__version__` so the first
+  release built from `main` after the installer-branding commit carries the
+  eclipse icon on the downloadable setup `.exe` (v0.4.2 predated it).
+  Docs: `docs/CHANGELOG.md` only (no behaviour change).
+
 - **test(guard): the line-ending guard no longer reads installer BMPs as text.**
   The branding commit added `welcome.bmp`/`header.bmp`; the guard scanned the
   first as text and failed on pixel bytes that happen to contain CRLF and bare
