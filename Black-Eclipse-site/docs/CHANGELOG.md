@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): `test_rsl_verifier` needs the vendored interpreter too.** It builds a
+  throwaway git repo and asks the verifier to run the owning test, but the
+  verifier resolves `python_test` through `code/execution.py::interpreter_path()`
+  - the VENDORED interpreter. A runner has none, so the check returned
+  `{"exitCode": None, "reason": "COMMAND_EXECUTABLE_MISSING"}` and the candidate
+  reported `passed: false, refused: false, code: null`. That is a provisioning
+  gap, not a verifier regression, so it now skips at module level with the same
+  hint as the other sandbox suites. Passes locally (2 tests) where the
+  interpreter exists. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): declare `xgboost` and pin the two ratchets the feature commit moved.**
   `2876f894` grew `python/harness/service.py` to 2,098 (pinned at 2,089) and
   `trade/service.py` to 1,214 (pinned at 1,205) without moving their ratchets, so

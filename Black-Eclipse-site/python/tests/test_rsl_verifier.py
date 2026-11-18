@@ -4,6 +4,20 @@ from __future__ import annotations
 
 import pytest
 
+try:  # the verifier resolves `python_test`, i.e. the VENDORED interpreter.
+    from harness.code.execution import interpreter_path as _interpreter_path
+
+    _VERIFIER_INTERPRETER = _interpreter_path()
+except Exception:  # noqa: BLE001 - environment dependent
+    _VERIFIER_INTERPRETER = ""
+if not _VERIFIER_INTERPRETER:
+    pytest.skip(
+        "the vendored python_test toolchain is not provisioned here "
+        "(run `npm run setup:python`); the verifier would report "
+        "COMMAND_EXECUTABLE_MISSING instead of running the owning test",
+        allow_module_level=True,
+    )
+
 from harness.evaluation.store import EvaluationStore
 from harness.evaluation.tasks import EvaluationTask
 from harness.persistence import AgentMemoryStore
