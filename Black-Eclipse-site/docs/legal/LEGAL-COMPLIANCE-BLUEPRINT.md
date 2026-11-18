@@ -159,20 +159,28 @@ service and does not cover fraud or personal misconduct.
 
 ### 1.4 Contributor agreements
 
-**Use a DCO, not a CLA, unless you need to relicense.**
+**Adopted (2026-11-17): DCO + a plain-English CLA.**
 
 - **DCO (Developer Certificate of Origin):** the contributor signs off that they
   have the right to submit the code under the project licence. Cheap, familiar,
-  low-friction, and sufficient for MIT/Apache projects. Add a `DCO` file and a
-  `Signed-off-by:` requirement.
-- **CLA (Contributor Licence Agreement):** gives the company broader rights
+  low-friction. Add a `DCO` file and a `Signed-off-by:` requirement.
+- **CLA (Contributor Licence Agreement):** gives the Project broader rights
   (relicensing, dual licensing, patent grants). Useful if you may sell a
   proprietary edition or change licence later. It deters some contributors and
   adds administrative work.
 
-**Recommendation:** adopt a DCO now; add a CLA only if a dual-licence or
-relicensing plan becomes real. If you accept a CLA, make it public, plain-English,
-and record signatures.
+The original recommendation was DCO-only until a dual-licence plan became real.
+That plan is now live — the Project stays MIT for adoption and monetises extras
+(pro features, marketplace, live data) rather than the licence — so the CLA was
+added **before** outside code arrived, while the repository was still
+single-author. [`CLA.md`](../../../CLA.md) is root-level, plain-English, and
+signed by one PR comment; the DCO stays for provenance. This is the cheap moment
+to add it: once a contributor's code merges without a CLA, relicensing that code
+requires tracking them down.
+
+If you accept a CLA, make it public, plain-English, and record signatures. If the
+CLA is ever judged too much friction, the fallback is DCO-only and abandoning any
+future licence change — that trade-off is deliberate, not accidental.
 
 **Contributor policy should state:**
 

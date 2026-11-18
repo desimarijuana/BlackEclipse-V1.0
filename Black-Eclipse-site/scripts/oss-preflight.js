@@ -101,6 +101,8 @@ for (const file of tracked) {
 // ---------------------------------------------------------------------------
 const requiredFiles = [
   "LICENSE",
+  "CLA.md",
+  "TRADEMARK.md",
   "README.md",
   "CONTRIBUTING.md",
   "SECURITY.md",

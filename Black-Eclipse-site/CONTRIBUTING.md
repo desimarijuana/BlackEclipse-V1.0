@@ -99,6 +99,18 @@ have the right to submit it under this project's licence. A commit without a
 `Signed-off-by:` line is not merged. The DCO is separate from the MIT licence:
 the licence grants use; the DCO records provenance.
 
+The DCO does **not** allow the Project to relicense your work. For that, agree to
+the [`CLA`](../CLA.md) in your first pull request:
+
+```
+I have read CLA.md and I agree to it for my contributions to this repository.
+```
+
+You keep your copyright; the CLA grants the Project the right to distribute your
+contribution under any licence it chooses. That is what keeps a future licence
+change, dual licence, or commercial edition possible. Code PRs are merged only
+with both the sign-off and the CLA comment.
+
 ## Pull Request Process
 
 1. Ensure your code builds: `npm run build`

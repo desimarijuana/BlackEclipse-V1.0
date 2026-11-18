@@ -21,9 +21,13 @@ The canonical contributor instructions live next to the application:
 2. Sign off every commit: `git commit -s` (Developer Certificate of Origin 1.1,
    [`Black-Eclipse-site/DCO`](Black-Eclipse-site/DCO)). A commit without a
    `Signed-off-by:` line is not merged.
-3. Run the release gate from `Black-Eclipse-site/`:
+3. Agree to the [`CLA.md`](CLA.md) in your first pull request (one comment). The
+   DCO records provenance; the CLA gives the Project the right to relicense, so a
+   future licence change or commercial edition stays possible. Code PRs without
+   it are not merged.
+4. Run the release gate from `Black-Eclipse-site/`:
    `npm run check:all` (or the individual pieces in the contributing guide).
-4. If the change alters architecture, a data shape/contract, or setup steps,
+5. If the change alters architecture, a data shape/contract, or setup steps,
    update the owning doc and append an entry to
    `Black-Eclipse-site/docs/CHANGELOG.md`.
 
@@ -40,3 +44,9 @@ under AGPL-3.0-only; see its
 [`NOTICE.md`](Black-Eclipse-site/pine-engine/NOTICE.md). By contributing you
 agree that your contribution is licensed under the licence that covers the files
 you change, and the DCO records that you have the right to submit it.
+
+You also agree to [`CLA.md`](CLA.md), which additionally lets the Project
+relicense your contribution in future — the mechanism that keeps a licence change
+or a commercial edition possible. **The code is open; the name is not:** the marks
+are covered by [`TRADEMARK.md`](TRADEMARK.md), and a fork must use its own name
+and logo.

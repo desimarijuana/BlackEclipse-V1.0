@@ -1,23 +1,29 @@
 ---
 title: Trademark & Brand Policy (draft)
 status: Draft
-last-verified: 2026-11-09
+last-verified: 2026-11-17
 ---
 
 # Trademark & Brand Policy — DRAFT
 
-> **DRAFT — not legal advice.** Placeholders: `[ENTITY]`, `[MARK]`,
-> `[JURISDICTION]`, `[CONTACT]`. The code is MIT; the **name and logo** are not.
+> **DRAFT — not legal advice.** Placeholders: `[JURISDICTION]`, `[CONTACT]`. The
+> code is MIT; the **name and logo** are not.
+>
+> The short, public version contributors actually read is
+> [`/TRADEMARK.md`](../../../TRADEMARK.md) at the repository root. **This file is
+> the long form and defers to it:** if the two disagree, the root notice and
+> [`LICENSE`](../../../LICENSE) govern, because that is what ships with the code.
 
 ## The marks
 
-`[MARK]`, the logo, and the product name are marks of `[ENTITY]`. The MIT
-licence covers the code, not the marks.
+**BlackEclipse** and the Black Eclipse wordmark and logo (the "Marks") are marks
+of **Rafay Ghauri** ("the Project"). The MIT licence covers the code, not the
+Marks.
 
 ## Allowed without permission
 
-- Truthful, nominative references: "built on `[MARK]`", "compatible with
-  `[MARK]`", a review, a tutorial, a fork announcement that clearly says it is
+- Truthful, nominative references: "built on BlackEclipse", "compatible with
+  BlackEclipse", a review, a tutorial, a fork announcement that clearly says it is
   a fork.
 - A link to the official project.
 
@@ -31,8 +37,8 @@ licence covers the code, not the marks.
 ## Forks and distributions
 
 A fork must use a different name and logo, and must state that it is not the
-official `[MARK]`. The MIT licence's copyright notice must be kept.
+official BlackEclipse. The MIT licence's copyright notice must be kept.
 
 ## Reporting
 
-`[CONTACT]`. `[ENTITY]` may revoke a permission that this policy grants.
+`[CONTACT]`. **Rafay Ghauri** may revoke a permission that this policy grants.

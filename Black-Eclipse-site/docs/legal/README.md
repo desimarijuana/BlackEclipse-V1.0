@@ -59,9 +59,10 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 |---|---|---|---|
 | `LICENSE` (MIT) | Live | Project | Repository root |
 | `SECURITY.md` | Live | Maintainers | Safe-harbour wording added |
-| `CONTRIBUTING.md` | Live | Maintainers | DCO sign-off required |
+| `CONTRIBUTING.md` | Live | Maintainers | DCO sign-off + CLA required |
 | `CODE_OF_CONDUCT.md` | Live | Maintainers | Contributor Covenant 2.1 |
 | [`DCO`](../../DCO) | Live | Maintainers | DCO 1.1; `git commit -s` |
+| [`CLA`](../../../CLA.md) | Live | Rafay Ghauri | Plain-English CLA; relicensing + patent grant; signed by PR comment |
 | [Terms of Service](./TERMS-OF-SERVICE.md) | Draft | Founder + counsel | Template; localise entity/law/liability cap |
 | [Privacy Notice](./PRIVACY-NOTICE.md) | Draft | Founder + counsel | Align to the data map and hosting model |
 | [Risk Disclosure](./RISK-DISCLOSURE.md) | Draft | Founder + counsel | Full notice behind the in-product text |
@@ -70,7 +71,7 @@ Legend: **Live** = exists and is used; **Draft** = written, not yet reviewed;
 | [Acceptable Use Policy](./ACCEPTABLE-USE.md) | Draft | Founder + counsel | Abuse, market manipulation, third-party accounts |
 | [Automated Trading Disclaimer](./AUTOMATED-TRADING-DISCLAIMER.md) | Draft | Founder + counsel | Required before the first live arm |
 | [Data Processing Agreement](./DPA.md) | Draft | Counsel | Roles, subprocessors, transfers, audit |
-| [Trademark & Brand Policy](./TRADEMARK-POLICY.md) | Draft | Founder | Protect the name while keeping code open |
+| [Trademark & Brand Policy](./TRADEMARK-POLICY.md) | Draft | Founder | Protect the name while keeping code open; public short form is root `/TRADEMARK.md` |
 | [Cookie / Tracking Notice](./COOKIE-NOTICE.md) | Draft | Founder | Only if a hosted deployment uses tracking |
 | [Subprocessor List](./SUBPROCESSORS.md) | Draft | Founder | Complete before a hosted launch; keep current |
 | [Incident Response Policy](./INCIDENT-RESPONSE.md) | Draft | Founder/security | S1 session-leak drill run 2026-11-09; counsel review open |

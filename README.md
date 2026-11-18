@@ -402,9 +402,10 @@ Black Eclipse is being built as an open-source project. Our goal is to give
 developers, researchers, quantitative traders and investors the tools to build,
 extend and customize their own financial AI environments.
 
-- [**Contributing**](Black-Eclipse-site/CONTRIBUTING.md) — setup, DCO, release gate
+- [**Contributing**](Black-Eclipse-site/CONTRIBUTING.md) — setup, DCO, CLA, release gate
 - [**Security**](SECURITY.md) — private advisories, never a public issue
 - [**Code of conduct**](CODE_OF_CONDUCT.md)
+- [**Trademark**](TRADEMARK.md) — the code is MIT; the name is not
 - [**Issues**](https://github.com/desimarijuana/BlackEclipse-V1.0/issues) — bug reports, feature requests, and questions
 
 ### Licensing, precisely
@@ -413,10 +414,16 @@ extend and customize their own financial AI environments.
 |---|---|
 | The application and this repository's original code | **MIT** — see [`LICENSE`](LICENSE) |
 | `Black-Eclipse-site/pine-engine/` — the isolated Pine Script engine | **AGPL-3.0-only**, because it depends on `pinets`. It is a separate program that talks to the app only through files — see [`NOTICE.md`](Black-Eclipse-site/pine-engine/NOTICE.md) |
+| The **name, wordmark, and logo** | **Not licensed by MIT.** Fork it, rename it — see [`TRADEMARK.md`](TRADEMARK.md) |
+| Contributions | MIT/AGPL as above, plus the [`CLA`](CLA.md) |
 
 If you redistribute the app, the MIT terms cover it. If you run the Pine engine
 as part of a network service, AGPL-3.0-only applies to **that component** and its
 obligations are described in its NOTICE.
+
+The code is free to use, change, and sell. What you may not do is ship a fork
+under the BlackEclipse name or logo — MIT gives away the code, not the identity,
+which is what stops a copy from taking the project's users.
 
 The locked dependency trees are inventoried in
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) (grouped by licence) and

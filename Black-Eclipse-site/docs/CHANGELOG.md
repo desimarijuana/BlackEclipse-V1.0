@@ -6,6 +6,30 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **chore(legal): adopt a CLA and publish a trademark notice.** Added root
+  `CLA.md` (plain-English, signed by one PR comment; grants relicensing and a
+  patent licence while the contributor keeps copyright) and root `TRADEMARK.md`
+  ("code is MIT, the name and logo are not"), wired into both `CONTRIBUTING.md`
+  files, the PR template, the README licensing table, the legal register, and
+  `scripts/oss-preflight.js` as required files. The blueprint's §1.4
+  "DCO, not a CLA" recommendation is superseded: the strategy is MIT + adoption,
+  monetising additive surfaces (pro features, marketplace, live data) instead of
+  the licence, and the CLA is cheap only while the repo is single-author.
+  Trademark placeholders in `docs/legal/TRADEMARK-POLICY.md` resolved to Rafay
+  Ghauri / BlackEclipse; the long-form policy stays Draft pending counsel.
+  Doc change: `docs/legal/README.md`, `docs/legal/LEGAL-COMPLIANCE-BLUEPRINT.md`,
+  `docs/legal/TRADEMARK-POLICY.md`, `docs/OPEN-SOURCE-READINESS.md`, `README.md`,
+  `docs/CHANGELOG.md`.
+
+
+- **docs(legal): write down the monetization position.** Added
+  `docs/monetization.md`: MIT core, revenue from additive surfaces (pro features,
+  marketplace, live data, support), with the rejected models (noncommercial,
+  BUSL, whole-app AGPL, phone-home paywall) and why each was refused. Added to
+  `docs/NAVIGATION.md` so a future session finds the policy before proposing a
+  licence change.
+  Doc change: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
 - **fix(ci): `test_rsl_verifier` needs the vendored interpreter too.** It builds a
   throwaway git repo and asks the verifier to run the owning test, but the
   verifier resolves `python_test` through `code/execution.py::interpreter_path()`
