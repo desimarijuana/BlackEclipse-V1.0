@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: v0.4.2.** Patch release for the desktop installer. `v0.4.1`
+  shipped Prisma's nested `better-sqlite3@12` copy without its native binary
+  because the release build uses `npm ci --ignore-scripts`; every database query
+  failed, `/api/setup` fell back to `isNewInstall`, and a fresh install could
+  never finish onboarding. `desktop-package.js` now repairs the nested binding,
+  copies it into the payload and proves it opens a database; the installer and
+  bundle steps run the same probe so no `.exe`, `.dmg` or `.deb` can ship the
+  broken binding. Version bumped in `package.json`, `package-lock.json` and
+  `pyproject.toml`; download links stay on the `latest` release.
+  Doc change: `README.md`, `docs/CHANGELOG.md`.
+
 - **test(trading): demo soak closed at 156 minutes — properties proven, 48–72 h
   deferred by the operator.** Final measured record (isolated runtime :8799,
   copied state): 03:02:59Z→05:38:09Z, **156 fires, 156 distinct minutes, 0
@@ -97,6 +108,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   different-length content AND sets a strictly newer mtime, so the event is
   deterministic. Verified: 34 passed, three consecutive runs.
   Doc change: `docs/CHANGELOG.md`.
+
+
+- **fix(release): a fresh install could never finish onboarding.** The desktop
+  release installs Node dependencies with `npm ci --ignore-scripts`; that skips
+  better-sqlite3's install step. The top-level `better-sqlite3@13` still works
+  because its package carries prebuilt binaries, but Prisma's adapter resolves a
+  nested `better-sqlite3@12` copy that had no `build/Release/better_sqlite3.node`.
+  Every Prisma query then threw `Could not locate the bindings file`; `/api/setup`
+  swallowed the error and returned `isNewInstall`, so onboarding reappeared on
+  every launch and Finish could not save.
+  `scripts/desktop-package.js` now repairs the nested copy through its own
+  install script, copies its `lib`/`build`/`package.json` into the payload, and
+  proves it can open a database. `desktop-installer.js` and `desktop-bundle.js`
+  run the same probe so no `.exe`, `.dmg` or `.deb` can be published with the
+  broken binding. Verified against a fresh `npm ci --ignore-scripts` tree: the
+  helper repaired the binding and the packaged copy opened `:memory:`.
+  Doc change: `docs/CHANGELOG.md` (build-time guard; install/update flows unchanged).
 
 
 ## 2026-11-17

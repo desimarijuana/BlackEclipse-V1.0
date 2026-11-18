@@ -14,6 +14,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { spawnSync } = require("child_process");
+const { betterSqliteDir, canLoadBetterSqlite } = require("./lib/native-modules");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -52,6 +53,17 @@ function sha256(file) {  const hash = crypto.createHash("sha256");
 
 if (!fs.existsSync(path.join(APP_DIR, "Black Eclipse.exe"))) {
   console.error("No assembled app. Run `npm run desktop:package` first.");
+  process.exit(1);
+}
+
+// The onboarding screen reads and writes through Prisma's nested better-sqlite3
+// copy. A payload whose copy has no native binary still boots and still answers
+// HTTP, so only an explicit probe catches it before the installer is published.
+if (!canLoadBetterSqlite(process.execPath, betterSqliteDir(path.join(APP_DIR, "app")))) {
+  console.error(
+    "The packaged app cannot open its SQLite database (better-sqlite3 binding missing).\n" +
+      "Re-run `npm run desktop:package` before building the installer."
+  );
   process.exit(1);
 }
 
