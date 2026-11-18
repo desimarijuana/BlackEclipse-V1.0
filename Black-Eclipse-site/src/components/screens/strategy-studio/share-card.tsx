@@ -8,6 +8,7 @@
 
 import React, { useState } from 'react';
 import { MetricGrid } from '@/components/screens/backtest/shared/metric-grid';
+import { copyText } from '@/lib/desktop/clipboard';
 import { buildShareCardMarkdown, type ShareCardInput } from '@/lib/strategy-studio/share-card';
 import { Check, Copy, FileText, Link2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -19,13 +20,10 @@ export function ShareCard({ input }: { input: ShareCardInput }) {
   const copy = async (kind: 'markdown' | 'link') => {
     const text = kind === 'markdown' ? markdown : input.link ?? '';
     if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(kind);
-      setTimeout(() => setCopied(null), 1500);
-    } catch {
-      /* the clipboard can be unavailable; the text is still visible below */
-    }
+    // The text stays visible below, so a failed copy needs no error surface.
+    if (!(await copyText(text))) return;
+    setCopied(kind);
+    setTimeout(() => setCopied(null), 1500);
   };
 
   return (

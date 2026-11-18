@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { useT } from '@/lib/i18n';
 import {
   ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Copy, FileText, Loader2, Pause, Play,
@@ -953,11 +954,11 @@ function GroupBubble({
       : <GhostAvatar spec={groupSpec} size={28} className="mt-0.5 shrink-0" />;
   const btn = 'flex h-5 w-5 cursor-pointer items-center justify-center rounded-md hover:bg-white/10 hover:text-foreground';
   const copy = () => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    void navigator.clipboard.writeText(message.content).then(() => {
+    void copyText(message.content).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    }).catch(() => { /* clipboard unavailable */ });
+    });
   };
   const timeRow = (
     <div className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

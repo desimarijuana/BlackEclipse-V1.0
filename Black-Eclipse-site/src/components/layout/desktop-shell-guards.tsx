@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy } from '@/lib/icons';
+import { copyText } from '@/lib/desktop/clipboard';
 import { isBrowserShortcutKey, isEditableTarget, isFileDrag } from '@/lib/desktop/shell-guards';
 
 interface SelectionMenu {
@@ -47,26 +48,9 @@ export function DesktopShellGuards() {
   }, []);
 
   const copy = useCallback(async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // WebView clipboard permission can be denied; the legacy path works
-      // from a user gesture and needs no grant.
-      const scratch = document.createElement('textarea');
-      scratch.value = text;
-      scratch.setAttribute('readonly', '');
-      scratch.style.position = 'fixed';
-      scratch.style.top = '-1000px';
-      scratch.style.opacity = '0';
-      document.body.appendChild(scratch);
-      scratch.select();
-      try {
-        document.execCommand('copy');
-      } catch {
-        /* nothing else to try */
-      }
-      scratch.remove();
-    }
+    // Native-first: the shell writes the OS clipboard, so no WebView permission
+    // bubble appears. `copyText` owns the browser fallbacks.
+    if (!(await copyText(text))) return;
     setCopied(true);
     if (copyTimer.current) window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => {

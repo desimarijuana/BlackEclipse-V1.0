@@ -13,6 +13,7 @@ import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, Maximize2, Pause, Play, RotateCcw, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { useStillness } from '@/lib/anatomy/live';
 import type { Model3dBlock as Model3dBlockType } from '@/lib/response/contract';
 import { compileModel3dCached, model3dStats, type CompiledModel3d } from '@/lib/model3d/compile';
@@ -406,10 +407,11 @@ export function Model3dBlock({ block, className }: Model3dBlockProps) {
           <button
             type="button"
             onClick={() => {
-              navigator.clipboard?.writeText(figureUrl(block, window.location.origin)).then(
-                () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
-                () => {},
-              );
+              void copyText(figureUrl(block, window.location.origin)).then((ok) => {
+                if (!ok) return;
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              });
             }}
             className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-accent/30 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
           >

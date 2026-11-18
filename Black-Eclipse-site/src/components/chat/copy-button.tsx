@@ -5,6 +5,7 @@
 // and never throws when the clipboard is unavailable (e.g. insecure context).
 
 import { useCallback, useRef, useState } from 'react';
+import { copyText } from '@/lib/desktop/clipboard';
 import { Check, Copy } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
@@ -21,11 +22,7 @@ export function CopyButton({ value, label = 'content', className }: CopyButtonPr
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const copy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      return;
-    }
+    if (!(await copyText(value))) return;
     setCopied(true);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setCopied(false), 1500);

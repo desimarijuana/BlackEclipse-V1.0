@@ -14,6 +14,7 @@ import {
 } from "@/lib/harness/evolution-events";
 import type { EvolutionCandidateEvidence } from "@/lib/harness/clients/evolution-client";
 import { cn } from "@/lib/utils";
+import { copyText } from "@/lib/desktop/clipboard";
 import { ExperimentList } from "./experiment-list";
 
 export function evidenceSectionClass(highlighted: boolean): string {
@@ -135,12 +136,7 @@ export function CandidateEvidencePanel({
 
   const copyId = useCallback(async () => {
     if (!evidence) return;
-    try {
-      await navigator.clipboard.writeText(evidence.candidate.id);
-      setCopied("copied");
-    } catch {
-      setCopied("failed");
-    }
+    setCopied((await copyText(evidence.candidate.id)) ? "copied" : "failed");
     window.setTimeout(() => setCopied("idle"), 1500);
   }, [evidence]);
 

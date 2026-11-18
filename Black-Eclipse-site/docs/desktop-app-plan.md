@@ -1,7 +1,7 @@
 ---
 title: Native Desktop App — Tauri Shell Plan (hardened)
 status: Accepted
-last-verified: 2026-11-13
+last-verified: 2026-11-17
 ---
 
 # Native desktop app (Tauri shell)
@@ -694,6 +694,36 @@ re-pins, and reopens the shell; a normal launch also re-pins when `.next`
 contains a newer completed build. Re-run the bridge command after a fresh
 desktop install (an installer restores the bundled `app`). It is Windows-only,
 matching the packaged shell.
+
+## 22. Clipboard: native write (shipped)
+
+Status: **implemented 2026-11-17.** Contract and rationale:
+`desktop/README.md` → "Clipboard: why the shell writes it".
+
+The symptom was a dialog that looked like a website: *"http://tauri.localhost
+wants to see text and images copied to the clipboard — Block / Allow"*, drawn
+over the app when **Copy details** was clicked on the start screen. Nothing in
+our UI draws that; WebView2 answers `navigator.clipboard` with Chromium's
+permission bubble, at the fake origin Tauri serves bundled pages from.
+
+Shipped:
+
+1. **One helper, no direct web API.** `src/lib/desktop/clipboard.ts` owns every
+   copy (`copyText(text): Promise<boolean>`, plus `canCopyFromShell()`). All 19
+   call sites in `src/components` go through it. A source-guard test fails if
+   `navigator.clipboard` reappears anywhere in `components/`, `app/` or
+   `lib/desktop/`.
+2. **Transport is an event.** The app origin is a loopback origin where app
+   commands are denied, so the page emits `be-copy` `{ text }`; the shell writes
+   the OS clipboard with `arboard` (`text` only — no image support is compiled in).
+   The bundled splash is a local origin and invokes `desktop_copy` directly. Both
+   land in one Rust function.
+3. **No permission model to satisfy.** A native write cannot be blocked by the
+   webview; if it ever fails it is logged to `desktop-native.log`, and the UI
+   shows "Copy failed" rather than a false "Copied" (the helper resolves
+   `false`).
+4. **Malformed payloads never blank the clipboard.** Rust ignores anything that
+   is not `{"text": "<non-empty>"}`; that contract is unit-tested.
 
 
 

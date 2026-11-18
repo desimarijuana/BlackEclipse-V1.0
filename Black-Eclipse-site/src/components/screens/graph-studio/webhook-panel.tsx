@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, Globe, Play, RefreshCw, Square, Trash2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import {
   createWebhook,
   deleteWebhook,
@@ -124,9 +125,7 @@ export function WebhookPanel({
   };
 
   const copy = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
+    if (!(await copyText(value))) {
       setError('Clipboard is unavailable — select and copy the value manually.');
     }
   };

@@ -7,6 +7,7 @@
 // surfaces an honest conflict UI instead of overwriting.
 
 import { useCallback, useEffect, useRef, useState, type JSX, type MutableRefObject } from 'react';
+import { copyText } from '@/lib/desktop/clipboard';
 import { confirmDialog, promptDialog } from '@/lib/ui/confirm-dialog';
 import { archiveArtifact, updateArtifact } from '@/lib/harness/clients/artifacts-browser';
 import {
@@ -345,12 +346,9 @@ export function CanvasScreen({
     if (!snap) return;
     if (action === 'print') { window.print(); return; }
     if (action === 'copy') {
-      try {
-        await navigator.clipboard.writeText(contentRef.current);
-      } catch {
-        setSaveState('error');
-        setSaveError('Clipboard is unavailable in this browser.');
-      }
+      if (await copyText(contentRef.current)) return;
+      setSaveState('error');
+      setSaveError('Clipboard is unavailable on this device.');
       return;
     }
     const ext = contentExtension(snap.kind, snap.language);

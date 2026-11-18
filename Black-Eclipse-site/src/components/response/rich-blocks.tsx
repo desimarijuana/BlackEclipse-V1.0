@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { Markdown } from '@/components/chat/markdown';
 import { resolveResponseIcon } from '@/lib/response/icons';
 import { downloadUrl } from '@/lib/harness/clients/artifacts-browser';
@@ -225,13 +226,10 @@ export function WorkflowBlock({
       .filter(Boolean)
       .concat(block.stages.map((s, i) => `${i + 1}. ${s.title}${s.description ? ` — ${s.description}` : ''}${s.detail ? `\n   ${s.detail}` : ''}`))
       .join('\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable — leave the button silent */
-    }
+    // A refused copy leaves the button silent.
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
   };
 
   const iconBtn =

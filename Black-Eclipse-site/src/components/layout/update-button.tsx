@@ -29,6 +29,7 @@ import {
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import {
   canRestartFromShell,
   requestUpdateApply,
@@ -49,15 +50,6 @@ const PHASE_PERCENT: Record<UpdateJobPhase, number> = {
   ready: 100,
   failed: 100,
 };
-
-function copyText(text: string) {
-  try {
-    void navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function UpdateButton() {
   const { status, checking, prefs, refresh } = useUpdateStatus();
@@ -227,7 +219,9 @@ export function UpdateButton() {
     setOpen(false);
   };
 
-  const copyCommand = () => setCopied(copyText('black update'));
+  const copyCommand = () => {
+    void copyText('black update').then(setCopied);
+  };
 
   const percent = job ? PHASE_PERCENT[job.phase] ?? 50 : 0;
 

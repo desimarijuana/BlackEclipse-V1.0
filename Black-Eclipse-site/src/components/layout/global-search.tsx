@@ -44,6 +44,7 @@ import {
 } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { useCommandStore, visitRecencyScore } from '@/lib/search/store';
 import { resolveQuery } from '@/lib/search/resolver';
 import {
@@ -845,7 +846,8 @@ const RowButton = memo(function RowButton({
   const copySymbol = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (row.type !== 'result' || !row.entity.symbol) return;
-    void navigator.clipboard?.writeText(row.entity.symbol).then(() => {
+    void copyText(row.entity.symbol).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });

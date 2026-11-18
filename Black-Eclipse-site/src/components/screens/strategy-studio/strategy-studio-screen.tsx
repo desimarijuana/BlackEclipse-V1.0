@@ -10,6 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBacktestScreen } from '@/lib/backtest/use-backtest-screen';
+import { copyText } from '@/lib/desktop/clipboard';
 import { EdgeReportView } from '@/components/screens/backtest/shared/edge-report-view';
 import {
   backtestClient,
@@ -318,27 +319,23 @@ export function StrategyStudioScreen() {
   }, [spec, hydrated]);
 
   const copyPath = useCallback(async (path: string) => {
-    try {
-      await navigator.clipboard.writeText(path);
-      setCopiedPath(path);
-      setTimeout(() => setCopiedPath(null), 1500);
-    } catch {
-      /* clipboard may be unavailable; the path is still visible */
-    }
+    // A refused copy leaves the path visible, so no error surface is needed.
+    if (!(await copyText(path))) return;
+    setCopiedPath(path);
+    setTimeout(() => setCopiedPath(null), 1500);
   }, []);
 
   const copyShareLink = useCallback(async () => {
     if (!saved || typeof window === 'undefined') return;
     const query = workspaceQuery({ strategyId: saved.id, experimentId: activeExperimentId });
     const href = `${window.location.origin}${window.location.pathname}?${query}`;
-    try {
-      await navigator.clipboard.writeText(href);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 1500);
-      setNotice('Share link copied. It reopens this strategy and experiment in the studio.');
-    } catch {
+    if (!(await copyText(href))) {
       setError('The link could not be copied to the clipboard.');
+      return;
     }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 1500);
+    setNotice('Share link copied. It reopens this strategy and experiment in the studio.');
   }, [activeExperimentId, saved]);
 
   const draftWithAi = useCallback(async () => {

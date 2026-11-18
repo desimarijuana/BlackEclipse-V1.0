@@ -52,6 +52,24 @@ order, and the bot's filled position was untouched (the kill switch cancels
 working orders, it does not liquidate). The control order and the position were
 closed afterwards; the account is flat.
 
+**Scheduled execution, proven (2026-11-18 01:2x–01:3x UTC).** With the bot on a
+60 s interval and nobody pressing Run, the automation engine produced executions
+by itself:
+
+```
+01:30:20  skipped   BAR_ALREADY_PROCESSED   (v1.0.0 — same D1 bar, no duplicate)
+01:31:20  skipped   BAR_ALREADY_PROCESSED   (v1.0.0)
+01:32:20  completed outcome=filled  orderId=ord_d88bf32c6377  (v1.0.1, new bar claim)
+01:33:21  skipped   POSITION_ALREADY_OPEN   (next fire refused to stack)
+```
+
+The 01:32 order is `BrokerOrder ord_d88bf32c6377`, status `filled`, MT5 ticket
+`11448544268` (EURUSD BUY 0.01 @ 1.09915, magic `741879`), with `automationId`,
+`automationVersion=3`, `mandateId=mnd_d38a9e9eaa29`, `runId=live_a8839b8a5e5548ce`.
+The position was closed; the bot was then moved to an hourly cron
+(`1 * * * *`, next `02:01Z`) and left active, prepared for v4. That is "a bot runs
+on schedule and trades", at demo scale; a 48–72 h soak is still open.
+
 
 **Who this is for:** anyone asking "is the bot actually placing trades, and how
 do we prove it?"
@@ -189,6 +207,35 @@ provider serves 1m FX) and the bot now falls back to the broker's own bars.
 
 Gate: `BLACK_ECLIPSE_TRADING_IT=1`. Never part of `npm test`.
 
+### L6 — soak (PARTIAL: 12 automated fires, then the shared runtime was killed)
+
+Observed on the demo, unattended, with the bot on a 60 s interval:
+
+```
+02:01:07  hourly cron fire          skipped  BAR_ALREADY_PROCESSED
+02:16:37 … 02:43:44  twelve fires   skipped  BAR_ALREADY_PROCESSED (every one)
+                                    filled=0  new ledger rows=0  new EURUSD positions=0
+```
+
+The supervised harness was restarted twice in that window and resumed firing with
+no duplicate order (the bar claim survives restarts). That is the scheduler +
+dedupe + no-stacking property, measured.
+
+**Not completed: a 48–72 h soak.** Two environment facts block it here:
+1. The desktop/harness processes are killed every few minutes (silent, no crash
+   event, no shutdown log — `[shell] owned server exited after readiness`). The
+   tree is shared with a concurrent session that restarts the same app/database
+   (the harness logs `another live runtime shares this database`), so only one
+   runtime schedules at a time and the other is dropped.
+2. Another actor placed an **XAUUSD SELL 1.0 (magic 0, no comment)** on the same
+   demo account at 02:15:48Z during the window. A soak on a shared account cannot
+   distinguish the bot's fills from someone else's.
+
+A real soak needs exclusive use of the machine and the demo account (one runtime,
+one trader) for the full window, with the app open. Until then L6 stays partial.
+
+
+
 ### L5 — supervised live smoke (operator-run, tiny)
 
 Only after L4 is green, with explicit consent:
@@ -211,6 +258,8 @@ Leave one demo bot active with the 60 s schedule, then measure:
 - every refusal has a code and a sentence;
 - no breaker trip for expected refusals;
 - P&L recorded but **not** used as a pass/fail signal.
+
+The partial run and the two blockers are recorded above (L6, partial).
 
 ## 3. Acceptance criteria
 

@@ -5,6 +5,7 @@
 // all cells, and pagination. Copy serialises the *filtered + sorted* view to TSV.
 
 import { useMemo, useState } from 'react';
+import { copyText } from '@/lib/desktop/clipboard';
 import { ArrowDown, ArrowUp, ArrowUpDown, Copy, Check, Search } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { inlineText, isNegativeValue, isNumericText, isUnavailableText, parseInline } from '@/lib/chat/markdown';
@@ -120,13 +121,9 @@ export function DataTableBlock({
   const copyTsv = async () => {
     const header = columns.map((c) => inlineText(parseInline(c.label))).join('\t');
     const body = filtered.map((row) => columns.map((c) => plainText(row[c.key])).join('\t')).join('\n');
-    try {
-      await navigator.clipboard.writeText([header, body].join('\n'));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable */
-    }
+    if (!(await copyText([header, body].join('\n')))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (

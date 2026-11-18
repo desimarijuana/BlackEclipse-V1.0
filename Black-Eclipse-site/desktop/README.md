@@ -291,6 +291,32 @@ the window chrome) survives a shell where the global API is not exposed.
 hn:1~perm:granted~sec:1~tauri:1~ctor:NativeNotification~shimcall:dispatched~direct:ok
 ```
 
+## Clipboard: why the shell writes it
+
+Every copy in the app goes through `src/lib/desktop/clipboard.ts` (`copyText`),
+never `navigator.clipboard`. Inside the window that API is answered by WebView2,
+which raises Chromium's permission bubble — *"http://tauri.localhost wants to see
+text and images copied to the clipboard", Block / Allow* — drawn over the app. It
+is the same dialog a website gets, at the fake origin Tauri serves bundled pages
+from, and it reads instantly as "a browser in a window".
+
+The shell therefore writes the OS clipboard itself:
+
+| Surface | Transport | Why |
+| --- | --- | --- |
+| The app (`http://127.0.0.1:3100`) | core event `be-copy` with `{ text }` | app commands are denied to the remote origin (see Notifications) |
+| The bundled splash (local origin) | `invoke('desktop_copy', { text })` | local origin, commands are allowed |
+
+Both land in one Rust function backed by `arboard` (text only; image support is
+not compiled in). A native write has no permission model, so nothing can prompt.
+An empty or malformed payload is ignored rather than blanking what the user
+already had; failures go to `desktop-native.log` and `copyText` resolves `false`
+so the UI shows "Copy failed" instead of a false "Copied".
+
+A source-guard test (`src/lib/desktop/clipboard.test.ts`) fails if
+`navigator.clipboard` reappears under `src/components`, `src/app` or
+`src/lib/desktop`.
+
 ## Taskbar presence
 
 The browser signal (a prefixed `document.title`, a red-badged favicon,

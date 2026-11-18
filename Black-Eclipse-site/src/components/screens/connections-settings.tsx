@@ -17,6 +17,7 @@ import {
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { copyText } from "@/lib/desktop/clipboard";
 import { Panel, SectionHeader, SubSection } from "./settings-ui";
 import {
   channelsHealth,
@@ -341,13 +342,9 @@ function WebhookUrl({ kind }: { kind: ChannelKind }) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${origin}/api/channels/webhook/${kind}`;
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard may be unavailable */
-    }
+    if (!(await copyText(url))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
   return (
     <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-1.5 text-xs">

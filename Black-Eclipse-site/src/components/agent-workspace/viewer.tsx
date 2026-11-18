@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, Loader2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { useT } from '@/lib/i18n';
 import { Markdown } from '@/components/chat/markdown';
 import type { ArtifactRef } from '@/lib/agent-workspace/types';
@@ -193,7 +194,9 @@ function CopyButton({
       onClick={() => {
         void getContent().then((value) => {
           if (!value) return;
-          void navigator.clipboard?.writeText(value).then(onCopied);
+          void copyText(value).then((ok) => {
+            if (ok) onCopied();
+          });
         });
       }}
       title={title}

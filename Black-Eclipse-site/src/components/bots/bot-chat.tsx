@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { useT } from '@/lib/i18n';
 import {
   ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, Copy, FileText, Loader2, Pause, Play,
@@ -1097,11 +1098,11 @@ function MessageActions({
   const btn =
     'flex h-5 w-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground';
   const copy = () => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    void navigator.clipboard.writeText(content).then(() => {
+    void copyText(content).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    }).catch(() => { /* clipboard unavailable */ });
+    });
   };
   return (
     <span className="flex items-center gap-0.5">

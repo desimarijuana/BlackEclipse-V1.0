@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type C
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown, SquarePen, GitBranch, MessageSquareText } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { Message, type MessageQuote, type ShellRun } from '@/types/chat';
 import { boundQuote } from '@/lib/chat/quote';
 import { shellOutput } from '@/lib/chat/shell';
@@ -530,24 +531,22 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       const text = hasResponseFence(msg.content)
         ? (await import('@/lib/response/projection')).projectContentMarkdown(msg.content)
         : msg.content;
-      await navigator.clipboard.writeText(text);
+      // A refused copy leaves the button unchanged.
+      if (!(await copyText(text))) return;
       setCopiedId(msg.id);
       setTimeout(() => setCopiedId((c) => (c === msg.id ? null : c)), 1500);
     } catch {
-      // Clipboard unavailable — leave the button unchanged.
+      // Projection failed — leave the button unchanged.
     }
   };
 
   const [copiedShellId, setCopiedShellId] = useState<string | null>(null);
 
   const copyShellOutput = async (messageId: string, run: ShellRun) => {
-    try {
-      await navigator.clipboard.writeText(shellOutput(run));
-      setCopiedShellId(messageId);
-      setTimeout(() => setCopiedShellId((c) => (c === messageId ? null : c)), 1500);
-    } catch {
-      // Clipboard unavailable — leave the button unchanged.
-    }
+    // A refused copy leaves the button unchanged.
+    if (!(await copyText(shellOutput(run)))) return;
+    setCopiedShellId(messageId);
+    setTimeout(() => setCopiedShellId((c) => (c === messageId ? null : c)), 1500);
   };
 
   return (

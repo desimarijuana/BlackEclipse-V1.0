@@ -30,6 +30,7 @@ import {
   Sparkles,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/desktop/clipboard';
 import { composeInteractiveDocument, type InteractiveContext } from '@/lib/interactive/document';
 import {
   loadInteractiveDataset,
@@ -321,23 +322,15 @@ export function InteractiveBlock({
 
   const share = useCallback(async () => {
     if (typeof window === 'undefined') return;
-    try {
-      await navigator.clipboard.writeText(appUrl(block, window.location.origin));
-      setShared(true);
-      setTimeout(() => setShared(false), 1800);
-    } catch {
-      /* clipboard may be unavailable */
-    }
+    if (!(await copyText(appUrl(block, window.location.origin)))) return;
+    setShared(true);
+    setTimeout(() => setShared(false), 1800);
   }, [block]);
 
   const copySource = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(doc);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard may be unavailable */
-    }
+    if (!(await copyText(doc))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   }, [doc]);
 
   const title = block.title?.trim() || 'Interactive app';

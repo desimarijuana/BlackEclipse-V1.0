@@ -1,7 +1,7 @@
 ---
 title: Pine — running a TradingView script on Eclipse's own bars
 status: Current
-last-verified: 2026-10-20
+last-verified: 2026-11-17
 ---
 
 # Pine — running a TradingView script on Eclipse's own bars
@@ -27,7 +27,7 @@ strategy made.
 | the engine program | `Black-Eclipse-site/pine-engine/` | a separate Node program: JSON request in, JSON response out |
 | the Python seam | `python/harness/quant/pine.py` | spawns the engine, bounds it, and refuses honestly |
 | the tool | `quant/advanced_tools.py` → `run_pine_script` | the agent's door onto it |
-| the route | `python/harness/routers/pine.py` → `POST /quant/pine` | the UI's door onto it |
+| the route | `python/harness/routers/pine.py` → `POST /quant/pine` | the API's door onto it (no app screen calls it — the agent is the entry point) |
 
 ## The licence boundary
 
@@ -38,8 +38,8 @@ process and talks to it over files: a JSON request in, a JSON response out.
 Nothing but data crosses the boundary.
 
 That is the "separate programs communicating at arm's length" pattern from the
-GPL FAQ, and it is what keeps the app proprietary. The consequences are stated
-in `pine-engine/NOTICE.md`:
+GPL FAQ, and it is what keeps the AGPL work in its own component instead of
+reaching into the MIT app. The consequences are stated in `pine-engine/NOTICE.md`:
 
 - this folder is the **corresponding source** of the AGPL-covered work here,
   and it is public with the app;

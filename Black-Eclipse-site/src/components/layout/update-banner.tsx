@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, ExternalLink, RefreshCw, ShieldCheck, X } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/desktop/clipboard";
 import { saveUpdatePrefs } from "@/lib/updates/prefs";
 import { useUpdateStatus } from "@/lib/updates/use-update-status";
 import type { UpdateStatus } from "@/lib/updates/types";
@@ -55,13 +56,13 @@ export function UpdateBanner() {
   };
 
   const copyCommand = async () => {
-    try {
-      await navigator.clipboard.writeText("black update");
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
+    // A refused copy opens the command as selectable text instead.
+    if (!(await copyText("black update"))) {
       setShowCommand(true);
+      return;
     }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   };
 
   return createPortal(

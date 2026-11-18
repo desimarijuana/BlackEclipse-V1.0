@@ -247,7 +247,10 @@ const RATCHET: Record<string, number> = {
   // +23 (2026-11-17): goal verdicts stream into the transcript (the watcher hook
   // plus the idempotent sink). The polling itself lives in
   // `lib/harness/use-goal-verdict-watch.ts`.
-  "src/components/screens/stock-chat.tsx": 1743,
+  // +33 (2026-11-17): a goal turn also streams its live steps — one message per
+  // turn, filled from the turn run's persisted tool trace and finalised by the
+  // verdict. The message builders are pure (`lib/harness/goal-transcript.ts`).
+  "src/components/screens/stock-chat.tsx": 1776,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

@@ -190,7 +190,16 @@ import { useHydrateI18n, useT } from '@/lib/i18n';
 import { useThemeStore } from '@/lib/theme';
 import type { Destination } from '@/lib/search/types';
 import type { CommandUiAction } from '@/lib/harness/commands/command-ui';
-import { useGoalVerdictWatch, type GoalVerdictLine } from '@/lib/harness/use-goal-verdict-watch';
+import {
+  useGoalWatch,
+  type GoalTurnActivity,
+  type GoalVerdictLine,
+} from '@/lib/harness/use-goal-verdict-watch';
+import {
+  goalActivityMessage,
+  goalTurnMessageId,
+  goalVerdictMessage,
+} from '@/lib/harness/goal-transcript';
 import { destinationToQuery, parseDeepLink } from '@/lib/search/deep-link';
 import { canHandleKeyboardEvent } from '@/lib/keyboard';
 import { isFocusModeShortcut, isNewChatShortcut, isSettingsShortcut, isThemeShortcut } from '@/lib/shortcuts';
@@ -325,10 +334,15 @@ function StockChatContent() {
 
   // Selects the ACTIVE conversation; background runs keep their own stream.
   const agentRun = useAgentRun({ chatId: activeConversationId ?? undefined });
-  // Goal turns run as background tasks, so their verdicts are streamed into the
-  // transcript by a front-door poll (the hook only emits NEW verdicts).
+  // Goal turns run as background tasks, so their live steps and verdicts are
+  // streamed into the transcript by a front-door poll (the hook emits only what
+  // is NEW, and only when it changed).
   const goalVerdictSink = useRef<((line: GoalVerdictLine) => void) | null>(null);
-  useGoalVerdictWatch(activeConversationId, goalVerdictSink);
+  const goalActivitySink = useRef<((snapshot: GoalTurnActivity) => void) | null>(null);
+  useGoalWatch(activeConversationId, {
+    onVerdict: goalVerdictSink,
+    onActivity: goalActivitySink,
+  });
   // Delegated (@-mentioned) turns remain a shell-level busy flag.
   const runInFlightRef = useRef(false);
   const agentBusy = agentRun.active || delegationBusy;
@@ -812,22 +826,41 @@ function StockChatContent() {
     }
   };
 
-  // The goal watcher writes one transcript line per evaluated turn. It is
-  // idempotent by id, so a re-render or a second poll cannot duplicate it.
+  // A goal turn owns ONE transcript message: the activity sink fills it while
+  // the turn works and the verdict sink finalises the same id, so the steps and
+  // the verdict can never split into two bubbles. Ids are idempotent by
+  // `goalId:turn`, so a re-render or a second poll cannot duplicate a line.
+  const goalTurnMessage = (chatId: string, id: string) =>
+    conversationsRef.current
+      .find((conversation) => conversation.id === chatId)
+      ?.messages.find((message) => message.id === id);
+
+  const writeGoalTurn = (next: Message, persist = false) => {
+    const chatId = activeConversationIdRef.current;
+    if (!chatId) return;
+    if (goalTurnMessage(chatId, next.id)) {
+      replaceAssistantReply(chatId, next.id, next, persist);
+      return;
+    }
+    appendAssistantReply(chatId, next, persist);
+  };
+
+  goalActivitySink.current = (snapshot: GoalTurnActivity) => {
+    const chatId = activeConversationIdRef.current;
+    if (!chatId) return;
+    const existing = goalTurnMessage(
+      chatId, goalTurnMessageId(snapshot.goalId, snapshot.turn),
+    );
+    // A verdict already closed this turn; a late step must not reopen it.
+    if (existing?.status === 'completed') return;
+    writeGoalTurn(goalActivityMessage(snapshot, existing));
+  };
+
   goalVerdictSink.current = (line: GoalVerdictLine) => {
     const chatId = activeConversationIdRef.current;
     if (!chatId) return;
-    const id = `goal-${line.goalId}-${line.turn}`;
-    const exists = conversationsRef.current
-      .find((conversation) => conversation.id === chatId)
-      ?.messages.some((message) => message.id === id);
-    if (exists) return;
-    appendAssistantReply(chatId, {
-      id,
-      role: 'assistant',
-      content: `**Goal · turn ${line.turn}** — **${line.verdict}**\n\n${line.reason}`,
-      status: 'completed',
-    });
+    const existing = goalTurnMessage(chatId, goalTurnMessageId(line.goalId, line.turn));
+    writeGoalTurn(goalVerdictMessage(line, existing), true);
   };
 
   /**
