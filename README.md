@@ -4,7 +4,7 @@
 
 **Research. Analyze. Build. Automate. Trade.**
 
-[![Download for Windows](.github/assets/download-windows.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) [![Download for Linux](.github/assets/download-linux.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) [![Download for macOS](.github/assets/download-macos.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg)
+[![Download for Windows](.github/assets/download-windows.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe)&nbsp;&nbsp;&nbsp;&nbsp;[![Download for Linux](.github/assets/download-linux.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb)&nbsp;&nbsp;&nbsp;&nbsp;[![Download for macOS](.github/assets/download-macos.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg)
 
 <sub>All installers are unsigned — [verify the SHA-256](#install) before running. Linux and macOS builds are not notarised yet, so expect a Gatekeeper warning. [All releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).</sub>
 

@@ -877,6 +877,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/data-and-privacy.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-16
+- **fix(readme): space the three download buttons apart.** Four `&nbsp;` between the
+  links (≈24px total with the SVGs' own 8px edge gap) so the row reads as three
+  buttons rather than one segmented control. Row measures 748px, still one line
+  inside GitHub's ~880px column. Markdown gaps had been a single space (~4px).
+  docs updated: `docs/CHANGELOG.md` (no doc change needed beyond the log — spacing
+  only).
 - **fix(readme): download glyph back on the left, hairline border on the dark
   buttons.** Final button pass: the download glyph (arrow into a tray) sits left of
   the label again, the secondaries keep a **1px** `#2b2f33` border so they hold an
