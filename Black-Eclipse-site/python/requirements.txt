@@ -190,3 +190,8 @@ lightgbm>=4,<5
 # it was never declared, so a runner that installed only this lock failed the ML
 # acceptance tests with "scikit-learn is required for lightgbm.sklearn".
 scikit-learn>=1.4,<2
+
+# The ML fabric exposes an xgboost family and the acceptance workflow grades it,
+# so a runner that installed only this lock failed with <requires an optional
+# dependency>. Declared, like lightgbm and scikit-learn.
+xgboost>=2,<4

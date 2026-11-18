@@ -1721,7 +1721,12 @@ numpy==2.5.4 \
     #   pandas
     #   scikit-learn
     #   scipy
+    #   xgboost
     #   yfinance
+nvidia-nccl-cu13==2.32.6 ; sys_platform == 'linux' \
+    --hash=sha256:76e7aad00482092baf01e13e66f441d54c96b5cf1e3f143dee27db7f731d41ba \
+    --hash=sha256:ee63091d0c00f5a0419e04d7f59f6dd6ebd54b14931cb0f9e3a626b91243233d
+    # via xgboost
 onnxruntime==1.32.0 \
     --hash=sha256:02ea12a28c069ea8510093d95a7f6ff8126bfd9fc5c0d3381c03b80fb2b424ba \
     --hash=sha256:2303372a85299b6757b0e11e1cbf13e410ddf7e10c37f4b37e99d1c90e7daf7c \
@@ -2838,6 +2843,7 @@ scipy==1.18.1 \
     # via
     #   lightgbm
     #   scikit-learn
+    #   xgboost
 scramp==1.5.0 \
     --hash=sha256:21b88a54bc4b656f57de9f0f6be531ca99f7efe49220bbd083b84cf88748e395 \
     --hash=sha256:8280608f568e81da9e9c9d69cac1331b836622d9b48bf5c5e400e16129c6d1fa
@@ -3292,6 +3298,15 @@ winsdk==1.0.0b10 ; sys_platform == 'win32' \
     --hash=sha256:e77bce44a9ff151562bd261b2a1a8255e258bb10696d0d31ef63267a27628af1 \
     --hash=sha256:f12e25bbf0a658270203615677520b8170edf500fba11e0f80359c5dbf090676 \
     --hash=sha256:f4ab469ada19b34ccfc69a148090f98b40a1da1da797b50b9cbba0c090c365a5
+    # via -r python/requirements.txt
+xgboost==3.4.1 \
+    --hash=sha256:1ea15f15f661825b6a67d87674fb9604a1abb38dd0d4c5cf0486fc85f5203e83 \
+    --hash=sha256:2d30fa513673101f542fdcbd18f30c8f96c064046f798635ac08663e9969f81b \
+    --hash=sha256:6968a4c71efdfa859df0dfcad0d99211c95c28c4ffd6aecff46efff77d18026a \
+    --hash=sha256:6adf2afa396da2ae8ed30295b50b99d4712eed9a6e0ce6cfe069290e4335e51f \
+    --hash=sha256:7faaf99de26719c22bfae883a02bd56b5a3c2203122616e563cc72b7191b5c96 \
+    --hash=sha256:a7afd7dbace0951c93aa85ffe046e54bc40893f5b51cd3e7991eb157bf9c7c7c \
+    --hash=sha256:e9312b30e5679d27c1d8b9ee97e092b964d960a672d5d406d9fb3cd0845c9797
     # via -r python/requirements.txt
 xlsxwriter==3.3.1 \
     --hash=sha256:0867761912cceac76f97ffa76eeda18c623ae9217f601be8512f55b1af4bdb6e \

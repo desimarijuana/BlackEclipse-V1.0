@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **fix(ci): declare `xgboost` and pin the two ratchets the feature commit moved.**
+  `2876f894` grew `python/harness/service.py` to 2,098 (pinned at 2,089) and
+  `trade/service.py` to 1,214 (pinned at 1,205) without moving their ratchets, so
+  `test_size_budget.py` failed; and the ML acceptance workflow grades an `xgboost`
+  family that was never declared, so it failed with "requires an optional
+  dependency". Both ratchets are pinned to the measured values with the reason,
+  `xgboost` is declared (3.4.1) and the SBOM regenerated (1,335 components).
+  Verified locally: `test_size_budget.py`, `test_ml_acceptance.py` and
+  `test_rsl_verifier.py` all pass. Doc change: `docs/CHANGELOG.md`.
+
+
 - **chore(size): re-pin for the alternative-intelligence signal engine.** The new
   `python/harness/intel/` package (engine, sec, attention, service, contracts)
   moved the harness to 520,773 lines and the `python/harness/.` seam to 40,239.

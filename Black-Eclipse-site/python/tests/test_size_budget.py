@@ -443,7 +443,9 @@ RATCHET_PY: dict[str, int] = {
     # +10 (2026-11-17): boot repair for goal turns stranded by the old
     # `start_task` enqueue path (see `GoalStore.repair_orphaned_goal_tasks`).
     # +7 (2026-11-17): reopen a goal plan that completed under a queued turn.
-    "service.py": 2089,
+    # +9 (2026-11-17): in-flight shared-tree intel wiring; the trading work
+    # touches no part of service.py. May only shrink.
+    "service.py": 2098,
     # Quota-aware admission (2026-11-12, multi-session concurrency) lives on the
     # ONE model path: shared credential-pool wait, per-key FIFO semaphore,
     # cooldown/RPM/TPM windows, provider `Retry-After`, request-token accounting.
@@ -486,7 +488,9 @@ RATCHET_PY: dict[str, int] = {
     "routers/quant.py": 1300,
     # In-flight shared-tree growth measured 2026-11-17 (not this change's
     # subsystem). Pinned to the measured size; split candidate: broker adapters.
-    "trade/service.py": 1205,
+    # +9 (2026-11-17): an ownership magic on every connection, so the kill
+    # switch can match Eclipse orders (`_default_magic` + the create default).
+    "trade/service.py": 1214,
 }
 
 _HARNESS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness")
