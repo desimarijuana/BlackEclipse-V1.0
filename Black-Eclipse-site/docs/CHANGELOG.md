@@ -6,6 +6,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **docs(updates): document the lock-safe update path.** `docs/UPDATES.md` now
+  describes the `stopping` phase, the spent-job rule, the non-destructive
+  rollback, and corrects the release state to v0.4.1.
+  Docs: `docs/UPDATES.md`, `docs/CHANGELOG.md`.
+
 - **test(trading): demo soak closed at 156 minutes — properties proven, 48–72 h
   deferred by the operator.** Final measured record (isolated runtime :8799,
   copied state): 03:02:59Z→05:38:09Z, **156 fires, 156 distinct minutes, 0

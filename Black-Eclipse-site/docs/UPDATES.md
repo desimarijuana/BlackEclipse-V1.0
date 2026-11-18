@@ -1,7 +1,7 @@
 ---
 title: Updates & Release Signing
 status: Current
-last-verified: 2026-11-17
+last-verified: 2026-11-18
 ---
 
 # Updates & Release Signing
@@ -66,7 +66,7 @@ The signed payload:
 {
   "schema": 1,
   "channel": "stable",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publishedAt": "2026-11-09T12:00:00.000Z",
   "commit": "<40-char git SHA of the release tag>",
   "notesUrl": "https://github.com/<org>/<repo>/releases/tag/v0.4.0",
@@ -95,6 +95,8 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 | Title-bar update button + panel | `src/components/layout/update-button.tsx` (mounted by `desktop-tab-bar.tsx`) |
 | Update status hook (shared) | `src/lib/updates/use-update-status.ts` |
 | Stage an update in-app | `scripts/update-apply.js` (spawned by the shell via `be-update`, or by `src/app/api/updates/apply/route.ts` as a fallback) |
+| Native-module lock probe (node_modules safety) | `scripts/lib/update-locks.js` |
+| Staged-job reader (spent-job filtering) | `src/lib/updates/job.ts` (tests in `job.test.ts`) |
 | Restart into the staged build | `src/lib/desktop/update-bridge.ts` (Tauri event `be-update`) → `main.rs` listener |
 | Dismiss/skip/enable prefs | `src/lib/updates/prefs.ts` (`be_update_prefs_v1`) |
 | Settings UI | `src/components/screens/general-settings.tsx` → General › Updates |
@@ -104,9 +106,9 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 
 Updates are **published**: the repository is
 `desimarijuana/BlackEclipse-V1.0` (public), `config/updates.json` has
-`"published": true`, and a signed `stable.json` for **v0.4.0** is attached to that
+`"published": true`, and a signed `stable.json` for **v0.4.1** is attached to that
 release. A live check therefore verifies the signature and reports *up to date*
-for anyone on 0.4.0; it starts offering a release as soon as a newer signed
+for anyone on 0.4.1; it starts offering a release as soon as a newer signed
 manifest exists.
 
 `published: false` remains the correct setting only for a private pre-launch
@@ -212,11 +214,23 @@ It opens a glass panel that reports the check honestly and can act:
    (`scripts/update.js --yes --no-desktop`): signature + allowlisted URLs, clean
    tree, tag == signed commit, `jdds.db` backup, checkout, `npm ci`,
    `npm run build`. It then **stops**.
+   - **Windows file locks.** A loaded `.node` binary cannot be replaced, and
+     `npm ci` empties `node_modules` before it installs — so installing over a
+     running app would destroy the tree and then fail. Before touching anything
+     the runner probes `node_modules` by rename (`scripts/lib/update-locks.js`).
+     If a native module is held and the runner is not inside the server's own
+     process tree (the shell-spawned path), it stops the server it owns, waits
+     for the lock to clear, and continues — the panel shows the `stopping` phase.
+     Otherwise it fails with the install intact and says to quit Eclipse and run
+     `black update`. It also waits 2.5 s before stopping so the window can read
+     the job it is about to lose.
 2. **Promote.** The runner continues with
-   `desktop-refresh.js --no-build --no-restart`, which stages the new build under
-   `releases/stable/<buildId>` and moves the pointer. No process is killed: the
-   running window keeps serving the build it already loaded, and the old release
-   is kept as `previous`.
+   `desktop-refresh.js --no-build`, which stages the new build under
+   `releases/stable/<buildId>` and moves the pointer. When the runner stopped the
+   app itself it passes the restart through (nothing is left to serve), so the
+   window reopens on the new build; otherwise `--no-restart` keeps the running
+   window on the build it already loaded and the old release is kept as
+   `previous`.
 3. **Restart.** The panel offers *Restart Eclipse*, which emits the Tauri event
    `be-update` (`{action:"restart", channel}`). The Rust shell spawns
    `desktop-refresh.js --no-build`, which re-promotes the same build (a no-op)
@@ -238,15 +252,20 @@ Progress crosses the restart by **file, not IPC**: `scripts/update-apply.js`
 writes `.runtime/update-job.json` (phase, message, log tail, target version,
 heartbeat) and the UI polls `/api/updates/apply`. A `running` job whose heartbeat
 is older than five minutes is reported as failed rather than as a spinner that
-never ends (`src/lib/updates/job.ts`).
+never ends (`src/lib/updates/job.ts`). A **finished** job is read against the
+installed version: once the app is running a different version, the file is a
+spent receipt and is not returned. Without that, a CLI update left the old
+failure on screen forever.
 
 Deliberate limits:
 
 - The panel never claims to have applied anything the running window has not
-  loaded. A staged job stays "ready" until the running `version` equals the
-  staged one; then it is treated as spent.
-- `npm ci` rewrites `node_modules` under the running server, so polls can fail
-  for a minute. The panel says "Eclipse is rebuilding" instead of freezing.
+  loaded. A staged job stays "ready" only while the running `version` is still
+  the one it started from; after the restart it is treated as spent.
+- In-app staging needs the running app to close eventually, because `npm ci`
+  cannot replace `next-swc`/`skia` while they are loaded. The shell-spawned
+  runner does that itself; the HTTP fallback (an older shell) refuses instead of
+  emptying `node_modules`, and the CLI path does the same.
 - Only the **stable desktop channel** can stage in-app, because `npm run build`
   always produces `.next` (the Stable channel's build dir). The Dev channel keeps
   using the CLI. Running it from an old shell that lacks the `be-update` listener
@@ -274,13 +293,17 @@ Order of operations (enforced in `scripts/update.js`):
    A moved or mismatched tag aborts the update.
 4. Back up `jdds.db` through `scripts/db-guard.js backup` (unless
    `--no-backup`, which is discouraged).
-5. Check out the tag (detached), `npm ci`, `npm run build`.
+5. Check out the tag (detached), confirm `node_modules` can be replaced (stop
+   the app this install owns, or wait), `npm ci`, `npm run build`. A failed
+   install is retried once after the lock clears.
 6. **Desktop first:** re-pin the native app's immutable build and restart its
    own server/reopen the window through `scripts/desktop-refresh.js`. It no-ops
    with an explanation if the desktop is not installed or is a packaged
    (non-bridged) install; `--no-desktop` skips it. The browser production server
    on 3105 is **not** started (or restarted) unless `--restart` is passed.
-7. Any failure → check out the previous commit, reinstall, rebuild. The DB
+7. Any failure → check out the previous commit. Reinstall and rebuild only if
+   `node_modules` was actually replaced; if the install never ran, the previous
+   build is still intact and re-running `npm ci` could only do damage. The DB
    backup is left untouched and reported.
 
 **Desktop-first is a product rule, not a preference.** The native window is the
