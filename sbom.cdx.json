@@ -4,7 +4,7 @@
   "serialNumber": "urn:uuid:2948a559-642e-4bc7-8f1e-35e3e0407695",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-18T17:46:19.783Z",
+    "timestamp": "2026-11-18T20:08:32.586Z",
     "tools": [
       {
         "vendor": "BlackEclipse",
@@ -13,9 +13,9 @@
     ],
     "component": {
       "type": "application",
-      "bom-ref": "pkg:npm/black-eclipse@0.4.3",
+      "bom-ref": "pkg:npm/black-eclipse@0.4.4",
       "name": "black-eclipse",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "licenses": [
         {
           "license": {

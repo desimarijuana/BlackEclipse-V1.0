@@ -27,6 +27,12 @@ const { spawnSync } = require("child_process");
 const { ensureNode } = require("./desktop-runtime");
 const { ensureSeedDatabase } = require("./lib/seed-db");
 const { scrubAppState, assertNoLocalState } = require("./lib/scrub-app-state");
+const {
+  betterSqliteDir,
+  ensureBetterSqliteBinding,
+  ensureRuntimeSqlite,
+  nodeVersionOf,
+} = require("./lib/native-modules");
 
 const ROOT = path.join(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next-desktop", "standalone");
@@ -121,10 +127,44 @@ rmTree(OUT);
 rmTree(DIST_PACKS);
 fs.mkdirSync(APP, { recursive: true });
 
+// 0. The bundled Node decides which ABI every native module in the payload must
+// match, so it is resolved before anything native is copied or probed. Platform-
+// correct archive from nodejs.org, not the build machine's binary; `--from-system`
+// is a local shortcut for same-platform builds.
+ensureNode(path.join(OUT, "runtime"), { fromSystem: process.argv.includes("--from-system") });
+const RUNTIME_NODE = path.join(OUT, "runtime", process.platform === "win32" ? "node.exe" : "node");
+console.log(`  runtime/node${process.platform === "win32" ? ".exe" : ""}`);
+
 // 1. The Next standalone payload. It already contains `.next-desktop/static`
 // and `public/` (assembled by desktop-payload.js); copying them again here would
 // recreate a stray `.next` tree.
 copyTree(STANDALONE, APP, "payload -> app/");
+
+// 1b. Prisma's adapter resolves its own better-sqlite3@12 copy, which is
+// ABI-specific: a binding built for the packaging machine's Node loads nowhere
+// under the bundled runtime, and the breakage is invisible because the window
+// still opens. Repair the checkout (the seed generator uses the same module),
+// copy it into the payload, then fetch/verify a binding for the *bundled* Node.
+const native = ensureBetterSqliteBinding(ROOT, { log: console.log });
+if (!native.ok) fail(`better-sqlite3 is not usable: ${native.reason}`);
+const nativeApp = betterSqliteDir(APP);
+fs.mkdirSync(nativeApp, { recursive: true });
+for (const part of ["lib", "build"]) {
+  fs.cpSync(path.join(betterSqliteDir(ROOT), part), path.join(nativeApp, part), { recursive: true });
+}
+fs.copyFileSync(
+  path.join(betterSqliteDir(ROOT), "package.json"),
+  path.join(nativeApp, "package.json")
+);
+console.log("  copy better-sqlite3 runtime + native binding");
+const runtimeSqlite = ensureRuntimeSqlite(nativeApp, RUNTIME_NODE, { log: console.log });
+if (!runtimeSqlite.ok) {
+  fail(
+    `Packaged better-sqlite3 does not load under the bundled runtime (${runtimeSqlite.reason}). ` +
+      `The installer would ship an app that cannot open its database.`
+  );
+}
+console.log(`  verified: opens a database under the bundled runtime (${nodeVersionOf(RUNTIME_NODE)})`);
 
 // 2. The application root the runtime resolves against.
 copyTree(path.join(ROOT, "python"), path.join(APP, "python"), "python/");
@@ -405,17 +445,10 @@ buildPacks();
 fs.rmSync(path.join(APP, ".black-eclipse"), { recursive: true, force: true });
 console.log("  cleared app/.black-eclipse (runtime state)");
 
-// 6. Runtime + shell.
-fs.mkdirSync(path.join(OUT, "runtime"), { recursive: true });
-// Platform-correct Node: an archive from nodejs.org, not the build machine's
-// binary. `--from-system` is a local shortcut for same-platform builds.
-ensureNode(path.join(OUT, "runtime"), { fromSystem: process.argv.includes("--from-system") });
-console.log(`  runtime/node${process.platform === "win32" ? ".exe" : ""}`);
-
-// 6b. Give the two runtime executables inside the install OUR identity. Windows
-// takes each process's Task Manager icon and display name from the executable it
-// runs, so an unbranded install shows "Node.js JavaScript Runtime" and "Python"
-// next to the app. Cosmetics only — the binaries behave identically.
+// 6. Shell + runtime branding. Windows takes each process's Task Manager icon
+// and display name from the executable it runs, so an unbranded install shows
+// "Node.js JavaScript Runtime" and "Python" next to the app. Cosmetics only —
+// the binaries behave identically. (The runtime itself was installed in step 0.)
 const { brandPackagedRuntime } = require("./brand-runtime");
 brandPackagedRuntime(OUT);
 

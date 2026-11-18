@@ -7,8 +7,8 @@
 //
 //   node scripts/desktop-smoke.js --bin "<path to Black Eclipse binary>"
 //
-// Exit 0 only when the server answered. Anything else is a failure with the
-// first useful lines of the log.
+// Exit 0 only when the server answered AND answered a database-backed request.
+// Anything else is a failure with the first useful lines of the log.
 
 const fs = require("fs");
 const os = require("os");
@@ -45,6 +45,28 @@ async function probe() {
     return res.status;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Prove the payload can actually read its database. A release whose native
+ * binding is missing still answers `/`, so only a DB-backed route catches it —
+ * which is how a build shipped an installer that could never finish onboarding.
+ *
+ * `/api/alerts` is a plain table read: 200 with an empty list on a fresh
+ * install, 500 when the binding is gone. `/api/setup` is NOT usable here: with
+ * no database yet it answers 200 from defaults without ever touching SQLite.
+ */
+async function probeDb() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/alerts`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.status === 200
+      ? { ok: true }
+      : { ok: false, why: `HTTP ${res.status} from /api/alerts` };
+  } catch (err) {
+    return { ok: false, why: String((err && err.message) || err) };
   }
 }
 
@@ -104,6 +126,18 @@ function killTree(pid) {
     if (child.exitCode !== null) break;
   }
 
+  // Once the page serves, prove the database behind it is readable. 30s covers
+  // first-run schema creation on a cold runner.
+  let db = null;
+  if (answered !== null) {
+    const dbStart = Date.now();
+    while (Date.now() - dbStart < 30_000) {
+      db = await probeDb();
+      if (db.ok) break;
+      await sleep(1000);
+    }
+  }
+
   const elapsed = Math.round((Date.now() - started) / 1000);
   killTree(child.pid);
   await sleep(500);
@@ -142,7 +176,18 @@ function killTree(pid) {
     process.exit(1);
   }
 
+  if (!db || !db.ok) {
+    console.error(`[smoke] FAIL — the app served but could not read its database (${db && db.why})`);
+    console.error("[smoke] the payload is missing a loadable SQLite binding for its bundled Node runtime.");
+    if (interesting.length) {
+      console.error("[smoke] captured output:");
+      for (const line of interesting) console.error(`  ${line}`);
+    }
+    process.exit(1);
+  }
+
   console.log(`[smoke] PASS — HTTP ${answered} after ${elapsed}s`);
+  console.log("[smoke] PASS — database readable via /api/alerts");
   if (interesting.length) {
     for (const line of interesting.slice(-4)) console.log(`  ${line}`);
   }

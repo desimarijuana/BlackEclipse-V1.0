@@ -33,8 +33,10 @@ for (const base of [
   } catch {}
 }
 if (!Database) {
+  // exit 2 = environment problem, never corruption: the caller must not treat a
+  // missing install component as a damaged database.
   console.error("[db-guard] better-sqlite3 not found — run `npm install` first.");
-  process.exit(1);
+  process.exit(2);
 }
 
 const root = path.join(__dirname, "..");
@@ -113,14 +115,42 @@ function backup() {
   log(`backed up → ${path.relative(root, file)} (rolling ${ROLLING_BACKUPS})`);
 }
 
+/**
+ * Real b-tree corruption, as opposed to an environment problem (the native
+ * binding missing, the file locked by another process). Only the former may be
+ * repaired — rebuilding on the latter would replace healthy data with an empty
+ * schema or a stale backup.
+ */
+function isCorruption(e) {
+  const code = String((e && e.code) || "");
+  const text = String((e && e.message) || e);
+  return code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB" || /malformed|not a database/i.test(text);
+}
+
 /** Is the live DB currently healthy (opens + quick_check ok)? */
 function isHealthy() {
   let db;
   try {
-    db = open(true);
+    // Read-write on purpose: a hot journal left by a crash is rolled back on
+    // open, whereas a read-only open reports SQLITE_READONLY_ROLLBACK and would
+    // look like corruption.
+    db = open();
     return quickCheck(db).length === 0;
   } catch {
     return false;
+  } finally {
+    if (db) db.close();
+  }
+}
+
+/** True only when the database is provably corrupt (not merely locked/unopenable). */
+function isCorruptFile() {
+  let db;
+  try {
+    db = open(true);
+    return quickCheck(db).length > 0;
+  } catch (e) {
+    return isCorruption(e);
   } finally {
     if (db) db.close();
   }
@@ -235,6 +265,13 @@ function main() {
       return;
     } catch (e) {
       log(`open failed: ${e.message}`);
+      // A missing native binding, a lock held by another process, or any other
+      // environment problem is not corruption. Rebuilding here would destroy the
+      // user's data over a packaging bug — exit 2 and leave the file alone.
+      if (!isCorruption(e)) {
+        log("not repairing — the database could not be inspected, so its data is untouched");
+        process.exit(2);
+      }
       if (repair()) {
         log("database repaired ✓");
         process.exit(0);
@@ -269,6 +306,10 @@ function main() {
     if (isHealthy()) {
       log("database already healthy — nothing to repair");
       process.exit(0);
+    }
+    if (!isCorruptFile()) {
+      log("cannot prove corruption (locked or unreadable, not damaged) — refusing to rebuild");
+      process.exit(2);
     }
     log("corruption detected at runtime — repairing...");
     if (repair()) {

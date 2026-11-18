@@ -715,12 +715,13 @@ function runDbGuardInBackground() {
     child.on("close", (code) => {
       log(`db-guard finished (exit ${code})`);
       try {
+        fs.mkdirSync(RUNTIME_DIR, { recursive: true });
         if (code === 0) {
-          fs.mkdirSync(RUNTIME_DIR, { recursive: true });
           fs.writeFileSync(GUARD_STAMP, new Date().toISOString());
-          if (fs.existsSync(GUARD_FAILED)) fs.unlinkSync(GUARD_FAILED);
+          clearGuardFailure();
         } else {
-          fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+          // Recorded so the next launch re-checks before serving a suspect
+          // database. `recheckGuard` keeps that from becoming a dead end.
           fs.writeFileSync(GUARD_FAILED, `exit ${code} at ${new Date().toISOString()}`);
         }
       } catch {}
@@ -736,6 +737,60 @@ function previousGuardFailed() {
   } catch {
     return null;
   }
+}
+
+function clearGuardFailure() {
+  try {
+    fs.unlinkSync(GUARD_FAILED);
+  } catch {}
+}
+
+/**
+ * Re-run the guard for a stored failure instead of trusting the marker forever.
+ * The marker used to be a one-way door: written when the install could not load
+ * its SQLite binding, it blocked every later launch, so retrying could never
+ * succeed and only deleting a file by hand recovered the app.
+ */
+function recheckGuard() {
+  log("a previous database check failed — re-checking before starting");
+  try {
+    const r = spawnSync(process.execPath, [path.join(__dirname, "db-guard.js")], {
+      cwd: ROOT,
+      env: process.env,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 60_000,
+    });
+    const out = `${r.stdout || ""}${r.stderr || ""}`.trim();
+    if (out) log(out);
+    if (r.status !== 0) return false;
+    clearGuardFailure();
+    log("database check passes now — continuing");
+    return true;
+  } catch (err) {
+    log(`database check could not run: ${err && err.message}`);
+    return false;
+  }
+}
+
+function guardFailureMessage(failed) {
+  const code = /exit\s+(\d+)/.exec(failed || "");
+  // exit 2 is db-guard saying "I could not inspect the file" (missing native
+  // binding, locked or unreadable), which is an install/environment problem —
+  // not the corruption advice that only fits a failed quick_check.
+  if (code && code[1] === "2") {
+    return (
+      `Black Eclipse could not open its database (${failed}). Your data has not been touched. ` +
+      `Close any other Black Eclipse window and try again; if this keeps happening, reinstall — ` +
+      `the app's SQLite component is missing from this installation.`
+    );
+  }
+  const backups = path.join(path.dirname(RUNTIME_DIR), "backups");
+  return (
+    `The database integrity check failed (${failed}) and the database is still unreadable. ` +
+    `Your data has not been touched. A backup may be in ${backups} — with Black Eclipse ` +
+    `closed, copy one over jdds.db in that folder, or reinstall.`
+  );
 }
 
 /* -------------------------------------------------------------- the server */
@@ -975,12 +1030,8 @@ async function main() {
   }
 
   const failed = previousGuardFailed();
-  if (failed) {
-    marker(
-      "ERROR",
-      `The last database integrity check failed (${failed}). Your data has not been touched. ` +
-        `Backups are in Black-Eclipse-site/backups/ — restore one, or re-run \`npm run doctor\`.`
-    );
+  if (failed && !recheckGuard()) {
+    marker("ERROR", guardFailureMessage(failed));
     process.exitCode = 6;
     return;
   }

@@ -138,6 +138,43 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   deterministic. Verified: 34 passed, three consecutive runs.
   Doc change: `docs/CHANGELOG.md`.
 
+- **fix(desktop): v0.4.4 restores the SQLite binding guard that v0.4.3 shipped
+  without, and makes a failed database check impossible to get stuck on.** v0.4.3
+  was cut from `main`, which never received v0.4.2's packaging fix: `scripts/lib/native-modules.js`
+  and the `desktop-package`/`desktop-installer`/`desktop-bundle` probes were absent
+  from that tree, so the release went out with Prisma's nested `better-sqlite3@12`
+  copy and no loadable binding for the bundled runtime. Every query then failed,
+  `db-guard` threw "Could not locate the bindings file", classified it as
+  corruption, wrote `<data>/.runtime/db-guard.failed`, and every later launch
+  short-circuited with "The server stopped before the app was ready" — a dead end,
+  because the marker was only cleared by the successful guard run it was blocking.
+  Fixes: the binding guard is restored, and it now probes under the payload's
+  *bundled* Node (`ensureRuntimeSqlite` fetches the prebuilt for that ABI) instead
+  of the build machine's, so a version skew between CI and the shipped runtime
+  cannot silently produce an unloadable binary; `db-guard.js` exits **2**
+  (environment) rather than **1** (corruption) when it cannot inspect the file, so
+  a missing binding or a lock can no longer trigger a rebuild that replaces
+  healthy data, and it opens read-write so a hot journal rolls back instead of
+  reading as corrupt; `desktop-server.js` re-runs the guard for a stored failure
+  and clears it on success, and names the real backups directory instead of
+  `Black-Eclipse-site/backups/` plus `npm run doctor`, neither of which exists in
+  an install. The release smoke test — which runs the packaged binary in CI and
+  previously asserted only that `/` answered, so an unusable binding passed the
+  gate and published — now also requires `/api/alerts` to answer 200 (a plain
+  table read: 200 with an empty list on a fresh install, 500 without the binding).
+  `/api/setup` is deliberately not the probe: with no database yet it returns 200
+  from defaults without ever touching SQLite.
+  Test: `src/lib/desktop/db-guard.test.ts` pins "missing binding ⇒ exit 2, never
+  corruption". Verified on a real 0.4.3 install: the guard reports healthy and the
+  app boots with the user's data intact; the `/api/alerts` gate was verified to
+  return 200 on a healthy payload and 500 with the binding removed.
+  Version bumped to 0.4.4 in `package.json`, `package-lock.json` and
+  `pyproject.toml`. Note for support: an already-installed broken build cannot
+  self-update (it cannot start), so affected users must reinstall; their data
+  lives in the platform data directory and survives.
+  Doc change: `desktop/README.md` (Database guard section: exit-code contract,
+  the runtime-ABI packaging invariant and the release smoke gate).
+
 
 ## 2026-11-17
 

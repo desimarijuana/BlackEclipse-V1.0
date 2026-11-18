@@ -20,6 +20,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { betterSqliteDir, canLoadBetterSqlite } = require("./lib/native-modules");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -233,6 +234,24 @@ function buildMac() {
 
 if (!fs.existsSync(APP_ROOT)) {
   console.error("[bundle] No packaged app. Run `npm run desktop:package` first.");
+  process.exit(1);
+}
+
+// A payload without Prisma's nested better-sqlite3 binary still boots and serves
+// HTTP; only this probe catches the broken onboarding database before a .dmg or
+// .deb is produced. Probe with the payload's *bundled* Node, not the machine
+// running the bundler: the binding is ABI-specific and only the shipped runtime
+// decides whether it loads.
+if (
+  !canLoadBetterSqlite(
+    path.join(APP_ROOT, "runtime", process.platform === "win32" ? "node.exe" : "node"),
+    betterSqliteDir(path.join(APP_ROOT, "app"))
+  )
+) {
+  console.error(
+    "[bundle] The packaged app cannot open its SQLite database under its bundled Node runtime.\n" +
+      "Re-run `npm run desktop:package` before bundling."
+  );
   process.exit(1);
 }
 

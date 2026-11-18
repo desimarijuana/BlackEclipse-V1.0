@@ -71,6 +71,35 @@ window shows instantly (bundled splash, no network)
       │                             http://127.0.0.1:3100/
 ```
 
+### Database guard (why a failed check can never brick the app)
+
+`scripts/desktop-server.js` runs `scripts/db-guard.js` in the background after
+first paint and records a non-zero exit in `<data>/.runtime/db-guard.failed`. That
+marker is **re-checked on the next launch**, not trusted forever: the guard runs
+again and a pass clears it. A stored failure must never be a one-way door — a
+marker written when the install simply could not load its SQLite binding once
+blocked every later launch, so retrying could never succeed.
+
+Two contracts keep that safe:
+
+- **Exit codes.** `0` healthy · `1` corrupt (may rebuild from a rolling backup,
+  the seed, or an empty schema) · `2` "could not inspect the file" (missing
+  native binding, locked or unreadable). Only proven corruption may rebuild;
+  treating a load failure as corruption would replace healthy user data with an
+  empty schema.
+- **Probe native modules with the bundled runtime.** The payload ships
+  `runtime/node` (pinned) while the build machine may run a different Node, and
+  `better-sqlite3@12` is ABI-specific — a binding built for the builder loads
+  nowhere in the install. `scripts/desktop-package.js` therefore resolves the
+  runtime first, fetches the matching prebuilt into the payload, and proves it
+  loads under *that* binary; `scripts/desktop-installer.js` and
+  `scripts/desktop-bundle.js` repeat the probe. Probing with `process.execPath`
+  passes locally and ships an app that cannot open its database.
+- **The release smoke test reads the database.** `scripts/desktop-smoke.js` runs
+  the packaged binary in CI and requires `/api/alerts` to answer 200 — not just
+  that `/` renders. A payload with no usable binding serves the page and 500s
+  every query, so a page check alone proves nothing.
+
 ### Build isolation (why an update can no longer break the window)
 
 `.next` is mutable: `next build` deletes and rewrites it in place. Serving it
