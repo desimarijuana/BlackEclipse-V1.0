@@ -14,7 +14,9 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   copies it into the payload and proves it opens a database; the installer and
   bundle steps run the same probe so no `.exe`, `.dmg` or `.deb` can ship the
   broken binding. Version bumped in `package.json`, `package-lock.json` and
-  `pyproject.toml`; download links stay on the `latest` release.
+  `pyproject.toml`; download links stay on the `latest` release. The harness
+  size budget is re-pinned to the measured 521081 lines (+6 from the merged
+  updates-resilience work) so the release gate is green.
   Doc change: `README.md`, `docs/CHANGELOG.md`.
 
 - **test(trading): demo soak closed at 156 minutes — properties proven, 48–72 h
