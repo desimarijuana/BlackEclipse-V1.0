@@ -212,6 +212,21 @@ async def test_no_signal_is_a_completed_decision():
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_a_failed_signal_explains_itself_in_the_decision():
+    """A blocked signal must not collapse into a bare 'no actionable signal'."""
+    live = FakeLive()
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("no 1d data for EURUSD")
+
+    live.signal = boom
+    result = await run(_definition(), live=live)
+    reason = result.detail["decision"]["reason"]
+    assert "no actionable signal" in reason
+    assert "EURUSD: signal failed: no 1d data for EURUSD" in reason
+
+
 async def test_shadow_records_a_preview_and_never_calls_the_broker_path():
     live = FakeLive(signals={
         "EURUSD": {"symbol": "EURUSD", "signal": "long_entry",

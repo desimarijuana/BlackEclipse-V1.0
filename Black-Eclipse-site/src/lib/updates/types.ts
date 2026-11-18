@@ -46,6 +46,8 @@ export type UpdateJobPhase =
   | "installing"
   | "building"
   | "promoting"
+  /** The runner closed the app so it could replace its native dependencies. */
+  | "stopping"
   | "ready"
   | "failed";
 

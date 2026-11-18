@@ -212,6 +212,24 @@ Leave one demo bot active with the 60 s schedule, then measure:
 - no breaker trip for expected refusals;
 - P&L recorded but **not** used as a pass/fail signal.
 
+**Run so far (2026-11-18, isolated).** The shared app is killed every few minutes,
+so the soak runs on its own: a `VACUUM INTO` copy of the bot state
+(`.black-eclipse/soak-iso/agent-memory.db`), harness port **8799**, its own
+`BE_DATA_DIR`, a supervisor that restarts it, and an MT5 watchdog.
+
+```
+window   03:02:59Z → 05:01:07Z
+fires    119 (one per 60 s), 119 distinct minutes, 0 duplicate minutes
+results  106 × BAR_ALREADY_PROCESSED + 13 no-signal (MT5 was down)
+ledger   0 new BrokerOrder rows · 0 orders · 0 new positions
+```
+
+The 13 no-signal decisions now carry the cause
+(`no actionable signal (EURUSD: signal failed: …)`) instead of a bare message.
+The supervisor has a 25 h horizon, which covers the 22:00Z daily close — the
+first fresh-bar entry lands there. A 48–72 h record still needs a host that stays
+up; this is the continuous segment this machine allows.
+
 ## 3. Acceptance criteria
 
 | Claim | Evidence required |

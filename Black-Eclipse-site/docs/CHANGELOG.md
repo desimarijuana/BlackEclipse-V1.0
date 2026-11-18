@@ -6,6 +6,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(updates): an update can no longer break the install on a locked
+  `node_modules`.** Windows keeps a loaded `.node` binary locked for the life of
+  the process that loaded it, and `npm ci` empties `node_modules` before it
+  installs, so a running app's `next-swc`/`skia` left the tree with no
+  dependencies at all. The runner now probes by rename, waits, and either stops
+  the app it owns (new `stopping` phase) or fails with the install intact; the
+  staged job is also read against the installed version so a stale job cannot
+  read as pending. The trading runner now names the first no-signal reason
+  instead of only counting symbols.
+
 - **chore(sbom): regenerate the SBOM and notices for v0.4.1.** The 0.4.1 version
   bump left `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` at 0.4.0, so
   `sbom-artifact.test.ts` failed on a clean tree. Regenerated from the lockfiles

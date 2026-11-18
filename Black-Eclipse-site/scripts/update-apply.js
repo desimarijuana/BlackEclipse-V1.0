@@ -62,6 +62,9 @@ let flushTimer = null;
 // True once the updater has actually moved to the signed tag. Distinguishes a
 // real stage from "nothing to do" exits (already current, not published).
 let applied = false;
+// True when this runner closed the app to free its native modules. The app must
+// then be reopened, whether the update succeeded or failed.
+let stoppedServer = false;
 
 function readVersion() {
   try {
@@ -110,6 +113,7 @@ const PHASES = [
   [/^\[update\] installed: v/, "verifying", "Checking the signed release…"],
   [/^\[update\] backing up jdds\.db/, "backing-up", "Backing up your database…"],
   [/^\[update\] checking out /, "checkout", "Checking out the signed release…"],
+  [/^\[update\] waiting for the native modules/, "installing", "Waiting for Eclipse to release its files…"],
   [/^\[update\] installing dependencies/, "installing", "Installing dependencies (slow)…"],
   [/^\[update\] building production bundle/, "building", "Building the new version (slow)…"],
   [/^\[update\] rolling back/, "building", "Update failed — rolling back…"],
@@ -124,7 +128,7 @@ function onLine(line) {
   for (const [pattern, phase, message] of PHASES) {
     if (pattern.test(line)) {
       // Never move backwards: a late "installed: v" line must not undo "building".
-      const order = ["starting", "verifying", "backing-up", "checkout", "installing", "building", "promoting"];
+      const order = ["starting", "stopping", "verifying", "backing-up", "checkout", "installing", "building", "promoting"];
       if (order.indexOf(phase) > order.indexOf(job.phase)) setPhase(phase, message);
       return;
     }
@@ -146,21 +150,72 @@ function finish(status, phase, message, error) {
 
 function fail(message) {
   finish("failed", "failed", message, message);
+  reviveIfStopped();
   process.exit(1);
 }
 
-/** Promote the staged build WITHOUT restarting this window. */
-function promote() {
+/**
+ * Reopen the window this runner closed. Without this a failed update would
+ * leave the user with a window whose server is gone and no way back.
+ */
+function reviveIfStopped() {
+  if (!stoppedServer) return;
+  stoppedServer = false;
+  try {
+    const { channelFor } = require("./lib/channels");
+    const { launchShell } = require("./lib/desktop-process");
+    const launched = launchShell(channelFor(desktopChannel));
+    if (launched && launched.launched) pushLog("[apply] reopened Eclipse on the current build");
+  } catch (err) {
+    pushLog(`[apply] could not reopen Eclipse: ${err && err.message ? err.message : err}`);
+  }
+}
+
+/**
+ * The running server holds `next-swc`/`skia`, so npm cannot replace them. Stop
+ * the server this install owns, but only when it is not our own ancestor: the
+ * HTTP fallback is spawned FROM that server, and killing it would kill us.
+ */
+function closeRunningApp() {
+  try {
+    const { channelFor } = require("./lib/channels");
+    const { readOwner, stopOwnedServer } = require("./lib/desktop-process");
+    const { lockedNativeModules, waitForNativeUnlock, isAncestorOf } = require("./lib/update-locks");
+    if (!lockedNativeModules(ROOT).length) return false;
+
+    const target = channelFor(desktopChannel);
+    const owner = readOwner(target);
+    if (!owner) {
+      pushLog("[apply] dependencies are held by a process this install does not own");
+      return false;
+    }
+    if (isAncestorOf(owner.pid, process.pid)) {
+      pushLog("[apply] the running server started this updater; it must be closed by hand");
+      return false;
+    }
+
+    setPhase("stopping", "Closing Eclipse so its files can be replaced…");
+    pushLog("[apply] closing the running server so npm can replace its native modules");
+    stopOwnedServer(target);
+    if (!waitForNativeUnlock(ROOT, 60000)) {
+      pushLog("[apply] the native modules are still locked");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    pushLog(`[apply] could not close the running server: ${err && err.message ? err.message : err}`);
+    return false;
+  }
+}
+
+/** Promote the staged build, restarting the window when this runner closed it. */
+function promote(restart) {
   setPhase("promoting", "Publishing the new build…");
+  const args = ["--no-build", "--channel", desktopChannel];
+  if (!restart) args.push("--no-restart");
   const result = spawnSync(
     process.execPath,
-    [
-      path.join(ROOT, "scripts", "desktop-refresh.js"),
-      "--no-build",
-      "--no-restart",
-      "--channel",
-      desktopChannel,
-    ],
+    [path.join(ROOT, "scripts", "desktop-refresh.js"), ...args],
     { cwd: ROOT, encoding: "utf8", windowsHide: true, env: process.env },
   );
   for (const line of `${result.stdout || ""}\n${result.stderr || ""}`.split(/\r?\n/)) {
@@ -176,9 +231,29 @@ function promote() {
   return true;
 }
 
-function main() {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function main() {
   flush();
   pushLog(`[apply] staging ${channel} update (job ${JOB_ID})`);
+
+  // If the app is holding its own native modules, it has to close before npm
+  // can replace them. Give the window a moment to pick up this job first, so
+  // the UI can say what is happening instead of silently losing its server.
+  const { lockedNativeModules } = require("./lib/update-locks");
+  if (lockedNativeModules(ROOT).length) {
+    await sleep(2500);
+    stoppedServer = closeRunningApp();
+    if (!stoppedServer && lockedNativeModules(ROOT).length) {
+      fail(
+        "Eclipse is running and is using its own dependencies, so they cannot be replaced. " +
+          "Quit Eclipse, then run `black update` in a terminal. Nothing was changed.",
+      );
+      return;
+    }
+  }
 
   const child = spawn(
     process.execPath,
@@ -216,9 +291,12 @@ function main() {
           `Nothing to install — Eclipse is already on v${version}.`,
           null,
         );
+        reviveIfStopped();
         return;
       }
-      if (!promote()) return;
+      if (!promote(stoppedServer)) return;
+      // The promote relaunched the window on the new build.
+      stoppedServer = false;
       finish(
         "ready",
         "ready",
@@ -233,4 +311,6 @@ function main() {
   });
 }
 
-main();
+main().catch((err) => {
+  fail(err && err.message ? err.message : String(err));
+});

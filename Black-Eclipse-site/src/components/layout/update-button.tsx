@@ -46,6 +46,7 @@ const PHASE_PERCENT: Record<UpdateJobPhase, number> = {
   installing: 52,
   building: 74,
   promoting: 90,
+  stopping: 60,
   ready: 100,
   failed: 100,
 };
