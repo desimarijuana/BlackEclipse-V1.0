@@ -227,8 +227,13 @@ def test_watcher_detects_create_modify_delete_rename(tmp_path):
     target.write_text("one\n", encoding="utf-8")
     events = watcher.poll_once()
     assert any(e.event == "created" and e.path == "src/new.txt" for e in events)
-    target.write_text("two\n", encoding="utf-8")
-    os.utime(target, None)
+    # A modification must be visible to a snapshot diff: give it BOTH a different
+    # length and a strictly newer mtime. Writing the same-size content back to back
+    # is invisible on filesystems with coarse timestamp resolution (the watcher
+    # polls mtime+size), which made this test fail intermittently on the runner.
+    target.write_text("two, longer\n", encoding="utf-8")
+    stat = target.stat()
+    os.utime(target, (stat.st_atime, stat.st_mtime + 2))
     assert any(e.event == "modified" for e in watcher.poll_once())
     target.rename(root / "src" / "renamed.txt")
     renamed = watcher.poll_once()

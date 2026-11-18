@@ -4,6 +4,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 — one file per month. This file keeps the newest seven dated sections;
 `npm run rotate:changelog -- --write` performs the move.
 
+## 2026-11-18
+
+- **fix(test): the watcher test was time-dependent, not broken.** The test wrote
+  `two\n` over `one\n` — the same length — and then called `os.utime(target,
+  None)`, which can land on the same timestamp on a filesystem with coarse mtime
+  resolution. The watcher diffs mtime+size, so the "modified" event was simply
+  invisible and the assertion failed intermittently (it passed on the branch and
+  failed on the merged `main` with identical code). The fixture now writes
+  different-length content AND sets a strictly newer mtime, so the event is
+  deterministic. Verified: 34 passed, three consecutive runs.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 ## 2026-11-17
 
 - **chore(legal): adopt a CLA and publish a trademark notice.** Added root
