@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **chore(size): re-pin for the alternative-intelligence signal engine.** The new
+  `python/harness/intel/` package (engine, sec, attention, service, contracts)
+  moved the harness to 520,773 lines and the `python/harness/.` seam to 40,239.
+  Re-pinned from a clean clone of the release tree, as the ratchet requires;
+  verified `Size budget passed` there. Doc change: `docs/CHANGELOG.md`.
+
+
 - **fix(ci): the last four Windows-suite causes.** (1) `scikit-learn` was never
   declared, so `lightgbm.sklearn` failed with "scikit-learn is required" - now in
   `requirements.txt` and locked (1.9.1). (2) The `python` job had no
