@@ -34,6 +34,7 @@ import {
   pageStorageKey,
 } from '@/lib/ui-engineering/live-page';
 import { setUiFocus } from '@/lib/ui-engineering/ui-focus';
+import { isSetupOverlayOpen, subscribeSetupOverlay } from '@/lib/setup/overlay';
 import { eclipseSdk } from '@/lib/sdk';
 
 /** The page requested by `?tab=pages&page=<id|path>` (SDK/sidebar deep link). */
@@ -179,21 +180,45 @@ export function PagesScreen() {
     const startFallback = () => {
       if (!fallback) fallback = setInterval(() => void check(), 60_000);
     };
-    try {
-      source = new EventSource('/api/ui/stream');
-      source.addEventListener('changed', () => void check());
-      source.addEventListener('error', () => {
-        // Browser will auto-reconnect; add a poll as a safety net meanwhile.
+    // Closed while the setup wizard is overlaid so it cannot hold one of the
+    // browser's six per-origin connections against the wizard's save.
+    const connect = () => {
+      if (source || isSetupOverlayOpen()) return;
+      try {
+        source = new EventSource('/api/ui/stream');
+        source.addEventListener('changed', () => void check());
+        source.addEventListener('error', () => {
+          // Browser will auto-reconnect; add a poll as a safety net meanwhile.
+          startFallback();
+        });
+      } catch {
+        source = null;
         startFallback();
-      });
-    } catch {
-      startFallback();
-    }
+      }
+    };
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+    connect();
+    const unsubscribeOverlay = subscribeSetupOverlay((open) => {
+      if (open) {
+        disconnect();
+        if (fallback) {
+          clearInterval(fallback);
+          fallback = null;
+        }
+      } else {
+        connect();
+        void check();
+      }
+    });
 
     return () => {
       cancelled = true;
       window.removeEventListener('focus', check);
-      source?.close();
+      unsubscribeOverlay();
+      disconnect();
       if (fallback) clearInterval(fallback);
     };
   }, [selectedId, blueprint, openPage]);

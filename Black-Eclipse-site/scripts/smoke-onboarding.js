@@ -6,8 +6,13 @@
  *   SMOKE_URL=http://127.0.0.1:3101 npm run smoke:onboarding
  *
  * It opens ?setup=1, verifies the gate appears even after the app rewrites the
- * URL, then walks all five steps. It does NOT click Finish, so it cannot change
- * the configured instance.
+ * URL, then walks all five steps. By default it does NOT click Finish, so it
+ * cannot change the configured instance.
+ *
+ *   SMOKE_FINISH=1 npm run smoke:onboarding
+ * clicks Finish and asserts the app actually mounts. Only run it against a
+ * throwaway data directory (`BE_DATA_DIR`), because finishing setup writes the
+ * completion flag, the risk acknowledgement and the source preferences.
  */
 "use strict";
 
@@ -15,6 +20,7 @@ const { chromium } = require("playwright");
 const { STABLE } = require("./lib/channels");
 
 const BASE = (process.env.SMOKE_URL || `http://127.0.0.1:${STABLE.appPort}`).replace(/\/$/, "");
+const FINISH = process.env.SMOKE_FINISH === "1";
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -57,6 +63,18 @@ const BASE = (process.env.SMOKE_URL || `http://127.0.0.1:${STABLE.appPort}`).rep
 
   const setupVisible = await page.evaluate(() => document.body.innerText.includes("Confirm what will work before you start"));
   if (!setupVisible) throw new Error("Review step did not render");
+
+  if (FINISH) {
+    const started = Date.now();
+    await dialog.getByRole("button", { name: /Finish setup/i }).click();
+    // The wizard reloads `/` on finish, so wait on the app shell itself (a
+    // locator survives the navigation; page.evaluate does not).
+    await page.getByText("CHAT HISTORY").first().waitFor({ state: "visible", timeout: 120_000 });
+    await dialog.waitFor({ state: "detached", timeout: 60_000 });
+    console.log(`[smoke] finish -> app in ${Date.now() - started} ms`);
+    console.log("[smoke] setup completed; the app mounted");
+  }
+
   if (errors.length > 0) {
     throw new Error(`Console/page errors:\n${errors.slice(0, 5).join("\n")}`);
   }

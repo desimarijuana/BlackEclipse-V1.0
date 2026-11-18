@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
 import { AgentationMount } from "@/components/layout/agentation-mount";
 import { ThemeHydrator } from "@/components/layout/theme-hydrator";
 import { GlobalLoader } from "@/components/ui/global-loader";
+import { AppActivity } from "@/components/layout/app-activity";
 import { OnboardingGate } from "@/components/setup/onboarding-gate";
+import { onboardingGateState } from "@/lib/setup/gate";
 import { RiskAckGate } from "@/components/legal/risk-ack-gate";
 import { GlobalSearchMount } from "@/components/layout/global-search-mount";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
@@ -43,7 +45,12 @@ export const metadata: Metadata = {
   icons: { icon: '/branding/FAVICON.svg' },
 };
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default async function RootLayout({children}: {children: React.ReactNode}) {
+  // Server-side, per request: withhold every app-wide poller/stream/update
+  // check while a first-run wizard owns the screen (see AppActivity). Doing it
+  // here rather than from a client flag keeps SSR and hydration identical.
+  const setupPending = (await onboardingGateState()) === "incomplete";
+
   return (
     <html lang="en" suppressHydrationWarning className={cn("dark", "font-sans")}>
       <body suppressHydrationWarning>
@@ -75,28 +82,33 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           }}
         />
         <ThemeHydrator />
-        <GlobalLoader />
-        <OnboardingGate />
-        <RiskAckGate />
+        {/* Everything that polls, streams or checks for updates is held back
+         * while a first-run wizard owns the screen; it has nothing to show and
+         * would compete with the wizard's save for the browser's connections. */}
+        <AppActivity pending={setupPending}>
+          <GlobalLoader />
+          <RiskAckGate />
+          <AgentationMount />
+          <GlobalSearchMount />
+          <KeyboardShortcuts />
+          <TerminalKeybind />
+          <WorkspaceKeybind />
+          <SoundProvider />
+          <TtsProvider />
+          <AlertNotificationProvider />
+          <ConfirmDialogHost />
+          <TaskCompletionWatcher />
+          <BotsRunWatcher />
+          <ChannelActivityWatcher />
+          <NewsAlertWatcher />
+          <BrowserTabIndicator />
+          <DesktopTaskbarBadge />
+          <UpdateBanner />
+          <DesktopSession />
+          <DesktopShellGuards />
+        </AppActivity>
+        <OnboardingGate setupPending={setupPending} />
         {children}
-        <AgentationMount />
-        <GlobalSearchMount />
-        <KeyboardShortcuts />
-        <TerminalKeybind />
-        <WorkspaceKeybind />
-        <SoundProvider />
-        <TtsProvider />
-        <AlertNotificationProvider />
-        <ConfirmDialogHost />
-        <TaskCompletionWatcher />
-        <BotsRunWatcher />
-        <ChannelActivityWatcher />
-        <NewsAlertWatcher />
-        <BrowserTabIndicator />
-        <DesktopTaskbarBadge />
-        <UpdateBanner />
-        <DesktopSession />
-        <DesktopShellGuards />
       </body>
     </html>
   );

@@ -39,6 +39,49 @@ import {
 export const ONBOARDING_CONFIG_KEY = "onboarding_v1";
 export const SOURCE_PREFS_CONFIG_KEY = "data_source_prefs_v1";
 
+/** Errors that mean "another writer holds the lock for a moment". */
+const BUSY_PATTERN = /SQLITE_BUSY|database is locked|SQLITE_LOCKED|P2010|P1008|timed out/i;
+
+export function isDatabaseBusyError(err: unknown): boolean {
+  const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  return BUSY_PATTERN.test(text);
+}
+
+/**
+ * Turn a low-level write failure into something a person can act on. The
+ * setup screen shows exactly this string, so it must never be a Prisma code.
+ */
+export function describeSetupWriteError(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err ?? "");
+  if (/SQLITE_BUSY|database is locked|SQLITE_LOCKED|P2010|P1008|timed out/i.test(text)) {
+    return "Eclipse could not write its settings because the local database was busy. Close any other Eclipse window, then press Finish setup to try again.";
+  }
+  if (/SQLITE_READONLY|readonly database|EPERM|EACCES|access is denied|permission denied/i.test(text)) {
+    return "Eclipse could not write to its data folder. Check that the folder is writable, then press Finish setup to try again.";
+  }
+  return text || "Could not save setup";
+}
+
+/**
+ * Retry an idempotent write a few times when the database is momentarily busy.
+ * Everything setup persists is an upsert keyed by `SystemConfig.key`, so a
+ * retry cannot duplicate or reorder anything.
+ */
+async function withBusyRetry<T>(label: string, work: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await work();
+    } catch (err) {
+      lastError = err;
+      if (!isDatabaseBusyError(err) || attempt === 2) throw err;
+      console.warn(`[setup] ${label}: database busy — retrying (${attempt + 1}/3)`);
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 function parseJSON<T>(raw: string | null): T | null {
   if (!raw) return null;
   try {
@@ -183,16 +226,26 @@ export async function completeOnboarding(input: SetupCompleteInput): Promise<{
   if (input.riskAckVersion !== RISK_DISCLOSURE_VERSION) {
     throw new Error("Please acknowledge the current risk notice before finishing setup.");
   }
-  await recordRiskAcknowledgement(input.mode);
 
-  const prefs = await writeSourcePreferences({
-    mode: input.mode,
-    sources: input.sources,
-    acceptedRestrictedSources: input.acceptedRestrictedSources,
-  });
-  const onboarding = await markOnboardingComplete(input.mode, {
-    aiSkipped: input.ai?.kind === "skip",
-  });
+  // Finishing setup is three small writes. On a first run they can briefly
+  // collide with the boot-time integrity check (or a leftover Eclipse process)
+  // and surface as SQLITE_BUSY, which used to fail the whole finish with a
+  // database error. Retrying a settle-safe upsert is correct: all three writes
+  // are idempotent, so a retry can never duplicate or corrupt anything.
+  await withBusyRetry("risk acknowledgement", () => recordRiskAcknowledgement(input.mode));
+
+  const prefs = await withBusyRetry("source preferences", () =>
+    writeSourcePreferences({
+      mode: input.mode,
+      sources: input.sources,
+      acceptedRestrictedSources: input.acceptedRestrictedSources,
+    }),
+  );
+  const onboarding = await withBusyRetry("onboarding flag", () =>
+    markOnboardingComplete(input.mode, {
+      aiSkipped: input.ai?.kind === "skip",
+    }),
+  );
   return { onboarding, prefs };
 }
 

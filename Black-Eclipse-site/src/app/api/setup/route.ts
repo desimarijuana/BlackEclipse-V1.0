@@ -13,6 +13,7 @@ import { bundleNeedsAcknowledgement } from "@/lib/setup/bundles";
 import { computeCapabilityStatus } from "@/lib/setup/capability-status";
 import {
   completeOnboarding,
+  describeSetupWriteError,
   getAiStatus,
   readOnboardingState,
   readSourcePreferences,
@@ -276,7 +277,20 @@ export async function POST(request: Request) {
       );
     }
 
-    await applyAi(ai);
+    // The optional AI/key step must not be able to block the setup itself.
+    // A key vault or provider write can fail (an unwritable key file, local-only
+    // privacy mode, a refused provider), and when it did, NOTHING was recorded:
+    // the wizard came back on the next launch with no explanation. Record the
+    // setup first, then report the AI failure as a warning the client shows on
+    // the Review step — the user can go back and fix it, or continue with chat
+    // unconfigured (the app already says so honestly).
+    let aiWarning: string | null = null;
+    try {
+      await applyAi(ai);
+    } catch (err) {
+      aiWarning = err instanceof Error ? err.message : "The AI provider could not be saved";
+      console.error("[api/setup] AI step failed; completing setup anyway:", err);
+    }
 
     const result = await completeOnboarding({
       mode,
@@ -294,11 +308,12 @@ export async function POST(request: Request) {
       completed: true,
       mode: result.prefs.mode,
       prefs: result.prefs satisfies SourcePrefs,
+      ...(aiWarning ? { warning: aiWarning } : {}),
     });
   } catch (err) {
     console.error("[api/setup] POST error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to save setup" },
+      { error: describeSetupWriteError(err) },
       { status: 400 },
     );
   }

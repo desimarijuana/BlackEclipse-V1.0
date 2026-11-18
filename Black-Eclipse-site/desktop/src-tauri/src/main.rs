@@ -472,12 +472,25 @@ fn maybe_show_first_run_notice(app: &AppHandle, data_dir: &std::path::Path) {
     };
     let shown = serde_json::to_string(&data_dir.to_string_lossy().to_string())
         .unwrap_or_else(|_| "\"\"".to_string());
+    // Placement and timing are deliberate:
+    //   * TOP-right, never bottom-right: the setup wizard's primary
+    //     ("Finish setup") lives in the bottom-right of its card and this card
+    //     used to sit directly on top of it, swallowing the click.
+    //   * Never shown while the setup wizard is on screen: a first run has not
+    //     reached the data story yet, and it must stay the only thing visible.
+    //     `OnboardingShell` also contains a shim for builds that predate this.
+    //   * Never intercepts pointer events; only the dismiss button is clickable.
+    //   * Shown ONCE, remembered on both sides: the legacy marker file (an
+    //     install that already saw it) and webview localStorage (written only
+    //     when the card was actually appended).
     let script = format!(
         r#"(function () {{
   if (document.getElementById('be-first-run')) return;
+  try {{ if (localStorage.getItem('be-first-run-notice') === '1') return; }} catch (e) {{}}
+  if (document.querySelector('[role="dialog"][aria-label="BlackEclipse setup"]')) return;
   var wrap = document.createElement('div');
   wrap.id = 'be-first-run';
-  wrap.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:2147483000;max-width:400px;padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(24,24,27,0.96);color:#fafafa;font-family:"Segoe UI",system-ui,sans-serif;font-size:12.5px;line-height:1.55;box-shadow:0 18px 50px -12px rgba(0,0,0,0.8)';
+  wrap.style.cssText = 'position:fixed;top:18px;right:18px;z-index:2147483000;max-width:400px;padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(24,24,27,0.96);color:#fafafa;font-family:"Segoe UI",system-ui,sans-serif;font-size:12.5px;line-height:1.55;box-shadow:0 18px 50px -12px rgba(0,0,0,0.8);pointer-events:none';
   var title = document.createElement('div');
   title.textContent = 'Where your data lives';
   title.style.cssText = 'font-weight:600;font-size:13px;margin-bottom:6px';
@@ -488,18 +501,20 @@ fn maybe_show_first_run_notice(app: &AppHandle, data_dir: &std::path::Path) {
   row.style.cssText = 'margin-top:12px;display:flex;gap:8px;justify-content:flex-end';
   var btn = document.createElement('button');
   btn.textContent = 'Got it';
-  btn.style.cssText = 'font:inherit;font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.08);color:#fafafa;cursor:pointer';
+  btn.style.cssText = 'font:inherit;font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.08);color:#fafafa;cursor:pointer;pointer-events:auto';
   btn.addEventListener('click', function () {{ wrap.remove(); }});
   row.appendChild(btn);
   wrap.appendChild(title);
   wrap.appendChild(body);
   wrap.appendChild(row);
   document.body.appendChild(wrap);
+  try {{ localStorage.setItem('be-first-run-notice', '1'); }} catch (e) {{}}
 }})();"#
     );
     let _ = win.eval(script);
-    let _ = fs::write(&marker, b"shown\n");
-    log_line("[shell] first-run data notice shown");
+    // The card may decline to appear (setup is open). Marking the file here
+    // would then lose the notice forever, so the webview records "shown".
+    log_line("[shell] first-run data notice requested");
 }
 
 fn navigate_to_app(app: &AppHandle) {

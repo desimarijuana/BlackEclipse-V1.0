@@ -30,6 +30,7 @@ import {
   stableLayoutKey,
 } from '@/lib/ui-engineering/dashboard-blueprint';
 import { loadWorkspace, saveWorkspace } from '@/lib/workspace/persistence';
+import { isSetupOverlayOpen, subscribeSetupOverlay } from '@/lib/setup/overlay';
 import type { WorkspaceLayout } from '@/lib/workspace/types';
 import { TopBar } from '@/components/layout/top-bar';
 import { PageHeader } from '@/components/layout/page-header';
@@ -209,16 +210,40 @@ export function DashboardScreen({ active = true }: { active?: boolean }) {
     const startFallback = () => {
       if (!fallback) fallback = setInterval(() => void poll(), 60_000);
     };
-    try {
-      source = new EventSource('/api/ui/stream');
-      source.addEventListener('changed', () => void poll());
-      source.addEventListener('error', startFallback);
-    } catch {
-      startFallback();
-    }
+    // Closed while the setup wizard is overlaid so it cannot hold one of the
+    // browser's six per-origin connections against the wizard's save.
+    const connect = () => {
+      if (source || isSetupOverlayOpen()) return;
+      try {
+        source = new EventSource('/api/ui/stream');
+        source.addEventListener('changed', () => void poll());
+        source.addEventListener('error', startFallback);
+      } catch {
+        source = null;
+        startFallback();
+      }
+    };
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+    connect();
+    const unsubscribeOverlay = subscribeSetupOverlay((open) => {
+      if (open) {
+        disconnect();
+        if (fallback) {
+          clearInterval(fallback);
+          fallback = null;
+        }
+      } else {
+        connect();
+        void poll();
+      }
+    });
     return () => {
       cancelled = true;
-      source?.close();
+      unsubscribeOverlay();
+      disconnect();
       if (fallback) clearInterval(fallback);
     };
   }, [activeDashboardId, storageKey, defaultLayout, active]);

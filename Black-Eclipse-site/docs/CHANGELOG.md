@@ -6,6 +6,81 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(setup): a new install can no longer get stuck on "Saving…".** The
+  wizard is a full-screen overlay mounted over the *live* app shell, so a
+  first run had the whole terminal running behind it: two permanent SSE streams
+  (`/api/ui/stream`, `/api/sdk/app/stream`) plus ~30 boot requests. Browsers
+  allow six concurrent HTTP/1.1 connections per origin and an SSE holds its slot
+  for the life of the page, so `POST /api/setup` queued behind them and was
+  never dispatched — reproduced by holding the connection slots open, which
+  leaves the footer spinning indefinitely (the reported screenshot). Two fixes,
+  one structural and one defensive:
+  - `src/app/page.tsx` now asks `src/lib/setup/gate.ts` (server-side, per
+    request) whether this is a brand-new install and renders a light
+    placeholder instead of `StockChat`. The wizard then owns the connection
+    budget; the app mounts on the reload after finish. The gate answers
+    `incomplete` only for a definite new install and `unknown` (render the app)
+    if the read fails, so a DB problem can never hide the product behind a
+    wizard. The whole app-wide activity stack (`AppActivity`) is not rendered
+    while setup is pending, so the loader's six warm-ups never fire.
+  - The finish request now has a 30 s deadline. On timeout/error the wizard
+    re-reads `/api/setup`: if `completed` is true it enters the app (the save
+    landed; only the reply was lost), otherwise it shows an error and stays
+    retryable. `POST /api/setup` also records the setup *before* reporting an
+    AI/key step failure (`{ok:true, warning}`), so a provider-vault error can
+    neither undo nor block the completed setup; the Review step explains the
+    warning and offers Back or "Enter Eclipse".
+  - Tests: `src/lib/setup/gate.test.ts` (6 cases: recorded, unfinished,
+    corrupt flag, new vs upgraded probe, unreadable DB) and
+    `src/app/api/setup/route.test.ts` (AI failure still completes setup and
+    returns a warning; skip needs no AI; stale risk ack and an unacknowledged
+    advanced source are still refused before any write). `npx vitest run`
+    5069 pass; `npx tsc --noEmit` clean. Verified end-to-end on a throwaway
+    `BE_DATA_DIR`: the wizard opens with **zero** SSE streams and the save
+    posts immediately; the app mounts after finish.
+  Docs updated: `docs/onboarding-plan.md` (§4.6 mounting invariant, §7
+  failure table), `docs/CHANGELOG.md`.
+
+- **feat(setup): the first run now competes with nothing, and every failure is
+  actionable.** Follow-up to the fix above, so a cold or loaded machine cannot
+  reproduce a setup stall through a different door:
+  - `instrumentation.ts` defers the whole background boot pipeline (Python
+    pre-start, universe seed, market warm-up, news/Investor-Eye ingests,
+    schedules, daily backup) until `onboarding_v1.completed` is set (2 s poll,
+    30 min cap). A new install can only see the wizard, so none of that work is
+    visible — it was only competing for CPU, SQLite and network.
+  - `src/components/layout/app-activity.tsx` holds back every app-wide poller,
+    stream, update check and shell guard while `page.tsx` withholds the shell;
+    the wizard is the only client traffic on a first run.
+  - A forced re-run (`?setup=1`) still overlays the live shell, so the wizard
+    announces itself via `src/lib/setup/overlay.ts` and the stream owners
+    (`useAppShellSync`, `SavedPagesNav`, dashboard, pages) close their SSE and
+    stop polling while it is open.
+  - The native "Where your data lives" notice no longer covers the footer's
+    "Finish setup": the shell source puts it top-right, skips it while the
+    dialog is open and marks it shown from the webview; `OnboardingShell` moves
+    it out of the way (`pointer-events: none` except its button) for builds
+    that predate that.
+  - `db.ts` gives the SQLite adapter a 5 s busy timeout (the retried upserts still finish inside the 30 s deadline); `completeOnboarding`
+    retries its three idempotent upserts; `describeSetupWriteError` turns a
+    busy/read-only database into plain language, and the wizard adds a
+    "Copy diagnostics" action. A save that takes longer than 6 s says so in the
+    footer ("the local database is taking longer than usual") instead of leaving
+    an unexplained spinner.
+  - `scripts/smoke-onboarding.js` gains `SMOKE_FINISH=1`: it clicks Finish and
+    asserts the wizard unmounts and the app mounts (run it against a throwaway
+    `BE_DATA_DIR`).
+  - Tests: `npx vitest run` 5074 pass; `npx tsc --noEmit` clean.
+  - Verified end-to-end on a throwaway `BE_DATA_DIR` (production build):
+    wizard visible in 0.9 s with **0 SSE streams** and only
+    `GET theme` + `GET setup` + `GET provider-keys`; Finish → app in 1.4 s; a
+    forced re-run over the live shell holds 0 open streams; a deliberately
+    locked database showed the slow-save hint at 6.1 s, the plain-language busy
+    message at 21.2 s (wizard still retryable, no raw Prisma text), and the
+    retry after the lock cleared entered the app in 0.8 s.
+  Docs updated: `docs/onboarding-plan.md`, `docs/ARCHITECTURE.md`,
+  `docs/CHANGELOG.md`.
+
 - **release: cut v0.4.3.** Version bump across `package.json`,
   `package-lock.json`, `pyproject.toml` and `harness.__version__` so the first
   release built from `main` after the installer-branding commit carries the

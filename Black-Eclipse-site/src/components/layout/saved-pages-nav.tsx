@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { FileText } from '@/lib/icons';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { eclipseSdk } from '@/lib/sdk';
+import { isSetupOverlayOpen, subscribeSetupOverlay } from '@/lib/setup/overlay';
 import { isDashboardMirrorPath } from '@/lib/ui-engineering/live-page';
 import { cn } from '@/lib/utils';
 
@@ -51,24 +52,39 @@ export function SavedPagesNav({
     void refresh();
     window.addEventListener('focus', refresh);
     const timer = window.setInterval(() => {
-      if (!document.hidden) void refresh();
+      if (!document.hidden && !isSetupOverlayOpen()) void refresh();
     }, 60_000);
     const onPop = () => setOpenPageId(pageFromLocation());
     window.addEventListener('popstate', onPop);
     // The runtime pushes `changed` when any blueprint revision moves (including
     // a page the agent just created), so the nav updates without a reload.
+    // While the setup wizard is overlaid it would hold one of the browser's six
+    // per-origin connections, so the stream is closed until the wizard leaves.
     let source: EventSource | null = null;
-    try {
-      source = new EventSource('/api/ui/stream');
-      source.addEventListener('changed', () => void refresh());
-    } catch {
-      /* SSE unavailable — focus/poll still refresh the list */
-    }
+    const connect = () => {
+      if (source || isSetupOverlayOpen()) return;
+      try {
+        source = new EventSource('/api/ui/stream');
+        source.addEventListener('changed', () => void refresh());
+      } catch {
+        source = null; // SSE unavailable — focus/poll still refresh the list
+      }
+    };
+    const disconnect = () => {
+      source?.close();
+      source = null;
+    };
+    connect();
+    const unsubscribeOverlay = subscribeSetupOverlay((open) => {
+      if (open) disconnect();
+      else connect();
+    });
     return () => {
       window.removeEventListener('focus', refresh);
       window.removeEventListener('popstate', onPop);
       window.clearInterval(timer);
-      source?.close();
+      unsubscribeOverlay();
+      disconnect();
     };
   }, [refresh]);
 

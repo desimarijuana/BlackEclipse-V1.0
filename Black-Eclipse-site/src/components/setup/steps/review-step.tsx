@@ -30,6 +30,7 @@ export function ReviewStep({
   checkItems,
   onCheck,
   error,
+  warning,
 }: {
   state: SetupState;
   draft: SetupDraft;
@@ -38,6 +39,7 @@ export function ReviewStep({
   checkItems: CheckItemView[] | null;
   onCheck: () => void;
   error: string | null;
+  warning?: string | null;
 }) {
   const keyConfigured = (envVar: string) => Boolean(keyStatuses[envVar]?.configured);
   const rows: SetupCapabilityRow[] = state.capabilities.map((cap) => {
@@ -161,6 +163,12 @@ export function ReviewStep({
       {error && (
         <p className="rounded-xl border border-rose-500/25 bg-rose-500/[0.05] p-3 text-[12px] text-rose-200">
           {error}
+        </p>
+      )}
+      {warning && (
+        <p className="rounded-xl border border-amber-500/25 bg-amber-500/[0.05] p-3 text-[12px] leading-relaxed text-amber-200">
+          <span className="font-semibold">Setup is saved.</span> {warning} You can go Back to
+          change it, or enter Eclipse and fix it later in Settings.
         </p>
       )}
     </div>

@@ -740,6 +740,15 @@ They are all kicked off from `runBackgroundBootTasks()` AFTER
 load) never waits on a heavy job — `register()` itself awaits only the
 deployment-exposure log and the LLM-config flag the client reads.
 
+**A first run defers all of them.** `runBackgroundBootTasks()` waits for the
+first-run flag (`onboarding_v1.completed`, polled every 2 s, capped at 30 min)
+before starting anything. A new install can only see the setup wizard, so the
+Python pre-start, universe seed, market warm-up, ingests, schedules and backups
+would compete for the same CPU, SQLite write path and network as the wizard —
+which is exactly where setup used to feel slow. The pipeline starts as soon as
+the wizard writes the completion flag (the reloaded app benefits within a
+couple of seconds).
+
 ### Alert delivery
 
 A fired price alert is dispatched from `src/lib/alerts/notifier.ts`

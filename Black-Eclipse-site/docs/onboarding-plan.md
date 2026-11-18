@@ -1,7 +1,7 @@
 ---
 title: First-Run Onboarding — Implementation Plan
 status: Implemented (v1)
-last-verified: 2026-11-10
+last-verified: 2026-11-18
 ---
 
 # First-Run Onboarding — Implementation Plan
@@ -569,15 +569,59 @@ a silent fallback to a source the user disabled.
 <GlobalLoader />
 <OnboardingGate />   // client component; renders null unless needed
 {children}
+
+// src/app/page.tsx (the app shell)
+if ((await onboardingGateState()) === "incomplete") return <SetupPlaceholder />;
+<StockChat />
 ```
 
 - `OnboardingGate` fetches `/api/setup` on mount.
 - While `completed` is unknown, render nothing (the normal loader shows).
 - If incomplete, render the overlay at `z-50` with `pointer-events-auto`; it
   covers the loader and blocks interaction with the shell.
-- The loader's warm-up fetches still run behind it. On finish, unmount the gate
-  and let the loader/app continue. This preserves the "it looks like the
-  loading page" feel without coupling onboarding to loader timing.
+- **A brand-new install does NOT mount the app shell behind the wizard.**
+  `page.tsx` checks the first-run flag server-side (`lib/setup/gate.ts`) and
+  renders a placeholder instead of `StockChat`, so the wizard owns the whole
+  connection budget. This is not cosmetic: the shell opens long-lived SSE
+  streams (`/api/ui/stream`, `/api/sdk/app/stream`) that hold one of the
+  browser's six HTTP/1.1 connections per origin for the life of the page, plus
+  a boot burst of API calls. With the shell mounted behind the wizard, the
+  wizard's own `POST /api/setup` queued behind those streams and was never
+  sent — the "Saving…" that never resolved for new users. A warm install has
+  far less boot traffic, which is why it only reproduced on first run.
+- The decision is conservative: `onboardingGateState()` answers `incomplete`
+  only for a definite new install, `complete` for a recorded/migrated one, and
+  `unknown` (render the app) when the read fails. A DB problem must never hide
+  the product behind a wizard.
+- The layout asks the same `onboardingGateState()` (memoized per request with
+  React `cache`) and passes the answer to both `OnboardingGate` (it force-shows
+  the wizard for that response, even if the follow-up read reports a completed
+  install) and `AppActivity`. Server-side, so SSR and hydration agree.
+- Every app-wide poller/stream/update-check is inside `AppActivity`, which
+  renders nothing while setup is pending: notifications, the desktop session
+  heartbeat, update checks, the global loader's warm-ups, sound/tts providers
+  and the shell guards issue no request during setup. The wizard is the only
+  client traffic (verified: `GET theme`, `GET setup`, `GET provider-keys`).
+- A forced re-run still has the shell mounted, so the wizard also announces
+  itself (`lib/setup/overlay.ts`). Stream owners (`useAppShellSync`,
+  `SavedPagesNav`, dashboard and pages `/api/ui/stream` consumers) close their
+  SSE and stop polling while it is open, then reconnect. Same headroom, both
+  paths.
+- The native "Where your data lives" notice is kept clear of the wizard: the
+  shell source now shows it top-right, never over the footer's primary button,
+  and skips it while the setup dialog is present; `OnboardingShell` also
+  contains a shim (move to top-right + `pointer-events: none` except the
+  button) so installs built before that change cannot lose the Finish click.
+- Every finish failure is human text (`describeSetupWriteError` maps a busy or
+  read-only database to an actionable sentence), logged, and accompanied by a
+  "Copy diagnostics" action with no secrets in it.
+- If the state read fails while the shell is withheld, the gate shows a small
+  "Setup state unavailable / Reload" card instead of a blank screen. When the
+  shell is mounted, a failed read still renders nothing (never block the app).
+- The forced re-run path (`?setup=1`, Settings → Run setup again) is unchanged:
+  onboarding is already complete, so the shell mounts and the gate overlays it.
+- On finish, the wizard reloads `/`; this time the flag is complete, so the
+  shell mounts and warms normally.
 - Do **not** make the loader wait for onboarding; they are independent.
 
 ---
@@ -661,7 +705,12 @@ matches what Run check reports; existing install never sees the gate.
 
 | Case | Behavior |
 |---|---|
-| `/api/setup` fails | Gate renders nothing; app loads normally. Setup is retryable from Settings. Never block the app on a failed setup read. |
+| `/api/setup` fails | Gate renders nothing; app loads normally. Setup is retryable from Settings. Never block the app on a failed setup read. When the shell was withheld for a first run (`page.tsx` saw an incomplete flag) and the read then fails, the gate shows a "Setup state unavailable / Reload" card instead of leaving the placeholder alone. |
+| Finish request stalls (locked DB, server restart, queued connection) | The POST has a 30 s deadline instead of waiting forever. On timeout the wizard re-reads `/api/setup`: a recorded `completed:true` enters the app (the save landed; only the reply was lost), otherwise it shows an error and stays retryable. The button can never sit on "Saving…" indefinitely. |
+| Database busy or read-only while finishing | `completeOnboarding` retries each idempotent upsert (250/500 ms) and the SQLite adapter waits up to 5 s for the write lock; a persistent failure becomes a plain-language sentence (close another Eclipse window / check the data folder is writable) plus "Copy diagnostics", never a raw code. |
+| First run on a cold/slow machine | Background boot (Python pre-start, seeding, warm-up, ingests, schedules, backups) is deferred until setup completes; app-wide pollers and update checks do not mount. Setup competes with nothing. |
+| The native first-run data notice appears during setup | It is shown top-right, skips while the setup dialog is present, and (for older builds) the wizard moves it to the top-right with `pointer-events: none` except its button — it can never sit over "Finish setup". |
+| AI/key step fails while finishing | Setup is recorded first and the AI failure is returned as a warning: the Review step explains it, the user can go Back to fix it, or enter Eclipse and fix it in Settings. A provider-vault error must not undo (or block) the completed setup. |
 | DB locked during boot | GET retries once; on failure, skip onboarding this session (log once). |
 | Key save succeeds, test fails | Keep the saved key, show the provider's real error, allow `Continue` with a warning. Do not claim success. |
 | User skips AI | Run `mock`; review says "Chat unavailable until a provider is configured." |
@@ -675,6 +724,18 @@ matches what Run check reports; existing install never sees the gate.
 
 ## 8. Test plan
 
+- `gate.test.ts`: the server-side first-run decision (recorded, unfinished,
+  corrupt flag, new vs upgraded probe, unreadable DB → render the app).
+- `route.test.ts`: finishing records the setup even when the AI/key step fails
+  (warning), a skipped AI needs no provider, and a stale risk ack or an
+  unacknowledged advanced source is still refused before any write.
+- `state.test.ts`: busy-lock retries are idempotent and bounded; a busy or
+  read-only database becomes actionable text, never a raw Prisma code.
+- `npm run smoke:onboarding` walks the wizard without writing. With
+  `SMOKE_FINISH=1` (throwaway `BE_DATA_DIR` only) it clicks Finish and asserts
+  the wizard unmounts and the app mounts.
+- A first-run check (by hand, or in CI) asserts the wizard holds **zero** SSE
+  streams and that no app-wide poller runs while it is open.
 - `source-catalog.test.ts`: every source has a tier, badge, terms URL where
   required, and a default; no duplicates.
 - `capabilities.test.ts`: every source maps to exactly one capability; every

@@ -17,6 +17,7 @@ import { safeSourceDefaults } from "@/lib/setup/defaults";
 import { bundleSources } from "@/lib/setup/bundles";
 import { getLLMPreset } from "@/lib/agent/presets";
 import { seedStarterDashboard } from "@/lib/dashboard/use-dashboards";
+import { setSetupOverlay } from "@/lib/setup/overlay";
 import { RISK_DISCLOSURE_VERSION } from "@/lib/legal/disclosure";
 import type { SetupDraft, SetupKeyStatuses, SetupState } from "./types";
 import { draftAiChoice } from "./types";
@@ -64,6 +65,43 @@ const STEPS = [
   },
 ] as const;
 
+// Finishing setup must always end in one of two states: inside the app, or a
+// wizard that says exactly what went wrong and can be retried. A request with
+// no deadline is neither — the button sat on "Saving…" forever whenever the
+// local server stalled (a locked SQLite write, a restart, a paused update).
+const FINISH_TIMEOUT_MS = 30_000;
+const RECONCILE_TIMEOUT_MS = 8_000;
+
+/** An abort signal that works on every WebView (AbortSignal.timeout is recent). */
+function abortAfter(ms: number): AbortSignal | undefined {
+  if (typeof AbortController === "undefined") return undefined;
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
+/**
+ * Is the completion flag actually persisted?
+ *
+ * A failed or timed-out `POST /api/setup` is not proof the save failed: the
+ * request can land after the browser gave up on it (or its reply can be lost).
+ * The stored flag is the only truth, so ask it before keeping the user in the
+ * wizard — otherwise a saved install is told to "try again" forever.
+ */
+async function onboardingIsRecorded(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/setup", {
+      cache: "no-store",
+      signal: abortAfter(RECONCILE_TIMEOUT_MS),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { completed?: unknown };
+    return data.completed === true;
+  } catch {
+    return false;
+  }
+}
+
 const PRICE_ADVANCED = ["tradingview", "yfinance", "http", "browser", "scrapling"];
 const PRICE_CONNECTED = ["polygon", "twelvedata", "alphavantage", "marketstack", "finnhub"];
 
@@ -74,6 +112,11 @@ const BUNDLE_TEMPLATE: Record<string, string> = {
   crypto: "chain-desk",
   custom: "research",
 };
+
+/** The starter dashboard template for the chosen bundle. */
+function templateFor(draft: SetupDraft): string {
+  return BUNDLE_TEMPLATE[draft.bundleId] ?? "research";
+}
 
 function initialDraft(state: SetupState): SetupDraft {
   return {
@@ -123,6 +166,15 @@ export function OnboardingShell({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Setup is recorded but an optional step (the AI/key choice) failed. The
+  // wizard stays open so it can be fixed, with a way into the app regardless.
+  const [warning, setWarning] = useState<string | null>(null);
+  const [canEnter, setCanEnter] = useState(false);
+  const [copiedDiag, setCopiedDiag] = useState(false);
+  // A save that takes longer than a couple of seconds is unusual (the three
+  // writes are tiny). Say so instead of leaving a silent spinner: a busy
+  // database is the common cause and the wait is bounded.
+  const [slowSave, setSlowSave] = useState(false);
 
   const refreshKeys = useCallback(async () => {
     try {
@@ -150,6 +202,50 @@ export function OnboardingShell({
       document.body.style.overflow = previous;
     };
   }, []);
+
+  // While the wizard is on screen, two things must be true:
+  //
+  // 1. Long-lived streams step aside. A first run has no app shell, but a
+  //    forced re-run (`?setup=1`) is mounted over the live shell, and an SSE
+  //    would hold one of the browser's six per-origin connections against this
+  //    wizard's own requests.
+  // 2. The native first-run notice cannot cover the footer. It is a fixed card
+  //    at bottom-right with a viewport-high z-index — exactly on top of
+  //    "Finish setup" and "Skip for now" on a normal window. It stays readable
+  //    at the top-right and never intercepts a click.
+  useEffect(() => {
+    setSetupOverlay(true);
+
+    const nudgeNotice = (node: HTMLElement) => {
+      node.style.top = "18px";
+      node.style.bottom = "auto";
+      node.style.pointerEvents = "none";
+      node.querySelectorAll("button").forEach((button) => {
+        (button as HTMLElement).style.pointerEvents = "auto";
+      });
+    };
+    const existing = document.getElementById("be-first-run");
+    if (existing) nudgeNotice(existing);
+    const observer = new MutationObserver(() => {
+      const node = document.getElementById("be-first-run");
+      if (node) nudgeNotice(node);
+    });
+    observer.observe(document.body, { childList: true });
+
+    return () => {
+      observer.disconnect();
+      setSetupOverlay(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!busy) {
+      setSlowSave(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowSave(true), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
 
   // Focus trap: the app behind the overlay must not be reachable by Tab.
   const cardRef = useRef<HTMLDivElement>(null);
@@ -269,14 +365,50 @@ export function OnboardingShell({
     }
   };
 
+  const enter = (templateId: string) => {
+    seedStarterDashboard(templateId);
+    onDone();
+  };
+
+  /**
+   * A support-ready line the user can paste, with no secrets in it. It is also
+   * written to the console, so the desktop log carries the same failure.
+   */
+  const copyDiagnostics = async () => {
+    const lines = [
+      "BlackEclipse setup diagnostics",
+      `at: ${new Date().toISOString()}`,
+      `url: ${window.location.href}`,
+      `flow: ${state.isNewInstall ? "first run" : "setup re-run"}`,
+      `error: ${error ?? "(none)"}`,
+      `warning: ${warning ?? "(none)"}`,
+      `agent: ${navigator.userAgent}`,
+    ].join("\n");
+    console.error(`[setup] diagnostics\n${lines}`);
+    try {
+      await navigator.clipboard.writeText(lines);
+      setCopiedDiag(true);
+      window.setTimeout(() => setCopiedDiag(false), 1600);
+    } catch {
+      /* clipboard denied — the console line above is still there */
+    }
+  };
+
   const finish = async (skip = false) => {
     if (!draft.riskAck) {
       setError("Acknowledge the risk notice to continue.");
       setDraft((current) => ({ ...current, step: 0 }));
       return;
     }
+    const templateId = BUNDLE_TEMPLATE[skip ? "research" : draft.bundleId] ?? "research";
+    // Only a first run can "already be saved" while the reply says otherwise.
+    // For a forced re-run the install was complete all along, so a failed save
+    // must never be mistaken for success.
+    const completionWasPending = !state.completed;
     setBusy(true);
     setError(null);
+    setWarning(null);
+    setCanEnter(false);
     const riskAck = { version: RISK_DISCLOSURE_VERSION };
     try {
       const body = skip
@@ -300,15 +432,54 @@ export function OnboardingShell({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        signal: abortAfter(FINISH_TIMEOUT_MS),
       });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || "Could not save setup");
-      seedStarterDashboard(
-        BUNDLE_TEMPLATE[skip ? "research" : draft.bundleId] ?? "research",
-      );
-      onDone();
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        completed?: boolean;
+      };
+      if (!res.ok) {
+        // The completion write can land before a later step fails, so a
+        // non-2xx reply must be checked against the stored flag before the
+        // user is sent back into a wizard whose work is already done.
+        if (completionWasPending && (data.completed === true || (await onboardingIsRecorded()))) {
+          console.warn("[setup] finish reported an error after the save landed:", data.error);
+          enter(templateId);
+          return;
+        }
+        throw new Error(data.error || "Could not save setup");
+      }
+      if (typeof data.warning === "string" && data.warning.trim() !== "") {
+        // Setup itself IS recorded; only the optional AI/key step failed. Show
+        // why, keep the wizard on screen so Back can fix it, and offer a way
+        // into the app instead of trapping the user here. The Review step owns
+        // the warning, so make sure it is the visible one.
+        setWarning(data.warning.trim());
+        setCanEnter(true);
+        setDraft((current) => ({ ...current, step: STEPS.length - 1 }));
+        return;
+      }
+      enter(templateId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save setup");
+      const aborted =
+        typeof err === "object" &&
+        err !== null &&
+        ((err as { name?: string }).name === "AbortError" ||
+          (err as { name?: string }).name === "TimeoutError");
+      // A stalled request is not a failed save: the write may have landed.
+      if (completionWasPending && (await onboardingIsRecorded())) {
+        enter(templateId);
+        return;
+      }
+      console.error("[setup] finish failed:", err);
+      setError(
+        aborted
+          ? "The local server did not answer while saving setup. Nothing was lost — press Finish setup to try again."
+          : err instanceof Error
+            ? err.message
+            : "Could not save setup",
+      );
     } finally {
       setBusy(false);
     }
@@ -505,9 +676,18 @@ export function OnboardingShell({
                       checkItems={checkItems}
                       onCheck={() => void runCheck()}
                       error={error}
+                      warning={warning}
                     />
                   )}
                 </div>
+
+                {busy && slowSave && (
+                  <p className="border-t border-white/[0.07] bg-amber-500/[0.04] px-5 py-2 text-[11.5px] leading-relaxed text-amber-200/90 sm:px-8">
+                    Still saving — the local database is taking longer than usual (usually another
+                    Eclipse window or a disk scan). This is bounded; if it cannot finish, the button
+                    comes back with a retry and a diagnostics option.
+                  </p>
+                )}
 
                 <div className="flex items-center gap-2 border-t border-white/[0.07] bg-white/[0.015] px-5 py-3.5 sm:px-8">
                   {draft.step === 0 ? (
@@ -532,6 +712,17 @@ export function OnboardingShell({
 
                   <span className="flex-1" />
 
+                  {(error || warning) && (
+                    <button
+                      type="button"
+                      className="rounded-lg px-2 py-1.5 text-[11.5px] font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline cursor-pointer"
+                      onClick={() => void copyDiagnostics()}
+                      title="Copy a support-ready summary (no secrets) to the clipboard"
+                    >
+                      {copiedDiag ? "Copied" : "Copy diagnostics"}
+                    </button>
+                  )}
+
                   {draft.step < STEPS.length - 1 ? (
                     <button
                       type="button"
@@ -552,14 +743,14 @@ export function OnboardingShell({
                       className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
                       disabled={busy || !draft.riskAck}
                       title={draft.riskAck ? undefined : "Acknowledge the risk notice first"}
-                      onClick={() => void finish(false)}
+                      onClick={() => (canEnter ? enter(templateFor(draft)) : void finish(false))}
                     >
                       {busy ? (
                         <Loader2 size={13} className="animate-spin" />
                       ) : (
                         <Check size={13} weight="bold" />
                       )}
-                      {busy ? "Saving…" : "Finish setup"}
+                      {busy ? "Saving…" : canEnter ? "Enter Eclipse" : "Finish setup"}
                     </button>
                   )}
                 </div>

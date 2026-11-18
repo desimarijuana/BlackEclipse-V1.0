@@ -107,6 +107,73 @@ async function runBackgroundBootTasks(): Promise<void> {
     if (globalForBoot.__beBootBackgroundRan) return;
     globalForBoot.__beBootBackgroundRan = true;
 
+    // Two cheap, idempotent essentials run BEFORE the first-run wait, because
+    // the first screen after setup depends on them: the US market universe (so
+    // /api/markets is not empty when the app mounts) and the stored provider
+    // keys copied into the process env. They are tens of milliseconds, not the
+    // expensive pipeline.
+    try {
+      const { seedUniverse } = await import("@/lib/scraper/price-scraper");
+      await seedUniverse(["US"]);
+    } catch (err) {
+      console.error("[startup] seedUniverse failed:", err);
+    }
+    try {
+      const { applyStoredKeysToEnv } = await import("@/lib/provider-keys");
+      const applied = await applyStoredKeysToEnv();
+      if (applied > 0) console.log(`[startup] applied ${applied} stored provider key(s)`);
+    } catch (err) {
+      console.error("[startup] provider-key apply failed:", err);
+    }
+    // The journal is DB-backed, so a fresh install shows an empty journal on
+    // every tab without this. One-time, conservative, and one of the screens a
+    // new user opens first after setup; it stays on the fast side of the wait.
+    try {
+      const { seedJournalDemo } = await import("@/lib/journal/demo");
+      const res = await seedJournalDemo();
+      if (res.seeded) console.log(`[startup] seeded ${res.trades} demo journal trades`);
+    } catch (err) {
+      console.error("[startup] journal demo seed failed:", err);
+    }
+
+    // A first run must do ONE thing: show the setup wizard.
+    //
+    // The rest of this pipeline (Python pre-start, market warm-up, news and
+    // event ingests, schedules, backups) is expensive and competes for the same
+    // CPU, SQLite write path and network as the wizard — on exactly the machine
+    // where setup already felt slow. None of it is visible before setup
+    // completes, so wait for the first-run flag and start it then.
+    //
+    // Polling is deliberate: `register()` runs once per process, so there is no
+    // second chance to call this after the wizard finishes without coupling the
+    // API route to the boot module. A cheap indexed read every 2 s is nothing;
+    // the 30-minute cap keeps a corrupt flag from leaving the app un-warmed.
+    {
+      const { isOnboardingComplete } = await import("@/lib/setup/state");
+      const deadline = Date.now() + 30 * 60_000;
+      let announced = false;
+      for (;;) {
+        let complete = true;
+        try {
+          complete = await isOnboardingComplete();
+        } catch {
+          // The DB is not readable (yet). Boot anyway: a broken install must
+          // not also lose its scheduler.
+          break;
+        }
+        if (complete) break;
+        if (Date.now() > deadline) {
+          console.warn("[startup] setup still open after 30 min — starting background boot tasks");
+          break;
+        }
+        if (!announced) {
+          announced = true;
+          console.log("[startup] first-run setup is open — deferring background boot tasks until it finishes");
+        }
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }
+
     // Pre-start the Python agent runtime FIRST. A cold spawn imports the entire
     // agent stack (~9s on a warm machine, longer on a loaded one), and Bots is
     // usually the first surface a user opens that needs it. The DB seeds and
@@ -167,7 +234,6 @@ async function runBackgroundBootTasks(): Promise<void> {
 
     // Dynamic import keeps these out of the client bundle.
     const { startScheduler, warmUpAllMarkets, startUniverseSync } = await import("@/lib/scraper/scheduler");
-    const { seedUniverse } = await import("@/lib/scraper/price-scraper");
 
     // DB durability guard: ensure WAL + synchronous=NORMAL are set on the
     // live connection and schedule a rolling local backup, so a crash or kill
@@ -210,38 +276,6 @@ async function runBackgroundBootTasks(): Promise<void> {
       }
     } catch (err) {
       console.error("[db-guard] failed to schedule:", err);
-    }
-
-    try {
-      await seedUniverse(["US"]);
-    } catch (err) {
-      console.error("[startup] seedUniverse failed:", err);
-    }
-
-    // Provider keys saved from Settings (encrypted in JDDS) are copied into the
-    // process environment so every existing consumer — which reads env vars
-    // directly — picks them up with no per-provider change. A REAL env var is
-    // never overwritten, so a deployment stays authoritative. Values are not
-    // logged; only the count.
-    try {
-      const { applyStoredKeysToEnv } = await import("@/lib/provider-keys");
-      const applied = await applyStoredKeysToEnv();
-      if (applied > 0) console.log(`[startup] applied ${applied} stored provider key(s)`);
-    } catch (err) {
-      console.error("[startup] provider-key apply failed:", err);
-    }
-
-    // Journal demo data — the journal is DB-backed, so without this a fresh
-    // install shows an empty journal on every tab. Seeding is one-time and
-    // conservative: it skips when any trade already exists and records a marker,
-    // so a user who clears the demo data never gets it back. Every seeded row is
-    // tagged source:'demo' and is removable from the Journal UI.
-    try {
-      const { seedJournalDemo } = await import("@/lib/journal/demo");
-      const res = await seedJournalDemo();
-      if (res.seeded) console.log(`[startup] seeded ${res.trades} demo journal trades`);
-    } catch (err) {
-      console.error("[startup] journal demo seed failed:", err);
     }
 
     // Journal ↔ broker auto-sync. Opt-in per link; one timer, cheap when no

@@ -27,6 +27,13 @@ const dbPath = process.env.BE_DB_PATH
   : path.join(dataDir, "jdds.db");
 const adapter = new PrismaBetterSqlite3({
   url: `file:${dbPath}`,
+  // A first run can collide with the boot-time integrity check or a second
+  // (stale) Eclipse process holding the write lock for a moment. Without a
+  // bounded busy timeout, `SQLITE_BUSY` surfaces as an instant failure; with
+  // it, a short wait usually lets the other writer finish. Five seconds keeps
+  // the whole finish inside its 30 s deadline (three retried upserts, see
+  // `completeOnboarding`) so the user gets the real cause instead of a timeout.
+  timeout: 5_000,
 });
 
 export const prisma =
