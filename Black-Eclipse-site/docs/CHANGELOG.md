@@ -28,6 +28,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **chore(release): regenerate the SBOM for v0.4.1.** The version bump changed the
+  SBOM's component version, so the CI "SBOM drift check" (and `check:oss`, which
+  also gates on it) went red on `main`. Regenerated: 1,335 components, version
+  0.4.1. `generate-sbom.js --check` is clean again.
+  Doc change: `docs/CHANGELOG.md`.
+
+
 - **chore(legal): adopt a CLA and publish a trademark notice.** Added root
   `CLA.md` (plain-English, signed by one PR comment; grants relicensing and a
   patent licence while the contributor keeps copyright) and root `TRADEMARK.md`
