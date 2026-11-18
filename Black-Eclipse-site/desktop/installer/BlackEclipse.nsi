@@ -1,17 +1,24 @@
-; Black Eclipse — per-user installer.
+; Black Eclipse - per-user installer.
 ;
 ; Why per-user: the application resolves `python/harness` and its `.black-eclipse`
-; runtime locks from `process.cwd()` (see docs/desktop-app-plan.md §6). That means
-; the install directory MUST be writable by the user who runs it. Program Files is
-; not, so a per-user install is a correctness requirement, not a convenience.
+; runtime locks from `process.cwd()` (see docs/desktop-app-plan.md section 6).
+; That means the install directory MUST be writable by the user who runs it.
+; Program Files is not, so a per-user install is a correctness requirement, not
+; a convenience.
 ;
 ; User data lives in %LOCALAPPDATA%\BlackEclipse\data (BE_DATA_DIR, set by the
 ; bootstrap) and is deliberately NOT removed on uninstall.
+;
+; Branding: the icon and the two bitmaps under assets/ are generated from
+; public/branding by `node scripts/make-installer-assets.js` and committed.
+; MUI_ICON is what Explorer draws for this setup .exe; without it NSIS ships
+; its stock "NSIS globe" icon.
 
 Unicode true
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
+!include "WinMessages.nsh"
 
 !ifndef APP_VERSION
   !define APP_VERSION "0.0.0"
@@ -27,33 +34,75 @@ Unicode true
 !endif
 
 Name "Black Eclipse"
+Caption "Black Eclipse Setup"
 OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\BlackEclipse"
 InstallDirRegKey HKCU "Software\BlackEclipse" "InstallDir"
 RequestExecutionLevel user
-BrandingText "Black Eclipse ${APP_VERSION}"
+BrandingText "Black Eclipse Setup  |  ${APP_VERSION}"
 
 VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey "ProductName" "Black Eclipse"
 VIAddVersionKey "FileVersion" "${APP_VERSION}"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
-VIAddVersionKey "FileDescription" "Black Eclipse installer"
+VIAddVersionKey "FileDescription" "Black Eclipse Setup"
+VIAddVersionKey "CompanyName" "Black Eclipse"
 VIAddVersionKey "LegalCopyright" "MIT License"
 
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
 
+; --- branding ----------------------------------------------------------------
+; The same mark the installed app and the boot screen use, so setup reads as
+; Black Eclipse rather than a generic Windows wizard.
+!define MUI_ICON "assets\icon.ico"
+!define MUI_UNICON "assets\icon.ico"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "assets\welcome.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "assets\welcome.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "assets\header.bmp"
+!define MUI_HEADERIMAGE_UNBITMAP "assets\header.bmp"
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_BGCOLOR "FFFFFF"
+!define MUI_TEXTCOLOR "0B0B0E"
 !define MUI_ABORTWARNING
+
 !define MUI_WELCOMEPAGE_TITLE "Black Eclipse ${APP_VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "This installs Black Eclipse for the current user only — no administrator rights, no Node.js, no Python and no other prerequisites.$\r$\n$\r$\nWindows may show a blue SmartScreen box because this build is not code-signed yet. Choose More info, then Run anyway. The download is the file you just saved, and SHA256SUMS.txt on the release page lets you verify it.$\r$\n$\r$\nYour data is kept in %LOCALAPPDATA%\BlackEclipse\data and is not removed if you uninstall."
+!define MUI_WELCOMEPAGE_TEXT "Local-first market research and trading workspace. Everything runs on this machine: no account, no sign-in, no telemetry.$\r$\n$\r$\nInstalls for the current Windows user in %LOCALAPPDATA%\Programs\BlackEclipse. No administrator rights, no Node.js and no Python are required.$\r$\n$\r$\nYour data lives in %LOCALAPPDATA%\BlackEclipse\data and stays there if you uninstall.$\r$\n$\r$\nThis build is not code-signed yet. If Windows shows a blue SmartScreen prompt, choose More info, then Run anyway. SHA256SUMS.txt on the release page lets you verify the download."
+
+!define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "Black Eclipse is installed"
+!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "Finishing up."
+
+!define MUI_FINISHPAGE_NOREBOOTSUPPORT
+!define MUI_FINISHPAGE_TITLE "Ready to go"
+!define MUI_FINISHPAGE_TEXT "Black Eclipse is installed for this Windows user.$\r$\n$\r$\nThe first launch takes a moment while the local agent runtime starts. Open it from the Start menu, the desktop shortcut, or the checkbox below."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Black Eclipse.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Open Black Eclipse now"
 
+; The welcome page's stock button says "Next"; this setup is one decision, so
+; name the action plainly. (The progress and finish pages keep their native
+; buttons - that is what makes a Windows installer predictable.)
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW WelcomePageShow
+Function WelcomePageShow
+  SendMessage $mui.Button.Next ${WM_SETTEXT} 0 "STR:Install"
+FunctionEnd
+
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
+; No directory page: the location is fixed per user. Silent installs still honor
+; the standard `/D=` override.
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
-!insertmacro MUI_UNPAGE_CONFIRM
+
+; Uninstaller: replace the stock confirmation box with the same branded welcome
+; screen, so removal explains what survives (the user's data) before it starts.
+!define MUI_WELCOMEPAGE_TITLE "Remove Black Eclipse"
+!define MUI_WELCOMEPAGE_TEXT "This removes Black Eclipse for the current Windows user.$\r$\n$\r$\nYour database, journals and settings are not touched. They stay in %LOCALAPPDATA%\BlackEclipse\data, so reinstalling brings your workspace back."
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW "un.UnWelcomePageShow"
+Function un.UnWelcomePageShow
+  SendMessage $mui.Button.Next ${WM_SETTEXT} 0 "STR:Remove"
+FunctionEnd
+
+!insertmacro MUI_UNPAGE_WELCOME
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
@@ -78,7 +127,7 @@ Section "Black Eclipse" SecMain
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BlackEclipse" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BlackEclipse" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BlackEclipse" "NoRepair" 1
-  
+
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BlackEclipse" "EstimatedSize" "$0"

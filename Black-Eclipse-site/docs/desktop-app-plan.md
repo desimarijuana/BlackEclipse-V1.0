@@ -1,7 +1,7 @@
 ---
 title: Native Desktop App — Tauri Shell Plan (hardened)
 status: Accepted
-last-verified: 2026-11-13
+last-verified: 2026-11-18
 ---
 
 # Native desktop app (Tauri shell)
@@ -484,11 +484,42 @@ server was never disturbed.
 | **User data after uninstall** | `%LOCALAPPDATA%\BlackEclipse\data` **preserved** |
 | Checksum | `SHA256SUMS.txt` matches the artifact; the same hash is baked into the winget manifest |
 
+### Installer branding (verified 2026-11-18)
+
+The setup `.exe` and its wizard carry the same identity as the app. Without
+`MUI_ICON` NSIS draws its stock globe/disk icon for the installer, which is why
+an unbranded build looked like a generic Windows tool.
+
+| Piece | Where | Why |
+| --- | --- | --- |
+| Icon (installer + uninstaller) | `desktop/installer/assets/icon.ico` | `MUI_ICON` / `MUI_UNICON`; a copy of `public/branding/black-eclipse.ico` (7 sizes, 16-256px) |
+| Welcome / Finish / Uninstall sidebar | `desktop/installer/assets/welcome.bmp` (164x314, 24-bit) | MUI2 only accepts BMP; dark brand panel with the eclipse mark, wordmark and lime accent |
+| Install / uninstall header | `desktop/installer/assets/header.bmp` (150x57, 24-bit) | Drawn right-aligned on MUI2's white header band |
+| Generator | `node scripts/make-installer-assets.js` (`npm run installer:assets`) | Derives the BMPs from `public/branding/LOGO-WORDMARK.svg`; the outputs are committed, so a build does not need `sharp` |
+
+Page flow: **Welcome -> Install -> Finish**. There is deliberately no Directory
+page: the install location is fixed per user (the correctness requirement in
+section 6), and `/D=` still overrides it for silent installs. The welcome page's
+Next button is relabelled "Install"; the uninstaller replaces the stock
+confirmation box with the branded welcome page and explains that user data
+survives removal. `scripts/desktop-installer.js` checks the three assets before
+invoking `makensis` so a missing bitmap fails with an actionable message.
+
+Why NSIS is kept: the per-user install, WebView2 bootstrapper, silent `/S` and
+the winget `nullsoft` installer contract all depend on it. The trade-off is that
+page backgrounds remain native Win32 chrome; a fully dark setup window would
+require a different installer engine and is a separate product decision.
+
+Verified on the 0.4.1 artifact: `BlackEclipse-Setup-0.4.1.exe`, **176 MB** from a
+1,717 MB payload (LZMA solid, 469 s); the setup `.exe` carries the eclipse icon
+and `FileDescription "Black Eclipse Setup"`, the live Welcome page renders the
+brand sidebar at 503x390, and the uninstaller's Welcome page shows the same
+sidebar with "Remove Black Eclipse" / a **Remove** button.
+
 **Gap found and fixed by running the installed copy:** `@napi-rs/canvas` (a runtime
 `optionalDependency`) is not traced by Next, so PDF rendering silently degraded
 (`Cannot load "@napi-rs/canvas"`, `Cannot polyfill DOMMatrix`). The package step
 now copies `@napi-rs` and `@img` explicitly.
-
 
 **Known limitation, deliberate:** desktop notifications only work on the
 canonical port **3100**, because Tauri's IPC allowlist cannot wildcard a port.

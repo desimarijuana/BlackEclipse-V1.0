@@ -23,6 +23,23 @@ const NSI = path.join(ROOT, "desktop", "installer", "BlackEclipse.nsi");
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 const VERSION = pkg.version;
 const FULL = process.argv.includes("--full");
+
+// MUI2 reads these at compile time; a missing bitmap otherwise fails with a
+// generic makensis error that points at the include file, not the asset.
+const ASSETS = ["icon.ico", "welcome.bmp", "header.bmp"].map((name) => ({
+  name,
+  file: path.join(ROOT, "desktop", "installer", "assets", name),
+}));
+for (const asset of ASSETS) {
+  if (!fs.existsSync(asset.file)) {
+    console.error(
+      `Missing installer asset: desktop/installer/assets/${asset.name}\n` +
+        "Regenerate the committed bitmaps with: node scripts/make-installer-assets.js"
+    );
+    process.exit(6);
+  }
+}
+
 const OUT_EXE = path.join(
   DIST,
   `BlackEclipse-Setup-${VERSION}${FULL ? "-full" : ""}.exe`

@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **feat(installer): the setup `.exe` now shows the eclipse mark, and the wizard
+  carries the product identity.** `MUI_ICON` / `MUI_UNICON` replace NSIS's stock
+  globe icon; a committed 164x314 dark brand sidebar (Welcome, Finish, Uninstall)
+  and a 150x57 header are generated from `public/branding/LOGO-WORDMARK.svg` by
+  `scripts/make-installer-assets.js` (`npm run installer:assets`). The stock
+  Directory page is gone (the per-user location is fixed; `/D=` still overrides
+  it for silent installs), Next reads "Install", and the uninstaller explains
+  that user data survives removal. `scripts/desktop-installer.js` preflights the
+  assets before `makensis` so a missing bitmap fails with an actionable message.
+  Docs: `docs/desktop-app-plan.md`, `docs/CHANGELOG.md`.
+
 - **docs(updates): document the lock-safe update path.** `docs/UPDATES.md` now
   describes the `stopping` phase, the spent-job rule, the non-destructive
   rollback, and corrects the release state to v0.4.1.
