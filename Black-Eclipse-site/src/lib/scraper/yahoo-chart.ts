@@ -8,6 +8,7 @@
 import { resolveIndex } from '@/lib/indices';
 import { stripExchangeSuffix } from '@/lib/utils';
 import { yahooSymbol } from './fetchers/yfinance';
+import { FOREX_CATALOG } from '@/lib/market-catalog';
 
 export interface Bar {
   date: string;
@@ -100,6 +101,18 @@ export function yahooChartCandidates(symbol: string, market: string): string[] {
   if (idx && idx.provider === 'yahoo') {
     candidates.push(idx.symbol);
     if (!candidates.includes(symbol)) candidates.push(symbol);
+    return candidates;
+  }
+
+  // A broker names FX as a bare pair (`EURUSD`); Yahoo serves it as `EURUSD=X`.
+  // Without this, the app cannot chart the very symbol its trading bot trades.
+  const upper = symbol.trim().toUpperCase();
+  const fx = FOREX_CATALOG.find(
+    (pair) => pair.symbol === upper || pair.symbol === `${upper}=X`,
+  );
+  if (fx) {
+    candidates.push(fx.symbol);
+    if (!candidates.includes(upper)) candidates.push(upper);
     return candidates;
   }
 

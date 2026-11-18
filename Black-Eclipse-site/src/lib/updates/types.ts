@@ -30,6 +30,49 @@ export interface UpdateStatus {
   error: string | null;
 }
 
+/**
+ * An in-app update that has been staged on this machine.
+ *
+ * The flow is deliberately two steps — stage, then restart — because promoting a
+ * new build restarts the window and (on Windows) kills the server that spawned
+ * it. Staging only checks out the signed tag, installs and builds; nothing the
+ * running app depends on is touched. The restart is then owned by the shell.
+ */
+export type UpdateJobPhase =
+  | "starting"
+  | "verifying"
+  | "backing-up"
+  | "checkout"
+  | "installing"
+  | "building"
+  | "promoting"
+  | "ready"
+  | "failed";
+
+export type UpdateJobStatus = "running" | "ready" | "failed";
+
+export interface UpdateJob {
+  /** Random id per run, so a stale poll cannot be mistaken for the new run. */
+  id: string;
+  status: UpdateJobStatus;
+  phase: UpdateJobPhase;
+  /** One short, user-facing line for the current phase. */
+  message: string;
+  /** Version before the update (from the running build). */
+  fromVersion: string;
+  /** Version that was checked out and built, once known. */
+  toVersion: string | null;
+  startedAt: string;
+  /** Heartbeat, written with every phase change. Used to spot a dead job. */
+  updatedAt: string;
+  finishedAt: string | null;
+  /** The runner's pid, when the job file came from it. */
+  pid: number | null;
+  /** Last lines of updater output, oldest first. Bounded by the runner. */
+  log: string[];
+  error: string | null;
+}
+
 /** What a signed manifest payload contains after verification. */
 export interface UpdateManifestPayload {
   schema: number;

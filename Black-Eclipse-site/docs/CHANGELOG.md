@@ -30,6 +30,60 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   licence change.
   Doc change: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 
+- **fix(trading): the ownership magic now reaches existing connections, and the
+  kill switch is proven scoped.** Connections created before the magic existed
+  were still `magic: 0`, so their bot orders were un-killable. `_connection` /
+  `list_connections` now backfill a stable per-connection magic from the label
+  (pure helpers in `python/harness/trade/ownership.py`; an explicit magic is
+  never overridden). Proven on the demo: a second bot filled EURUSD BUY 0.01 @
+  1.09863 (ticket `11448007792`, **magic `741879`**); two working orders were
+  placed, one with `741879` and a control with `777`; the connection kill switch
+  returned `matched=1 cancelled=1 failed=0`, MT5 kept only the control order, and
+  the filled position was left intact (by design). Account flat afterwards.
+  Tests: 57 broker/size/phase (incl. backfill + last-line magic guard).
+  Docs: `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(install): a slim install can now actually obtain its optional packs —
+  plus an honest failure screen.** Four gaps were closing the install story
+  short. (1) **Feature packs were unreachable.** The slim installer ships the
+  core only; browser/ml/documents/computer/charts were built into
+  `dist/packs/*.zip` and published, but nothing in the shipped app could fetch
+  them, so a capability failed inside a lazy import with no action to take. New
+  `src/lib/desktop/packs.ts` reads the manifest the build now writes into the
+  payload (`app/config/packs.json` — version, release repo, per-pack
+  `sha256`/`zipBytes`), pins the archive to the app's OWN release tag, refuses
+  any host outside the allowlist, downloads with live received/total progress,
+  verifies SHA-256, extracts into a private staging directory and moves only the
+  manifest-named package directories into `site-packages`; Remove is the
+  reverse. Exposed by `GET/POST /api/desktop/packs` (guardMutation + rate limit)
+  and **Settings → Data & Storage → Feature packs**
+  (`src/components/settings/feature-packs-settings.tsx`, frosted-glass `Panel`,
+  per-pack Download/Remove, progress bar, honest "no manifest in this build"
+  state). `scripts/desktop-package.js` writes that manifest and uses the *asset*
+  basename for the URL, since release assets are flat; `npm run desktop:doctor`
+  now prints an `installed/total · missing …` line for the installed app so a
+  "feature does nothing" report has an answer. (2) **The failure screen
+  named a log instead of opening it.** The splash now shows the log path inline,
+  with **Copy details** (message + log path, for a bug report) and **Open log
+  folder** (`desktop_log_path` / `desktop_open_log` in the Tauri shell), and the
+  messages say what to do next. (3) **SmartScreen was undocumented at the moment
+  it appears** — the installer's welcome page now explains *More info → Run
+  anyway* and points at `SHA256SUMS.txt`. (4) **The boot screen was off-spec**:
+  it used a 0.72-alpha panel and 22px blur (a flat panel per the glass rules) and
+  an opaque title strip; it now uses the exact `.glass-card` recipe and a
+  transparent strip. Also corrected the WebView2 message, which still told users
+  to run `npm start` (deleted with the browser lane). Pack archives are now named
+  per target (`browser-win32-x64.zip`) because all three OS builds write
+  `dist/packs/*.zip` into ONE flat release namespace — a bare `browser.zip` was
+  uploaded three times and the last platform won. Tests:
+  `src/lib/desktop/packs.test.ts` + `src/app/api/desktop/packs/route.test.ts`
+  (23 cases — manifest junk, allowlist, version pinning, mirror rules, installed
+  detection, unsupported states, a real local-mirror download → SHA-256 → unpack
+  → install run, a corrupt archive that must install nothing, remove, and the
+  route's validation/guard); `tsc` clean; full `npm run test` suite green. Docs:
+  `docs/install.md`, `docs/desktop-size-plan.md` (S2 + Settings half of S3
+  marked shipped), `docs/NAVIGATION.md`, `README.md`.
+
 - **fix(ci): `test_rsl_verifier` needs the vendored interpreter too.** It builds a
   throwaway git repo and asks the verifier to run the owning test, but the
   verifier resolves `python_test` through `code/execution.py::interpreter_path()`
@@ -51,6 +105,84 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Verified locally: `test_size_budget.py`, `test_ml_acceptance.py` and
   `test_rsl_verifier.py` all pass. Doc change: `docs/CHANGELOG.md`.
 
+
+- **feat(trading): a bot placed a real demo order on MT5 — and the seven things
+  that stopped it.** L4 of the live-test plan passed against MetaQuotes-Demo
+  114826727: bot `auto_21fb2c4a633340f7be2e` (strategy `eurusd_smoke_1d` v1.0.0,
+  tier L1, mandate `mnd_ac414e6099be`) filled **EURUSD BUY 0.01 @ 1.09897**
+  (MT5 ticket `11447256588`, SL 1.09798, TP 1.10048; closed at 1.0989). Evidence:
+  execution `autoexec_43a3e1b7c92b4962b8f0` → decision `filled` with `orderId`;
+  `BrokerOrder ord_e29c7a0e6b41` carrying `automationId`, `automationVersion`,
+  `mandateId`, `runId` and the same ticket. Fixes found by doing it:
+  (1) a state-only `PATCH` no longer bumps the bot version, so activating a
+  prepared bot stops invalidating its mandate (`BOT_VERSION_STALE`);
+  (2) `requiredPhrase` is built from the connection LABEL, matching what
+  `prepare` compares; (3) a bare FX pair (`EURUSD`) classifies as FX→`EURUSD=X`
+  in the Python classifier and the Next price-history route, so the app can
+  backtest/chart the symbol its broker quotes; (4) a broker symbol signals on the
+  broker's own `copy_rates` bars (gateway fallback), (5) the still-forming bar is
+  dropped so the signal is on the last CLOSED bar, (6) a refusal that sent
+  nothing releases the bar claim (`LiveRunner.release`) while a send never does,
+  and (7) every broker connection gets a stable non-zero ownership `magic`
+  (`_default_magic`) so the kill switch can match Eclipse orders. Tests: 191
+  targeted Python (incl. the L3 E2E), 11 size/phase (service.py pin 1205→1214),
+  `tsc` clean. Docs: `docs/trading-bot-live-testing-plan.md`,
+  `docs/trading-bots-plan.md`, `docs/harness/market-data.md`, `docs/CHANGELOG.md`.
+  L5 (supervised live) and L6 (soak) remain operator-run.
+
+- **docs(legal): write down the monetization position.** Added
+  `docs/monetization.md`: MIT core, revenue from additive surfaces (pro features,
+  marketplace, live data, support), with the rejected models (noncommercial,
+  BUSL, whole-app AGPL, phone-home paywall) and why each was refused. Added to
+  `docs/NAVIGATION.md` so future sessions find the policy before proposing a
+  licence change. Also normalized two tracked docs whose working-tree CRLF/LF mix
+  turned `gitignore-guard` red (`docs/DECISIONS.md`, `skills/ARCHITECT.md`) —
+  index was already LF, so this is a no-op diff.
+  Doc change: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
+- **chore(updates): publish the first signed manifest and ship the listener
+  shell.** `config/updates.json` now points at the real public repository
+  (`desimarijuana/BlackEclipse-V1.0`) with `published: true`; the v0.4.0
+  `stable.json` was signed offline with the committed key's counterpart and
+  attached to the existing release, so a live check verifies and reports *up to
+  date*. The installed shell was rebuilt with the `be-update` listener and
+  swapped in (previous exe kept as `.bak-20261117`), so *Restart Eclipse* is now
+  seamless instead of "quit and reopen". Doc change: `docs/UPDATES.md`,
+  `docs/CHANGELOG.md`.
+
+- **feat(updates): in-app update button in the window chrome.** A download icon
+  now sits left of Minimize, dot-lit when a newer signed release exists. Panel
+  shows the honest check result and can **stage** the release in-app
+  (`be-update` event → the shell spawns `scripts/update-apply.js`, with
+  `POST /api/updates/apply` as the fallback for shells without that listener;
+  the runner executes the verified `update.js --yes --no-desktop`: signature, DB
+  backup, checkout, `npm ci`, build) and then **restart** onto it. Promotion runs
+  with `--no-restart` while
+  the window keeps its current build (atomic pointer, previous release kept); the
+  restart itself is a Tauri `be-update` event handled in `main.rs`, which spawns
+  `desktop-refresh --no-build` outside the server tree that the same script
+  `taskkill /T`s. Reopening the app is the equivalent fallback for shells that
+  predate the listener. Progress travels through
+  `.runtime/update-job.json`; a heartbeat-less `running` job reads as failed.
+  The banner now shares `useUpdateStatus` with the button, so both surfaces agree
+  and two consumers cost one cached upstream check. No new network path, no
+  auto-apply, no unsigned code. Doc change: `docs/UPDATES.md`,
+  `docs/CHANGELOG.md`.
+
+- **chore(legal): adopt a CLA and publish a trademark notice.** Added root
+  `CLA.md` (plain-English, signed by one PR comment; grants relicensing and a
+  patent licence while the contributor keeps copyright) and root `TRADEMARK.md`
+  ("code is MIT, the name and logo are not"), wired into both `CONTRIBUTING.md`
+  files, the PR template, the README licensing table, the legal register, and
+  `scripts/oss-preflight.js` as required files. The blueprint's §1.4
+  "DCO, not a CLA" recommendation is superseded: the strategy is MIT + adoption,
+  monetising extras (pro features, marketplace, live data) instead of the
+  licence, and the CLA is cheap only while the repo is single-author. Trademark
+  placeholders in `docs/legal/TRADEMARK-POLICY.md` resolved to Rafay Ghauri /
+  BlackEclipse; the full policy stays Draft pending counsel.
+  Doc change: `docs/legal/README.md`, `docs/legal/LEGAL-COMPLIANCE-BLUEPRINT.md`,
+  `docs/legal/TRADEMARK-POLICY.md`, `docs/OPEN-SOURCE-READINESS.md`,
+  `docs/CHANGELOG.md`.
 
 - **chore(size): re-pin for the alternative-intelligence signal engine.** The new
   `python/harness/intel/` package (engine, sec, attention, service, contracts)
@@ -88,6 +220,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   0 errors / 119 warnings, and the size budget passes on a clean clone of HEAD.
   Doc change: `docs/CHANGELOG.md`.
 
+
+- **feat(trading): live is a choice, and the full order chain is tested.** The
+  operator's explicit LIVE authorization now grants L2 in the same action
+  (`_grant_live_tier` on the server; the UI no longer disables Live or requires a
+  prior track record), while the real gates stay: typed phrase, armed connection,
+  bot-pinned mandate and the submit fence. Refusals from the trial now keep their
+  code (`LIVE_NOT_ARMED`, `RISK_REFUSED`, `BAR_ALREADY_PROCESSED`,
+  `POSITION_ALREADY_OPEN`, broker codes) instead of being mislabelled as
+  “position already open”. Added the missing **full-chain test**
+  (`python/tests/test_trading_bot_e2e.py`): a demo bot places exactly one order
+  through the real runner → trial → `BrokerService` (ledger row + position +
+  `automationId`), the same bar cannot place a second, and a disarmed live bot is
+  refused before the adapter. The size pin for in-flight `service.py` moved
+  2089→2098 (shared-tree intel work; no trading code there). Tests: 120 targeted
+  Python (including 3 E2E), 5015 TS, `tsc` clean. Docs:
+  `docs/trading-bot-live-testing-plan.md`, `docs/trading-bots-plan.md`,
+  `docs/CHANGELOG.md`.
 
 - **feat(intel): alternative-intelligence signal engine (free, keyless, deterministic).**
   New `python/harness/intel/` lane answering "what did a public record measure

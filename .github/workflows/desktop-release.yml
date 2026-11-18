@@ -260,6 +260,14 @@ jobs:
               for a machine with no network.
             - `SHA256SUMS.txt` — verify the Windows installer before running it.
 
+            **Optional components.** The slim installers ship the core only.
+            Browser automation, local ML, document reading, desktop control and
+            advanced charting are separate archives (`<pack>-<platform>-<arch>.zip`,
+            listed under Assets). The app downloads them itself from
+            **Settings → Data & Storage → Feature packs**, verifying each against
+            the SHA-256 recorded in its build; you never download a pack by hand.
+            The `-full` installer already contains every pack.
+
             **First open.** None of the builds are code-signed, so the OS asks once:
             Windows SmartScreen → **More info → Run anyway**; macOS → right-click
             the app → **Open** (or `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`);

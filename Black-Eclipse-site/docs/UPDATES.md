@@ -1,7 +1,7 @@
 ---
 title: Updates & Release Signing
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-17
 ---
 
 # Updates & Release Signing
@@ -92,38 +92,37 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 | `black update` / `npm run update` | `scripts/update.js`, wired in `bin/black.js` |
 | Local status endpoint | `src/app/api/updates/route.ts` |
 | In-app notice | `src/components/layout/update-banner.tsx` (mounted in `src/app/layout.tsx`) |
+| Title-bar update button + panel | `src/components/layout/update-button.tsx` (mounted by `desktop-tab-bar.tsx`) |
+| Update status hook (shared) | `src/lib/updates/use-update-status.ts` |
+| Stage an update in-app | `scripts/update-apply.js` (spawned by the shell via `be-update`, or by `src/app/api/updates/apply/route.ts` as a fallback) |
+| Restart into the staged build | `src/lib/desktop/update-bridge.ts` (Tauri event `be-update`) → `main.rs` listener |
 | Dismiss/skip/enable prefs | `src/lib/updates/prefs.ts` (`be_update_prefs_v1`) |
 | Settings UI | `src/components/screens/general-settings.tsx` → General › Updates |
 | Tests | `src/lib/updates/core.test.ts` |
 
-## Private development (current state)
+## Release state (current)
 
-The repository is **private during development**, so there is no public
-`stable.json` yet — a release asset on a private repo requires authentication and
-would 404 for every anonymous check.
+Updates are **published**: the repository is
+`desimarijuana/BlackEclipse-V1.0` (public), `config/updates.json` has
+`"published": true`, and a signed `stable.json` for **v0.4.0** is attached to that
+release. A live check therefore verifies the signature and reports *up to date*
+for anyone on 0.4.0; it starts offering a release as soon as a newer signed
+manifest exists.
 
-`config/updates.json` therefore ships with:
-
-```json
-"published": false
-```
-
-While it is false:
+`published: false` remains the correct setting only for a private pre-launch
+repo. While it is false:
 
 - the local server makes **no network request** — it cannot learn anything, and
-  users see no banner;
+  users see no notice;
 - Settings › General › Updates reports **"Updates are not published yet."**;
 - `black update` says the same and changes nothing.
 
-This is the honest pre-launch state, not a silent failure. When you are ready to
-launch:
+Do **not** flip it to true before a manifest is actually hosted: every check
+would fail with "Could not reach the update service", which is worse than an
+honest "not published yet".
 
-1. Make the release repo public (or point `repository` at a public release repo).
-2. Change `"published"` to `true` in `config/updates.json`.
-3. Publish the first signed release (below).
-
-Only that one flag changes in code. Do **not** flip it while the repo is still
-private: the check would just fail with "Could not reach the update service".
+Because the manifest is a release asset, it must be re-signed and re-uploaded for
+**every** release. The current one describes v0.4.0 only.
 
 > Keeping the **source** private forever means there is nothing for `black update`
 > to fetch. The git-based updater assumes users can reach the repo. If you later
@@ -171,6 +170,11 @@ gh release upload v0.4.0 release/stable.json --clobber
 `scripts/update-sign.js` self-verifies against the committed public key before
 writing the file: a manifest users cannot verify is worse than no manifest.
 
+No `gh` CLI? The same two steps work in the browser: publish the GitHub release
+from the tag, then **Edit release → Attach binaries** and upload
+`release/stable.json`. The asset **must** be named exactly `stable.json`, because
+the manifest URL is `releases/latest/download/stable.json`.
+
 The app reads `stable.json` from the release's stable asset URL
 (`releases/latest/download/stable.json`). For the **beta** channel, publish the
 manifest on a `beta` release/tag and use the `beta` URL in
@@ -187,9 +191,70 @@ manifest on a `beta` release/tag and use the `beta` URL in
   version**, and dismiss.
 - Settings › General › Updates has the on/off toggle, a manual **Check now**,
   and honest result text (up to date / available / could not check).
+- The title-bar download button shows the same answer with a dot, and is the
+  surface that can actually stage the release — see
+  [In-app updates](#in-app-updates-title-bar-download-button).
 - Prefs are local only (`be_update_prefs_v1`). There is no install ID, no
   account, no analytics. Turning the check off means the banner never calls the
   route. The upstream request is an anonymous GET for a public file.
+
+## In-app updates (title-bar download button)
+
+The signed-release check is also exposed as a **download button in the window
+chrome**, immediately left of Minimize, with a dot when a newer release exists.
+It opens a glass panel that reports the check honestly and can act:
+
+1. **Stage.** *Update now* asks the shell (Tauri event `be-update`,
+   `{action:"apply"}`) to spawn `scripts/update-apply.js`; the shell runs it as
+   its own child so the app's supervisor cannot kill it. A window without that
+   listener falls back to `POST /api/updates/apply`, which spawns the same
+   runner from the server. Either way the runner calls the verified updater
+   (`scripts/update.js --yes --no-desktop`): signature + allowlisted URLs, clean
+   tree, tag == signed commit, `jdds.db` backup, checkout, `npm ci`,
+   `npm run build`. It then **stops**.
+2. **Promote.** The runner continues with
+   `desktop-refresh.js --no-build --no-restart`, which stages the new build under
+   `releases/stable/<buildId>` and moves the pointer. No process is killed: the
+   running window keeps serving the build it already loaded, and the old release
+   is kept as `previous`.
+3. **Restart.** The panel offers *Restart Eclipse*, which emits the Tauri event
+   `be-update` (`{action:"restart", channel}`). The Rust shell spawns
+   `desktop-refresh.js --no-build`, which re-promotes the same build (a no-op)
+   and relaunches the window. Closing and reopening Eclipse achieves the same
+   thing, so an older shell that predates the `be-update` listener still ends up
+   on the new build once it is reopened.
+
+**Why the restart lives in Rust.** Promotion itself is safe while the app runs
+(atomic pointer write, previous release kept). The restart is the destructive
+part: `desktop-refresh` calls `stopShell` and `stopOwnedServer`, and the latter
+is `taskkill /F /T` on the desktop server — i.e. the entire server tree. A
+refresh spawned by the server would be killed after its own copy but before it
+relaunched anything. The shell is outside that tree, and `stopShell` kills only
+the window pid, so a refresh spawned by the shell survives long enough to
+finish. Do not "simplify" this by spawning the full restart from the API route;
+do not remove `--no-restart` from the in-app promote.
+
+Progress crosses the restart by **file, not IPC**: `scripts/update-apply.js`
+writes `.runtime/update-job.json` (phase, message, log tail, target version,
+heartbeat) and the UI polls `/api/updates/apply`. A `running` job whose heartbeat
+is older than five minutes is reported as failed rather than as a spinner that
+never ends (`src/lib/updates/job.ts`).
+
+Deliberate limits:
+
+- The panel never claims to have applied anything the running window has not
+  loaded. A staged job stays "ready" until the running `version` equals the
+  staged one; then it is treated as spent.
+- `npm ci` rewrites `node_modules` under the running server, so polls can fail
+  for a minute. The panel says "Eclipse is rebuilding" instead of freezing.
+- Only the **stable desktop channel** can stage in-app, because `npm run build`
+  always produces `.next` (the Stable channel's build dir). The Dev channel keeps
+  using the CLI. Running it from an old shell that lacks the `be-update` listener
+  still stages, then tells the user to run `npm run desktop:refresh`.
+- Needs a shell rebuild (`npm run desktop:build` + repackage/install) to gain the
+  `be-update` listener; without it the staged build still goes live the next
+  time the app is opened. The web-side button is served by the pinned build as
+  usual.
 
 ## Applying an update: `black update`
 

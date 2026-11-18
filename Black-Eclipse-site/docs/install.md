@@ -1,7 +1,7 @@
 ---
 title: Install
 status: Current
-last-verified: 2026-11-16
+last-verified: 2026-11-17
 ---
 
 # Install
@@ -83,6 +83,23 @@ scripts say so and continue with the printed digest when it is absent.
 The app opens offline, seeds its local vault and provisions the agent runtime on
 first boot. Add a hosted model key in **Settings > AI**, or point it at Ollama.
 Data lives in the platform data directory and survives uninstall.
+
+### Optional components (feature packs)
+
+The slim installer ships the **core** only. Five Python capabilities — browser
+automation, local ML, document reading, desktop control and advanced charting —
+are separate archives that are downloaded from the same release as the app.
+
+Open **Settings → Data & Storage → Feature packs** and press **Download** on
+anything marked not installed. The panel shows real received/total bytes, and
+nothing is written until the archive matches the SHA-256 recorded when the app
+was built. A pack becomes usable as soon as its files land — no restart. Use
+**Remove** to reclaim the space; it only disables that capability.
+
+If the panel says this build has no feature-pack manifest, you are running from
+a source checkout (packs are installed only by the packaged app), or the build
+was produced before `config/packs.json` existed — use the offline **`-full`**
+installer, which already contains every pack.
 
 ## Uninstall
 

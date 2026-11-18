@@ -636,7 +636,7 @@ fn supervise(app: AppHandle) {
                 emit_status(
                     &app,
                     "error",
-                    "Node.js was not found. Install it from nodejs.org, then reopen Black Eclipse.",
+                    "Node.js was not found in this installation. Reinstall Black Eclipse from the setup file, or install Node.js 20+ from nodejs.org, then click Try again.",
                 );
                 return;
             }
@@ -788,14 +788,18 @@ fn supervise(app: AppHandle) {
             log_line("[shell] owned server exited after readiness");
             show_failure_overlay(
                 &app,
-                "The Black Eclipse server stopped unexpectedly. Your data is safe. Use Retry to start it again.",
+                "The local server stopped. Your data is safe — nothing was deleted. Click Reload to start it again. If this keeps happening, open the log folder from the start screen to see the first error.",
             );
-            emit_status(&app, "error", "The server stopped unexpectedly.");
+            emit_status(
+                &app,
+                "error",
+                "The local server stopped. Click Try again. Your data is safe.",
+            );
         } else if !ready {
             emit_status(
                 &app,
                 "error",
-                "The server stopped before the app became ready. See .black-eclipse/desktop-native.log.",
+                "The server stopped before the app was ready. Click Try again; if it fails twice, use Open log folder and send the last error line.",
             );
         }
 }
@@ -884,6 +888,47 @@ fn maybe_run_diagnostics(app: &AppHandle) {
 #[tauri::command]
 fn desktop_diag_report(payload: String) {
     log_line(&format!("[diag] {payload}"));
+}
+
+/// Where this shell writes its own log. The splash shows it when startup fails;
+/// a path the user can read is worth more than "check the logs".
+#[tauri::command]
+fn desktop_log_path() -> serde_json::Value {
+    let log = std::env::var("BE_DESKTOP_LOG").ok();
+    let dir = log
+        .as_deref()
+        .and_then(|value| std::path::Path::new(value).parent())
+        .map(|p| p.to_string_lossy().to_string());
+    serde_json::json!({ "log": log, "dir": dir })
+}
+
+/// Open the folder that holds the log (and the runtime state) in the OS file
+/// manager. Nothing is executed; the path comes from this process's own env.
+#[tauri::command]
+fn desktop_open_log() {
+    let Some(log) = std::env::var("BE_DESKTOP_LOG").ok() else {
+        return;
+    };
+    let path = std::path::PathBuf::from(&log);
+    let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or(path);
+    let opened = {
+        #[cfg(windows)]
+        {
+            Command::new("explorer").arg(&dir).spawn()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("open").arg(&dir).spawn()
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            Command::new("xdg-open").arg(&dir).spawn()
+        }
+    };
+    match opened {
+        Ok(_) => log_line(&format!("[shell] opened the log folder {}", dir.to_string_lossy())),
+        Err(err) => log_line(&format!("[shell] could not open the log folder: {err}")),
+    }
 }
 
 /// Window chrome actions. The app is served from a remote (loopback) origin,
@@ -1509,9 +1554,10 @@ fn main() {
             log_line("[shell] WebView2 runtime not found");
             message_box(
                 "Black Eclipse needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n\
-                 Install it from:\nhttps://developer.microsoft.com/microsoft-edge/webview2/\n\n\
-                 Meanwhile the browser version still works: run `npm start` in the project \
-                 folder, then open http://127.0.0.1:3100.",
+                 Windows 10 does not always include it. Install it once from:\n\
+                 https://developer.microsoft.com/microsoft-edge/webview2/\n\n\
+                 Then open Black Eclipse again. The installer can also do this for you: \
+                 run BlackEclipse-Setup.exe again and it will install the runtime.",
             );
             return;
         }
@@ -1548,7 +1594,9 @@ fn main() {
             desktop_toggle_fullscreen,
             desktop_devtools,
             desktop_diag_report,
-            desktop_info
+            desktop_info,
+            desktop_log_path,
+            desktop_open_log
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1727,6 +1775,76 @@ fn main() {
                         _ => {}
                     }
                 }
+            });
+
+            // --- staged update: restart onto the new build ------------------------
+            // The page stages an update (git tag + build) and then asks for this.
+            // Promotion kills the window (`stopShell`) and `taskkill /T`s the
+            // server tree (`stopOwnedServer`), so it MUST be spawned here: this
+            // shell is not in the server's tree, and `stopShell` kills only the
+            // window pid, not its children. A promote spawned by the server
+            // would be killed halfway through, after the copy but possibly
+            // before the pointer moved.
+            let update_app = handle.clone();
+            handle.listen("be-update", move |event| {
+                let value = match serde_json::from_str::<serde_json::Value>(event.payload()) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        log_line(&format!("[update] bad payload: {err}"));
+                        return;
+                    }
+                };
+                let action = value
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if action != "apply" && action != "restart" {
+                    return;
+                }
+                let channel = value
+                    .get("channel")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("stable")
+                    .to_string();
+                let app = update_app.clone();
+                std::thread::spawn(move || {
+                    let root = app.state::<AppState>().root.clone();
+                    let node = match find_node() {
+                        Some(node) => node,
+                        None => {
+                            log_line("[update] node not found; cannot run the updater");
+                            return;
+                        }
+                    };
+                    // Both stages run from the shell so nothing the app's own
+                    // supervisor kills (`taskkill /T` on the server tree) can
+                    // take them down mid-build.
+                    let script = if action == "apply" {
+                        log_line(&format!("[update] staging the {channel} release"));
+                        "update-apply.js"
+                    } else {
+                        log_line(&format!(
+                            "[update] promoting the staged {channel} build and restarting"
+                        ));
+                        "desktop-refresh.js"
+                    };
+                    let mut command = Command::new(node);
+                    command
+                        .arg(root.join("scripts").join(script))
+                        .arg("--channel")
+                        .arg(&channel)
+                        .current_dir(&root)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                    if action == "restart" {
+                        command.arg("--no-build");
+                    }
+                    if let Err(err) = command.spawn() {
+                        log_line(&format!("[update] could not start {script}: {err}"));
+                    }
+                });
             });
 
             // --- boot -------------------------------------------------------------

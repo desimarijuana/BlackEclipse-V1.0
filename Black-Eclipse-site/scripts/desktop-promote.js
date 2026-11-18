@@ -41,6 +41,7 @@ function argValue(flag) {
 }
 
 const rollback = process.argv.includes("--rollback");
+const noRestart = process.argv.includes("--no-restart");
 const channel = channelFor(argValue("--channel") || "stable");
 // An explicit source build. `--from .next-desktop-dev` lets a verified Dev
 // build serve Stable without a second identical compile. Omitted: the channel's
@@ -228,7 +229,15 @@ async function main() {
   if (rollback) rollbackRelease();
   else promoteRelease();
   pruneReleases();
-  await restart();
+  if (noRestart) {
+    // Used by the in-app updater: the pointer moves now, the running window
+    // keeps serving the build it already loaded, and the shell (or the user)
+    // restarts when it is ready. Safe because the pointer write is atomic and
+    // the running release is kept as `previous`.
+    log("release promoted without restart (--no-restart)");
+  } else {
+    await restart();
+  }
   log("done");
 }
 

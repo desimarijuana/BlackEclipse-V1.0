@@ -108,6 +108,7 @@
     "eclipse": "node scripts/eclipse.js",
     "update": "node scripts/update.js",
     "update:check": "node scripts/update.js --check",
+    "update:apply": "node scripts/update-apply.js",
     "update:keys": "node scripts/update-keys.js",
     "update:sign": "node scripts/update-sign.js",
     "security:preflight": "node scripts/security-preflight.js",

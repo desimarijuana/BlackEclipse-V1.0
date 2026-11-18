@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "enabled": true,
-  "published": false,
-  "repository": "black-eclipse/black-eclipse",
+  "published": true,
+  "repository": "desimarijuana/BlackEclipse-V1.0",
   "manifestUrls": {
     "stable": "https://github.com/{repository}/releases/latest/download/stable.json",
     "beta": "https://github.com/{repository}/releases/download/beta/beta.json"

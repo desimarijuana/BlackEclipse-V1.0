@@ -48,6 +48,23 @@ class PrepareBody(BaseModel):
     live: bool = False
 
 
+def _required_phrase(body: PrepareBody, live: LiveStrategyService) -> str:
+    """The exact phrase the operator must type, matching the server's check.
+
+    A demo trial's phrase is built from the connection LABEL (that is what
+    `LiveStrategyService.prepare` compares), not its internal id: showing the id
+    would hand the operator a phrase the server always rejects.
+    """
+    if body.mode == "live":
+        return f"LIVE TRIAL {body.strategyId} {body.strategyVersion}"
+    label = body.connectionId
+    try:
+        label = live.broker.get_connection(body.connectionId).get("label") or label
+    except Exception:  # noqa: BLE001 - the exact phrase is returned by prepare anyway
+        pass
+    return f"MANDATE DEMO {label}"
+
+
 def _definition(automation_id: str):
     definition = _svc().get(automation_id)
     if definition is None:
@@ -62,6 +79,31 @@ def _definition(automation_id: str):
 
 def _trading_bot(definition) -> bool:
     return getattr(definition.action, "type", "") == "run_strategy"
+
+
+def _grant_live_tier(definition):
+    """The operator's explicit LIVE authorization grants L2.
+
+    Live is a choice, not a track-record prison. The typed phrase and the armed
+    connection remain the real gates; the tier is what the mode requires, so it is
+    raised in the same operator action instead of dead-ending the form.
+    """
+    authority = getattr(definition, "execution_authority", None)
+    tier = str(getattr(authority, "tier", "l0") or "l0")
+    if tier == "l2":
+        return definition
+    payload = (
+        authority.model_dump(by_alias=False)
+        if hasattr(authority, "model_dump")
+        else {key: getattr(authority, key) for key in (
+            "tier", "appetite", "sizing_mode", "require_stop",
+            "max_open_positions", "max_margin_per_order", "cooldown_s",
+            "max_daily_loss_pct", "auto_mode", "auto_renew",
+            "learning_enabled", "improve_after_failures",
+        )}
+    )
+    payload["tier"] = "l2"
+    return _svc().update(definition.id, {"execution_authority": payload})
 
 
 def _prepare_agent(
@@ -209,6 +251,8 @@ def prepare_trading(
 
     # Re-preparing supersedes the old trial: stop it first so two mandates can
     # never be alive for one bot. An agent bot has a mandate but no trial.
+    if body.mode == "live":
+        definition = _grant_live_tier(definition)
     if not _trading_bot(definition):
         return _prepare_agent(definition, body, stored=stored_consent, auto=auto)
     live = _live()
@@ -272,11 +316,7 @@ def prepare_trading(
         "trial": trial,
         "consent": consent,
         "automation": updated.public(),
-        "requiredPhrase": (
-            f"LIVE TRIAL {body.strategyId} {body.strategyVersion}"
-            if body.mode == "live"
-            else f"MANDATE DEMO {body.connectionId}"
-        ),
+        "requiredPhrase": _required_phrase(body, live),
     }
 
 

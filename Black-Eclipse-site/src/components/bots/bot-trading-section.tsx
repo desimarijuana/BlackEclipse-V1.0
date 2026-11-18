@@ -720,11 +720,11 @@ function TierLadder({
               {row.id === "l2" && tier !== "l2" && (
                 <button
                   type="button"
-                  disabled={busy !== null || !eligibility.eligible || !ack}
+                  disabled={busy !== null || !ack}
                   onClick={() => void raise("l2")}
                   className="shrink-0 rounded px-2 py-1 text-[10px] font-semibold text-amber-200 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {busy === "l2" ? "Requesting…" : "Request L2"}
+                  {busy === "l2" ? "Requesting…" : "Grant L2"}
                 </button>
               )}
             </div>
@@ -941,7 +941,6 @@ function AuthorizeTrading({
     connection?.label ?? "the connection",
   );
   const tier = bot.executionAuthority?.tier ?? "l0";
-  const eligibleLive = tier === "l2";
   const blockReason = authorizeBlockReason({
     mode,
     tier,
@@ -976,8 +975,10 @@ function AuthorizeTrading({
       const authority = bot.executionAuthority
         ? { ...bot.executionAuthority }
         : { ...buildTradingAuthority(draft) };
-      // Demo is L1's rung. Live is only offered when the tier is already L2.
+      // Demo is L1's rung. Live is granted by this explicit authorization; the
+      // connection must already be armed and the typed phrase is checked.
       if (mode === "demo" && authority.tier === "l0") authority.tier = "l1";
+      if (mode === "live") authority.tier = "l2";
       await updateAutomation(bot.id, {
         action: {
           ...bot.action,
@@ -1052,9 +1053,7 @@ function AuthorizeTrading({
                 }}
               >
                 <option value="demo">Demo account</option>
-                <option value="live" disabled={!eligibleLive}>
-                  Live account{eligibleLive ? "" : " (needs L2)"}
-                </option>
+                <option value="live">Live account — real money</option>
               </select>
             </label>
             <label className="block">

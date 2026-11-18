@@ -68,9 +68,18 @@ class FakeSvc:
     def __init__(self, definition):
         self.definition = definition
         self.attached: list[dict] = []
+        self.updates: list[dict] = []
 
     def get(self, automation_id):
         return self.definition if automation_id == self.definition.id else None
+
+    def update(self, automation_id, patch):
+        self.updates.append(patch)
+        authority = patch.get("execution_authority") or {}
+        if authority.get("tier"):
+            self.definition.execution_authority.tier = authority["tier"]
+        self.definition.version += 1
+        return self.definition
 
     def attach_trading(self, automation_id, *, trial_id, consent, config_patch=None):
         self.attached.append({
@@ -109,6 +118,29 @@ def _body(**patch):
     )
     base.update(patch)
     return PrepareBody(**base)
+
+
+def test_the_demo_phrase_is_the_connection_label_not_its_id():
+    """`prepare` compares the label; the response must show the same phrase."""
+    live = SimpleNamespace(broker=SimpleNamespace(
+        get_connection=lambda _id: {"id": "brk_1", "label": "MT5 demo"},
+    ))
+    body = _body(mode="demo", connectionId="brk_1", confirmation="")
+    assert bot_trading._required_phrase(body, live) == "MANDATE DEMO MT5 demo"
+
+
+def test_a_live_authorization_grants_l2_in_the_same_action(wiring):
+    definition, brokers, svc = wiring
+    definition.execution_authority.tier = "l1"
+
+    result = prepare_trading(definition.id, _body(), _=True)
+
+    assert result["success"] is True
+    assert svc.updates, "the live authorization must raise the tier"
+    assert svc.updates[0]["execution_authority"]["tier"] == "l2"
+    # The mandate is pinned to the NEW version (the update bumped it).
+    assert brokers.mandates[0]["botVersion"] == definition.version
+    assert definition.execution_authority.tier == "l2"
 
 
 def test_an_agent_gets_a_bot_pinned_live_mandate(wiring):

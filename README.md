@@ -246,15 +246,18 @@ window opens.
 | **Administrator rights** | **None.** Per-user install to `%LOCALAPPDATA%\Programs\BlackEclipse`; the NSIS manifest is `RequestExecutionLevel user` |
 | **Node.js, Python, SQLite** | **Not required** — all three ship inside the payload |
 | **Account, sign-in, telemetry** | None. The app runs entirely on your machine |
-| **Download size** | ~141 MB, and that is the whole thing |
+| **Download size** | ~141 MB for the core, and that is the whole app; optional components download on demand |
 | **Internet** | Needed for live prices, news and every model call. The app still opens, seeds its vault and runs offline — data simply reads `UNAVAILABLE` until something can be fetched |
 | **A language model** | A key for a hosted provider, or Ollama running locally. Without one, everything except the agent still works |
 
-Optional feature packs (extra Python capabilities) are **lazy**: the harness imports
-them only when the folder is present, so a missing pack degrades one capability
-instead of blocking the install. The release also carries an offline
-`BlackEclipse-Setup-<version>-full.exe` that bundles those packs for machines with
-no network at all.
+Optional feature packs (extra Python capabilities: browser automation, local ML,
+document reading, desktop control, advanced charting) are **lazy**: the harness
+imports them only when the folder is present, so a missing pack degrades one
+capability instead of blocking the install. The slim installer leaves them out to
+keep the download small; **Settings · Data & Storage · Feature packs** lists what
+is missing and downloads it from the same release, verifying a published SHA-256
+before anything is written. The offline `BlackEclipse-Setup-<version>-full.exe`
+bundles every pack for machines with no network at all.
 
 No account and no manual database setup. First boot provisions and seeds the local
 vault and starts the agent runtime. To use a model, either add a key for a

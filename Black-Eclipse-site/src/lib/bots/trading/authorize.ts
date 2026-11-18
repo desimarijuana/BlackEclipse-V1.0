@@ -25,9 +25,8 @@ export function authorizeBlockReason(input: AuthorizeCheckInput): string | null 
       : "This broker connection is unavailable.";
   }
   if (input.mode === "live") {
-    if (input.tier !== "l2") {
-      return "Live execution needs tier L2 first.";
-    }
+    // L2 is GRANTED by this live authorization (the operator's explicit choice +
+    // typed phrase); it is not a pre-condition that dead-ends the form.
     const until = connection.armedUntil ? new Date(connection.armedUntil).getTime() : 0;
     if (!until || until <= (input.now ?? Date.now())) {
       return "Arm the live connection before authorizing live trading.";

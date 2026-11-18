@@ -33,6 +33,7 @@ from .model import (
     validate_config,
 )
 from .policy import TradePolicy
+from .ownership import with_ownership_magic
 from .reconcile import BrokerReconciler, ReconcilerLoop, interval_from_env
 from .registry import get_kind, list_kinds, make_adapter
 from .store import BrokerConnectionStore
@@ -60,13 +61,12 @@ class BrokerService:
 
     # ── connection records ───────────────────────────────────────────────────
     def list_connections(self) -> list[dict[str, Any]]:
-        return [connection.to_dict() for connection in self.connections.list()]
+        # Through `_connection` so an old connection's missing magic is repaired
+        # before any caller can act on it.
+        return [self._connection(c.id).to_dict() for c in self.connections.list()]
 
     def get_connection(self, connection_id: str) -> dict[str, Any]:
-        connection = self.connections.get(connection_id)
-        if connection is None:
-            raise KeyError(f"no broker connection {connection_id!r}")
-        return connection.to_dict()
+        return self._connection(connection_id).to_dict()
 
     def create_connection(
         self,
@@ -77,6 +77,10 @@ class BrokerService:
         config: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         get_kind(kind)  # unknown kind is a caller error, not a stored row
+        # Every connection gets an ownership MAGIC: it is what the kill switch
+        # matches, so an Eclipse order is cancellable without touching anything
+        # else on the account.
+        config, _magic = with_ownership_magic(config, label)
         connection = self.connections.create(
             kind=kind, label=label, mode=mode, config=config
         )
@@ -112,6 +116,18 @@ class BrokerService:
         connection = self.connections.get(connection_id)
         if connection is None:
             raise KeyError(f"no broker connection {connection_id!r}")
+        # Backfill the magic on connections created before it existed; without
+        # it their orders are indistinguishable from a human's and the kill
+        # switch refuses to act at all.
+        config, magic = with_ownership_magic(connection.config, connection.label)
+        if int(float((connection.config or {}).get("magic") or 0) or 0) <= 0:
+            updated = self.connections.update(connection_id, {"config": config})
+            if updated is not None:
+                self.connections.record_event(
+                    connection_id, "update", "ok",
+                    {"fields": ["magic"], "magic": magic},
+                )
+                connection = updated
         return connection
 
     def _unavailable(self, connection: BrokerConnection, failure: AdapterUnavailable) -> dict[str, Any]:

@@ -489,7 +489,8 @@ RATCHET_PY: dict[str, int] = {
     # In-flight shared-tree growth measured 2026-11-17 (not this change's
     # subsystem). Pinned to the measured size; split candidate: broker adapters.
     # +9 (2026-11-17): an ownership magic on every connection, so the kill
-    # switch can match Eclipse orders (`_default_magic` + the create default).
+    # switch can match Eclipse orders (backfilled in `_connection`; the pure
+    # helper lives in `trade/ownership.py`).
     "trade/service.py": 1214,
 }
 

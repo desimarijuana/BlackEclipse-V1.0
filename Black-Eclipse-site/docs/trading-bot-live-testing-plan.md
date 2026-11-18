@@ -1,17 +1,65 @@
 ---
 title: Trading bots — real execution & test plan
-status: Proposed
+status: Implemented (L0–L4); L5/L6 operator-run
 last-verified: 2026-11-17
 ---
 
 # Trading bots — real execution and how to test them
 
+**L4 reached on 2026-11-17 against the real terminal** (MetaQuotes-Demo
+114826727). A demo bot (`auto_21fb2c4a633340f7be2e`, strategy
+`eurusd_smoke_1d` v1.0.0, tier L1, mandate `mnd_ac414e6099be`) ran once and the
+terminal filled a **EURUSD BUY 0.01 @ 1.09897** (ticket `11447256588`, SL
+1.09798, TP 1.10048). Evidence: the execution `autoexec_43a3e1b7c92b4962b8f0`
+(state `completed`, decision `outcome=filled`, `orderStatus=filled`), a
+`BrokerOrder` row `ord_e29c7a0e6b41` with **`automationId` + `automationVersion`
++ `mandateId` + `runId`** and the same ticket, and MT5's own deal history (entry
+`strategy:eurusd_smoke_1d`, then `eclipse close`; account flat after).
+
+Getting there exposed five real defects, all fixed (see the CHANGELOG):
+
+1. **Activation staled the mandate.** `PATCH {state: active}` bumped the bot
+   version that `prepare` had just pinned → every run refused
+   `BOT_VERSION_STALE`. A state-only change no longer bumps the version.
+2. **The demo phrase shown was the connection id**, while `prepare` compares the
+   connection *label* → the operator typed a phrase the server always rejected.
+3. **A bare FX pair was not FX.** `EURUSD` classified as equity, so no provider
+   had bars: backtest and signal both failed. Bare fiat pairs now map to
+   `EURUSD=X` (Python classifier and the Next price-history route).
+4. **Signals used a proxied series.** A broker symbol now signals on the
+   broker's OWN bars (MT5 `copy_rates`), because those are the bars the order is
+   filled against; the gateway remains the fallback.
+5. **The forming bar was traded.** `copy_rates*` includes the open bar; the
+   signal now drops it and trades the last CLOSED bar only.
+6. **A refusal burned the bar.** `RISK_REFUSED` / kill-state left the bar
+   claimed, so fixing the bot could not retry that bar. A refusal that sent
+   nothing now releases the claim; a send never does.
+7. **Bot orders were un-killable.** Connections had `magic: 0`, so the kill
+   switch refused. Every connection now gets a stable ownership magic.
+
+**Still open:** L5 (supervised live, minimum size) needs the operator's explicit
+consent and a supervised window; L6 (48–72 h soak) needs an always-on host. The
+app is not a 24/7 service.
+
+**Kill-switch scope, proven (2026-11-17 20:0x local).** A second bot
+(`auto_87fb48d33d6741f58e33`, strategy `eurusd_magic_sw`) filled EURUSD BUY 0.01
+@ 1.09863 as ticket `11448007792` with **magic `741879`** (the connection's
+ownership magic, backfilled from its label). Two working orders were then placed
+on the demo: `11448013638` with magic `741879` and `11448013651` with magic `777`
+(a control). `POST /trading/connections/brk_c45c08fda345/kill` returned
+`magic=741879 matched=1 cancelled=1 failed=0`; MT5 then showed only the control
+order, and the bot's filled position was untouched (the kill switch cancels
+working orders, it does not liquidate). The control order and the position were
+closed afterwards; the account is flat.
+
+
 **Who this is for:** anyone asking "is the bot actually placing trades, and how
 do we prove it?"
 
-This is a plan. The decision machinery is implemented and unit-tested; **no bot
-has yet placed a real (demo or live) order end to end**, and the app is not a
-24/7 service.
+This is the record of what was tested and what remains. The decision machinery
+is implemented and unit-tested; **a demo bot has now placed a real order on the
+MT5 terminal (L4, evidence at the top)**, but no live order has, and the app is
+not a 24/7 service.
 
 ## 1. Product change: demo is a choice, not a cage
 
@@ -122,17 +170,22 @@ Scenarios:
 
 This layer is the acceptance gate for "the bot can place a trade".
 
-### L4 — real MT5 demo smoke (operator-run, not CI)
+### L4 — real MT5 demo smoke (DONE 2026-11-17)
 
 A scripted, opt-in check against the installed terminal:
 
 1. App + MT5 demo logged in; broker status `connected`.
-2. Create the EUR/USD 1m bot (starter) → strategy + backtest + shadow trial.
-3. Authorize **demo** with the phrase.
+2. Create the bot: strategy + backtest + approval, then prepare.
+3. Authorize **demo** with the phrase `MANDATE DEMO <connection label>`.
 4. **Run now**; wait for the execution to finish.
 5. Verify: a decision in Run History, an order/position in MT5 and in the bot's
    Trading panel, `automationId` on the ledger row.
-6. Reverse/close from the panel and verify the position is gone.
+6. Close from the panel and verify the position is gone.
+
+What was actually run (2026-11-17): a 1D smoke strategy (`eurusd_smoke_1d`:
+`close > 0`, always long, stop 100 points / target 150) because the app's only
+verified EURUSD history is daily; the 1m variant could not be backtested (no
+provider serves 1m FX) and the bot now falls back to the broker's own bars.
 
 Gate: `BLACK_ECLIPSE_TRADING_IT=1`. Never part of `npm test`.
 
@@ -163,7 +216,7 @@ Leave one demo bot active with the 60 s schedule, then measure:
 
 | Claim | Evidence required |
 |---|---|
-| "A bot can place a demo trade" | L3 scenario 1 + L4 checklist |
+| "A bot can place a demo trade" | **PASSED 2026-11-17**: L3 scenario 1 + L4 (real MT5 fill, ledger row with `automationId`) |
 | "A bot can place a live trade" | L5 checklist (supervised, min size) |
 | "It runs on a schedule" | L6: 72 h of decisions, no gaps beyond market hours |
 | "It learns" | repeated-refusal test → proposal generated; applying it changes config and re-prepares; no silent changes |

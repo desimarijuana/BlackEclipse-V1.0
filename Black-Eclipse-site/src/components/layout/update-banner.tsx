@@ -6,100 +6,52 @@
 // release exists and shows a single glass notice when there is one.
 //
 // Deliberate choices:
-//   * Notify only. The browser cannot rebuild a self-hosted install, and
-//     auto-applying code against a local financial DB without consent is not a
-//     trade worth making. The notice explains the one command that updates.
+//   * This banner only notifies. The acting surface is the title-bar download
+//     button (update-button.tsx), which can stage a signed release after an
+//     explicit click. Auto-applying code against a local financial DB without
+//     consent is still not a trade worth making.
 //   * Dismiss / skip are per-version and local-only.
 //   * A failed check is silent here. "Couldn't check" belongs in Settings,
 //     where the user asked; a banner that cries wolf on every offline launch
 //     gets ignored.
 //   * It renders through a portal so the frosted glass samples the real page.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, ExternalLink, RefreshCw, ShieldCheck, X } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
-import {
-  DEFAULT_UPDATE_PREFS,
-  loadUpdatePrefs,
-  saveUpdatePrefs,
-  subscribeUpdatePrefs,
-  type UpdatePrefs,
-} from "@/lib/updates/prefs";
+import { saveUpdatePrefs } from "@/lib/updates/prefs";
+import { useUpdateStatus } from "@/lib/updates/use-update-status";
 import type { UpdateStatus } from "@/lib/updates/types";
-
-const FIRST_CHECK_MS = 6_000;
-const RECHECK_MS = 6 * 60 * 60 * 1000;
 
 export function UpdateBanner() {
   const [mounted, setMounted] = useState(false);
-  // Start from the SAME value on the server and the first client render. Reading
-  // localStorage in the initializer changes the client tree and triggers a
-  // hydration mismatch (#418); load it in the effect instead.
-  const [prefs, setPrefs] = useState<UpdatePrefs>(DEFAULT_UPDATE_PREFS);
-  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  // The title-bar button uses the same hook; the route's 6h manifest cache keeps
+  // two consumers at one upstream fetch.
+  const { status: checked, prefs } = useUpdateStatus();
   const [showCommand, setShowCommand] = useState(false);
   const [copied, setCopied] = useState(false);
-  const prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
 
   useEffect(() => {
     setMounted(true);
-    const sync = () => setPrefs(loadUpdatePrefs());
-    sync();
-    return subscribeUpdatePrefs(sync);
   }, []);
 
-  useEffect(() => {
-    if (!prefs.enabled) {
-      setStatus(null);
-      return;
-    }
+  const hidden =
+    !checked?.available ||
+    !checked.latestVersion ||
+    checked.latestVersion === prefs.dismissedVersion ||
+    checked.latestVersion === prefs.skippedVersion;
 
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const res = await fetch("/api/updates", { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as UpdateStatus;
-        if (cancelled) return;
-        if (!data?.ok || !data.available || !data.latestVersion) return;
-        const current = prefsRef.current;
-        if (
-          data.latestVersion === current.skippedVersion ||
-          data.latestVersion === current.dismissedVersion
-        ) {
-          return;
-        }
-        setStatus(data);
-      } catch {
-        /* offline / server restarting — stay quiet, try again next tick */
-      }
-    };
+  if (!mounted || hidden || !checked) return null;
 
-    const first = window.setTimeout(check, FIRST_CHECK_MS);
-    const timer = window.setInterval(check, RECHECK_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(first);
-      window.clearInterval(timer);
-    };
-  }, [prefs.enabled]);
-
-  if (!mounted || !status?.available || !status.latestVersion) return null;
+  const status: UpdateStatus = checked;
 
   const dismiss = () => {
-    const next = { ...prefs, dismissedVersion: status.latestVersion };
-    setPrefs(next);
-    saveUpdatePrefs(next);
-    setStatus(null);
+    saveUpdatePrefs({ ...prefs, dismissedVersion: status.latestVersion });
   };
 
   const skip = () => {
-    const next = { ...prefs, skippedVersion: status.latestVersion };
-    setPrefs(next);
-    saveUpdatePrefs(next);
-    setStatus(null);
+    saveUpdatePrefs({ ...prefs, skippedVersion: status.latestVersion });
   };
 
   const copyCommand = async () => {
@@ -151,7 +103,8 @@ export function UpdateBanner() {
         {showCommand ? (
           <div className="space-y-2">
             <p className="text-[11px] text-muted-foreground">
-              Stop Eclipse, then run this in the project folder:
+              Click the download icon in the title bar and choose Update now, or
+              stop Eclipse and run this in the project folder:
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 font-mono text-[11px]">

@@ -340,7 +340,11 @@ function buildPacks() {
   const entries = [];
 
   for (const pack of manifest) {
-    const zipPath = path.join(packsRoot, `${pack.name}.zip`);
+    // Per-target archive name. All three OS builds run this script, and release
+    // assets share one flat namespace: a bare `browser.zip` would be uploaded
+    // three times and the last platform would win, handing a Linux wheel to a
+    // Windows install. `app/config/packs.json` records this same basename.
+    const zipPath = path.join(packsRoot, `${pack.name}-${TARGET}.zip`);
     try {
       fs.rmSync(zipPath, { force: true });
       execFileSync("tar", ["-a", "-cf", zipPath, "-C", path.join(packsRoot, pack.name), "."], {
@@ -348,16 +352,49 @@ function buildPacks() {
       });
       const sha256 = crypto.createHash("sha256").update(fs.readFileSync(zipPath)).digest("hex");
       const zipBytes = fs.statSync(zipPath).size;
-      entries.push({ ...pack, zip: `packs/${pack.name}.zip`, zipBytes, sha256 });
-      console.log(`  pack ${pack.name}.zip: ${(zipBytes / 1024 / 1024).toFixed(0)} MB`);
+      entries.push({ ...pack, zip: `packs/${pack.name}-${TARGET}.zip`, zipBytes, sha256 });
+      console.log(`  pack ${pack.name}-${TARGET}.zip: ${(zipBytes / 1024 / 1024).toFixed(0)} MB`);
     } catch (err) {
-      console.log(`  pack ${pack.name}.zip: FAILED (${err.message})`);
+      console.log(`  pack ${pack.name}-${TARGET}.zip: FAILED (${err.message})`);
     }
   }
 
   fs.writeFileSync(
     path.join(packsRoot, "manifest.json"),
     JSON.stringify({ target: TARGET, packs: entries }, null, 2)
+  );
+
+  // The INSTALLED app needs its own copy: Settings → Data & Storage offers a
+  // real Download button for anything the slim installer left out, and that
+  // panel reads `config/packs.json` from the app root. Written into the payload
+  // beside `updates.json` so a release and its packs always agree on version.
+  const pkgJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const runtimeManifest = {
+    schema: 1,
+    version: pkgJson.version,
+    repository: process.env.BE_RELEASE_REPO || "desimarijuana/BlackEclipse-V1.0",
+    allowedHosts: ["github.com", "objects.githubusercontent.com"],
+    target: TARGET,
+    packs: entries.map((entry) => ({
+      name: entry.name,
+      packages: entry.packages,
+      bytes: entry.bytes,
+      // Release assets are flat on GitHub: `dist/packs/browser.zip` is published
+      // as `browser.zip`. The download URL must use the basename, not the
+      // repository-relative path.
+      zip: path.basename(entry.zip),
+      zipBytes: entry.zipBytes,
+      sha256: entry.sha256,
+    })),
+  };
+  const configDir = path.join(APP, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(configDir, "packs.json"),
+    JSON.stringify(runtimeManifest, null, 2)
+  );
+  console.log(
+    `  app/config/packs.json: ${entries.length} downloadable pack(s) for ${runtimeManifest.repository}@v${pkgJson.version}`
   );
 }
 
