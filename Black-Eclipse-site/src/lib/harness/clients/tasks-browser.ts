@@ -84,6 +84,12 @@ export async function createTask(input: CreateTaskInput): Promise<TaskNode> {
   return body.task;
 }
 
+/** One task as the runtime projects it (live `assignedRunId` + executions). */
+export async function getTask(taskId: string): Promise<TaskNode> {
+  const body = await api<{ task: TaskNode }>(`/api/tasks/${encodeURIComponent(taskId)}`);
+  return body.task;
+}
+
 export async function completeTask(taskId: string, force = false): Promise<TaskNode> {
   const body = await api<{ task: TaskNode }>(
     `/api/tasks/${encodeURIComponent(taskId)}/complete`,

@@ -77,10 +77,19 @@ Two invariants keep a turn honest:
   `blocked` or `wait`; it can never complete a goal on prose alone.
 
 A goal created from chat is **session-scoped** (`sessionId`), so the "user always
-wins" rule has a session to inspect. Every new verdict is also appended to the
-chat transcript by `useGoalVerdictWatch` (the GoalBar remains the live status
-strip); the first poll only primes the seen-set, so reopening a chat never
-replays old verdicts. One active goal per session is enforced
+wins" rule has a session to inspect. A goal turn is also **visible in the chat
+transcript**, as ONE message per turn: `useGoalWatch` polls the front door while
+the conversation is open and fills that message with the turn's live tool steps
+(read from the same persisted trace the Agent Workspace replays), then finalises
+the same id with the verdict — so the steps and the verdict never split into two
+bubbles. A goal that leaves the open set (the turn that finishes it) is swept one
+last time for its closing verdict, because it records the verdict and flips its
+status in the same instant; goals that finished before the chat mounted are never
+replayed. While a turn runs, its run id is not exposed by the task (the task's
+`assignedRunId` and execution rows appear only when it finishes), so the watcher
+derives `taskrun_<taskId>_<attempt>` candidates and keeps the first the runtime
+knows. The GoalBar remains the live status strip.
+One active goal per session is enforced
 (`GOAL_ALREADY_ACTIVE`) unless the caller passes `allowParallel`. A goal turn is
 a normal task run dispatched **inside the goal's workspace**
 (`RunRequest.workspaceId` from the task metadata), so the agent's edits and the

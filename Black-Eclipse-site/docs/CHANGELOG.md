@@ -6,6 +6,79 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **test(trading): demo soak closed at 156 minutes — properties proven, 48–72 h
+  deferred by the operator.** Final measured record (isolated runtime :8799,
+  copied state): 03:02:59Z→05:38:09Z, **156 fires, 156 distinct minutes, 0
+  duplicate minutes**, 136 `BAR_ALREADY_PROCESSED`, 2 filled on fresh 5-minute
+  bars (`ord_aa35ce8b730b` / `ord_44af638be5fc`), 2 `POSITION_ALREADY_OPEN`, 14
+  no-signal (MT5 down), 1 `MANDATE_INACTIVE` (the 2-order daily cap), 1
+  `QUANT_ERROR`; **2 ledger rows, 0 unexplained orders**. Supervisor, MT5
+  watchdog and :8799 stopped; demo account flat. A 48–72 h record is explicitly
+  deferred (needs a host that stays up), not failed.
+  Docs: `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(trading): fresh-bar entries captured in minutes, not a day.** The soak
+  bot was switched to a **5-minute** smoke strategy (`eurusd_m5_smoke`, synthetic
+  backtest for the approval gate, real M5 broker bars at runtime). Isolated
+  runtime (:8799) at 05:29–05:31Z: `ord_aa35ce8b730b` (ticket 11451776390,
+  1.09863) on bar 07:20, a `POSITION_ALREADY_OPEN` skip on the next fire, then
+  `ord_44af638be5fc` (ticket 11451810596, 1.09835) on bar 07:25 — all with
+  `automationId`, `mandateId`, `runId`, magic 741879. Soak to 05:32Z: **150
+  fires, 150 distinct minutes, 0 duplicate minutes**, 132
+  `BAR_ALREADY_PROCESSED`, 2 filled, 2 not-stacked, 14 no-signal (MT5 down), and
+  **no unexplained order**. Docs: `docs/trading-bot-live-testing-plan.md`,
+  `docs/CHANGELOG.md`.
+
+- **fix(updates): an update can no longer break the install on a locked
+  `node_modules`.** Windows keeps a loaded `.node` binary locked for the life of
+  the process that loaded it, and `npm ci` empties `node_modules` before it
+  installs, so a running app's `next-swc`/`skia` left the tree with no
+  dependencies at all. The runner now probes by rename, waits, and either stops
+  the app it owns (new `stopping` phase) or fails with the install intact; the
+  staged job is also read against the installed version so a stale job cannot
+  read as pending. The trading runner now names the first no-signal reason
+  instead of only counting symbols.
+
+- **chore(sbom): regenerate the SBOM and notices for v0.4.1.** The 0.4.1 version
+  bump left `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` at 0.4.0, so
+  `sbom-artifact.test.ts` failed on a clean tree. Regenerated from the lockfiles
+  (1335 components); no product behaviour changes.
+
+- **feat(autonomy): a running goal shows its activity steps in the chat.** The
+  verdict line was only the end of a turn; a goal turn runs as a background
+  task, so nothing filled the transcript while it worked. `useGoalWatch` polls
+  the session's goals and, for each, resolves the turn's live run and reads its
+  persisted tool trace (`GET /api/harness/runs/{runId}/events`), mapping rows to
+  the SAME `ActivityItem` shape the live chat feed renders
+  (`lib/harness/goal-activity.ts`). One message per goal turn is created and
+  updated in place, then finalised by the verdict
+  (`lib/harness/goal-transcript.ts`, pure builders), so steps and the verdict
+  share a bubble and a late step cannot reopen a closed turn; the card persists
+  so a reload keeps it. Two gaps the live check exposed and this closes: a turn
+  that ENDS a goal records its verdict and flips status in the same instant (so
+  open-only polling missed `done` — each goal is now swept once as it closes),
+  and a running task exposes no run id (it is derived from
+  `taskrun_<taskId>_<attempt>`). Tests: mapping, watch-target sweep, run-id
+  candidates, transcript builders, size ratchet re-pinned, plus an opt-in live
+  check (`goal-watch.live.test.ts`, `BE_LIVE_GOAL=<goalId>`). Verified in the
+  running app: "**Goal · turn 1** — working" with its steps, closing to "**done**"
+  with the steps retained. Docs: `docs/harness/autonomy.md`.
+
+- **test(trading): the demo soak runs isolated and has 119 clean minutes.** The
+  shared app is killed every few minutes, so the soak was moved to a copy of the
+  bot state (`VACUUM INTO .black-eclipse/soak-iso/agent-memory.db`), harness
+  port **8799**, its own `BE_DATA_DIR`, a restarting supervisor (25 h horizon)
+  and an MT5 watchdog. Measured 03:02→05:01Z: 119 unattended fires, **119 distinct
+  minutes, 0 duplicate minutes**, 106 `BAR_ALREADY_PROCESSED` + 13 no-signal fires
+  while MT5 was down, **0 orders, 0 ledger rows, 0 positions**. The runner now
+  carries the failed symbol's reason into the decision
+  (`no actionable signal (EURUSD: signal failed: …)`).
+  Note: a concurrent session committed the tree and a later restore discarded the
+  uncommitted doc edits; the code fix and this entry were re-applied on top of
+  `76f87305`. Tests: 32 runner/e2e/size/phase. Docs:
+  `docs/trading-bot-live-testing-plan.md` (L6), `docs/CHANGELOG.md`.
+
+
 - **release: v0.4.1.** `v0.4.0` was published from a commit that predates the
   update system, feature packs, the alternative-intelligence signal engine and the
   trading-bot work, so anyone downloading it got an older app than the source.

@@ -78,4 +78,41 @@ describe("readUpdateJob", () => {
     expect(job?.toVersion).toBe("0.4.1");
     expect(job?.log).toHaveLength(80);
   });
+
+  // Regression: after a CLI update, the app kept serving the previous run's
+  // failure and the title-bar panel claimed "Update did not finish" forever.
+  it("drops a finished job recorded against a version we already left", () => {
+    writeJob({
+      ...base,
+      status: "failed",
+      phase: "failed",
+      finishedAt: new Date().toISOString(),
+      error: "the working tree has uncommitted changes",
+    });
+    expect(readUpdateJob({ installedVersion: "0.4.1" })).toBeNull();
+  });
+
+  it("keeps a finished job for the version that is actually running", () => {
+    writeJob({
+      ...base,
+      status: "failed",
+      phase: "failed",
+      finishedAt: new Date().toISOString(),
+      error: "the working tree has uncommitted changes",
+    });
+    const job = readUpdateJob({ installedVersion: "0.4.0" });
+    expect(job?.status).toBe("failed");
+    expect(job?.error).toContain("uncommitted");
+  });
+
+  it("never hides a live run just because it reports another version", () => {
+    writeJob(base);
+    const job = readUpdateJob({ installedVersion: "0.4.1" });
+    expect(job?.status).toBe("running");
+  });
+
+  it("keeps a finished job whose origin version is unknown", () => {
+    writeJob({ ...base, status: "failed", phase: "failed", fromVersion: "" });
+    expect(readUpdateJob({ installedVersion: "0.4.1" })?.status).toBe("failed");
+  });
 });

@@ -19,6 +19,7 @@ const JOB_PHASES: readonly string[] = [
   "installing",
   "building",
   "promoting",
+  "stopping",
   "ready",
   "failed",
 ];
@@ -45,12 +46,23 @@ export function isUpdateJob(value: unknown): value is UpdateJob {
   );
 }
 
+export interface UpdateJobReadOptions {
+  /**
+   * The version this install is actually running. A finished job recorded
+   * against a different version is a spent receipt (the update it describes
+   * already happened, or the CLI replaced the build) and must not be shown.
+   */
+  installedVersion?: string;
+  now?: number;
+}
+
 /**
  * The job as the UI should see it. Anything unreadable returns null, and a
  * "running" job whose heartbeat stopped is downgraded to failed — the honest
  * answer, instead of a progress spinner that never finishes.
  */
-export function readUpdateJob(now = Date.now()): UpdateJob | null {
+export function readUpdateJob(options: UpdateJobReadOptions = {}): UpdateJob | null {
+  const now = options.now ?? Date.now();
   let raw: string;
   try {
     raw = fs.readFileSync(updateJobFile(), "utf8");
@@ -67,6 +79,7 @@ export function readUpdateJob(now = Date.now()): UpdateJob | null {
 
   const job: UpdateJob = {
     ...parsed,
+    fromVersion: typeof parsed.fromVersion === "string" ? parsed.fromVersion : "",
     log: Array.isArray(parsed.log) ? parsed.log.slice(-80) : [],
     toVersion: typeof parsed.toVersion === "string" ? parsed.toVersion : null,
     pid: typeof parsed.pid === "number" ? parsed.pid : null,
@@ -87,6 +100,20 @@ export function readUpdateJob(now = Date.now()): UpdateJob | null {
         finishedAt: job.updatedAt,
       };
     }
+    // A live run is always shown, even while it reports the version it left.
+    return job;
+  }
+
+  // A finished run belongs to the build it started from. After a CLI update (or
+  // this job's own restart) the installed version moves on, so re-showing the
+  // old receipt would claim "Update did not finish" forever. A job with no
+  // recorded version is kept: an unknown origin is not proof it is spent.
+  if (
+    options.installedVersion &&
+    job.fromVersion &&
+    job.fromVersion !== options.installedVersion
+  ) {
+    return null;
   }
   return job;
 }

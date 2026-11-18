@@ -16,7 +16,7 @@ const RUNNER = path.join(ROOT, "scripts", "update-apply.js");
 /** GET /api/updates/apply — the staged-update job, if any. */
 export async function GET() {
   return NextResponse.json(
-    { job: readUpdateJob() },
+    { job: readUpdateJob({ installedVersion: packageJson.version }) },
     { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } },
   );
 }
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const existing = readUpdateJob();
+  const existing = readUpdateJob({ installedVersion: packageJson.version });
   if (existing && existing.status === "running") {
     return NextResponse.json(
       { error: "An update is already in progress.", job: existing },
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
 async function waitForJob(timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const job = readUpdateJob();
+    const job = readUpdateJob({ installedVersion: packageJson.version });
     if (job) return job;
     if (Date.now() >= deadline) return null;
     await new Promise((resolve) => setTimeout(resolve, 100));

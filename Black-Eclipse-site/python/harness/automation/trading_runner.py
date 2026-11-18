@@ -236,10 +236,16 @@ async def run_strategy(service: Any, definition: Any, *, run_id: str,
                 symbol=symbols[0], bar_ts=freshest,
                 reason="the last closed bar is too old to trade",
                 outcome="skipped", code="STALE_MARKET_DATA"))
+        failed = [
+            f"{row.get('symbol')}: {row.get('reason')}"
+            for row in evaluations
+            if str(row.get("signal") or "") == "none" and row.get("reason")
+        ]
+        detail = f" ({failed[0]})" if failed else ""
         return _finish(COMPLETED, _decision(
             definition, strategy_id=strategy_id, version=version,
             symbol=symbols[0], bar_ts=freshest,
-            reason=f"scanned {len(scan)} symbol(s): no actionable signal",
+            reason=f"scanned {len(scan)} symbol(s): no actionable signal{detail}",
             indicators=evaluations[0].get("indicators") or {},
             outcome="none", code=None))
 

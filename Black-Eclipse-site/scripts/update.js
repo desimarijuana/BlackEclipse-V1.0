@@ -103,6 +103,51 @@ function ask(question) {
   });
 }
 
+// ── Dependency safety ───────────────────────────────────────────────────────
+// `npm ci` deletes node_modules before it installs. If the running app holds a
+// native module, that delete fails halfway and the install is destroyed. Check
+// first, wait or close the app we own, and only then let npm touch the tree.
+function releaseDependencies() {
+  const { lockedNativeModules, waitForNativeUnlock, isAncestorOf } = require("./lib/update-locks");
+  const locked = lockedNativeModules(ROOT);
+  if (!locked.length) return;
+
+  log(`${locked.length} native module(s) are in use by a running process`);
+  if (!noDesktop) {
+    const { channelFor } = require("./lib/channels");
+    const { readOwner, stopOwnedServer } = require("./lib/desktop-process");
+    const target = channelFor(channel);
+    const owner = readOwner(target);
+    // Only stop a server we did not launch ourselves: kill-tree follows parent
+    // links, so an updater spawned by that server would die with it.
+    if (owner && !isAncestorOf(owner.pid, process.pid)) {
+      log("closing the running app so its dependencies can be replaced (it reopens after the build)");
+      stopOwnedServer(target);
+    }
+  }
+
+  log("waiting for the native modules to be released…");
+  if (!waitForNativeUnlock(ROOT, 30000)) {
+    throw new Error(
+      "Eclipse is still holding its native dependencies. Quit Eclipse and run `black update` " +
+        "again — nothing was installed or deleted, and your current build is intact.",
+    );
+  }
+}
+
+function installDependencies() {
+  try {
+    runShell("npm ci --no-audit --no-fund");
+  } catch (err) {
+    // A lock can appear between the probe and the write (an antivirus scan, a
+    // just-started build). npm ci has already emptied node_modules by then, so
+    // a retry is the difference between a recovered update and a broken app.
+    log("dependency install failed — waiting for file locks, then retrying once…");
+    releaseDependencies();
+    runShell("npm ci --no-audit --no-fund");
+  }
+}
+
 function backupDatabase() {
   const dbPath = path.join(ROOT, "jdds.db");
   if (!fs.existsSync(dbPath)) {
@@ -222,13 +267,20 @@ async function main() {
   const backupDir = backupDatabase();
 
   let applied = false;
+  // True once node_modules has actually been replaced. Rollback uses it: if the
+  // install never ran, the old dependencies and the old build are still intact
+  // and re-running `npm ci` could only do damage.
+  let reinstalled = false;
   try {
     log(`checking out ${tag}…`);
     run("git", ["-c", "advice.detachedHead=false", "checkout", "--detach", tag]);
     applied = true;
 
+    releaseDependencies();
+
     log("installing dependencies (npm ci)…");
-    runShell("npm ci --no-audit --no-fund");
+    installDependencies();
+    reinstalled = true;
 
     log("building production bundle…");
     runShell("npm run build");
@@ -248,11 +300,15 @@ async function main() {
       console.error(`[update] rolling back to ${previousHead.slice(0, 12)}…`);
       try {
         run("git", ["-c", "advice.detachedHead=false", "checkout", "--detach", previousHead]);
-        runShell("npm ci --no-audit --no-fund");
-        runShell("npm run build");
-        console.error("[update] rollback complete — you are back on the previous build");
+        if (!reinstalled) {
+          console.error("[update] dependencies were never replaced; the previous build is still intact");
+        } else {
+          runShell("npm ci --no-audit --no-fund");
+          runShell("npm run build");
+          console.error("[update] rollback complete — you are back on the previous build");
+        }
       } catch {
-        console.error("[update] rollback build also failed. Your old source is checked out; run");
+        console.error("[update] rollback build failed. Your old source is checked out; run");
         console.error('         "npm install && npm run build" manually before starting Eclipse.');
       }
       if (backupDir) {
