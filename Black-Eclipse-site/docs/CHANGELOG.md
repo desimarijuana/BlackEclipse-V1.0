@@ -877,6 +877,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/data-and-privacy.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-16
+- **docs(readme): merge the tagline into one sentence.** Heading is now
+  **"The open-source financial agentic harness that grows with you"** with the four
+  verbs underneath, instead of a category line plus a separate growth line. One
+  sentence, so the category still arrives before the promise, and "grows with you"
+  keeps the category as its subject ("harness") rather than becoming a bare agent
+  tagline. Social card regenerated: three lines, "grows with you" in the accent,
+  verbs in the mono strip. docs updated: `docs/public-readme.md` (rule 6),
+  `docs/CHANGELOG.md`.
 - **docs(readme): the harness now says it grows with you - backed, not borrowed.**
   Heading moved from "The Open-Source Financial AI Harness" / "Research. Analyze.
   Build. Automate. Trade." to **"The Open-Source Financial Agentic Harness"** /

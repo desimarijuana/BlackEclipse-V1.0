@@ -1,8 +1,8 @@
 # Black Eclipse
 
-### The Open-Source Financial Agentic Harness
+### The open-source financial agentic harness that grows with you
 
-**Grows with you — research, analyze, build, automate, trade.**
+**Research. Analyze. Build. Automate. Trade.**
 
 [![Download for Windows](.github/assets/download-windows.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) [![Download for Linux](.github/assets/download-linux.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) [![Download for macOS](.github/assets/download-macos.svg)](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg)
 

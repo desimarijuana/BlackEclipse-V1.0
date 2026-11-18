@@ -12,13 +12,13 @@
   </g>
   <text x="166" y="140" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="32" font-weight="700" letter-spacing="-0.6" fill="#f4f5f2">Black Eclipse</text>
 
-  <text x="96" y="280" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="56" font-weight="700" letter-spacing="-2" fill="#f4f5f2">The Open-Source Financial</text>
-  <text x="96" y="346" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="56" font-weight="700" letter-spacing="-2" fill="#f4f5f2">Agentic Harness</text>
+  <text x="96" y="272" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="52" font-weight="700" letter-spacing="-1.8" fill="#f4f5f2">The open-source financial</text>
+  <text x="96" y="332" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="52" font-weight="700" letter-spacing="-1.8" fill="#f4f5f2">agentic harness that</text>
+  <text x="96" y="392" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="52" font-weight="700" letter-spacing="-1.8" fill="#b4ff42">grows with you</text>
 
-  <line x1="96" y1="418" x2="720" y2="418" stroke="#f4f5f2" stroke-opacity=".1"/>
+  <line x1="96" y1="446" x2="720" y2="446" stroke="#f4f5f2" stroke-opacity=".1"/>
 
-  <text x="96" y="466" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="19" letter-spacing="3.6" fill="#b4ff42">GROWS WITH YOU</text>
-  <text x="96" y="500" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="15" letter-spacing="2.8" fill="#8b918d">RESEARCH · ANALYZE · BUILD · AUTOMATE · TRADE</text>
+  <text x="96" y="492" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="15" letter-spacing="2.9" fill="#8b918d">RESEARCH · ANALYZE · BUILD · AUTOMATE · TRADE</text>
 
   <text x="1184" y="556" text-anchor="end" font-family="'JetBrains Mono', ui-monospace, Consolas, monospace" font-size="15" letter-spacing="2.6" fill="#8b918d">v0.4.0 · MIT · SELF-HOSTED</text>
 </svg>

@@ -149,15 +149,17 @@ a blank canvas and a spinner. That was tried twice and rejected both times.
    purpose. Never round it to zero or to a pass.
 5. **Never claim a distribution that does not exist.** The install block leads
    with the source install and labels PyPI as pending (§6).
-6. **The heading states the category.** *The Open-Source Financial Agentic Harness*
-   tells a stranger what this is; the line beneath ("Grows with you — research,
-   analyze, build, automate, trade") tells them what it is for and what it does over
-   time. **"Grows with you" is the idea, not a borrowed tagline:** Hermes Agent's
-   README opens with *"The agent that grows with you"*, so ours must never be the
-   identity line on its own — it sits under a category statement, and the evidence
-   row in §2 keeps it honest (learning candidates are inert until reviewed; memory
-   accepts corrections). If someone asks what grows, the answer is: your memory, your
-   corrections, and the skills that get promoted from your own runs.
+6. **The heading states the category, and the growth is a clause in it.** *The
+   open-source financial agentic harness that grows with you* — one sentence, so a
+   stranger still learns what this is ("financial agentic harness") before the
+   promise arrives. The four verbs sit underneath as the scope. **"Grows with you"
+   is the idea, not a borrowed tagline:** Hermes Agent's README opens with *"The
+   agent that grows with you"*, so ours keeps the category subject ("harness") and
+   the financial qualifier — it must never collapse into a bare "an agent that grows
+   with you". The evidence row in §2 keeps it honest: learning candidates are inert
+   until reviewed, and memory accepts corrections. If someone asks *what* grows, the
+   answer is: your memory, your corrections, and the skills promoted from your own
+   runs.
 7. **No vendor trademark in the positioning.** Not a "Bloomberg replacement" — a
    terminal is a data product, this is infrastructure. `docs/OPEN-SOURCE-READINESS.md`
    O6 flags vendor wording for a trademark read.
