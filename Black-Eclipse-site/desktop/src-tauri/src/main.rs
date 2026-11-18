@@ -1102,6 +1102,70 @@ fn desktop_notify(app: AppHandle, title: String, body: String) {
     notify_native(&app, &title, &body);
 }
 
+// ── Clipboard ──────────────────────────────────────────────────────────────
+//
+// Copy goes through the OS clipboard, never the page's `navigator.clipboard`.
+// WebView2 routes the web API through Chromium's permission machinery, so a copy
+// raised a browser bubble over the app — "http://tauri.localhost wants to see
+// text and images copied to the clipboard", with Allow / Block buttons — which
+// is exactly the "this is a website in a window" tell the shell exists to
+// remove. A native write has no permission model: the app copies like any other
+// desktop program.
+//
+// Transport matches the rest of the shell: the bundled splash (a local origin)
+// invokes `desktop_copy`; the app (a loopback origin, where app commands are
+// denied) emits `be-copy`. Both land in `write_clipboard`.
+
+fn write_clipboard(text: &str) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|err| err.to_string())?;
+    clipboard
+        .set_text(text.to_string())
+        .map_err(|err| err.to_string())
+}
+
+/// `{"text": "..."}` → the text. An empty or malformed payload is ignored rather
+/// than blanking whatever the user already had on the clipboard.
+fn clipboard_text_from_payload(payload: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(payload).ok()?;
+    let text = value.get("text")?.as_str()?;
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.to_string())
+}
+
+/// Write and log. Returns the error so the splash's invoke can report a real
+/// failure instead of flashing "Copied" over a clipboard that never changed.
+fn write_clipboard_logged(text: &str) -> Result<(), String> {
+    match write_clipboard(text) {
+        Ok(()) => {
+            log_line(&format!("[clipboard] wrote {} chars", text.chars().count()));
+            Ok(())
+        }
+        Err(err) => {
+            log_line(&format!("[clipboard] write failed: {err}"));
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+fn desktop_copy(text: String) -> Result<(), String> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    write_clipboard_logged(&text)
+}
+
+fn on_clipboard_event(payload: &str) {
+    match clipboard_text_from_payload(payload) {
+        Some(text) => {
+            let _ = write_clipboard_logged(&text);
+        }
+        None => log_line("[clipboard] empty or malformed payload ignored"),
+    }
+}
+
 // ── Taskbar presence ───────────────────────────────────────────────────────
 //
 // The page owns the state (it knows the unread count and the preference); Rust
@@ -1589,6 +1653,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop_notify,
+            desktop_copy,
             desktop_retry,
             desktop_window_action,
             desktop_toggle_fullscreen,
@@ -1716,6 +1781,12 @@ fn main() {
                     Err(err) => log_line(&format!("[notify] bad payload: {err}")),
                 }
             });
+
+            // --- clipboard -------------------------------------------------------
+            // The app's copy buttons emit here instead of calling
+            // `navigator.clipboard`, whose WebView2 path raises a browser
+            // permission bubble over the window. Native write, no prompt.
+            handle.listen("be-copy", move |event| on_clipboard_event(event.payload()));
 
             // --- taskbar badge / attention ---------------------------------------
             // One channel, two OS affordances. The page decides; Rust renders.
@@ -1863,6 +1934,33 @@ fn main() {
             kill_tree(&state);
         }
     });
+}
+
+/// The `be-copy` payload is the whole clipboard contract between the page and
+/// the shell, so it is checked without touching a real clipboard.
+#[cfg(test)]
+mod clipboard_tests {
+    use super::clipboard_text_from_payload;
+
+    #[test]
+    fn payload_text_is_used_verbatim() {
+        assert_eq!(
+            clipboard_text_from_payload(r#"{"text":"line one\nline two"}"#).as_deref(),
+            Some("line one\nline two")
+        );
+        assert_eq!(
+            clipboard_text_from_payload(r#"{"text":"  padded  "}"#).as_deref(),
+            Some("  padded  ")
+        );
+    }
+
+    #[test]
+    fn empty_or_malformed_payloads_never_blank_the_clipboard() {
+        assert_eq!(clipboard_text_from_payload(r#"{"text":""}"#), None);
+        assert_eq!(clipboard_text_from_payload(r#"{}"#), None);
+        assert_eq!(clipboard_text_from_payload(r#"{"text":42}"#), None);
+        assert_eq!(clipboard_text_from_payload("not json"), None);
+    }
 }
 
 /// The badge is pure geometry, so it can be checked without a window or a

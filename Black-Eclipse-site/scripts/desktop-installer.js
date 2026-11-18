@@ -147,6 +147,12 @@ const defines = [
   `/DSRCDIR=${SHORT_LINK}`,
   `/DOUTFILE=${OUT_EXE}`,
 ];
+
+// Tell the wizard whether this build will be signed, so its welcome page does
+// not warn about SmartScreen on a signed installer (or stay silent on an
+// unsigned one). The signing itself happens after NSIS, below.
+const { isConfigured } = require("./sign-windows");
+if (isConfigured()) defines.push("/DSIGNED");
 if (FULL) {
   defines.push(
     "/DFULL",
@@ -190,6 +196,16 @@ try {
 if (result.status !== 0 || !fs.existsSync(OUT_EXE)) {
   console.error(`\nmakensis failed (exit ${result.status}).`);
   process.exit(result.status || 3);
+}
+
+// Sign BEFORE hashing and copying the alias: SmartScreen reads the installer's
+// signature, and SHA256SUMS.txt must describe the bytes people actually run.
+const { signFiles } = require("./sign-windows");
+const signing = signFiles([OUT_EXE]);
+if (signing.status === "failed") {
+  console.error(`\nCode signing failed: ${signing.reason}`);
+  console.error("Refusing to publish an unsigned installer while signing is configured.");
+  process.exit(6);
 }
 
 const installerMB = fs.statSync(OUT_EXE).size / (1024 * 1024);

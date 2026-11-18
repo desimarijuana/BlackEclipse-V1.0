@@ -9,7 +9,6 @@
 <sub>Windows 10/11 (x64) · Linux (amd64, `.deb`) · macOS (Apple silicon, `.dmg`) — Linux and macOS builds are **not** notarised or code-signed yet, so expect a Gatekeeper warning. All installers are unsigned; [verify the SHA-256](#install) or browse [all releases](https://github.com/desimarijuana/BlackEclipse-V1.0/releases).</sub>
 
 ![Core license: MIT](https://img.shields.io/badge/core%20license-MIT-green)
-![Pine engine: AGPL-3.0-only](https://img.shields.io/badge/pine%20engine-AGPL--3.0--only-orange)
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python)
 
@@ -246,7 +245,7 @@ window opens.
 | **Administrator rights** | **None.** Per-user install to `%LOCALAPPDATA%\Programs\BlackEclipse`; the NSIS manifest is `RequestExecutionLevel user` |
 | **Node.js, Python, SQLite** | **Not required** — all three ship inside the payload |
 | **Account, sign-in, telemetry** | None. The app runs entirely on your machine |
-| **Download size** | ~141 MB for the core, and that is the whole app; optional components download on demand |
+| **Download size** | ~170 MB for the core, and that is the whole app; optional components download on demand |
 | **Internet** | Needed for live prices, news and every model call. The app still opens, seeds its vault and runs offline — data simply reads `UNAVAILABLE` until something can be fetched |
 | **A language model** | A key for a hosted provider, or Ollama running locally. Without one, everything except the agent still works |
 
@@ -420,9 +419,8 @@ extend and customize their own financial AI environments.
 | The **name, wordmark, and logo** | **Not licensed by MIT.** Fork it, rename it — see [`TRADEMARK.md`](TRADEMARK.md) |
 | Contributions | MIT/AGPL as above, plus the [`CLA`](CLA.md) |
 
-If you redistribute the app, the MIT terms cover it. If you run the Pine engine
-as part of a network service, AGPL-3.0-only applies to **that component** and its
-obligations are described in its NOTICE.
+If you redistribute the app, the MIT terms cover it. AGPL-3.0-only reaches only
+`pine-engine/`; its obligations are described in its NOTICE.
 
 The code is free to use, change, and sell. What you may not do is ship a fork
 under the BlackEclipse name or logo — MIT gives away the code, not the identity,

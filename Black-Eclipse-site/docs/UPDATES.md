@@ -121,8 +121,20 @@ Do **not** flip it to true before a manifest is actually hosted: every check
 would fail with "Could not reach the update service", which is worse than an
 honest "not published yet".
 
-Because the manifest is a release asset, it must be re-signed and re-uploaded for
-**every** release. The current one describes v0.4.0 only.
+Because the manifest is a release asset, it must be re-signed for **every**
+release. That is now enforced instead of remembered:
+
+1. `npm run update:sign` writes `release/<channel>.json`. The manifest is
+   **committed** (`.gitignore` allows `stable.json` / `beta.json` and nothing
+   else in `release/`) — it contains no secrets, it verifies against the
+   committed public key, and committing it is what lets CI attach it.
+2. `npm run update:verify` (`scripts/verify-update-manifest.js`) checks the
+   signature, the version against `package.json`, and warns when the signed
+   commit differs from `GITHUB_SHA` (clients keep reporting "up to date" until
+   it is re-signed from the tagged commit).
+3. The release workflow runs that check before publishing and attaches
+   `release/*.json`, so a release cannot ship without the manifest every client
+   fetches. A missing manifest with `published: true` fails the release.
 
 > Keeping the **source** private forever means there is nothing for `black update`
 > to fetch. The git-based updater assumes users can reach the repo. If you later

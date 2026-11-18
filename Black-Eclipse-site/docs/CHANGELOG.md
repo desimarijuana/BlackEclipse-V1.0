@@ -6,6 +6,105 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-17
 
+- **docs(readme): the Pine engine is no longer advertised at the top.** It is an
+  optional, AGPL-shaped compatibility bridge (`npm run setup:pine`), not a
+  headline feature, and a badge for it invited TradingView comparisons the docs
+  refuse to make. Removed the `pine engine: AGPL-3.0-only` shields badge from the
+  README header; the licensing table row and a one-sentence disclosure stay (the
+  AGPL obligations travel with the code: `LICENSE`, `THIRD-PARTY-NOTICES.md`,
+  `pine-engine/NOTICE.md`). Also corrected two stale lines in `docs/pine.md`:
+  the route is the *API's* door, not "the UI's" (no app screen calls
+  `/quant/pine` — `src/` has zero references), and the arm's-length split no
+  longer claims to keep the app "proprietary" (the app is MIT).
+  Docs: `docs/pine.md`, `docs/CHANGELOG.md`.
+
+- **fix(desktop): copy is written by the native shell — no more browser
+  permission bubble over the app.** Clicking **Copy details** on the start screen
+  raised Chromium's "http://tauri.localhost wants to see text and images copied to
+  the clipboard — Block / Allow" dialog: WebView2's answer to
+  `navigator.clipboard`, drawn over a desktop app. Every copy now goes through
+  `src/lib/desktop/clipboard.ts` → `be-copy` event (the app's loopback origin
+  cannot call app commands), which the shell writes with `arboard`; the bundled
+  splash invokes `desktop_copy` instead. All 19 `navigator.clipboard` call sites in
+  `src/components` were migrated, a source-guard test fails if one comes back, and
+  `copyText` resolves `false` so a refused copy never claims "Copied". Rust
+  ignores empty/malformed `{text}` payloads so a bad event cannot blank the
+  clipboard. Verified: `cargo check` + `cargo test` (3 passed), `npx tsc --noEmit`,
+  full vitest (548 files / 5060 tests).
+  Docs: `desktop/README.md`, `docs/desktop-app-plan.md` (§22), `docs/CHANGELOG.md`.
+
+- **test(trading): scheduled demo soak — partial, with the exact blockers.**
+  Unattended 60 s-scheduled bot produced 12 automated executions 02:16–02:43Z
+  (plus the 02:01Z hourly cron fire), every one `BAR_ALREADY_PROCESSED`, with
+  `filled=0`, zero new ledger rows and zero new EURUSD positions; the harness
+  restarted twice and resumed without a duplicate. A 48–72 h soak is **not**
+  achievable on this machine: the shared app/harness is killed every few minutes
+  (silent tree kill, `[shell] owned server exited after readiness`, and
+  `another live runtime shares this database` from a concurrent session), and a
+  foreign **XAUUSD SELL 1.0 (magic 0)** appeared on the same demo account at
+  02:15:48Z. Soak needs exclusive use of the machine and account.
+  Docs: `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(release): signing is one secret away, and a release cannot ship without
+  its signed update manifest.** Three follow-ups to the install work. (1) **Code
+  signing was only a documented gap.** New `scripts/sign-windows.js` signs the
+  window binary during `desktop:package` and the finished installers during
+  `desktop:installer` (before hashing, so `SHA256SUMS.txt` and the winget
+  manifest describe the signed bytes) using `WINDOWS_CERT_PFX_BASE64` +
+  `WINDOWS_CERT_PASSWORD` or `WINDOWS_CERT_THUMBPRINT`; `npm run sign:windows --
+  --check` reports the state, and the two installer steps in the release
+  workflow pass the secrets through. With no certificate it prints
+  `signing: not configured — unsigned build` and continues; with one, a signing
+  failure ABORTS the build (installer `exit 6`) instead of shipping something
+  SmartScreen will block. Verified locally: unconfigured → `skipped`; bad PFX →
+  `failed` with signtool's real error; missing file → `failed`; signtool
+  auto-detected from Windows Kits 10.0.26100. (2) **The update manifest was
+  published by hand and could silently go stale.** `release/stable.json` is now
+  committed (`.gitignore` allows only the two signed manifests there), new
+  `scripts/verify-update-manifest.js` (`npm run update:verify`) checks the
+  Ed25519 signature against the committed key, the version against
+  `package.json`, and warns when the signed commit differs from `GITHUB_SHA`;
+  the release job runs it and attaches `release/*.json`, so `published: true`
+  can never point at a 404. Live proof against the real release:
+  the hosted `stable.json` verifies with the committed key (v0.4.0, commit
+  `4a0929a`), and the running app's `GET /api/updates?refresh=1` returns
+  `{"ok":true,"latestVersion":"0.4.0","available":false,"error":null}`.
+  (3) The release notes no longer claim "none of the builds are code-signed" —
+  they describe what the build actually did, and the NSIS welcome page switches
+  its SmartScreen paragraph on `!ifdef SIGNED`. **Verified against the real
+  released asset**: with a temporary manifest pointing at
+  `releases/download/v0.4.0/browser.zip`, the running app downloaded all
+  38,149,827 bytes, verified the SHA-256, installed `site-packages/playwright`
+  (103.5 MB, `__init__.py` present) in 35 s, and Remove deleted it again. The
+  staging directory is now removed after every job. Docs: `docs/install.md`
+  (Signing section), `docs/UPDATES.md` (manifest is committed, verified and
+  attached), `docs/CHANGELOG.md`.
+
+- **feat(trading): a bot trades on its own schedule, with no manual Run.**
+  With `auto_87fb48d33d6741f58e33` on a 60 s interval, the engine fired it
+  unattended: two fires skipped `BAR_ALREADY_PROCESSED` on the already-traded
+  D1 bar; the next (after a new strategy version `1.0.1`) **filled** EURUSD BUY
+  0.01 @ 1.09915 — `BrokerOrder ord_d88bf32c6377`, MT5 ticket `11448544268`,
+  magic `741879`, with `automationId`/`automationVersion`/`mandateId`/`runId`;
+  the following fire skipped `POSITION_ALREADY_OPEN`, proving a scheduled bot
+  never stacks. Position closed; the bot is left active on an hourly cron
+  (`1 * * * *`) prepared for v4, account flat. Tests: 100 targeted Python
+  (broker/quant/e2e/prepare/market/size/phase). Docs:
+  `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(autonomy): a running goal now shows its activity steps in the chat.**
+  The verdict line was only the end of a turn; a goal turn runs as a background
+  task, so nothing filled the transcript while it worked. `useGoalWatch` now
+  polls the session's open goals and, for each, resolves the turn's live run
+  (`GET /api/tasks/{taskId}` → `assignedRunId`) and reads its persisted tool
+  trace (`GET /api/harness/runs/{runId}/events`), mapping rows to the SAME
+  `ActivityItem` shape the live chat feed renders (`lib/harness/goal-activity.ts`).
+  One message per goal turn is created and updated in place, then finalised by
+  the verdict (`lib/harness/goal-transcript.ts`, pure builders), so steps and the
+  verdict share a bubble and a late step cannot reopen a closed turn. Tests:
+  mapping (status/ids/labels), transcript builders, size ratchet re-pinned.
+  Docs: `docs/harness/autonomy.md`.
+
 - **fix(trading): the ownership magic now reaches existing connections, and the
   kill switch is proven scoped.** Connections created before the magic existed
   were still `magic: 0`, so their bot orders were un-killable. `_connection` /
@@ -31,7 +130,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   any host outside the allowlist, downloads with live received/total progress,
   verifies SHA-256, extracts into a private staging directory and moves only the
   manifest-named package directories into `site-packages`; Remove is the
-  reverse. Exposed by `GET/POST /api/desktop/packs` (guardMutation + rate limit)
+  reverse. Fixing the parser while exercising it caught a real defect: package
+  directory names were validated with the *pack slug* rule, which silently
+  dropped `scipy.libs` (and any `pydantic_core`-style name) — the `ml` pack
+  would have installed without `scipy.libs` and left scipy broken. A dedicated
+  `isValidPackageDir` now allows dots and underscores while still refusing
+  traversal. Exposed by `GET/POST /api/desktop/packs` (guardMutation + rate limit)
   and **Settings → Data & Storage → Feature packs**
   (`src/components/settings/feature-packs-settings.tsx`, frosted-glass `Panel`,
   per-pack Download/Remove, progress bar, honest "no manifest in this build"
@@ -53,10 +157,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `dist/packs/*.zip` into ONE flat release namespace — a bare `browser.zip` was
   uploaded three times and the last platform won. Tests:
   `src/lib/desktop/packs.test.ts` + `src/app/api/desktop/packs/route.test.ts`
-  (23 cases — manifest junk, allowlist, version pinning, mirror rules, installed
-  detection, unsupported states, a real local-mirror download → SHA-256 → unpack
-  → install run, a corrupt archive that must install nothing, remove, and the
-  route's validation/guard); `tsc` clean; full `npm run test` suite green. Docs:
+  (24 cases — manifest junk, allowlist, version pinning, mirror rules, installed
+  detection, unsupported states, `scipy.libs`-style package names, a real
+  local-mirror download → SHA-256 → unpack → install run, a corrupt archive that
+  must install nothing, remove, and the route's validation/guard); `tsc` clean;
+  full `npm run test` suite green. **Verified in the real window** (promoted
+  build, `BE_PACK_BASE_URL` → a throttled local mirror): the panel listed
+  `Document reading · 2.3 MB download`, clicking Download drove the progress bar
+  5% → 49% → 90% → `INSTALLED`, `site-packages/bepackdemo/{payload.bin,
+  __init__.py}` appeared, the API reported `installed: true` with
+  `received == total == 2401717`, and Remove deleted the directory. The temporary
+  manifest, mirror and package were then removed. Docs:
   `docs/install.md`, `docs/desktop-size-plan.md` (S2 + Settings half of S3
   marked shipped), `docs/NAVIGATION.md`, `README.md`.
 

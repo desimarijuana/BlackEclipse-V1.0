@@ -23,9 +23,14 @@
 
 # production
 /build
-# Signed release manifests produced locally by scripts/update-sign.js. They are
-# uploaded as GitHub Release assets, never committed.
-/release/
+# Signed release manifests produced by scripts/update-sign.js. They ARE
+# committed: the release workflow verifies them against the committed public key
+# and attaches them to the release, so a signed release can never ship without
+# the manifest every installed client fetches. Anything else under /release/ is
+# local scratch.
+/release/*
+!/release/stable.json
+!/release/beta.json
 
 # misc
 .DS_Store

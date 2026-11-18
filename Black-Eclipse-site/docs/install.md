@@ -57,8 +57,9 @@ macOS copies `Black Eclipse.app` to `/Applications`.
 
 ## What the scripts verify - and what they do not
 
-The builds are unsigned, so there is no OS-level signature to check. What the
-scripts do:
+A signed build carries an OS-level signature that the installer checks; an
+unsigned build (see [Signing](#signing-maintainers)) does not. What the scripts
+do in either case:
 
 - refuse anything but `https://github.com/<repo>/releases/...`;
 - download the package and compare its SHA-256 with `SHA256SUMS.txt` from the
@@ -71,9 +72,9 @@ What they do **not** do: prove the release was published by the maintainers. A
 checksum served from the same host protects against a corrupted or truncated
 download, not against that host being compromised. Authenticity is a separate,
 stronger chain: the Ed25519-signed update manifest that the app itself verifies
-(see [`UPDATES.md`](./UPDATES.md)). That manifest is published but not yet
-enabled (`config/updates.json` `published: false`), so no install path claims
-signature verification today.
+(see [`UPDATES.md`](./UPDATES.md)). That manifest is published and attached to
+each release by CI (`release/stable.json`), so the updater — not the installer —
+is where signature verification is claimed.
 
 Windows is the only platform that currently publishes `SHA256SUMS.txt`; the
 scripts say so and continue with the printed digest when it is absent.
@@ -110,6 +111,26 @@ installer, which already contains every pack.
 
 Removing the app does not delete your data directory; delete it yourself if you
 want a truly clean slate.
+
+## Signing (maintainers)
+
+The builds are ready to be signed; adding the credentials is the only step left.
+Nothing in the tree changes when they are absent — the build log says
+`signing: not configured — unsigned build, Windows SmartScreen will warn` and the
+release notes keep the "unsigned" wording.
+
+| Platform | Credentials | What gets signed |
+|---|---|---|
+| Windows | `WINDOWS_CERT_PFX_BASE64` + `WINDOWS_CERT_PASSWORD`, or `WINDOWS_CERT_THUMBPRINT` for a certificate already in the store | the window binary (`scripts/desktop-package.js`) and the finished installers (`scripts/desktop-installer.js`) |
+| macOS | `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | the `.app` bundle during `desktop:bundle` (notarisation is skipped without them) |
+
+`npm run sign:windows -- --check` reports whether the current shell can sign and
+which `signtool` it would use. Signing happens **before** hashing, so
+`SHA256SUMS.txt` and the winget manifest always describe the signed bytes.
+
+Once configured, a signing failure **fails the build** (`exit 6` for the
+installer, a hard failure during packaging) rather than quietly shipping an
+unsigned binary — an unsigned release is what SmartScreen punishes.
 
 ## Changing the delivery path
 

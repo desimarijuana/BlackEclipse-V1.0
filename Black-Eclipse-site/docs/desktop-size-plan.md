@@ -61,7 +61,7 @@ Recording the number as the baseline for a later startup pass.
 
 | Edition | File | Download | Contains |
 | --- | --- | --- | ---: |
-| **Slim** (default) | `BlackEclipse-Setup-<v>.exe` | **141 MB** | core only; packs added later |
+| **Slim** (default) | `BlackEclipse-Setup-<v>.exe` | **141 MB** (172.5 MB as published for 0.4.0) | core only; packs added later |
 | **Offline** | `BlackEclipse-Setup-<v>-full.exe` | ~? MB | core + all five packs, no network needed |
 
 Both install per-user and preserve data. The slim edition is the recommended

@@ -111,6 +111,8 @@
     "update:apply": "node scripts/update-apply.js",
     "update:keys": "node scripts/update-keys.js",
     "update:sign": "node scripts/update-sign.js",
+    "update:verify": "node scripts/verify-update-manifest.js",
+    "sign:windows": "node scripts/sign-windows.js",
     "security:preflight": "node scripts/security-preflight.js",
     "check:all": "node scripts/check-all.js",
     "check:downloads": "node scripts/check-downloads.js",

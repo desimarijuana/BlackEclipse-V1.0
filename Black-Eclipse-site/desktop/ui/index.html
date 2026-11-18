@@ -342,6 +342,30 @@
           invoke("desktop_open_log").catch(function () {});
         });
 
+        // Copy through the shell, never navigator.clipboard. WebView2 answers
+        // the web API with Chromium's permission bubble ("http://tauri.localhost
+        // wants to see text and images copied to the clipboard") drawn over the
+        // start screen — browser chrome inside a desktop app. `desktop_copy`
+        // writes the OS clipboard directly and never prompts.
+        function legacyCopy(text) {
+          var scratch = document.createElement("textarea");
+          scratch.value = text;
+          scratch.setAttribute("readonly", "");
+          scratch.style.position = "fixed";
+          scratch.style.top = "-1000px";
+          scratch.style.opacity = "0";
+          document.body.appendChild(scratch);
+          scratch.select();
+          var ok = false;
+          try {
+            ok = document.execCommand("copy");
+          } catch (e) {
+            ok = false;
+          }
+          scratch.remove();
+          return ok;
+        }
+
         copyBtn.addEventListener("click", function () {
           var details = [
             "Black Eclipse failed to start",
@@ -349,18 +373,16 @@
             "Log: " + (logInfo.log || "(unknown)"),
             "Instance: " + (document.getElementById("foot").textContent || ""),
           ].join("\n");
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(details).then(
-              function () {
-                flash(copyBtn, "Copied");
-              },
-              function () {
-                flash(copyBtn, "Copy failed");
-              }
-            );
-          } else {
-            flash(copyBtn, "Copy unavailable");
-          }
+          // The legacy path only runs when the command is missing (an older
+          // shell). It copies from a user gesture, so it cannot raise a prompt.
+          invoke("desktop_copy", { text: details }).then(
+            function () {
+              flash(copyBtn, "Copied");
+            },
+            function () {
+              flash(copyBtn, legacyCopy(details) ? "Copied" : "Copy failed");
+            }
+          );
         });
       })();
     </script>

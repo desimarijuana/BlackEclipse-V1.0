@@ -125,8 +125,23 @@ export interface PacksSnapshot {
 
 const PACK_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
+/**
+ * A directory name inside `site-packages`. Real distributions use dots and
+ * underscores (`scipy.libs`, `pydantic_core`), so those are allowed — a stricter
+ * slug rule silently DROPPED them, which would have installed the `ml` pack
+ * without `scipy.libs` and left scipy broken. Traversal is still impossible:
+ * the name must start alphanumerically and may not contain `..`, `/` or `\`.
+ */
+const PACKAGE_DIR = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+
 export function isValidPackName(value: unknown): value is string {
   return typeof value === "string" && PACK_NAME.test(value);
+}
+
+export function isValidPackageDir(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (!PACKAGE_DIR.test(value)) return false;
+  return !value.includes("..");
 }
 
 export function appRoot(): string {
@@ -155,7 +170,7 @@ export function parsePackManifest(raw: unknown): PackManifest | null {
     const pack = item as Record<string, unknown>;
     if (!isValidPackName(pack.name)) continue;
     const packages = Array.isArray(pack.packages)
-      ? pack.packages.filter((p): p is string => typeof p === "string" && isValidPackName(p.toLowerCase()))
+      ? pack.packages.filter((p): p is string => isValidPackageDir(p))
       : [];
     if (packages.length === 0) continue;
     packs.push({
@@ -479,6 +494,9 @@ async function runInstall(
     try {
       fs.rmSync(zipPath, { force: true });
       fs.rmSync(extractDir, { recursive: true, force: true });
+      // One job at a time, so the staging root itself can go too — an empty
+      // directory left behind is just noise in the install tree.
+      fs.rmSync(stagingRoot, { recursive: true, force: true });
     } catch {}
     active = null;
     last = { ...job };

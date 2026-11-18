@@ -425,6 +425,15 @@ try {
 } catch {}
 console.log(`  copy ${OUT_SHELL}`);
 
+// 6c. Sign the window binary when certificate material is configured. The
+// installer can only be signed after NSIS runs, but signing the shell here means
+// the app a user launches from the Start Menu carries the signature too.
+const { signFiles } = require("./sign-windows");
+const shellSigning = signFiles([path.join(OUT, OUT_SHELL)]);
+if (shellSigning.status === "failed") {
+  fail(`code signing failed: ${shellSigning.reason} (refusing to ship an unsigned build)`);
+}
+
 console.log("\nResult:");
 console.log(`  app     ${dirMB(APP).toFixed(0)} MB`);
 console.log(`  total   ${dirMB(OUT).toFixed(0)} MB`);

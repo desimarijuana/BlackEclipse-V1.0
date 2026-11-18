@@ -79,6 +79,29 @@ describe("pack manifest", () => {
     expect(parsed?.allowedHosts).toEqual(["github.com", "objects.githubusercontent.com"]);
   });
 
+  it("keeps distribution names that contain dots and underscores", () => {
+    const parsed = parsePackManifest({
+      ...MANIFEST,
+      packs: [
+        {
+          name: "ml",
+          packages: ["xgboost", "sklearn", "scipy", "scipy.libs", "pydantic_core"],
+          zip: "ml.zip",
+          sha256: "f".repeat(64),
+        },
+      ],
+    });
+    // A stricter slug rule here would have dropped `scipy.libs`, installing the
+    // ML pack without it and leaving scipy broken.
+    expect(parsed?.packs[0].packages).toEqual([
+      "xgboost",
+      "sklearn",
+      "scipy",
+      "scipy.libs",
+      "pydantic_core",
+    ]);
+  });
+
   it("only accepts lowercase slug pack names", () => {
     expect(isValidPackName("browser")).toBe(true);
     expect(isValidPackName("charts-2")).toBe(true);

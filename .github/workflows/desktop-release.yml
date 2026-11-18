@@ -119,6 +119,11 @@ jobs:
       - name: Assemble the app folder
         working-directory: Black-Eclipse-site
         run: npm run desktop:package
+        env:
+          # Optional: sign the window binary while packaging. Both are empty on a
+          # fork, and the build then says "unsigned" instead of failing.
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
 
       - name: Verify the payload carries no local configuration
         working-directory: Black-Eclipse-site
@@ -137,6 +142,9 @@ jobs:
         if: matrix.os == 'windows-latest'
         working-directory: Black-Eclipse-site
         shell: bash
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
           npm run desktop:installer
           npm run desktop:installer -- --full
@@ -233,6 +241,16 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the release manifests
+        uses: actions/checkout@v4
+
+      # The updater trusts only a signed manifest, and every installed client
+      # fetches it. Refuse to publish a release whose manifest is missing,
+      # unsigned, or describes a different version.
+      - name: Verify the signed update manifest
+        working-directory: Black-Eclipse-site
+        run: node scripts/verify-update-manifest.js
+
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -268,10 +286,12 @@ jobs:
             the SHA-256 recorded in its build; you never download a pack by hand.
             The `-full` installer already contains every pack.
 
-            **First open.** None of the builds are code-signed, so the OS asks once:
+            **First open.** Releases are signed when the maintainers' signing
+            certificate is configured; while they are not, the OS asks once:
             Windows SmartScreen → **More info → Run anyway**; macOS → right-click
             the app → **Open** (or `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`);
             Linux → `sudo apt install ./BlackEclipse-linux-amd64.deb`.
+            `SHA256SUMS.txt` lets you verify the bytes either way.
 
             Your data lives in the platform data directory and survives uninstall.
             MT5 and computer-control are Windows-only.
@@ -282,3 +302,6 @@ jobs:
             artifacts/**/SHA256SUMS.txt
             artifacts/**/packs/*.zip
             artifacts/**/packs/manifest.json
+            # The signed update envelope. The app verifies it with the committed
+            # public key before it will ever offer an update.
+            Black-Eclipse-site/release/*.json

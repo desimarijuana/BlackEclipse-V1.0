@@ -45,7 +45,11 @@ SetCompressorDictSize 64
 
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Black Eclipse ${APP_VERSION}"
+!ifdef SIGNED
+!define MUI_WELCOMEPAGE_TEXT "This installs Black Eclipse for the current user only — no administrator rights, no Node.js, no Python and no other prerequisites.$\r$\n$\r$\nThis build is code-signed; Windows SmartScreen will not interrupt the install.$\r$\n$\r$\nYour data is kept in %LOCALAPPDATA%\BlackEclipse\data and is not removed if you uninstall."
+!else
 !define MUI_WELCOMEPAGE_TEXT "This installs Black Eclipse for the current user only — no administrator rights, no Node.js, no Python and no other prerequisites.$\r$\n$\r$\nWindows may show a blue SmartScreen box because this build is not code-signed yet. Choose More info, then Run anyway. The download is the file you just saved, and SHA256SUMS.txt on the release page lets you verify it.$\r$\n$\r$\nYour data is kept in %LOCALAPPDATA%\BlackEclipse\data and is not removed if you uninstall."
+!endif
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Black Eclipse.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Open Black Eclipse now"
 
