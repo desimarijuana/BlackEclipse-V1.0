@@ -323,6 +323,7 @@ def _from_result(definition: Any, strategy_id: str, version: str,
     risk = result.get("risk") or {}
     action = _action_for(str(signal.get("signal") or chosen["signal"]))
     status = str(order.get("status") or "")
+    reported = str(result.get("code") or "")
     reasons = list(order.get("reasons") or []) or list(risk.get("reasons") or [])
     rating = {
         "allowed": bool(risk.get("allowed", True)),
@@ -358,6 +359,13 @@ def _from_result(definition: Any, strategy_id: str, version: str,
     else:
         outcome = "skipped"
         code = "POSITION_ALREADY_OPEN"
+
+    # The trial reports WHY it did not send; keep that code instead of guessing.
+    if reported and not order and not closed:
+        if reported in ("BAR_ALREADY_PROCESSED", "POSITION_ALREADY_OPEN"):
+            outcome, code, state = "skipped", reported, SKIPPED
+        else:
+            outcome, code, state = "refused", reported, BLOCKED
 
     if result.get("dryRun") and order and outcome not in ("refused", "failed"):
         outcome = "preview"

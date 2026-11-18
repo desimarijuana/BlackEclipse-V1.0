@@ -37,6 +37,17 @@ _QUOTE_CURRENCIES = (
 
 # Known crypto base assets. A symbol in this set with a recognised quote suffix
 # is unambiguously a crypto pair (even without a dash/slash).
+# Fiat currency codes that make a bare 3+3 concatenation a REAL FX pair
+# (`EURUSD`). A broker quotes FX as base+quote, so a bot's own symbol must
+# resolve to the same instrument the market data layer fetches (`EURUSD=X`).
+_FIAT_CODES = {
+    "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "CNY", "NZD", "SEK",
+    "NOK", "DKK", "SGD", "HKD", "ZAR", "MXN", "BRL", "INR", "KRW", "TRY",
+    "PLN", "CZK", "HUF", "ILS", "THB", "MYR", "PHP", "IDR", "RUB", "AED",
+    "SAR", "PKR", "BDT", "NGN", "KES", "EGP", "CLP", "COP", "PEN", "ARS",
+    "VND", "TWD",
+}
+
 _KNOWN_CRYPTO_BASES = {
     "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "MATIC",
     "LTC", "LINK", "TRX", "SHIB", "UNI", "ATOM", "XLM", "ETC", "BCH", "FIL",
@@ -256,6 +267,17 @@ def classify_identifier(raw: str, market: Optional[str] = None) -> dict[str, Any
         if base in _KNOWN_CRYPTO_BASES and quote.upper() in _QUOTE_CURRENCIES:
             return {"kind": "crypto", "base": base, "quote": quote.upper(),
                     "canonical": f"{base}-{quote.upper()}"}
+
+    # A bare 3+3 concatenation of two ISO fiat codes is FX (`EURUSD`), which is
+    # exactly how a broker names the pair. Crypto pairs keep their crypto
+    # classification below (`BTCUSD`, `ETHUSDT`).
+    if len(text) == 6 and text.isalpha():
+        base, quote = text[:3], text[3:]
+        if (base in _FIAT_CODES and quote in _FIAT_CODES
+                and base not in _KNOWN_CRYPTO_BASES
+                and quote not in _KNOWN_CRYPTO_BASES):
+            return {"kind": "fx", "base": base, "quote": quote,
+                    "canonical": f"{base}{quote}=X"}
 
     pair = split_crypto_pair(text)
     if pair:

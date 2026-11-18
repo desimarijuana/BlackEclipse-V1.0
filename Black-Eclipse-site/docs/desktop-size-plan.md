@@ -1,7 +1,7 @@
 ---
 title: Desktop Size — Download Slimming and Optional Packs
-status: Proposed
-last-verified: 2026-11-10
+status: Current
+last-verified: 2026-11-17
 ---
 
 # Desktop size plan
@@ -97,11 +97,29 @@ npm run desktop:installer -- --full # offline edition (needs dist/packs present)
 
 ### Still to do (S2–S4)
 
-S2 stub downloader, S3 onboarding chooser + Settings › Components, S4 friendly
-pack-missing errors. **They are blocked on a published release URL** — a
-downloader cannot be verified end-to-end against an asset that does not exist
-yet. Everything they consume (pack split, manifest, per-pack folders, pack
-manager, both installer editions) is in place.
+**S2 (downloader) and the Settings half of S3 (the Components panel) shipped
+2026-11-17.** `scripts/desktop-package.js` now writes `app/config/packs.json`
+into the payload (per-pack `sha256`, `zipBytes`, version and release repo), and
+the installed app serves it through `src/lib/desktop/packs.ts` +
+`/api/desktop/packs`: Settings → Data & Storage → **Feature packs** downloads an
+archive from the app's own release tag, verifies it against the recorded
+SHA-256, extracts it into a private staging directory and moves only the
+manifest-named package directories into `site-packages`. Remove is the reverse.
+
+Archives are named per target (`browser-win32-x64.zip`, `charts-linux-x64.zip`, …)
+because all three OS builds write `dist/packs/*.zip` and release assets share one
+flat namespace — a bare `browser.zip` would be uploaded three times and the last
+platform would win, handing a Linux wheel to a Windows install.
+
+Still open:
+
+- **S3 remainder** — offering the packs during onboarding (the chooser), so a
+  new user can pick them before ever opening Settings.
+- **S4** — friendly "pack missing" errors at the point of use: today a capability
+  whose pack is absent fails inside a lazy import and the user has to know to
+  look in Settings.
+- End-to-end verification against a **published** release asset (the local path
+  is exercised by tests and by `BE_PACK_BASE_URL` pointed at a mirror).
 
 
 

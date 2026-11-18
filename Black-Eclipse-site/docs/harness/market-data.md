@@ -216,6 +216,17 @@ duplicate timestamps, gaps, >50% outlier bars, freshness vs the requested class.
 An **invalid** finding withholds the value (the gateway tries the next provider);
 a **warning** is surfaced on `meta.warnings`. The engine never repairs silently.
 
+### FX identity: a broker pair is `EURUSD`, the provider ticker is `EURUSD=X`
+
+A trading bot is configured with the symbol its broker quotes (`EURUSD`), so
+`instruments.classify_identifier` treats a bare 3+3 concatenation of two ISO
+fiat codes as FX and maps it to the Yahoo ticker (`EURUSD=X`). Crypto
+concatenations (`BTCUSD`, `ETHUSDT`) stay crypto. The Next price-history route
+uses the same mapping `(yahoo-chart.yahooChartCandidates → FOREX_CATALOG)`, so
+the app can chart the instrument its bots trade. Before this, `EURUSD` resolved
+as an equity, every provider returned no bars, and a strategy bot could neither
+backtest nor signal.
+
 ### The shared quality contract (`market/quality_contract.py`)
 
 Every market, fundamental, macro and FX result carries a

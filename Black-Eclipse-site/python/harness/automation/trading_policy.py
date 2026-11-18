@@ -138,19 +138,28 @@ def parse_moment(value: Any) -> Optional[datetime]:
 
 def is_fresh(last_bar: Any, now: datetime, timeframe_seconds: float,
              factor: float = 2.5) -> bool:
-    """A bar is usable only when it is within `factor` timeframes of now."""
+    """A bar is usable only when it is within `factor` timeframes of now.
+
+    A broker stamps bars in SERVER time (MT5 demo here is UTC+2), so the newest
+    bar can be a few hours AHEAD of the process clock. That is clock skew, not
+    staleness - but no more than `_MAX_CLOCK_SKEW` of it, so a genuinely
+    future-dated feed is still refused.
+    """
     moment = parse_moment(last_bar)
     if moment is None or timeframe_seconds <= 0:
         return False
     reference = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
     age = (reference - moment).total_seconds()
-    return 0 <= age <= timeframe_seconds * factor
+    return -_MAX_CLOCK_SKEW <= age <= timeframe_seconds * factor
 
 
 TIMEFRAME_SECONDS = {
     "M1": 60, "M5": 300, "M15": 900, "M30": 1800,
     "H1": 3600, "H4": 14400, "D1": 86400, "W1": 604800,
 }
+
+#: How far ahead of local UTC a broker's server clock may legitimately be.
+_MAX_CLOCK_SKEW = 3 * 60 * 60
 
 
 def timeframe_seconds(name: Any) -> int:

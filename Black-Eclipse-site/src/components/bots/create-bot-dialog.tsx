@@ -298,6 +298,10 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
     // the same minute is a surprise, and the user opted into creating a bot,
     // not into duplicating its schedule.
     const cloneScheduled = Boolean(reuseSource) && buildTrigger(nextDraft).type !== 'manual';
+    // A live choice is the operator's grant: the server still checks the typed
+    // phrase and an armed connection, but the tier must match the mode we send.
+    const authority = buildTradingAuthority(nextDraft.trading);
+    if (nextDraft.trading.mode === 'live') authority.tier = 'l2';
     setSaving(true);
     setError(null);
     try {
@@ -353,7 +357,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
                     : {}),
                 },
               },
-        executionAuthority: buildTradingAuthority(nextDraft.trading),
+        executionAuthority: authority,
         ...buildPolicies(nextDraft),
         tags: isStrategy ? ['bot', 'trading'] : ['bot'],
       });

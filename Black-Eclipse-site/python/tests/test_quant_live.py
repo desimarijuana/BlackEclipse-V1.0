@@ -65,6 +65,22 @@ class FakeBroker:
             "volumeMin": 0.01, "volumeStep": 0.01,
         }}
 
+    def bars(self, connection_id, symbol, timeframe="D1", count=120):
+        """The broker's own series: a rising market, one bar per day."""
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        rows = []
+        for index in range(120):
+            price = 1.0 + index * 0.001
+            rows.append({
+                "time": int((base + timedelta(days=index)).timestamp()),
+                "open": price, "high": price + 0.001, "low": price - 0.001,
+                "close": price + 0.0005, "tickVolume": 100 + index,
+            })
+        return {"available": True, "status": "connected", "kind": "mt5",
+                "connectionId": connection_id,
+                "data": {"symbol": symbol, "timeframe": timeframe,
+                         "count": len(rows), "bars": rows}}
+
     def positions(self, connection_id):
         return {"available": True, "data": list(self.positions_data)}
 
@@ -175,3 +191,94 @@ def test_second_run_does_not_stack_a_position(env):
     broker.positions_data = [{"ticket": 1, "symbol": "TESTUSDT"}]
     result = asyncio.run(service.run_once(trial["id"], dataset=dataset))
     assert "already exist" in result["message"]
+
+
+def test_signal_falls_back_to_the_brokers_own_bars(env, monkeypatch):
+    """A broker-only symbol must signal on the broker's bars, not fail."""
+    from harness.quant.errors import InvalidSymbol
+
+    service, broker, _ = env
+    trial = _prepare(service)
+
+    async def no_universe_data(*_args, **_kwargs):
+        raise InvalidSymbol("EURUSD is not in the market universe")
+
+    monkeypatch.setattr("harness.quant.live.dataset_from_strategy", no_universe_data)
+    signal = asyncio.run(service.signal(trial["id"], gateway=None))
+    assert signal["bars"] == 120
+    assert signal["action"] in ("buy", "none")
+
+
+def test_a_broker_bar_slightly_ahead_of_the_clock_is_skew_not_stale():
+    """MT5 stamps bars in server time (UTC+2); that is not a stale feed."""
+    from harness.automation import trading_policy as p
+
+    now = datetime(2026, 11, 17, 23, 55, tzinfo=timezone.utc)
+    ahead = "2026-11-18T00:00:00Z"  # server midnight, ~5 min ahead of UTC now
+    assert p.is_fresh(ahead, now, 86400), "a skewed bar is still fresh"
+    tomorrow = "2026-11-19T00:00:00Z"
+    assert not p.is_fresh(tomorrow, now, 3600), "a day-ahead feed is still refused"
+
+
+def test_a_refusal_that_sent_nothing_releases_the_bar(env):
+    """A risk refusal must not burn the closed bar; a send must stay locked."""
+    service, _broker, _ = env
+    bar = "2026-01-02T00:00:00Z"
+    first = service._runner.claim(
+        strategy_id="live_test", version="1.0.0", timeframe="D1", bar_ts=bar,
+    )
+    assert first["claimed"]
+    assert service._runner.release(first["run"]["id"])["released"] is True
+    retry = service._runner.claim(
+        strategy_id="live_test", version="1.0.0", timeframe="D1", bar_ts=bar,
+    )
+    assert retry["claimed"], "the same closed bar must be retryable"
+
+    service._runner.finish(retry["run"]["id"], state="done")
+    assert service._runner.release(retry["run"]["id"])["released"] is False
+    after = service._runner.claim(
+        strategy_id="live_test", version="1.0.0", timeframe="D1", bar_ts=bar,
+    )
+    assert not after["claimed"], "a completed run can never be retried"
+
+
+def test_the_forming_bar_is_not_traded(env):
+    """`copy_rates*` includes the open bar; a signal needs the last CLOSED one."""
+    service, broker, _ = env
+    trial = _prepare(service)
+    now = datetime.now(timezone.utc).timestamp()
+
+    def bar(at: float) -> dict:
+        return {"time": at, "open": 1.1, "high": 1.11, "low": 1.09,
+                "close": 1.105, "tickVolume": 10}
+
+    broker.bars = lambda *a, **k: {
+        "available": True, "kind": "mt5",
+        "data": {"bars": [
+            bar(now - 2 * 86400), bar(now - 86400 - 5), bar(now + 3600),
+        ]},
+    }
+    broker.quote = lambda *a, **k: {
+        "available": True, "data": {"serverTimeMs": int(now * 1000)},
+    }
+    series = service._broker_series(trial, "TESTUSDT", "1d")
+    assert series.length == 2, "the still-forming bar must be dropped"
+
+
+def test_no_bars_anywhere_is_an_honest_refusal(env, monkeypatch):
+    from harness.quant.errors import InvalidSymbol, MissingData
+
+    service, broker, _ = env
+    trial = _prepare(service)
+
+    async def no_universe_data(*_args, **_kwargs):
+        raise InvalidSymbol("EURUSD is not in the market universe")
+
+    monkeypatch.setattr("harness.quant.live.dataset_from_strategy", no_universe_data)
+    broker.bars = lambda *a, **k: {"available": False,
+                                   "code": "BARS_UNAVAILABLE",
+                                   "reason": "terminal not logged in"}
+    with pytest.raises(MissingData) as exc:
+        asyncio.run(service.signal(trial["id"], gateway=None))
+    assert "terminal not logged in" in str(exc.value)
+    assert broker.submitted == []

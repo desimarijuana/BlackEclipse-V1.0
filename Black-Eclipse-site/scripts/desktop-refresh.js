@@ -19,6 +19,7 @@ const { installedShellPath } = require("./lib/desktop-process");
 const ROOT = path.resolve(__dirname, "..");
 const argv = process.argv.slice(2);
 const noBuild = argv.includes("--no-build");
+const noRestart = argv.includes("--no-restart");
 const channel = channelFor(argv.indexOf("--channel") >= 0 ? argv[argv.indexOf("--channel") + 1] : "stable");
 // Promote an explicit build (e.g. a verified `.next-desktop-dev`) without a
 // second identical compile. The source is still validated by the promoter.
@@ -89,6 +90,7 @@ function main() {
   log(`promoting ${channel.id} build ${readBuildId(source)}…`);
   const promoteArgs = ["--channel", channel.id];
   if (from) promoteArgs.push("--from", from);
+  if (noRestart) promoteArgs.push("--no-restart");
   if (!run("desktop-promote.js", promoteArgs)) {
     console.error("[desktop:refresh] promotion failed — the running app was not touched");
     process.exit(1);

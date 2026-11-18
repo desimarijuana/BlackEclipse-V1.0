@@ -9,6 +9,7 @@
 ## Checklist
 
 - [ ] Commits are signed off (`git commit -s`) per the DCO.
+- [ ] I agree to the [CLA](CLA.md) (first code PR only — comment: `I have read CLA.md and I agree to it for my contributions to this repository.`).
 - [ ] `npm run check:all` passes from `Black-Eclipse-site/`.
 - [ ] No secrets, `.env`, `*.db`, keys, or personal data are staged.
 - [ ] If this changes architecture, a contract, or setup, the owning doc under

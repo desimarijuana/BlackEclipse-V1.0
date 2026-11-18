@@ -1,6 +1,6 @@
 ---
 title: Trading Bots — implementation plan
-status: Partially implemented
+status: Implemented (demo proven end to end; live path open, unproven)
 last-verified: 2026-11-17
 ---
 
@@ -19,6 +19,11 @@ that remain are listed at the end.
 | Trials | `prepare` is mode-aware (shadow/demo/live), bot-pinned, and idempotent per bot |
 | Auto mode | Standing consent stored on the bot; `prepare` renews it without re-typing the phrase |
 | Live fence | `check_live_order` moved inside `BrokerService.submit_order` when `automation_id` is present; tested at the broker seam (L1 refused before the adapter, L2 sends once, stale version rejected) |
+| Demo/live choice | the operator's LIVE authorization grants L2 in the same action (`_grant_live_tier`), still requiring an armed connection + typed phrase + mandate; demo is a choice, not a forced default |
+| Full-chain test | `python/tests/test_trading_bot_e2e.py`: real runner → trial → broker → one order + ledger + position; same-bar dedupe; disarmed live refused before the adapter |
+| Real terminal proof | **2026-11-17 demo fill**: bot `auto_21fb2c4a633340f7be2e` → MT5 ticket `11447256588` (EURUSD BUY 0.01 @ 1.09897), ledger `ord_e29c7a0e6b41` with `automationId`; details + the seven defects it exposed in `docs/trading-bot-live-testing-plan.md` |
+| Signal data source | the broker's OWN bars (`copy_rates`) for a broker symbol, the gateway as fallback; the forming bar is dropped; `is_fresh` tolerates up to 3 h of broker clock skew |
+| Ownership magic | every broker connection gets a stable non-zero `magic` (`trade/ownership.py`, applied on create and backfilled on read), so the kill switch can match Eclipse orders; proven scoped on the demo (magic 741879 cancelled, control magic 777 kept) |
 | Lifecycle | pause/disable/archive/delete revoke mandates and stop the trial |
 | Decisions | persisted on `AutomationExecution.decision`; rendered in run history + the trading panel |
 | Learning | `src/lib/bots/trading/learning.ts`: failure patterns → one concrete proposal → operator consent → apply + re-prepare; the digest is also injected into a trading bot's chat turn |

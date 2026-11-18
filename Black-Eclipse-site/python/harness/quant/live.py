@@ -20,13 +20,15 @@ cap, order count, expiry, guardrails, reconciliation and kill switch all apply.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .errors import QuantError
+from .errors import InvalidSymbol, MissingData, QuantError
 from .copilot import calculate_signals
+from .data import MarketDataset, series_from_rows
 from .data_quality import inspect_dataset
 from .datasets import dataset_from_strategy
 from .live_runner import LiveRunner
@@ -400,6 +402,150 @@ class LiveStrategyService:
 
     # ── signal + execution ───────────────────────────────────────────────────
 
+    # The quant interval vocabulary -> the broker's timeframe vocabulary. A
+    # trading bot must be able to signal on the SAME bars its broker quotes,
+    # even when the market-data universe does not cover the instrument.
+    _BROKER_TIMEFRAMES = {
+        "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+        "1h": "H1", "4h": "H4", "1d": "D1", "1w": "W1",
+    }
+
+    _BROKER_STEP_SECONDS = {
+        "M1": 60, "M5": 300, "M15": 900, "M30": 1800,
+        "H1": 3600, "H4": 14400, "D1": 86400, "W1": 604800,
+    }
+
+    def _broker_server_now(self, connection_id: str, symbol: str) -> float | None:
+        """The broker's own clock, when a fresh tick can tell us."""
+        try:
+            reading = self.broker.quote(connection_id, symbol)
+        except Exception:  # noqa: BLE001 - no tick means "unknown", never a guess
+            return None
+        data = (reading or {}).get("data") or {}
+        server_ms = data.get("serverTimeMs")
+        if not server_ms:
+            return None
+        server = float(server_ms) / 1000.0
+        # A closed market's last tick can be days old; it cannot date a bar.
+        if abs(server - datetime.now(timezone.utc).timestamp()) > 12 * 3600:
+            return None
+        return server
+
+    def _broker_series(self, trial: dict, symbol: str, interval: str, *, count: int = 500) -> Any:
+        """The broker's OWN bars for its own symbol, or an honest typed error."""
+        timeframe = self._BROKER_TIMEFRAMES.get(str(interval).lower())
+        if timeframe is None:
+            raise MissingData(
+                f"{interval} bars are not a broker timeframe",
+                detail={"symbol": symbol, "interval": interval},
+            )
+        reading = self.broker.bars(
+            trial["connectionId"], symbol, timeframe=timeframe, count=count,
+        )
+        payload = (reading or {}).get("data") or {}
+        bars = payload.get("bars") or []
+        if not (reading or {}).get("available") or not bars:
+            reason = (reading or {}).get("reason") or "the broker returned no bars"
+            raise MissingData(
+                f"no {interval} bars for {symbol} from the market gateway or "
+                f"the broker: {reason}",
+                detail={"symbol": symbol, "interval": interval,
+                        "code": (reading or {}).get("code") or "BARS_UNAVAILABLE"},
+            )
+        rows = [
+            {
+                "timestamp": bar.get("time"),
+                "open": bar.get("open"),
+                "high": bar.get("high"),
+                "low": bar.get("low"),
+                "close": bar.get("close"),
+                "volume": bar.get("tickVolume") or bar.get("volume") or 0,
+            }
+            for bar in bars
+        ]
+        # `copy_rates*` includes the FORMING bar. A signal must be computed on
+        # the last CLOSED bar, so drop trailing bars whose window is still open
+        # (judged on the broker's clock, which is what stamped them).
+        server_now = self._broker_server_now(trial["connectionId"], symbol)
+        step = self._BROKER_STEP_SECONDS.get(timeframe)
+        if server_now is not None and step:
+            while rows and rows[-1]["timestamp"] is not None and (
+                float(rows[-1]["timestamp"]) + step > server_now
+            ):
+                rows.pop()
+            if not rows:
+                raise MissingData(
+                    f"every {interval} bar for {symbol} is still forming",
+                    detail={"symbol": symbol, "interval": interval},
+                )
+        return series_from_rows(
+            symbol, interval, rows,
+            source=f"broker:{(reading or {}).get('kind') or 'unknown'}",
+        )
+
+    def _broker_dataset(self, trial: dict, symbol: str, spec: Any) -> MarketDataset:
+        """Build the dataset from the broker when the gateway has no series.
+
+        This is the accuracy path for a broker-only instrument: the bars are the
+        ones the broker itself will fill against, never a guessed or proxied
+        series. Confirmation timeframes are best-effort, exactly like the
+        gateway adapter.
+        """
+        series = {symbol: self._broker_series(trial, symbol, spec.timeframes.primary)}
+        higher: dict[tuple[str, str], Any] = {}
+        for tf in spec.timeframes.confirmation:
+            try:
+                higher[(symbol, tf)] = self._broker_series(trial, symbol, tf)
+            except (MissingData, InvalidSymbol):
+                continue
+        return MarketDataset(series=series, higher=higher)
+
+    async def _resolve_dataset(self, trial: dict, target: str, spec: Any,
+                               gateway: Any) -> MarketDataset:
+        """Gateway first, then the broker's OWN bars.
+
+        A broker symbol is a real, tradable FX pair the market universe often
+        does not carry - and a proxied series can be dirty. The broker's bars are
+        what the order will actually be filled against, so they win whenever the
+        gateway has nothing usable. An honest typed error is raised when neither
+        source yields a clean series - never a fabricated one.
+        """
+        gateway_error: Exception | None = None
+        gateway_dataset: MarketDataset | None = None
+        try:
+            gateway_dataset = await dataset_from_strategy(
+                gateway, spec, symbols=[target],
+            )
+        except (MissingData, InvalidSymbol) as exc:
+            gateway_error = exc
+        if gateway_dataset is not None:
+            quality = inspect_dataset(
+                gateway_dataset, symbols=[target], interval=spec.timeframes.primary,
+            )
+            if quality["gate"]["allowed"]:
+                return gateway_dataset
+        try:
+            # MT5 IPC is blocking; never stall the harness event loop for it.
+            broker_dataset = await asyncio.to_thread(
+                self._broker_dataset, trial, target, spec,
+            )
+        except (MissingData, InvalidSymbol) as broker_error:
+            if gateway_dataset is not None:
+                return gateway_dataset  # let the quality gate explain itself
+            raise MissingData(
+                f"no bars for {target} from the gateway or the broker "
+                f"({gateway_error}; {broker_error})",
+                detail={"symbol": target, "interval": spec.timeframes.primary,
+                        "gateway": str(gateway_error or ""),
+                        "broker": str(broker_error)},
+            ) from broker_error
+        broker_quality = inspect_dataset(
+            broker_dataset, symbols=[target], interval=spec.timeframes.primary,
+        )
+        if broker_quality["gate"]["allowed"] or gateway_dataset is None:
+            return broker_dataset
+        return gateway_dataset
+
     async def signal(self, trial_id: str, *, gateway: Any = None,
                      symbol: str | None = None,
                      dataset: Any = None) -> dict[str, Any]:
@@ -409,9 +555,7 @@ class LiveStrategyService:
         spec = parse_strategy(record.get("spec") or record)
         target = (symbol or trial["symbols"][0]).upper()
         if dataset is None:
-            dataset = await dataset_from_strategy(
-                gateway, spec, symbols=[target],
-            )
+            dataset = await self._resolve_dataset(trial, target, spec, gateway)
         quality = inspect_dataset(
             dataset, symbols=[target], interval=spec.timeframes.primary,
         )
@@ -474,6 +618,7 @@ class LiveStrategyService:
                     f"No order: {len(positions)} open position(s) already exist for "
                     f"{signal['symbol']}."
                 )
+                result["code"] = "POSITION_ALREADY_OPEN"
             else:
                 bar_ts = str(signal.get("bar") or "")
                 claim = self._runner.claim(
@@ -486,6 +631,7 @@ class LiveStrategyService:
                     result["message"] = (
                         f"No order: this bar is {claim.get('reason')}.")
                     result["run"] = claim.get("run")
+                    result["code"] = "BAR_ALREADY_PROCESSED"
                     self._update(trial_id, lastResultJson=_json(result))
                     return result
                 run_id = claim["run"]["id"]
@@ -502,8 +648,7 @@ class LiveStrategyService:
                     risk_state = self._risk.check(trial_id, account)
                     result["riskState"] = risk_state
                     if risk_state["kill"]["triggered"]:
-                        self._runner.finish(run_id, state="skipped",
-                                            error="kill state")
+                        self._runner.release(run_id)
                         self._auto_kill(trial)
                         result["message"] = (
                             "Trading stopped by the risk kill: "
@@ -547,9 +692,12 @@ class LiveStrategyService:
                     )
                     result["risk"] = risk
                     if not risk["allowed"]:
-                        self._runner.finish(run_id, state="skipped",
-                                            error="risk refused")
+                        # Nothing was sent, so the closed bar must stay retryable:
+                        # keep the claim only when an order actually reached the
+                        # broker.
+                        self._runner.release(run_id)
                         result["message"] = "Risk refused: " + "; ".join(risk["reasons"])
+                        result["code"] = "RISK_REFUSED"
                         self._update(trial_id, lastResultJson=_json(result))
                         return result
                     key = order_key(trial["strategyId"], trial["strategyVersion"],
@@ -598,6 +746,9 @@ class LiveStrategyService:
                 except Exception as exc:  # noqa: BLE001 - a failed run must be visible
                     self._runner.finish(run_id, state="failed", error=str(exc))
                     result["message"] = f"No order: {exc}"
+                    # Preserve the typed refusal so the bot's decision does not
+                    # masquerade as "position already open".
+                    result["code"] = str(getattr(exc, "code", "") or "") or "BROKER_UNAVAILABLE"
                     self._update(trial_id, lastResultJson=_json(result))
                     return result
         self._update(

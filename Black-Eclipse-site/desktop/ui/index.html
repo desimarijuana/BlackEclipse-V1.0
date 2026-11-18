@@ -44,18 +44,22 @@
         /* Extra top room for the frameless window's custom title strip. */
         padding: 64px 32px 32px;
       }
+      /* Same recipe as `.glass-card` in src/app/globals.css: translucent tint
+         (<= 0.55), 18px blur with a saturation boost, inset top highlight and a
+         soft drop shadow. A higher alpha here would read as a flat panel. */
       .card {
         width: min(420px, 100%);
         padding: 34px 34px 28px;
-        border-radius: 18px;
+        border-radius: 16px;
         border: 1px solid var(--line);
-        background: var(--panel);
-        backdrop-filter: blur(22px) saturate(140%);
+        background: rgba(18, 18, 20, 0.55);
+        backdrop-filter: blur(18px) saturate(1.35);
         box-shadow:
-          0 1px 0 rgba(255, 255, 255, 0.05) inset,
-          0 24px 70px -20px rgba(0, 0, 0, 0.85);
+          0 1px 0 rgba(255, 255, 255, 0.06) inset,
+          -1px 0 0 rgba(255, 255, 255, 0.06) inset,
+          0 8px 30px rgba(0, 0, 0, 0.3);
         text-align: center;
-        animation: rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        animation: rise 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
       }
       @keyframes rise {
         from { opacity: 0; transform: translateY(8px) scale(0.995); }
@@ -129,8 +133,27 @@
       body[data-state="error"] .bar { animation: none; width: 100%; background: var(--danger); opacity: 0.75; }
       body[data-state="error"] .phase { color: var(--danger); }
       body[data-state="error"] .mark .ring { animation-play-state: paused; filter: grayscale(1) opacity(0.5); }
-      .actions { display: none; gap: 8px; justify-content: center; margin-top: 18px; }
+      .actions { display: none; gap: 8px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
       body[data-state="error"] .actions { display: flex; }
+      /* The log location is only useful when something failed: show it then,
+         and let the user open the folder or copy the details in one click. */
+      .logpath {
+        display: none;
+        margin-top: 12px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.28);
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 10px;
+        line-height: 1.5;
+        color: var(--faint);
+        word-break: break-all;
+        user-select: text;
+        text-align: left;
+      }
+      body[data-state="error"] .logpath { display: block; }
+      .copied { color: var(--brand) !important; }
       button {
         font: inherit;
         font-size: 12px;
@@ -155,7 +178,7 @@
         display: flex;
         align-items: stretch;
         justify-content: flex-end;
-        background: #0d0d0d;
+        background: transparent;
         z-index: 10;
       }
       .titlebar-drag {
@@ -200,8 +223,10 @@
         <div class="track"><div class="bar"></div></div>
         <div class="actions">
           <button class="primary" id="retry">Try again</button>
-          <button id="log">Where is the log?</button>
+          <button id="copy">Copy details</button>
+          <button id="log">Open log folder</button>
         </div>
+        <div class="logpath" id="logpath"></div>
         <div class="foot" id="foot">Local instance · 127.0.0.1:3100</div>
       </div>
     </div>
@@ -210,8 +235,19 @@
         var phase = document.getElementById("phase");
         var retry = document.getElementById("retry");
         var logBtn = document.getElementById("log");
+        var copyBtn = document.getElementById("copy");
+        var logPath = document.getElementById("logpath");
         var foot = document.getElementById("foot");
         var tauri = window.__TAURI__;
+        var lastMessage = "";
+        var logInfo = { log: "", dir: "" };
+
+        function invoke(command, args) {
+          if (tauri && tauri.core && tauri.core.invoke) {
+            return tauri.core.invoke(command, args || {});
+          }
+          return Promise.reject(new Error("no shell"));
+        }
 
         function windowAction(action) {
           if (tauri && tauri.core && tauri.core.invoke) {
@@ -237,7 +273,6 @@
         document.getElementById("win-close").addEventListener("click", function () {
           windowAction("close");
         });
-
         function setPhase(text) {
           if (text) phase.textContent = text;
         }
@@ -245,6 +280,33 @@
         function fail(message) {
           document.body.dataset.state = "error";
           setPhase(message);
+          lastMessage = message || "";
+          showLogPath();
+        }
+
+        // Fill in where the log lives, once, when a failure actually needs it.
+        function showLogPath() {
+          invoke("desktop_log_path")
+            .then(function (info) {
+              if (!info) return;
+              logInfo = { log: info.log || "", dir: info.dir || "" };
+              if (logInfo.log) {
+                logPath.textContent = "Log: " + logInfo.log;
+              } else if (logInfo.dir) {
+                logPath.textContent = "Log folder: " + logInfo.dir;
+              }
+            })
+            .catch(function () {});
+        }
+
+        function flash(button, text) {
+          var original = button.textContent;
+          button.textContent = text;
+          button.classList.add("copied");
+          setTimeout(function () {
+            button.textContent = original;
+            button.classList.remove("copied");
+          }, 1400);
         }
 
         if (!tauri || !tauri.event) {
@@ -277,12 +339,27 @@
         });
 
         logBtn.addEventListener("click", function () {
-          if (tauri.core && tauri.core.invoke) {
-            tauri.core.invoke("desktop_info").then(function (info) {
-              if (info && info.root) {
-                foot.textContent = info.root + "\\.black-eclipse\\desktop-native.log";
+          invoke("desktop_open_log").catch(function () {});
+        });
+
+        copyBtn.addEventListener("click", function () {
+          var details = [
+            "Black Eclipse failed to start",
+            "Message: " + (lastMessage || phase.textContent || ""),
+            "Log: " + (logInfo.log || "(unknown)"),
+            "Instance: " + (document.getElementById("foot").textContent || ""),
+          ].join("\n");
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(details).then(
+              function () {
+                flash(copyBtn, "Copied");
+              },
+              function () {
+                flash(copyBtn, "Copy failed");
               }
-            }).catch(function () {});
+            );
+          } else {
+            flash(copyBtn, "Copy unavailable");
           }
         });
       })();

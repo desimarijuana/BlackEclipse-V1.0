@@ -195,7 +195,12 @@ class AutomationService:
                 fields[key] = value
         if not fields:
             return current
-        candidate = current.model_copy(update={**fields, "version": current.version + 1, "updated_at": now_iso()})
+        # Activating / pausing a prepared bot is NOT a semantic edit: a version
+        # bump would immediately invalidate the mandate pinned in `prepare`,
+        # leaving every freshly activated bot stale before its first run.
+        semantic = any(key != "state" for key in fields)
+        version = current.version + 1 if semantic else current.version
+        candidate = current.model_copy(update={**fields, "version": version, "updated_at": now_iso()})
         # Re-validate the typed sub-models (a malformed dict must be refused).
         candidate = self._retype(candidate, fields)
         self._assert_valid(candidate)

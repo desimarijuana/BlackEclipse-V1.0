@@ -27,6 +27,7 @@ import { AnalyticsSettingsPanel } from "./analytics-settings";
 import { SidebarSettingsPanel } from "./sidebar-settings";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { SetupDangerZone } from "./setup-danger-zone";
+import { FeaturePacksSettings } from "@/components/settings/feature-packs-settings";
 import { FinancialDataConsole } from "./financial-data-console";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { SecuritySettingsPanel } from "./security-settings";
@@ -976,7 +977,7 @@ export function Settings({
                 <SectionHeader
                   icon={Database}
                   title="Data & Storage"
-                  description="Clear locally stored chats, watchlists, or portfolio data from this device."
+                  description="Add optional components, and clear locally stored chats, watchlists, or portfolio data from this device."
                 />
                 <Panel className="p-5 md:p-6">
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -997,6 +998,7 @@ export function Settings({
                     <CircleDashed className="w-3 h-3" /> Cleared data is removed from this browser only.
                   </p>
                 </Panel>
+                <FeaturePacksSettings />
                 <SetupDangerZone />
               </div>
             )}

@@ -69,6 +69,19 @@ def test_classify_fx_and_equity():
     assert classify_identifier("2330.TW")["kind"] == "equity"
 
 
+def test_a_brokers_bare_fx_pair_resolves_to_the_yahoo_ticker():
+    """`EURUSD` is how MT5 names the pair; it must fetch as `EURUSD=X`."""
+    kind = classify_identifier("EURUSD")
+    assert kind["kind"] == "fx"
+    assert (kind["base"], kind["quote"]) == ("EUR", "USD")
+    assert kind["canonical"] == "EURUSD=X"
+    assert classify_identifier("USDJPY")["kind"] == "fx"
+    assert classify_identifier("GBPCHF")["kind"] == "fx"
+    # A crypto concatenation still resolves as crypto, never as fiat FX.
+    assert classify_identifier("BTCUSD")["kind"] == "crypto"
+    assert classify_identifier("ETHUSDT")["kind"] == "crypto"
+
+
 def test_provider_symbols_from_bridge_payload():
     from harness.market.instruments import from_bridge_payload
 

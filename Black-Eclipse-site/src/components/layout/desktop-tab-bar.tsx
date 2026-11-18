@@ -57,6 +57,7 @@ import {
   type DesktopTab,
 } from '@/lib/desktop/tabs';
 import { useSidebarConfigStore } from '@/lib/sidebar/store';
+import { UpdateButton } from '@/components/layout/update-button';
 
 interface TabMeta {
   label: string;
@@ -600,6 +601,7 @@ export function DesktopTabBar({
       </div>
 
       <div data-be-no-drag="" className="flex shrink-0 items-stretch">
+        <UpdateButton />
         <button
           type="button"
           aria-label="Minimize window"

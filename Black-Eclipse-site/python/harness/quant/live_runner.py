@@ -134,6 +134,22 @@ class LiveRunner:
         self._db.commit()
         return {"reopened": True, "run": self.get(run_id)}
 
+    def release(self, run_id: str) -> dict[str, Any]:
+        """Drop the claim for a run that provably sent nothing.
+
+        A refusal BEFORE the broker (risk, kill switch, arm/consent gate) placed
+        no order, so keeping the bar locked would make the bot silently miss it.
+        A run that reached the broker is never released: an ambiguous send must
+        stay claimed so it is never retried.
+        """
+        run = self.get(run_id)
+        if run["state"] != "claimed":
+            return {"released": False, "reason": f"run is {run['state']}", "run": run}
+        self._db.execute("DELETE FROM QuantLiveRun WHERE id=? AND state='claimed'",
+                         (run_id,))
+        self._db.commit()
+        return {"released": True, "run": run}
+
     def runs(self, *, strategy_id: str | None = None,
              limit: int = 100) -> list[dict[str, Any]]:
         if strategy_id:

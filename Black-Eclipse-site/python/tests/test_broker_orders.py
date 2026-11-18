@@ -149,6 +149,33 @@ def _service(tmp_path, adapter_cls=FakeTradingAdapter) -> BrokerService:
     return service
 
 
+def test_a_connection_gets_an_ownership_magic_for_the_kill_switch(tmp_path):
+    """A missing magic is repaired at the service boundary, never left at 0."""
+    service = _service(tmp_path)
+    connection = service.list_connections()[0]
+    assert int(connection["config"].get("magic") or 0) > 0
+
+    # An existing 0 is backfilled on the next read (old connections).
+    service.update_connection(
+        connection["id"], {"config": {"maxMargin": 500, "magic": 0}},
+    )
+    assert service.get_connection(connection["id"])["config"]["magic"] > 0
+
+    explicit = BrokerService(
+        AgentMemoryStore(os.path.join(str(tmp_path), "explicit.db")),
+    )
+    register_kind(
+        BrokerKind(id="fake-trade", label="Fake trade", auth="attach",
+                   execution=True, execution_modes=("demo", "live")),
+        FakeTradingAdapter,
+        replace=True,
+    )
+    made = explicit.create_connection(
+        kind="fake-trade", label="Other", mode="demo", config={"magic": 4242},
+    )
+    assert made["config"]["magic"] == 4242
+
+
 class RealLiveAdapter(FakeTradingAdapter):
     ACCOUNT_MODE = "real"
 
@@ -487,10 +514,21 @@ def test_arming_requires_a_typed_phrase_a_cap_and_a_magic(tmp_path):
         no_cap.arm_connection(_connection_id(no_cap), confirmation="ARM LIVE 7")
     assert exc.value.code == "LIVE_CAP_REQUIRED"
 
-    no_magic = _live_service(tmp_path / "nomagic", config={"magic": 0})
-    with pytest.raises(TradeRefused) as exc:
-        no_magic.arm_connection(_connection_id(no_magic), confirmation="ARM LIVE 7")
-    assert exc.value.code == "LIVE_MAGIC_REQUIRED"
+    no_magic = _live_service(tmp_path / "nomagic")
+    # Force a 0 despite the backfill to exercise the last-line guard.
+    import harness.trade.service as service_module
+
+    no_magic.update_connection(
+        _connection_id(no_magic), {"config": {"maxMargin": 500, "magic": 0}},
+    )
+    original = service_module.with_ownership_magic
+    service_module.with_ownership_magic = lambda config, label: (dict(config or {}), 0)
+    try:
+        with pytest.raises(TradeRefused) as exc:
+            no_magic.arm_connection(_connection_id(no_magic), confirmation="ARM LIVE 7")
+        assert exc.value.code == "LIVE_MAGIC_REQUIRED"
+    finally:
+        service_module.with_ownership_magic = original
 
 
 def test_armed_live_submit_requires_the_live_phrase(tmp_path):

@@ -10,6 +10,8 @@
 
 # Local dev server logs (`.dev-run2.log`, …) — never committed.
 /.dev-run*.log
+# Root-level launcher/test logs (desktop-refresh*.log, vitest-full.log, …).
+/*.log
 
 # Local, regenerable artifacts kept at the repository root.
 # A stray root `node_modules/` can appear if a tool (e.g. vitest) runs from the

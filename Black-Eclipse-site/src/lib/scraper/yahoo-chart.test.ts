@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { selectChartPrice } from './yahoo-chart';
+import { selectChartPrice, yahooChartCandidates } from './yahoo-chart';
+
+// A trading bot trades the broker symbol (`EURUSD`); Yahoo needs `EURUSD=X`.
+// Without this mapping the app cannot chart its own bot's instrument.
+describe('yahooChartCandidates', () => {
+  it('maps a bare broker FX pair to the Yahoo ticker first', () => {
+    expect(yahooChartCandidates('EURUSD', 'US')[0]).toBe('EURUSD=X');
+    expect(yahooChartCandidates('usdjpy', 'US')[0]).toBe('USDJPY=X');
+  });
+
+  it('maps a Yahoo-suffixed pair without double-suffixing it', () => {
+    expect(yahooChartCandidates('EURUSD=X', 'US')[0]).toBe('EURUSD=X');
+  });
+
+  it('leaves an equity ticker alone', () => {
+    expect(yahooChartCandidates('AAPL', 'US')[0]).toBe('AAPL');
+  });
+});
 
 // Regression for the OGDC-class defect: Yahoo returned a bogus
 // `regularMarketPrice` (131.87) while the real latest bar close was 315.91.

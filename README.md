@@ -246,15 +246,18 @@ window opens.
 | **Administrator rights** | **None.** Per-user install to `%LOCALAPPDATA%\Programs\BlackEclipse`; the NSIS manifest is `RequestExecutionLevel user` |
 | **Node.js, Python, SQLite** | **Not required** — all three ship inside the payload |
 | **Account, sign-in, telemetry** | None. The app runs entirely on your machine |
-| **Download size** | ~141 MB, and that is the whole thing |
+| **Download size** | ~141 MB for the core, and that is the whole app; optional components download on demand |
 | **Internet** | Needed for live prices, news and every model call. The app still opens, seeds its vault and runs offline — data simply reads `UNAVAILABLE` until something can be fetched |
 | **A language model** | A key for a hosted provider, or Ollama running locally. Without one, everything except the agent still works |
 
-Optional feature packs (extra Python capabilities) are **lazy**: the harness imports
-them only when the folder is present, so a missing pack degrades one capability
-instead of blocking the install. The release also carries an offline
-`BlackEclipse-Setup-<version>-full.exe` that bundles those packs for machines with
-no network at all.
+Optional feature packs (extra Python capabilities: browser automation, local ML,
+document reading, desktop control, advanced charting) are **lazy**: the harness
+imports them only when the folder is present, so a missing pack degrades one
+capability instead of blocking the install. The slim installer leaves them out to
+keep the download small; **Settings · Data & Storage · Feature packs** lists what
+is missing and downloads it from the same release, verifying a published SHA-256
+before anything is written. The offline `BlackEclipse-Setup-<version>-full.exe`
+bundles every pack for machines with no network at all.
 
 No account and no manual database setup. First boot provisions and seeds the local
 vault and starts the agent runtime. To use a model, either add a key for a
@@ -402,9 +405,10 @@ Black Eclipse is being built as an open-source project. Our goal is to give
 developers, researchers, quantitative traders and investors the tools to build,
 extend and customize their own financial AI environments.
 
-- [**Contributing**](Black-Eclipse-site/CONTRIBUTING.md) — setup, DCO, release gate
+- [**Contributing**](Black-Eclipse-site/CONTRIBUTING.md) — setup, DCO, CLA, release gate
 - [**Security**](SECURITY.md) — private advisories, never a public issue
 - [**Code of conduct**](CODE_OF_CONDUCT.md)
+- [**Trademark**](TRADEMARK.md) — the code is MIT; the name is not
 - [**Issues**](https://github.com/desimarijuana/BlackEclipse-V1.0/issues) — bug reports, feature requests, and questions
 
 ### Licensing, precisely
@@ -413,10 +417,16 @@ extend and customize their own financial AI environments.
 |---|---|
 | The application and this repository's original code | **MIT** — see [`LICENSE`](LICENSE) |
 | `Black-Eclipse-site/pine-engine/` — the isolated Pine Script engine | **AGPL-3.0-only**, because it depends on `pinets`. It is a separate program that talks to the app only through files — see [`NOTICE.md`](Black-Eclipse-site/pine-engine/NOTICE.md) |
+| The **name, wordmark, and logo** | **Not licensed by MIT.** Fork it, rename it — see [`TRADEMARK.md`](TRADEMARK.md) |
+| Contributions | MIT/AGPL as above, plus the [`CLA`](CLA.md) |
 
 If you redistribute the app, the MIT terms cover it. If you run the Pine engine
 as part of a network service, AGPL-3.0-only applies to **that component** and its
 obligations are described in its NOTICE.
+
+The code is free to use, change, and sell. What you may not do is ship a fork
+under the BlackEclipse name or logo — MIT gives away the code, not the identity,
+which is what stops a copy from taking the project's users.
 
 The locked dependency trees are inventoried in
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) (grouped by licence) and

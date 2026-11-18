@@ -31,7 +31,7 @@ describe("authorize gate", () => {
     expect(reason).toContain("terminal is not running");
   });
 
-  it("blocks live below L2", () => {
+  it("allows live below L2: the live authorization grants it", () => {
     expect(
       authorizeBlockReason({
         mode: "live",
@@ -39,7 +39,7 @@ describe("authorize gate", () => {
         now: NOW,
         connection: { status: "connected", armedUntil: armed },
       }),
-    ).toBe("Live execution needs tier L2 first.");
+    ).toBeNull();
   });
 
   it("blocks live when the connection is not armed or the arm expired", () => {
@@ -54,7 +54,7 @@ describe("authorize gate", () => {
     expect(
       authorizeBlockReason({
         mode: "live",
-        tier: "l2",
+        tier: "l1",
         now: NOW,
         connection: {
           status: "connected",
