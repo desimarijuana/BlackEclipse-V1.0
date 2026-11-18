@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ensurePythonRuntime,
   isBindConflict,
   isHarnessHealth,
   parseListenerPids,
@@ -82,5 +83,44 @@ describe("isBindConflict", () => {
 
   it("does not fire on ordinary logs", () => {
     expect(isBindConflict("Uvicorn running on http://127.0.0.1:8766")).toBe(false);
+  });
+});
+
+// A page must never inherit the runtime's five-minute cold-start budget: on a
+// stuck runtime that made every agent-backed page spin silently with no reason.
+// These drive ensurePythonRuntime() through the coalesced-start path it uses for
+// concurrent page routes.
+describe("ensurePythonRuntime request budget", () => {
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const KEY = "__harnessPyEnsure";
+
+  async function withPendingStart<T>(work: Promise<boolean>, fn: () => Promise<T>): Promise<T> {
+    const saved = glob[KEY];
+    glob[KEY] = work;
+    process.env.HARNESS_PY_REQUEST_WAIT_MS = "40";
+    try {
+      return await fn();
+    } finally {
+      glob[KEY] = saved;
+      delete process.env.HARNESS_PY_REQUEST_WAIT_MS;
+    }
+  }
+
+  it("answers 'unavailable' quickly when the start is stalled", async () => {
+    // A start that never settles = a runtime that is hung.
+    const started = Date.now();
+    const ok = await withPendingStart(new Promise<boolean>(() => {}), () => ensurePythonRuntime());
+    const elapsed = Date.now() - started;
+    expect(ok).toBe(false);
+    // It must actually wait out the request budget (40 ms here) rather than
+    // failing instantly for an unrelated reason, and it must return far below
+    // the 300 s cold-start budget.
+    expect(elapsed).toBeGreaterThanOrEqual(30);
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
+  it("still reports true when the in-flight start succeeds", async () => {
+    const ok = await withPendingStart(Promise.resolve(true), () => ensurePythonRuntime());
+    expect(ok).toBe(true);
   });
 });
