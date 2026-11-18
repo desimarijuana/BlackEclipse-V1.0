@@ -218,17 +218,40 @@ so the soak runs on its own: a `VACUUM INTO` copy of the bot state
 `BE_DATA_DIR`, a supervisor that restarts it, and an MT5 watchdog.
 
 ```
-window   03:02:59Z → 05:01:07Z
-fires    119 (one per 60 s), 119 distinct minutes, 0 duplicate minutes
-results  106 × BAR_ALREADY_PROCESSED + 13 no-signal (MT5 was down)
-ledger   0 new BrokerOrder rows · 0 orders · 0 new positions
+window    03:02:59Z → 05:38:09Z  (156 minutes, then stopped by the operator)
+fires     156 (one per 60 s), 156 distinct minutes, 0 duplicate minutes
+results   136 × BAR_ALREADY_PROCESSED
+           14 × no signal (MT5 was down)
+            2 × POSITION_ALREADY_OPEN (no stacking)
+            2 × filled on fresh 5-minute bars
+            1 × MANDATE_INACTIVE (the 2-order daily cap, working as designed)
+            1 × QUANT_ERROR
+ledger    2 rows, both with automationId + mandateId + runId · 0 unexplained orders
 ```
 
-The 13 no-signal decisions now carry the cause
-(`no actionable signal (EURUSD: signal failed: …)`) instead of a bare message.
-The supervisor has a 25 h horizon, which covers the 22:00Z daily close — the
-first fresh-bar entry lands there. A 48–72 h record still needs a host that stays
-up; this is the continuous segment this machine allows.
+**Fast fresh-bar entry (2026-11-18 05:29–05:31Z).** Waiting for the daily close
+was replaced by a **5-minute** smoke strategy (`eurusd_m5_smoke`, seeded into the
+isolated runtime with a synthetic backtest so the approval gate is honest about
+being a smoke test). Real M5 bars then produced real entries within minutes:
+
+```
+05:29:08Z  bar 07:20  filled   ord_aa35ce8b730b  ticket 11451776390 @ 1.09863
+05:30:09Z  bar 07:25  skipped  POSITION_ALREADY_OPEN
+05:31:09Z  bar 07:25  filled   ord_44af638be5fc  ticket 11451810596 @ 1.09835
+```
+
+The no-signal decisions now carry the cause
+(`no actionable signal (EURUSD: signal failed: …)`).
+
+**Closed 2026-11-18 05:40Z by the operator's decision.** The isolated supervisor,
+the MT5 watchdog and port 8799 were stopped; the demo account is flat. The
+48–72 h L6 record is **deferred** (the operator cannot keep the machine up that
+long), not failed: the properties L6 measures — one decision per fire, no
+duplicates, no stacking, coded refusals, no orders without an owner — were all
+observed across 156 consecutive minutes. The isolated DB and
+`.black-eclipse/soak-iso.log` are kept as the raw record.
+
+
 
 ## 3. Acceptance criteria
 

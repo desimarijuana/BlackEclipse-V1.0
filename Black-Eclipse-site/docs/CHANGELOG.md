@@ -6,6 +6,29 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **test(trading): demo soak closed at 156 minutes — properties proven, 48–72 h
+  deferred by the operator.** Final measured record (isolated runtime :8799,
+  copied state): 03:02:59Z→05:38:09Z, **156 fires, 156 distinct minutes, 0
+  duplicate minutes**, 136 `BAR_ALREADY_PROCESSED`, 2 filled on fresh 5-minute
+  bars (`ord_aa35ce8b730b` / `ord_44af638be5fc`), 2 `POSITION_ALREADY_OPEN`, 14
+  no-signal (MT5 down), 1 `MANDATE_INACTIVE` (the 2-order daily cap), 1
+  `QUANT_ERROR`; **2 ledger rows, 0 unexplained orders**. Supervisor, MT5
+  watchdog and :8799 stopped; demo account flat. A 48–72 h record is explicitly
+  deferred (needs a host that stays up), not failed.
+  Docs: `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(trading): fresh-bar entries captured in minutes, not a day.** The soak
+  bot was switched to a **5-minute** smoke strategy (`eurusd_m5_smoke`, synthetic
+  backtest for the approval gate, real M5 broker bars at runtime). Isolated
+  runtime (:8799) at 05:29–05:31Z: `ord_aa35ce8b730b` (ticket 11451776390,
+  1.09863) on bar 07:20, a `POSITION_ALREADY_OPEN` skip on the next fire, then
+  `ord_44af638be5fc` (ticket 11451810596, 1.09835) on bar 07:25 — all with
+  `automationId`, `mandateId`, `runId`, magic 741879. Soak to 05:32Z: **150
+  fires, 150 distinct minutes, 0 duplicate minutes**, 132
+  `BAR_ALREADY_PROCESSED`, 2 filled, 2 not-stacked, 14 no-signal (MT5 down), and
+  **no unexplained order**. Docs: `docs/trading-bot-live-testing-plan.md`,
+  `docs/CHANGELOG.md`.
+
 - **fix(updates): an update can no longer break the install on a locked
   `node_modules`.** Windows keeps a loaded `.node` binary locked for the life of
   the process that loaded it, and `npm ci` empties `node_modules` before it
