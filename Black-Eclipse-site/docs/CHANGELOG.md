@@ -6,6 +6,24 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **test(guard): the line-ending guard no longer reads installer BMPs as text.**
+  The branding commit added `welcome.bmp`/`header.bmp`; the guard scanned the
+  first as text and failed on pixel bytes that happen to contain CRLF and bare
+  LF. `.gitattributes` now marks `*.bmp binary` and the guard's extension list
+  skips it.
+  Docs: `docs/CHANGELOG.md` (no contract change).
+
+- **fix(installer): fail the build when the setup `.exe` is not branded.** The
+  published v0.4.2 setup still drew NSIS's stock globe/disk because its tag
+  pointed at a commit that forked before `MUI_ICON` landed; `main` had the fix,
+  but the release workflow builds the tagged commit, so downloaders never got
+  it. `scripts/verify-installer-icon.js` now reads the finished exe's
+  `RT_GROUP_ICON` and compares it with `public/branding/black-eclipse.ico`
+  (16/24/32/48/64/128/256px, all 32bpp); `desktop-installer.js` runs it after
+  `makensis` and exits 7 on a mismatch. `npm run installer:verify` checks an
+  existing file by hand.
+  Docs: `docs/desktop-app-plan.md`, `docs/UPDATES.md`, `docs/CHANGELOG.md`.
+
 - **feat(installer): the setup `.exe` now shows the eclipse mark, and the wizard
   carries the product identity.** `MUI_ICON` / `MUI_UNICON` replace NSIS's stock
   globe icon; a committed 164x314 dark brand sidebar (Welcome, Finish, Uninstall)

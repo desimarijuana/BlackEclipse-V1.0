@@ -157,6 +157,12 @@ git add package.json package-lock.json && git commit -m "release: v0.4.0"
 git tag v0.4.0
 git push origin main --tags
 
+# The tag must be on the commit you mean to ship. desktop-release.yml checks
+# out the tag, not main: v0.4.2 was tagged on a branch that forked before the
+# installer-branding commit, so its published setup still drew NSIS's stock
+# disk. desktop:installer now verifies the finished exe's embedded icon and
+# fails the release on a mismatch (`npm run installer:verify -- <setup.exe>`).
+
 # 3. Create the GitHub release (source archive is automatic)
 gh release create v0.4.0 --title "v0.4.0" --notes-file docs/releases/v0.4.0.md
 

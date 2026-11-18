@@ -14,6 +14,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { spawnSync } = require("child_process");
+const { verifyInstallerIcon } = require("./verify-installer-icon");
 
 const ROOT = path.join(__dirname, "..");
 const DIST = path.join(ROOT, "dist");
@@ -208,6 +209,26 @@ if (result.status !== 0 || !fs.existsSync(OUT_EXE)) {
   console.error(`\nmakensis failed (exit ${result.status}).`);
   process.exit(result.status || 3);
 }
+
+// The setup .exe is the only icon a downloader sees before running anything.
+// Check the resource Explorer will actually draw, not just the source file:
+// v0.4.2 shipped NSIS's stock disk because its tag predated MUI_ICON. A release
+// must fail here rather than quietly publish an unbranded installer again.
+const iconCheck = verifyInstallerIcon(
+  OUT_EXE,
+  path.join(ROOT, "public", "branding", "black-eclipse.ico")
+);
+if (!iconCheck.ok) {
+  console.error("\nInstaller icon is not the Black Eclipse icon.");
+  console.error(`  embedded: ${iconCheck.actual}`);
+  console.error(`  expected: ${iconCheck.expected}`);
+  console.error(
+    "Refusing to produce this artifact. Confirm the tagged commit contains\n" +
+      "desktop/installer/BlackEclipse.nsi with MUI_ICON, then rebuild."
+  );
+  process.exit(7);
+}
+console.log(`Icon:      ${iconCheck.actual}`);
 
 const installerMB = fs.statSync(OUT_EXE).size / (1024 * 1024);
 const digest = sha256(OUT_EXE);

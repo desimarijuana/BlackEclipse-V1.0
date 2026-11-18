@@ -38,5 +38,6 @@
 # file cannot be corrupted by a text normalization.
 *.wav binary
 *.ico binary
+*.bmp binary
 *.db  binary
 *.db-* binary

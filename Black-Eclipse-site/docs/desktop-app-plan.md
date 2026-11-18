@@ -505,6 +505,16 @@ confirmation box with the branded welcome page and explains that user data
 survives removal. `scripts/desktop-installer.js` checks the three assets before
 invoking `makensis` so a missing bitmap fails with an actionable message.
 
+**The tag must contain this change.** The release workflow builds exactly the
+commit the tag points at; it does not take `main`. v0.4.2 exposed this the hard
+way: its tag was created on a commit that forked before `MUI_ICON` landed, so
+the published `BlackEclipse-Setup.exe` drew NSIS's stock globe/disk icon even
+though `main` already had the fix. Source-only verification could not see that.
+`scripts/desktop-installer.js` now reads the finished exe's `RT_GROUP_ICON` and
+compares it with `public/branding/black-eclipse.ico` (16/24/32/48/64/128/256px,
+all 32bpp); a mismatch exits 7 before the artifact can be published. Check any
+existing file with `npm run installer:verify -- path\to\Setup.exe`.
+
 Why NSIS is kept: the per-user install, WebView2 bootstrapper, silent `/S` and
 the winget `nullsoft` installer contract all depend on it. The trade-off is that
 page backgrounds remain native Win32 chrome; a fully dark setup window would

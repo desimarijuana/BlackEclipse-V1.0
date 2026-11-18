@@ -104,6 +104,7 @@ describe("line-ending normalization", () => {
   it("marks the real binaries as binary so git never normalizes them", () => {
     expect(isBinaryAttr("Black-Eclipse-site/public/sounds/crisp/error.wav")).toBe(true);
     expect(isBinaryAttr("Black-Eclipse-site/src/app/favicon.ico")).toBe(true);
+    expect(isBinaryAttr("Black-Eclipse-site/desktop/installer/assets/welcome.bmp")).toBe(true);
   });
 
   it("does not mark a text file as binary", () => {
@@ -115,7 +116,7 @@ describe("line-ending normalization", () => {
     // diffs. Any tracked text file containing BOTH a CRLF and a bare LF is a
     // regression. Binaries are skipped by extension (declared in .gitattributes)
     // rather than per-file `git check-attr`, which would be too slow at this scale.
-    const BINARY_EXT = /\.(wav|ico|db|db-shm|db-wal|png|jpg|jpeg|gif|webp|woff2?|ttf|otf|pdf|zip|wasm|mp3|mp4)$/i;
+    const BINARY_EXT = /\.(wav|ico|bmp|db|db-shm|db-wal|png|jpg|jpeg|gif|webp|woff2?|ttf|otf|pdf|zip|wasm|mp3|mp4)$/i;
     const tracked = git(["ls-files"]).split("\n").filter(Boolean);
     const mixed: string[] = [];
     for (const rel of tracked) {

@@ -41,6 +41,7 @@
     "desktop:brand": "node scripts/brand-runtime.js --out dist/BlackEclipse",
     "desktop:installer": "node scripts/desktop-installer.js",
     "installer:assets": "node scripts/make-installer-assets.js",
+    "installer:verify": "node scripts/verify-installer-icon.js",
     "desktop:bundle": "node scripts/desktop-bundle.js",
     "desktop:smoke": "node scripts/desktop-smoke.js",
     "desktop:runtime": "node scripts/desktop-runtime.js",
