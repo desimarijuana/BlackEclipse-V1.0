@@ -6,6 +6,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **chore(sbom): regenerate the SBOM and notices for v0.4.1.** The 0.4.1 version
+  bump left `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` at 0.4.0, so
+  `sbom-artifact.test.ts` failed on a clean tree. Regenerated from the lockfiles
+  (1335 components); no product behaviour changes.
+
 - **feat(autonomy): a running goal shows its activity steps in the chat.** The
   verdict line was only the end of a turn; a goal turn runs as a background
   task, so nothing filled the transcript while it worked. `useGoalWatch` polls
