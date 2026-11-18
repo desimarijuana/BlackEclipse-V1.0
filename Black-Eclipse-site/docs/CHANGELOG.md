@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: v0.4.1.** `v0.4.0` was published from a commit that predates the
+  update system, feature packs, the alternative-intelligence signal engine and the
+  trading-bot work, so anyone downloading it got an older app than the source.
+  Rather than silently re-cut a published version, the version is bumped
+  (`package.json` + `pyproject.toml`, both 0.4.1) and a new release is built from
+  the current `main`; `v0.4.0` stays as history and the download links move on
+  their own once the new release is published.
+  Doc change: `docs/CHANGELOG.md`, `README.md`.
+
 - **fix(test): the watcher test was time-dependent, not broken.** The test wrote
   `two\n` over `one\n` — the same length — and then called `os.utime(target,
   None)`, which can land on the same timestamp on a filesystem with coarse mtime
