@@ -4,6 +4,7 @@ import {
   ensurePythonRuntime,
   isBindConflict,
   isHarnessHealth,
+  isSpawnLockMine,
   isSpawnLockStale,
   parseListenerPids,
 } from "@/lib/harness/python-runtime";
@@ -130,6 +131,21 @@ describe("ensurePythonRuntime request budget", () => {
 // five-minute start budget before taking it over left every later launch
 // reporting "Python runtime still starting" and spawning NOTHING - a dead app
 // for anyone who once force-quit. The owner pid makes that immediate.
+describe("isSpawnLockMine", () => {
+  it("recognises a lock this process wrote itself", () => {
+    // A process must never wait on its own lock: that was a deadlock where the
+    // app held the lock and then waited the full start budget for the start the
+    // lock was blocking, so a FRESH install could come up with no runtime.
+    expect(isSpawnLockMine(String(process.pid), process.pid)).toBe(true);
+  });
+
+  it("does not claim a lock written by anyone else or by an unreadable file", () => {
+    expect(isSpawnLockMine("999999", process.pid)).toBe(false);
+    expect(isSpawnLockMine("", process.pid)).toBe(false);
+    expect(isSpawnLockMine("not-a-pid", process.pid)).toBe(false);
+  });
+});
+
 describe("isSpawnLockStale", () => {
   const OLD = 10 * 60 * 1000;
 

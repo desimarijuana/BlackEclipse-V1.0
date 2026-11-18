@@ -115,6 +115,12 @@ export function isSpawnLockStale(
   return now - mtimeMs >= staleAfterMs;
 }
 
+/** True when the lock file was written by this very process (see acquireSpawnLock). */
+export function isSpawnLockMine(contents: string, selfPid: number): boolean {
+  const owner = Number(String(contents).trim());
+  return Number.isInteger(owner) && owner > 0 && owner === selfPid;
+}
+
 /** `process.kill(pid, 0)` probes without signalling: ESRCH means no such process. */
 function pidLooksAlive(pid: number): boolean {
   try {
@@ -158,7 +164,14 @@ function acquireSpawnLock(): number | null {
       } catch {
         contents = "";
       }
-      if (!isSpawnLockStale(contents, statSync(RUNTIME_SPAWN_LOCK).mtimeMs, Date.now(), staleAfterMs)) {
+      // A lock owned by THIS process is never a rival. The in-memory start guard
+      // already prevents a second spawn from the same context, and this file may
+      // be a leftover from an attempt that never reached its release. Waiting on
+      // ourselves was a deadlock: the process held the lock, then waited the full
+      // start budget for the very start the lock was blocking — a runtime that
+      // never came up, on a fresh install, with no crash involved.
+      const mine = isSpawnLockMine(contents, process.pid);
+      if (!mine && !isSpawnLockStale(contents, statSync(RUNTIME_SPAWN_LOCK).mtimeMs, Date.now(), staleAfterMs)) {
         return null;
       }
       unlinkSync(RUNTIME_SPAWN_LOCK);

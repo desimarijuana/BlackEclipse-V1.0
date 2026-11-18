@@ -314,6 +314,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `/health/live`, `/api/harness/model-runtime/health` and `/api/alerts` all
   returned 200. Tests: 4 new cases in `python-runtime.test.ts` pin
   dead-owner-immediate / live-owner-respected / legacy-age-fallback.
+  **Also: a lock owned by the CURRENT process is taken over, not waited on.**
+  The lock lives in the install tree (`<install>/app/.black-eclipse/`), not the
+  data dir, so one leftover poisoned every later launch including the release
+  smoke run's fresh profile. Waiting on our own lock was a deadlock: the process
+  held the file and then waited the full start budget for the start the file was
+  blocking. That is why `v0.4.5`'s release run failed the new runtime gate on
+  Windows and macOS (step "Smoke test", `[smoke] FAIL - the app served but its
+  Python runtime never became healthy ... within 180s`) — the gate blocked the
+  release instead of shipping it, which is what it exists for. `isSpawnLockMine()`
+  closes that case; 2 more tests. Version bumped to 0.4.7 so the released artifact
+  carries the fix.
   Doc change: `desktop/README.md` (Agent runtime readiness).
 
 
