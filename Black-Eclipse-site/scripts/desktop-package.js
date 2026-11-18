@@ -27,6 +27,11 @@ const { spawnSync } = require("child_process");
 const { ensureNode } = require("./desktop-runtime");
 const { ensureSeedDatabase } = require("./lib/seed-db");
 const { scrubAppState, assertNoLocalState } = require("./lib/scrub-app-state");
+const {
+  betterSqliteDir,
+  canLoadBetterSqlite,
+  ensureBetterSqliteBinding,
+} = require("./lib/native-modules");
 
 const ROOT = path.join(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next-desktop", "standalone");
@@ -125,6 +130,28 @@ fs.mkdirSync(APP, { recursive: true });
 // and `public/` (assembled by desktop-payload.js); copying them again here would
 // recreate a stray `.next` tree.
 copyTree(STANDALONE, APP, "payload -> app/");
+
+// 1b. Prisma's adapter resolves its own better-sqlite3@12 copy. `--ignore-scripts`
+// leaves that copy without a native binary while the top-level @13 still works, so
+// the breakage is invisible until a user opens onboarding and no query can run.
+// Repair the checkout (the seed generator uses the same module), copy the binary
+// into the payload, and prove it opens a database before anything is packaged.
+const native = ensureBetterSqliteBinding(ROOT, { log: console.log });
+if (!native.ok) fail(`better-sqlite3 is not usable: ${native.reason}`);
+const nativeApp = betterSqliteDir(APP);
+fs.mkdirSync(nativeApp, { recursive: true });
+for (const part of ["lib", "build"]) {
+  fs.cpSync(path.join(betterSqliteDir(ROOT), part), path.join(nativeApp, part), { recursive: true });
+}
+fs.copyFileSync(
+  path.join(betterSqliteDir(ROOT), "package.json"),
+  path.join(nativeApp, "package.json")
+);
+console.log("  copy better-sqlite3 runtime + native binding");
+if (!canLoadBetterSqlite(process.execPath, nativeApp)) {
+  fail("Packaged better-sqlite3 cannot open a database; the installer would ship broken onboarding.");
+}
+console.log("  verified: packaged better-sqlite3 opens a database");
 
 // 2. The application root the runtime resolves against.
 copyTree(path.join(ROOT, "python"), path.join(APP, "python"), "python/");

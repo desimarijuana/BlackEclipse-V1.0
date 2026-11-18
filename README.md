@@ -389,7 +389,7 @@ a capability that is not in them is not promised:
 
 Known limits, stated plainly:
 
-- **`v0.4.1` is single-operator and self-hosted.** It is not a multi-tenant
+- **`v0.4.2` is single-operator and self-hosted.** It is not a multi-tenant
   service and does not pretend to be.
 - **The Python package is not on PyPI yet.** The install above says so.
 - **Installers are unsigned**, so SmartScreen and Gatekeeper will warn. Verify
