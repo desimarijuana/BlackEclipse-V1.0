@@ -877,6 +877,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/data-and-privacy.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-16
+- **docs(readme): the harness now says it grows with you - backed, not borrowed.**
+  Heading moved from "The Open-Source Financial AI Harness" / "Research. Analyze.
+  Build. Automate. Trade." to **"The Open-Source Financial Agentic Harness"** /
+  **"Grows with you - research, analyze, build, automate, trade."** The growth claim
+  was checked before it shipped: memory accumulates context and accepts corrections
+  (`eclipse_memory/`, contradiction gate recall 1.0), skills are versioned and
+  evaluated, and learning candidates arrive **inert** until a review promotes them -
+  so "grows" means it compounds under review, not that it rewrites itself. Hermes
+  Agent's README opens with "The agent that grows with you", so the phrase is kept
+  subordinate to the category line, and `docs/public-readme.md` records why it must
+  never be the identity line on its own. Social card regenerated (agentic harness +
+  GROWS WITH YOU + the five verbs). docs updated: `docs/public-readme.md` (rule 6 +
+  evidence row), `docs/CHANGELOG.md`.
 
 - **fix(oss): a contributor's own email address no longer blocks the gate.** The
   namespace audit treated any non-noreply author reachable from an orphaned
@@ -1370,20 +1383,6 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicit local-only accept. Docs updated:
   `docs/harness/security.md`, `docs/harness/authentication.md`, `SECURITY.md`,
   `.env.example`, `docs/CHANGELOG.md`.
-- **docs(readme): say which data sources are commercial, which are not, and how to
-  add your own.** New "Data sources and commercial use" section, built from the
-  generated catalogue (`docs/data-sources.md`) rather than from memory: the three
-  tiers (included / connect your own / advanced), the commercial statuses
-  (`ok` / `attribution` / `personal-only` / `verify`), and an explicit
-  **personal-use-only** list - TradingView scanner, Yahoo Finance (`yfinance`),
-  Binance public ticker, CoinGecko keyless, DuckDuckGo HTML - with the reason they
-  are off by default. States that a source that is off cannot serve a screen because
-  `data-source-preferences.ts` is consulted at the fetch path, and that adding a
-  source is an entry in `source-catalog.ts` plus `npm run docs:data-sources`.
-  Carries the two qualifiers the catalogue itself carries: the table is an
-  informational snapshot of published terms, not legal advice or a licence grant;
-  and language models are separate (bring your own key, or Ollama locally).
-  docs updated: `docs/public-readme.md` (evidence row), `docs/CHANGELOG.md`.
 - **docs(readme): ship the Bots and Workflows screenshots, both captured from the
   installed app.** The two surfaces that carry the product argument are now the
   hero and the first grid row: **Bots** (13 agents with `Active`/`Completed` state,

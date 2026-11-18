@@ -53,6 +53,7 @@ longer exists, the claim comes off the README.
 
 | Claim | Evidence in the tree |
 |---|---|
+| "Grows with you": memory accumulates context and accepts corrections; skills are versioned, evaluated and learned under review | `python/harness/eclipse_memory/` (corrections, contradiction detection; `contradictions_cli` gate recall 1.0 / false-conflict 0.0), `python/harness/skills/learning.py` + `harness/learning_review.py` (learning candidates arrive **inert** and are promoted by review, not automatically), `docs/harness/memory-skills-evolution-plan.md` |
 | Data-source tiers, commercial status and the "personal use only" set | `docs/data-sources.md` (generated from `src/lib/setup/source-catalog.ts`; the `commercial` field is an informational snapshot, not a licence grant); enforced at the fetch path by `src/lib/data-source-preferences.ts` |
 | One download, no Node/Python/database prerequisite | `scripts/desktop-package.js` (payload: `runtime/node.exe` + `scripts/vendor/python` + `app/`), `scripts/package-python.js`; the NSIS manifest is `RequestExecutionLevel user` with `InstallDir $LOCALAPPDATA\Programs\BlackEclipse` |
 | Optional feature packs are lazy, not required | `scripts/desktop-packs.js` header: "the harness imports them lazily, so the app runs without them and gains the capability when the folder appears" |
@@ -148,8 +149,15 @@ a blank canvas and a spinner. That was tried twice and rejected both times.
    purpose. Never round it to zero or to a pass.
 5. **Never claim a distribution that does not exist.** The install block leads
    with the source install and labels PyPI as pending (§6).
-6. **The heading states the category.** *The Open-Source Financial AI Harness*
-   tells a stranger what this is; the four verbs tell them what it is for.
+6. **The heading states the category.** *The Open-Source Financial Agentic Harness*
+   tells a stranger what this is; the line beneath ("Grows with you — research,
+   analyze, build, automate, trade") tells them what it is for and what it does over
+   time. **"Grows with you" is the idea, not a borrowed tagline:** Hermes Agent's
+   README opens with *"The agent that grows with you"*, so ours must never be the
+   identity line on its own — it sits under a category statement, and the evidence
+   row in §2 keeps it honest (learning candidates are inert until reviewed; memory
+   accepts corrections). If someone asks what grows, the answer is: your memory, your
+   corrections, and the skills that get promoted from your own runs.
 7. **No vendor trademark in the positioning.** Not a "Bloomberg replacement" — a
    terminal is a data product, this is infrastructure. `docs/OPEN-SOURCE-READINESS.md`
    O6 flags vendor wording for a trademark read.
