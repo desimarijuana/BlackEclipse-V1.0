@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.6.** Carries the first-run setup fix: a new install no
+  longer mounts the streaming app shell behind the wizard (the cause of the
+  permanent "Saving…"), the boot pipeline and every app-wide poller wait for
+  setup to finish, finishing is bounded and retryable, busy-database writes are
+  retried and explained in plain language, and the wizard gets Copy diagnostics.
+  Version bump across `package.json`, `package-lock.json`, `pyproject.toml` and
+  `harness.__version__`; `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` and
+  `docs/harness/benchmarks.md` regenerated for the new version.
+  Docs: `docs/CHANGELOG.md` only (no behaviour change beyond the fix already
+  documented below).
+
 - **fix(setup): a new install can no longer get stuck on "Saving…".** The
   wizard is a full-screen overlay mounted over the *live* app shell, so a
   first run had the whole terminal running behind it: two permanent SSE streams
