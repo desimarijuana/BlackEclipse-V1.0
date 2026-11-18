@@ -175,6 +175,25 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `desktop/README.md` (Database guard section: exit-code contract,
   the runtime-ABI packaging invariant and the release smoke gate).
 
+- **fix(release): the packaged-app smoke test now fails when the Python runtime
+  never becomes healthy.** A build whose agent runtime hangs still serves `/` and
+  still passes the database probe, so it published — and every chat, agent and
+  research page then waits on a runtime that never answers while the window looks
+  fine. `scripts/desktop-smoke.js` (already run by the release workflow on the
+  real packaged binary) now requires
+  `GET /api/harness/model-runtime/health` to answer 200 within
+  `BE_SMOKE_HARNESS_MS` (default 180 s), retrying while the runtime warms. That
+  route is the same one the UI uses to decide the runtime is available, so it
+  exercises the real path rather than a synthetic probe; verified against a live
+  install: 200 while uvicorn answers, 500 once the harness process is killed, and
+  a timeout when the runtime never comes up. A build that regresses this now goes
+  red before an installer is published instead of reaching users. Version bumped
+  to 0.4.5 (`package.json`, `package-lock.json`, `pyproject.toml`,
+  `harness.__version__`, regenerated `sbom.cdx.json` + `THIRD-PARTY-NOTICES.md`)
+  so the gate is inside the artifact that ships — `v0.4.4` was built before it.
+  Doc change: `desktop/README.md` (release-gate bullet now names the runtime
+  assertion).
+
 
 ## 2026-11-17
 

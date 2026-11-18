@@ -95,10 +95,12 @@ Two contracts keep that safe:
   loads under *that* binary; `scripts/desktop-installer.js` and
   `scripts/desktop-bundle.js` repeat the probe. Probing with `process.execPath`
   passes locally and ships an app that cannot open its database.
-- **The release smoke test reads the database.** `scripts/desktop-smoke.js` runs
-  the packaged binary in CI and requires `/api/alerts` to answer 200 — not just
-  that `/` renders. A payload with no usable binding serves the page and 500s
-  every query, so a page check alone proves nothing.
+- **The release smoke test reads the database and the runtime.**
+  `scripts/desktop-smoke.js` runs the packaged binary in CI and requires
+  `/api/alerts` to answer 200 *and* `/api/harness/model-runtime/health` to answer
+  200 — not just that `/` renders. A payload with no usable binding serves the
+  page and 500s every query; a runtime that never comes up serves the page and
+  hangs every agent request. A page check alone proves nothing.
 
 ### Build isolation (why an update can no longer break the window)
 

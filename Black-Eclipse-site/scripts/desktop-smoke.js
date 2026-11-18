@@ -7,8 +7,9 @@
 //
 //   node scripts/desktop-smoke.js --bin "<path to Black Eclipse binary>"
 //
-// Exit 0 only when the server answered AND answered a database-backed request.
-// Anything else is a failure with the first useful lines of the log.
+// Exit 0 only when the server answered, a database-backed request succeeded AND
+// the Python runtime became healthy. Anything else is a failure with the first
+// useful lines of the log.
 
 const fs = require("fs");
 const os = require("os");
@@ -31,6 +32,9 @@ const DEFAULT_BIN = path.join(
 const BIN = argBin || DEFAULT_BIN;
 const PORT = Number(process.env.BE_SMOKE_PORT || 3199);
 const TIMEOUT_MS = Number(process.env.BE_SMOKE_TIMEOUT_MS || 120_000);
+// The Python runtime's own cold-start budget is 300s; a first run on an idle CI
+// runner needs far less. Override when testing a deliberately slow machine.
+const HARNESS_WAIT_MS = Number(process.env.BE_SMOKE_HARNESS_MS || 180_000);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -68,6 +72,34 @@ async function probeDb() {
   } catch (err) {
     return { ok: false, why: String((err && err.message) || err) };
   }
+}
+
+/**
+ * Prove the Python runtime becomes healthy. Nothing used to check this: a build
+ * whose runtime never answers still serves `/` and still passes the DB probe, so
+ * every agent/chat/research page hangs behind an endless "runtime still
+ * starting" while the window looks fine.
+ *
+ * This is the same route the UI uses to decide the runtime is available, so a
+ * healthy answer here means the pages have something to talk to. Verified
+ * against a live install: 200 while uvicorn answers, 500 once it is killed.
+ */
+async function probeHarness() {
+  const deadline = Date.now() + HARNESS_WAIT_MS;
+  let last = { ok: false, why: "the runtime never answered" };
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${PORT}/api/harness/model-runtime/health`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) return { ok: true };
+      last = { ok: false, why: `HTTP ${res.status} from /api/harness/model-runtime/health` };
+    } catch (err) {
+      last = { ok: false, why: String((err && err.message) || err) };
+    }
+    await sleep(2500);
+  }
+  return last;
 }
 
 function killTree(pid) {
@@ -138,6 +170,9 @@ function killTree(pid) {
     }
   }
 
+  // …then prove the Python runtime behind the pages is actually healthy.
+  const harness = db && db.ok ? await probeHarness() : null;
+
   const elapsed = Math.round((Date.now() - started) / 1000);
   killTree(child.pid);
   await sleep(500);
@@ -186,8 +221,22 @@ function killTree(pid) {
     process.exit(1);
   }
 
+  if (!harness || !harness.ok) {
+    console.error(
+      `[smoke] FAIL — the app served but its Python runtime never became healthy ` +
+        `(${harness ? harness.why : "not probed"}) within ${Math.round(HARNESS_WAIT_MS / 1000)}s.`
+    );
+    console.error("[smoke] every agent/chat/research page would hang behind a runtime that never answers.");
+    if (interesting.length) {
+      console.error("[smoke] captured output:");
+      for (const line of interesting) console.error(`  ${line}`);
+    }
+    process.exit(1);
+  }
+
   console.log(`[smoke] PASS — HTTP ${answered} after ${elapsed}s`);
   console.log("[smoke] PASS — database readable via /api/alerts");
+  console.log(`[smoke] PASS — Python runtime healthy via /api/harness/model-runtime/health`);
   if (interesting.length) {
     for (const line of interesting.slice(-4)) console.log(`  ${line}`);
   }
