@@ -106,9 +106,9 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 
 Updates are **published**: the repository is
 `dumbpabloo/BlackEclipse-V1.0` (public), `config/updates.json` has
-`"published": true`, and a signed `stable.json` for **v0.4.13** is attached to
+`"published": true`, and a signed `stable.json` for **v0.4.14** is attached to
 that release. A live check therefore verifies the signature and reports *up to
-date* for anyone on 0.4.13; it starts offering a release as soon as a newer
+date* for anyone on 0.4.14; it starts offering a release as soon as a newer
 signed manifest exists.
 
 **Signing key id `3e5f4f12096f06ac`.** The previous key (`7a08848038457e37`) was
@@ -124,7 +124,7 @@ Every release asset gap is visible from outside, so check it after publishing:
 carries no `stable.json` (that was the state of v0.4.2 and v0.4.3: the manifest
 was only ever on v0.4.1, and `releases/latest/download/stable.json` therefore
 404'd for every user). The workflow asks for a **draft** and never signs a
-manifest, but it can still end up published (v0.4.13 did): confirm
+manifest, but it can still end up published (v0.4.13 and v0.4.14 did): confirm
 `draft` and which tag `releases/latest` resolves to before and after uploading
 the manifest — a published release without one is the 404 state above. The
 release step also goes red on `Not Found: update-a-release-asset` because each
@@ -144,7 +144,7 @@ would fail with "Could not reach the update service", which is worse than an
 honest "not published yet".
 
 Because the manifest is a release asset, it must be re-signed and re-uploaded for
-**every** release. The current one describes v0.4.13 only — bump, re-sign,
+**every** release. The current one describes v0.4.14 only — bump, re-sign,
 re-upload, then publish the draft, in that order.
 
 > Keeping the **source** private forever means there is nothing for `black update`
