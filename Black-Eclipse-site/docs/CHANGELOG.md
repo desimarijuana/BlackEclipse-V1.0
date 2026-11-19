@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **fix(ci): regenerate the published benchmark page for 0.4.15.** Every push
+  since v0.4.13 failed `test_published_benchmarks` because
+  `docs/harness/benchmarks.md` still said `agent version: 0.4.12` (and pointed at
+  the v0.4.12 commit), so the generated-file guard read the page as stale or
+  hand-edited. Ran `npm run eval:benchmarks`; only the run id, version, commit
+  and latency line changed.
+  No doc change — the benchmark page is the artifact itself.
+
 - **chore(marketing): Windows is the only advertised platform.** Removed the
   macOS and Linux download buttons from the README and the macOS/Linux rows from
   the release body and the install/requirements tables. Nothing links to an
