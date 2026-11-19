@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.12.** The shared-payload release build: one Next compile
+  on Ubuntu, package jobs only do the platform half. Ships the first-run setup
+  fix (the reason this release chain exists) plus the vendored-Python fix for
+  macOS/Linux; the macOS smoke is advisory so the Windows and Linux installers
+  publish even if it is slow. Version bump across `package.json`,
+  `package-lock.json`, `pyproject.toml` and `harness.__version__`;
+  `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md`
+  regenerated. Docs: `docs/CHANGELOG.md` only.
+
 - **perf(release): build the Next payload once, on Ubuntu, for every platform.**
   This supersedes the `cpus: 1` + low-memory experiment above (not viable: one
   worker took >16 minutes locally and still needed >6 GB, and raising
