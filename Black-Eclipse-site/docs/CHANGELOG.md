@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **perf(release): build the Next payload once, on Ubuntu, for every platform.**
+  This supersedes the `cpus: 1` + low-memory experiment above (not viable: one
+  worker took >16 minutes locally and still needed >6 GB, and raising
+  `NODE_OPTIONS` multiplied by the build's worker pool is what exhausted the
+  16 GB Windows runner). The release workflow now has a `payload` job that
+  builds `.next-desktop` once and uploads it; the Windows/macOS/Linux jobs
+  download it and only do the platform-specific half (Python provisioning,
+  Tauri shell, packaging, installers, smoke). Windows never runs a Next build,
+  so its OOM cannot recur, and each release does one compile instead of three.
+  Docs updated: `docs/CHANGELOG.md`.
+
 - **fix(build): bound the build's memory instead of raising one process's cap.**
   v0.4.9–v0.4.11 all died in the Windows payload build (`FATAL ERROR: Reached
   heap limit`, then killed outright at 12 GB). `NODE_OPTIONS` applies to every

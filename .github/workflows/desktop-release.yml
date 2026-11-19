@@ -27,22 +27,71 @@ permissions:
   contents: write
 
 jobs:
+  # The Next standalone payload is platform-independent JS. Build it ONCE here
+  # and hand it to the package jobs: that removes the Windows/macOS payload
+  # builds entirely (the 16 GB Windows runner ran out of heap on them for
+  # v0.4.9–v0.4.11) and saves two full compiles per release.
+  payload:
+    name: build payload
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Black-Eclipse-site/package-lock.json
+
+      - name: Cache the Next build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: Black-Eclipse-site/.next/cache
+          key: next-payload-${{ hashFiles('Black-Eclipse-site/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            next-payload-${{ hashFiles('Black-Eclipse-site/package-lock.json') }}-
+            next-payload-
+
+      - name: Install dependencies
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+
+      - name: Build the standalone payload
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: npm run desktop:payload
+
+      - name: Upload the payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: next-payload
+          # webpack's build cache is an input, not product: shipping it would
+          # add hundreds of MB to every download for no benefit.
+          path: |
+            Black-Eclipse-site/.next-desktop
+            !Black-Eclipse-site/.next-desktop/cache
+          if-no-files-found: error
+
   build:
     name: build (${{ matrix.os }})
+    needs: payload
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     # Fast lane: `workflow_dispatch.only` builds a single platform so a Windows
     # fix can be verified in ~20 minutes instead of paying for three builds.
     # `!inputs.only` keeps tag pushes (no inputs at all) building every platform.
     if: ${{ !inputs.only || contains(inputs.only, matrix.os) }}
-    # The Next build exceeds Node's default ~4 GB heap on a runner. Raising the
-    # per-process cap alone made v0.4.9–v0.4.11 WORSE: `NODE_OPTIONS` applies to
-    # every Node child, and the build's worker pool multiplied it until a 16 GB
-    # runner was out of memory. Keep a sane per-process cap and bound the total
-    # instead: one worker + webpack's low-memory mode (BE_BUILD_LOW_MEMORY).
+    # No Next build runs in these jobs any more: the shared `payload` job owns
+    # it. That is what removes the Windows runner's out-of-memory failure
+    # (v0.4.9–v0.4.11) and two full compiles per release.
     env:
-      NODE_OPTIONS: --max-old-space-size=6144
-      BE_BUILD_LOW_MEMORY: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       # The packaged agent runtime may be cold on a runner (a first import of
       # the whole harness). Its own start budget defaults to 300 s; give CI
@@ -104,17 +153,6 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: choco install nsis -y --no-progress
 
-      - name: Cache the Next build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: Black-Eclipse-site/.next/cache
-          # A payload build is mostly webpack; the cache survives lockfile
-          # changes (restore-keys) so a tag build reuses the previous compile.
-          key: next-${{ matrix.os }}-${{ hashFiles('Black-Eclipse-site/package-lock.json') }}-${{ github.sha }}
-          restore-keys: |
-            next-${{ matrix.os }}-${{ hashFiles('Black-Eclipse-site/package-lock.json') }}-
-            next-${{ matrix.os }}-
-
       - name: Install dependencies
         working-directory: Black-Eclipse-site
         shell: bash
@@ -136,9 +174,11 @@ jobs:
           node scripts/setup-portable-python.js
           node scripts/setup-python.js
 
-      - name: Build the standalone payload
-        working-directory: Black-Eclipse-site
-        run: npm run desktop:payload
+      - name: Download the shared payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: next-payload
+          path: Black-Eclipse-site/.next-desktop
 
       - name: Build the Tauri shell
         working-directory: Black-Eclipse-site
