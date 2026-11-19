@@ -26,10 +26,14 @@ if (process.platform === "win32" && !fs.existsSync(vendored)) {
   }
 }
 
-const candidates =
-  process.platform === "win32"
-    ? [fs.existsSync(vendored) ? vendored : null, "python", "python3", "py"].filter(Boolean)
-    : ["python3", "python"];
+// The vendored runtime is what a package ships and what `findPython()` prefers
+// on every platform, so these checks and installs target it first. macOS/Linux
+// used to omit it, which made a release runner install the whole stack a second
+// time into the runner's system Python (the vendored copy already had it).
+const candidates = [
+  fs.existsSync(vendored) ? vendored : null,
+  ...(process.platform === "win32" ? ["python", "python3", "py"] : ["python3", "python"]),
+].filter(Boolean);
 
 function hasModule(cmd, module, timeout = 20000) {
   try {

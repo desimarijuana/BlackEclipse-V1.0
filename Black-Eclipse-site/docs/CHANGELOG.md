@@ -6,6 +6,26 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **perf(release): a tag build stops paying for work it already did.** The
+  `only` fast-lane input was dead — it is accepted by `workflow_dispatch` and
+  never read, so the "one OS, ~20 minutes" lane silently built all three. It now
+  filters `strategy.matrix` (an `include` filter would add the skipped OSes back;
+  a job-level `if` cannot see `matrix`). The build job also:
+  caches `scripts/vendor/python` + the pip download dir per OS, keyed on the
+  requirement files and provisioning scripts, so a repeat release skips the
+  multi-minute install of playwright/sklearn/xgboost/lightgbm/duckdb/whisper/av;
+  restores the Rust `target` dir across a `Cargo.lock` change
+  (`restore-keys`), where a dependency bump used to force a cold ~15-25 minute
+  build; and skips the `-full` Windows installer on a manual run
+  (`offline_installer`, default false) because compressing every pack is the
+  slowest step — a tag still always builds it. `scripts/setup-python.js` now
+  targets the vendored interpreter on macOS/Linux too (it is what the app
+  resolves and what ships), which removes a duplicate full Python install on
+  every non-Windows runner; `scripts/setup-portable-python.js` writes a
+  requirements digest marker so a restored runtime skips pip. A tag push still
+  builds and publishes all three platforms unchanged.
+  Docs updated: `docs/UPDATES.md` (iterating on a release build).
+
 - **release: cut v0.4.15.** Ships the chart-engine readiness fix, per-tab chat
   sessions, the `desktop:refresh` bridge and the 12 GB default build heap
   (entries below). Regenerates `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` —

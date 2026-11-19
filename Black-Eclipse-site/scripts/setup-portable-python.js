@@ -16,11 +16,16 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
 const VENDOR = path.join(ROOT, "scripts", "vendor", "python");
 const CACHE = path.join(ROOT, ".black-eclipse", "python-cache");
+// Records which requirements produced this interpreter's dependency stack.
+// Without it every run reinstalled the whole stack, so a restored CI cache of
+// the runtime still paid the full pip install.
+const MARKER = path.join(VENDOR, ".ready");
 
 // Pinned on purpose: a floating "latest" would make two builds of the same commit
 // ship different interpreters.
@@ -50,6 +55,30 @@ function usable() {
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: "inherit", ...opts });
   if (r.status !== 0) throw new Error(`${cmd} failed (exit ${r.status})`);
+}
+
+// Identifies the dependency set, not the interpreter: the requirement files are
+// the only inputs to the pip install below.
+function requirementsDigest() {
+  const hash = crypto.createHash("sha256");
+  for (const rel of ["python/requirements.txt", "python/analysis-requirements.txt"]) {
+    const file = path.join(ROOT, rel);
+    hash.update(rel);
+    try {
+      hash.update(fs.readFileSync(file));
+    } catch {
+      hash.update("missing");
+    }
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+function dependenciesCurrent() {
+  try {
+    return fs.readFileSync(MARKER, "utf8").trim() === requirementsDigest();
+  } catch {
+    return false;
+  }
 }
 
 if (process.argv.includes("--check")) {
@@ -98,12 +127,19 @@ if (usable()) {
 // Dependencies, installed into the vendored interpreter (never the system one).
 const requirements = path.join(ROOT, "python", "requirements.txt");
 if (fs.existsSync(requirements)) {
-  const bin = pythonBin();
-  run(bin, ["-m", "ensurepip", "--upgrade"]);
-  run(bin, ["-m", "pip", "install", "--no-warn-script-location", "-r", requirements]);
-  const analysis = path.join(ROOT, "python", "analysis-requirements.txt");
-  if (fs.existsSync(analysis)) {
-    run(bin, ["-m", "pip", "install", "--no-warn-script-location", "-r", analysis]);
+  if (dependenciesCurrent()) {
+    console.log("[python] dependency stack is already current — skipping pip install");
+  } else {
+    const bin = pythonBin();
+    run(bin, ["-m", "ensurepip", "--upgrade"]);
+    run(bin, ["-m", "pip", "install", "--no-warn-script-location", "-r", requirements]);
+    const analysis = path.join(ROOT, "python", "analysis-requirements.txt");
+    if (fs.existsSync(analysis)) {
+      run(bin, ["-m", "pip", "install", "--no-warn-script-location", "-r", analysis]);
+    }
+  }
+  if (!dependenciesCurrent()) {
+    fs.writeFileSync(MARKER, `${requirementsDigest()}\n`);
   }
 }
 

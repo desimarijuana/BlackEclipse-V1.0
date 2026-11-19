@@ -206,6 +206,26 @@ gh release upload v0.4.0 release/stable.json --clobber
 `scripts/update-sign.js` self-verifies against the committed public key before
 writing the file: a manifest users cannot verify is worse than no manifest.
 
+### Iterating on a release build
+
+A tag push builds all three platforms. While iterating, run the workflow by
+hand (`workflow_dispatch`) instead:
+
+- `only: windows-latest` (or `ubuntu-latest` / `macos-latest`) builds a single
+  platform. This now actually filters the matrix — it used to be accepted and
+  ignored, so the "fast lane" still built all three.
+- `offline_installer: false` (the default for a manual run) skips the `-full`
+  Windows installer, whose pack compression is the slowest step in that job. A
+  tag push always builds it.
+- `upload_release: true` creates the draft release as well; leave it off for
+  artifacts only.
+
+The workflow also caches the vendored Python runtime (keyed on the requirement
+files) and the pip downloads per OS, restores the Rust `target` directory even
+when `Cargo.lock` changes, and no longer installs the Python stack twice on
+macOS/Linux: `scripts/setup-python.js` now targets the vendored interpreter on
+every platform, not only Windows.
+
 No `gh` CLI? The same two steps work in the browser: publish the GitHub release
 from the tag, then **Edit release → Attach binaries** and upload
 `release/stable.json`. The asset **must** be named exactly `stable.json`, because

@@ -22,6 +22,10 @@ on:
         description: "Fast lane: build only one OS (windows-latest | ubuntu-latest | macos-latest). Blank = all three."
         type: string
         default: ""
+      offline_installer:
+        description: "Also build the offline (-full) Windows installer. Tag pushes always build it."
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -60,7 +64,7 @@ jobs:
         working-directory: Black-Eclipse-site
         shell: bash
         run: |
-          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
           npx prisma generate
 
       - name: Build the standalone payload
@@ -106,14 +110,12 @@ jobs:
       BE_SMOKE_HARNESS_MS: "420000"
     strategy:
       fail-fast: false
+      # The `only` fast lane has to filter HERE, before the matrix expands: a
+      # job-level `if` cannot see `matrix` (see the note above), and an `include`
+      # entry for a filtered-out OS would add that OS back. One OS takes ~20
+      # minutes; all three take as long as the slowest (~40-60).
       matrix:
-        include:
-          - os: windows-latest
-            artifact: windows
-          - os: ubuntu-latest
-            artifact: linux
-          - os: macos-latest
-            artifact: macos
+        os: ${{ fromJSON(inputs.only == '' && '["windows-latest","ubuntu-latest","macos-latest"]' || format('["{0}"]', inputs.only)) }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -134,6 +136,11 @@ jobs:
             ~/.cargo/git
             Black-Eclipse-site/desktop/src-tauri/target
           key: desktop-cargo-${{ matrix.os }}-${{ hashFiles('Black-Eclipse-site/desktop/src-tauri/Cargo.lock') }}
+          # A Cargo.lock change used to invalidate the whole target dir, turning
+          # every dependency bump into a cold ~15-25 minute Rust build. Restoring
+          # the previous target dir lets cargo rebuild only what changed.
+          restore-keys: |
+            desktop-cargo-${{ matrix.os }}-
 
       - name: Install Linux build dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -165,8 +172,30 @@ jobs:
         # postinstall also does global link wiring and git hooks — developer
         # machine concerns that can fail on a clean runner.
         run: |
-          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
           npx prisma generate
+
+      # The vendored interpreter + its dependency stack is the single most
+      # expensive non-Rust step (playwright, scikit-learn, xgboost, lightgbm,
+      # duckdb, faster-whisper, av...). It only depends on the requirement
+      # files and the provisioning scripts, so cache it per OS.
+      - name: Restore the vendored Python runtime
+        id: py-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: Black-Eclipse-site/scripts/vendor/python
+          key: vendor-python-${{ runner.os }}-${{ hashFiles('Black-Eclipse-site/python/requirements.txt', 'Black-Eclipse-site/python/analysis-requirements.txt', 'Black-Eclipse-site/scripts/setup-embedded-python.js', 'Black-Eclipse-site/scripts/setup-portable-python.js') }}
+
+      - name: Restore the pip download cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+            ~/AppData/Local/pip/Cache
+          key: pip-${{ runner.os }}-${{ hashFiles('Black-Eclipse-site/python/requirements.txt', 'Black-Eclipse-site/python/analysis-requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
 
       - name: Provision Python (windows embed / portable elsewhere)
         working-directory: Black-Eclipse-site
@@ -213,7 +242,14 @@ jobs:
         shell: bash
         run: |
           npm run desktop:installer
-          npm run desktop:installer -- --full
+          # The offline edition compresses every pack as well (~1 GB), which is
+          # the slowest step of the whole job. A tag must ship it; a
+          # workflow_dispatch run can skip it while iterating.
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.offline_installer }}" = "true" ]; then
+            npm run desktop:installer -- --full
+          else
+            echo "Skipping the offline (-full) installer (offline_installer is false)."
+          fi
           # The README's Download button links to this exact name. Fail the
           # build rather than publish a release whose button 404s.
           test -f dist/BlackEclipse-Setup.exe
@@ -298,7 +334,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: black-eclipse-${{ matrix.artifact }}
+          name: black-eclipse-${{ matrix.os == 'windows-latest' && 'windows' || matrix.os == 'ubuntu-latest' && 'linux' || 'macos' }}
           path: |
             Black-Eclipse-site/dist/BlackEclipse-Setup.exe
             Black-Eclipse-site/dist/BlackEclipse-Setup-*.exe
