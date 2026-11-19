@@ -84,10 +84,12 @@ jobs:
     needs: payload
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
-    # Fast lane: `workflow_dispatch.only` builds a single platform so a Windows
-    # fix can be verified in ~20 minutes instead of paying for three builds.
-    # `!inputs.only` keeps tag pushes (no inputs at all) building every platform.
-    if: ${{ !inputs.only || contains(inputs.only, matrix.os) }}
+    # NOTE: the one-OS fast lane cannot be a job-level `if:`. That expression is
+    # evaluated BEFORE the matrix expands, so `matrix.os` is not a valid context
+    # there and GitHub refuses to parse the entire workflow:
+    #   "failed to parse workflow (Line: 90, Col: 9): Unrecognized named-value:
+    #    'matrix'" — which failed every run in 0 s with no jobs at all.
+    # Filter inside `strategy.matrix` instead, or gate the steps.
     # No Next build runs in these jobs any more: the shared `payload` job owns
     # it. That is what removes the Windows runner's out-of-memory failure
     # (v0.4.9–v0.4.11) and two full compiles per release.
