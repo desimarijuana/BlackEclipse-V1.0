@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.10.** The Linux job of v0.4.9 proved the vendored-Python
+  fix (smoke passed); this release adds the Windows heap fix (8 GB) so the
+  standalone payload builds on every runner. Version bump across `package.json`,
+  `package-lock.json`, `pyproject.toml` and `harness.__version__`;
+  `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md`
+  regenerated. Docs: `docs/CHANGELOG.md` only.
+
 - **fix(release): give the Windows payload build the heap it actually needs.**
   v0.4.9's Linux job passed (including the smoke — the vendored-Python fix
   works), its macOS job failed fetching the Rust toolchain (transient), and its
