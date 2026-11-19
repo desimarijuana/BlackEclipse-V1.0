@@ -21,6 +21,12 @@ export interface UpdateStatus {
   checkedAt: string | null;
   latestVersion: string | null;
   available: boolean;
+  /**
+   * True only for a git checkout, where the in-app updater can check out the
+   * signed tag. A packaged install has no repository, so it updates by
+   * downloading the release and running its installer.
+   */
+  canSelfUpdate: boolean;
   /** The installed version is below the release's `minSupported`. */
   mandatory: boolean;
   notesUrl: string | null;

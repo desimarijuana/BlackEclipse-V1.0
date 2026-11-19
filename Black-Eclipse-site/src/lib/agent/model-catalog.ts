@@ -44,20 +44,48 @@ async function loadCatalog(): Promise<ModelCatalog> {
 /** Fetch the runtime's declared model catalog once per page load. */
 export function loadModelCatalog(force = false): Promise<ModelCatalog> {
   if (!cached || force) {
-    cached = loadCatalog().catch(() => ({}));
+    cached = loadCatalog().catch(() => {
+      // A failed probe must NOT be memoised for the whole page: the Python
+      // runtime is often still starting when Settings first mounts, and the
+      // empty promise used to stick until a full reload — the model picker then
+      // showed no models and no Discover action. Clearing it lets the next
+      // caller retry.
+      cached = null;
+      return {};
+    });
   }
   return cached;
 }
+
+/** Retry cadence while the runtime is still starting (catalog comes back empty). */
+const CATALOG_RETRY_MS = 1500;
+const CATALOG_MAX_ATTEMPTS = 3;
 
 export function useModelCatalog(): ModelCatalog {
   const [catalog, setCatalog] = useState<ModelCatalog>({});
   useEffect(() => {
     let live = true;
-    void loadModelCatalog().then((c) => {
-      if (live) setCatalog(c);
-    });
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    // The Python runtime cold-starts behind the Next front door, so the first fetch of
+    // a session can legitimately come back empty. Retry a few times instead of
+    // leaving the model picker blank until the operator reloads the app, and never
+    // replace an already-loaded catalog with an empty one.
+    const load = (attempt: number) => {
+      void loadModelCatalog(attempt > 0).then((next) => {
+        if (!live) return;
+        if (Object.keys(next).length > 0) {
+          setCatalog(next);
+          return;
+        }
+        if (attempt + 1 < CATALOG_MAX_ATTEMPTS) {
+          timers.push(setTimeout(() => load(attempt + 1), CATALOG_RETRY_MS));
+        }
+      });
+    };
+    load(0);
     return () => {
       live = false;
+      for (const t of timers) clearTimeout(t);
     };
   }, []);
   return catalog;

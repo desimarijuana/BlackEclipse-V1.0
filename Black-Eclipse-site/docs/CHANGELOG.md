@@ -61,6 +61,60 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `--max-old-space-size=12288` for the managed Stable build (and
   `scripts/desktop-build.js` for Dev), keeping any explicit caller value and
   allowing `BE_BUILD_HEAP_MB` to override. Docs updated: `docs/environments.md`.
+- **fix(updates): a packaged install no longer offers an in-place update it cannot
+  perform.** The title-bar button and banner ran the git-based updater inside the
+  installed app, whose `<install>\app` payload has no `.git` (and current packages
+  do not even ship `update.js`), so *Update now* failed with "the updater did not
+  report back". `/api/updates` now carries `canSelfUpdate` (`<root>/.git` exists);
+  a packaged install gets **Download vX** to the signature-checked release page
+  instead, and `POST /api/updates/apply` + `scripts/update-apply.js` refuse with an
+  explicit message. `npm run desktop:refresh` now **fails** when the installed
+  shell is not bridged instead of warning, building, promoting and reopening a
+  window that still serves its bundled payload. Manifest fetches get 20 s instead
+  of 8 s (a cold GitHub redirect measured 6.4 s, so checks failed spuriously).
+  Test: `src/lib/updates/core.test.ts`.
+  Docs updated: `docs/UPDATES.md`, `docs/environments.md`.
+
+- **fix(ai): the model list could load empty, stay empty, or point at a model the
+  endpoint does not serve.** Four defects behind "I can't see my models":
+  (1) `loadModelCatalog` memoised a FAILED fetch as `{}` for the whole page load —
+  the AI/LLM panel mounts while the Python runtime is still cold-starting, so one
+  503 left the Model dropdown holding only the current value *and* hid the
+  **Discover models** action, which was gated on that same missing catalog row
+  (only a relaunch recovered it); the failed promise is no longer cached and
+  `useModelCatalog` re-probes up to 3× (1.5 s apart) without ever replacing a
+  loaded catalog with an empty one. (2) `canDiscover` now falls back to "the
+  runtime decides" when the catalog has no row, so Discover is always available
+  for a configured provider. (3) The auto-discovery throttle stamped the attempt
+  BEFORE probing, so one cold-start failure locked that provider out for six
+  hours; it now stores the next-allowed time and waits 6 h on success but only
+  60 s on failure (new `be_model_autodiscover_v2` key, which also releases anyone
+  still held by v1). (4) A successful Discover that does not list the saved model
+  now adopts the newest served id and says so (the "model 'qwen3' not found" 404);
+  the silent background probe only warns and never rewrites the saved config.
+  The picker also prints "no models loaded yet — use Discover models" instead of
+  a bare empty dropdown. Regression test: `src/lib/agent/model-catalog.test.ts`.
+  No doc change — bug fixes, contracts unchanged.
+
+- **fix(ai): the missing provider paths — Ollama Cloud, OpenCode Go, and any
+  custom endpoint.** Three "I can't add my API" dead ends, all in the AI/LLM
+  screen: (1) the Ollama preset is keyless, so a user whose Ollama only holds
+  cloud models (`kimi-k3:cloud`) had no field for an ollama.com key —
+  `OLLAMA_API_KEY` was not even in the vault registry; (2) only the OpenCode Zen
+  (pay-as-you-go) base URL existed, so a Go subscriber's key was sent to the
+  wrong gateway; (3) a custom endpoint could never hold a key — the key editor
+  was resolved from the *base URL* matching a preset, which a custom URL never
+  does, so the field disappeared exactly when it was needed and the save failed
+  with "An API key is required for a remote LLM provider". Added `ollama-cloud`
+  (`https://ollama.com/v1`) and `opencode-go`
+  (`https://opencode.ai/inference/go/openai/v1`) presets + `OLLAMA_API_KEY` in
+  `PROVIDER_KEYS` + `ProviderSpec`s in the Python catalog (a preset id the
+  runtime does not know fails every run), made `ProviderKeyEditor` fall back to
+  the saved provider id (`custom` → `CUSTOM_LLM_API_KEY`), and surfaced
+  OpenCode/OpenCode Go/Custom in the Popular group. New test asserts every
+  `LLM_PRESETS` id exists in `PROVIDER_CATALOG` so the two lists cannot drift.
+  Docs updated: `docs/ARCHITECTURE.md` (AI/LLM provider invariant),
+  `docs/NAVIGATION.md` (key-registry row pointed at a deleted file).
 
 - **fix(search): the boot warm-index can no longer freeze the agent runtime.**
   A packaged install indexes its own payload (`python/harness` under

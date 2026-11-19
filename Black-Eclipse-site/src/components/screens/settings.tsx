@@ -66,7 +66,8 @@ import { getSettingsSnapshot, saveSettingsSnapshot } from "@/lib/settings-cache"
 type LLMProviderName =
   | "auto" | "mock"
   | "openai" | "anthropic" | "google" | "mistral" | "groq"
-  | "ollama" | "lmstudio" | "deepseek" | "xai" | "openrouter"
+  | "ollama" | "ollama-cloud" | "lmstudio" | "deepseek" | "xai"
+  | "openrouter" | "opencode" | "opencode-go"
   | "together" | "perplexity" | "fireworks" | "custom";
 
 interface LLMConfig {

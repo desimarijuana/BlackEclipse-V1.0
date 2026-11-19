@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { NextRequest, NextResponse } from "next/server";
 import packageJson from "../../../../../package.json";
 import { guardExpensiveMutation } from "@/lib/api-guard";
-import { getUpdateStatus } from "@/lib/updates/core";
+import { getUpdateStatus, isSourceCheckout } from "@/lib/updates/core";
 import { readUpdateJob, updateJobFile } from "@/lib/updates/job";
 import { isUpdateChannel, type UpdateChannel } from "@/lib/updates/types";
 
@@ -68,6 +68,19 @@ export async function POST(request: NextRequest) {
   if (!status.available || !status.latestVersion) {
     return NextResponse.json(
       { error: status.error || "No update is available to install.", job: existing },
+      { status: 409 },
+    );
+  }
+
+  // A packaged install has no git checkout for the verified updater to move.
+  // Refuse honestly instead of spawning a runner that can only fail.
+  if (!isSourceCheckout()) {
+    return NextResponse.json(
+      {
+        error:
+          `This installed build cannot update in place. Download v${status.latestVersion} ` +
+          "from the release page and run the installer.",
+      },
       { status: 409 },
     );
   }

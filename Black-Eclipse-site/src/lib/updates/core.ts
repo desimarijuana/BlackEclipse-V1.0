@@ -30,7 +30,9 @@ const PUBLIC_KEY_PATH = path.join(ROOT, "config", "update-signing-key.pub");
 
 const ENVELOPE_SCHEMA = 1;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 8000;
+// GitHub answers through a redirect to release-assets, and a cold connection
+// has been measured at 6.4 s. 8 s turned a slow check into "could not reach".
+const FETCH_TIMEOUT_MS = 20_000;
 
 interface UpdateConfig {
   schema: number;
@@ -49,6 +51,19 @@ export class UpdateCheckError extends Error {
   ) {
     super(message);
     this.name = "UpdateCheckError";
+  }
+}
+
+/**
+ * Only a git checkout can stage a release in place. An installed build ships
+ * its own frozen payload under `<install>/app` and has no `.git`, so the
+ * git-based updater cannot run there.
+ */
+export function isSourceCheckout(root: string = ROOT): boolean {
+  try {
+    return fs.existsSync(path.join(root, ".git"));
+  } catch {
+    return false;
   }
 }
 
@@ -290,6 +305,7 @@ function baseStatus(currentVersion: string, channel: UpdateChannel, repository: 
     checkedAt: null,
     latestVersion: null,
     available: false,
+    canSelfUpdate: isSourceCheckout(),
     mandatory: false,
     notesUrl: null,
     downloadUrl: null,
@@ -347,6 +363,7 @@ export async function getUpdateStatus(options: {
       checkedAt: new Date().toISOString(),
       latestVersion: manifest.version,
       available,
+      canSelfUpdate: isSourceCheckout(),
       mandatory,
       notesUrl: manifest.notesUrl ?? null,
       downloadUrl: manifest.downloadUrl ?? null,

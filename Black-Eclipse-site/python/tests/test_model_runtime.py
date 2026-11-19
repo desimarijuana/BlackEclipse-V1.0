@@ -747,6 +747,10 @@ def test_opencode_discovery_targets_its_gateway_catalog() -> None:
     assert opencode_models_url("https://opencode.ai/inference/openai/v1") == (
         "https://opencode.ai/inference/v1/models"
     )
+    # The Go subscription gateway keeps its catalog under the same rewrite.
+    assert opencode_models_url("https://opencode.ai/inference/go/openai/v1") == (
+        "https://opencode.ai/inference/go/v1/models"
+    )
     assert opencode_models_url(None) == "https://opencode.ai/inference/v1/models"
     # A custom base is used as-is.
     assert opencode_models_url("https://example.com/v1") == "https://example.com/v1/models"

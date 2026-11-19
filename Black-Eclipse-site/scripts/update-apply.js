@@ -239,6 +239,16 @@ async function main() {
   flush();
   pushLog(`[apply] staging ${channel} update (job ${JOB_ID})`);
 
+  // A packaged install has no repository for the verified updater to check out.
+  // Say that plainly instead of letting it die inside `update.js`.
+  if (!fs.existsSync(path.join(ROOT, ".git"))) {
+    fail(
+      "This installed build cannot update in place. Download the new release " +
+        "from its release page and run the installer. Nothing was changed.",
+    );
+    return;
+  }
+
   // If the app is holding its own native modules, it has to close before npm
   // can replace them. Give the window a moment to pick up this job first, so
   // the UI can say what is happening instead of silently losing its server.

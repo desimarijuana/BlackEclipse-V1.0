@@ -34,6 +34,8 @@ const ALIASES: Record<string, string> = {
   mistralai: 'mistral',
   fireworksai: 'fireworks',
   opencodezen: 'opencode',
+  opencodego: 'opencode',
+  ollamacloud: 'ollama',
   togetherai: 'together',
   lmstudiocommunity: 'lmstudio',
   eclipseagent: 'eclipse',

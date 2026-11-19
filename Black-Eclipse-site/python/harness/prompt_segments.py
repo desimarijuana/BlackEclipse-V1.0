@@ -64,8 +64,8 @@ ANTHROPIC_CACHE_PROVIDERS = frozenset({"anthropic"})
 # OpenAI-compatible providers cache a stable PREFIX automatically. No marker is
 # sent; the ordering is what matters.
 OPENAI_PREFIX_PROVIDERS = frozenset({
-    "openai", "mistral", "groq", "ollama", "lmstudio", "deepseek", "xai",
-    "openrouter", "opencode", "together", "perplexity", "fireworks", "custom",
+    "openai", "mistral", "groq", "ollama", "ollama-cloud", "lmstudio", "deepseek", "xai",
+    "openrouter", "opencode", "opencode-go", "together", "perplexity", "fireworks", "custom",
 })
 
 

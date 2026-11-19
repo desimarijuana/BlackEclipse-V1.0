@@ -1,7 +1,7 @@
 ---
 title: Navigation â€” Where Things Live
 status: Current
-last-verified: 2026-11-18
+last-verified: 2026-11-19
 ---
 
 # Navigation â€” Where Things Live
@@ -462,7 +462,7 @@ disabled`) until enabled. See `python/harness/skills/project_skills.py` and
 | Change the page/app background (pattern or wallpaper) | `src/lib/backgrounds.ts` (prefs model + presets + `normalizePresetBackground` + IndexedDB custom image + resolver + `preview`/`previewPrefs` for preset auditioning + the default-on, scheme-aware chat-conversation surface `chatSurface*` â†’ `resolveChatSurfaceCss` + the prompt-bubble fill `chatBubbleColor*` â†’ `resolveChatBubbleCss`), panel `src/components/screens/background-settings.tsx` (Customization â€º ChatBot Page â€º Backdrop & landing wordmark) + `chatbot-page-settings.tsx` (`ChatBackgroundCard`), layer CSS in `src/app/globals.css` (`body`/`.app-page-bg` pattern, `.app-bg-layer` wallpaper filling the main panel, `.chat-surface-layer` conversation surface, `.chat-bubble` prompt fill), applied by `useHydrateBackground` in `stock-chat.tsx` + `refreshBackground()` after theme writes; shipped art in `public/backgrounds/` |
 | Change API protection / rate limits | `src/lib/api-guard.ts` |
 | Add a data provider / work on connectors | `src/lib/connectors/` (`catalog`, `types`, `registry`, `resolver`, `custom-rest`, `security`, `secrets`, `mapping`, `refresh`, `store`); settings UI `src/components/screens/data-sources-panel.tsx` |
-| Add/change a provider API key | `src/lib/provider-keys.ts` (`PROVIDER_KEYS` registry + encrypted vault) â†’ `/api/provider-keys` â†’ `src/components/screens/api-keys-panel.tsx` (filtered by `categories` prop); LLM keys render under `settings.ai`, financial/data keys under `settings.investor-eye` |
+| Add/change a provider API key | `src/lib/provider-keys.ts` (`PROVIDER_KEYS` registry + encrypted vault) â†’ `/api/provider-keys` â†’ `src/components/screens/provider-registry-panel.tsx` (`ProviderRegistry`, filtered by the `home` prop; `ProviderKeyEditor` is the single-key form); LLM keys render under `settings.ai`, financial/data keys under `settings.investor-eye`. An LLM provider also needs ONE preset id in `src/lib/agent/presets.ts` matching a `ProviderSpec` id in `python/harness/models.py` `PROVIDER_CATALOG` (the runtime rejects an unknown id) |
 | Change Settings information architecture / sections | `src/components/screens/settings.tsx` (`SectionId`, `NAV`), sub-pages in `src/lib/search/registry.ts` (`settings.*`) |
 | Explain why a provider exists / which feature uses it | `src/lib/providers/directory.ts` (`providerMeta`, `INVESTOR_EYE_FEATURES`) â†’ registry UI `src/components/screens/provider-registry-panel.tsx` |
 | Test an LLM connection | `POST /api/agent/test` (real endpoint request) |

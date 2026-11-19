@@ -20,11 +20,16 @@ import {
 } from "@/lib/agent/enabled-models";
 import { ManageModelsDialog } from "./manage-models-dialog";
 
-/** How often the picker silently re-probes a provider to surface new models. */
+/** How often the picker silently re-probes a provider that answered successfully. */
 const AUTO_DISCOVER_TTL_MS = 6 * 60 * 60 * 1000;
-const AUTO_DISCOVER_KEY = "be_model_autodiscover_v1";
+/** A probe that FAILED (cold runtime, server down) is retried soon, not in 6 h. */
+const AUTO_DISCOVER_RETRY_MS = 60 * 1000;
+// v2 stores the earliest time the NEXT attempt may run (attempts used to be
+// stamped optimistically before the probe, so one failure locked the provider
+// out for six hours). The new key also releases anyone still held by the old one.
+const AUTO_DISCOVER_KEY = "be_model_autodiscover_v2";
 
-function readAutoAttempts(): Record<string, number> {
+function readNextAttempts(): Record<string, number> {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(AUTO_DISCOVER_KEY);
@@ -39,11 +44,11 @@ function readAutoAttempts(): Record<string, number> {
   }
 }
 
-function markAutoAttempt(providerId: string) {
+function scheduleNextAttempt(providerId: string, delayMs: number) {
   if (typeof window === "undefined") return;
   try {
-    const attempts = readAutoAttempts();
-    attempts[providerId] = Date.now();
+    const attempts = readNextAttempts();
+    attempts[providerId] = Date.now() + delayMs;
     window.localStorage.setItem(AUTO_DISCOVER_KEY, JSON.stringify(attempts));
   } catch {
     // Private mode / quota — auto-discovery simply runs again next mount.
@@ -81,7 +86,7 @@ export function ModelPicker({
   useHydrateEnabledModels();
   const [extra, setExtra] = useState<string[]>([]);
   const [discovering, setDiscovering] = useState(false);
-  const [note, setNote] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [note, setNote] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
 
   // A discovered set belongs to one provider/endpoint; drop it when either
@@ -139,15 +144,33 @@ export function ModelPicker({
       }
       const ids = sortModelsNewestFirst(res.models.map((m) => m.id).filter(Boolean));
       setExtra(ids);
-      if (!silent) {
+      const count = ids.length;
+      const missing = Boolean(value) && count > 0 && !ids.includes(value);
+      if (!value && count > 0) {
+        // Nothing configured yet — adopting the newest served model is free.
+        onChange(ids[0]);
+        setNote({ kind: "ok", text: `Found ${count} model${count === 1 ? "" : "s"}` });
+      } else if (missing && !silent) {
+        // An explicit Discover: the saved model is not served here, so it would
+        // fail with a 404 anyway. Switch and say so.
+        onChange(ids[0]);
         setNote({
           kind: "ok",
-          text: ids.length ? `Found ${ids.length} model${ids.length === 1 ? "" : "s"}` : "The provider listed no models",
+          text: `Found ${count} model${count === 1 ? "" : "s"} · "${value}" is not served here — switched to ${ids[0]}`,
         });
+      } else if (missing) {
+        // The background probe only informs: never rewrite the saved model
+        // behind the operator's back.
+        setNote({
+          kind: "warn",
+          text: `"${value}" is not in the ${count} models this provider serves — pick one from the list`,
+        });
+      } else if (count > 0) {
+        setNote({ kind: "ok", text: `Found ${count} model${count === 1 ? "" : "s"}` });
+      } else if (!silent) {
+        setNote({ kind: "ok", text: "The provider listed no models" });
       }
       onDiscovered?.(ids);
-      // If nothing is selected yet, adopt the provider's newest model.
-      if (!value && ids.length) onChange(ids[0]);
       return true;
     } catch (err) {
       if (!silent) {
@@ -160,17 +183,18 @@ export function ModelPicker({
   };
 
   // Silently refresh the live list when the last attempt is stale, so a model
-  // released since the operator last looked appears without a manual click.
-  // Attempts are throttled even when they fail, so an unreachable provider is
-  // not hammered on every mount.
+  // released since the operator last looked appears without a manual click. The
+  // next attempt is scheduled by its OUTCOME: success waits the full TTL, failure
+  // retries in a minute, so a cold runtime never locks the list out for hours.
   useEffect(() => {
-    if (!providerId || !canDiscover) return;
-    const last = readAutoAttempts()[providerId] ?? 0;
-    if (Date.now() - last < AUTO_DISCOVER_TTL_MS) return;
-    markAutoAttempt(providerId);
-    void discover(true);
+    if (!providerId || !canDiscover || discovering) return;
+    const nextAt = readNextAttempts()[providerId] ?? 0;
+    if (Date.now() < nextAt) return;
+    void discover(true).then((ok) => {
+      scheduleNextAttempt(providerId, ok ? AUTO_DISCOVER_TTL_MS : AUTO_DISCOVER_RETRY_MS);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerId, baseUrl, canDiscover]);
+  }, [providerId, baseUrl, canDiscover, discovering]);
 
   // A single "Discover" action that always curates: it probes, then opens the
   // Manage dialog so the operator picks what to surface (never a wall of ids).
@@ -219,13 +243,15 @@ export function ModelPicker({
           ) : (
             <span className="text-muted-foreground/80">Context window unknown</span>
           )}
-          {allModels.length > 0 && (
+          {allModels.length > 0 ? (
             <span className="text-muted-foreground/60">
               · {compact.curated
                 ? `${compact.models.length} enabled of ${allModels.length}`
                 : `${compact.models.length}${compact.truncated ? ` of ${allModels.length}` : ""} model${compact.models.length === 1 ? "" : "s"}`}
             </span>
-          )}
+          ) : canDiscover ? (
+            <span className="text-muted-foreground/60">· no models loaded yet — use Discover models</span>
+          ) : null}
         </p>
         {providerId && canDiscover && (
           <button
@@ -259,7 +285,15 @@ export function ModelPicker({
         </button>
       </div>
       {note && (
-        <p className={note.kind === "ok" ? "text-[10px] text-emerald-400/90" : "text-[10px] text-rose-400/90"}>
+        <p
+          className={
+            note.kind === "ok"
+              ? "text-[10px] text-emerald-400/90"
+              : note.kind === "warn"
+                ? "text-[10px] text-amber-400/90"
+                : "text-[10px] text-rose-400/90"
+          }
+        >
           {note.text}
         </p>
       )}

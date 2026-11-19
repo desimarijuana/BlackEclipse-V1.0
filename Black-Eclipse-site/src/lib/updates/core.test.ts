@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   assertSafeUrl,
   compareVersions,
   isNewerVersion,
+  isSourceCheckout,
   parseVersion,
   verifyEnvelope,
 } from "./core";
@@ -65,6 +69,20 @@ describe("version comparison", () => {
     expect(isNewerVersion("0.4.0", "0.3.0")).toBe(true);
     expect(isNewerVersion("0.3.0", "0.4.0")).toBe(false);
     expect(isNewerVersion("0.4.0", "0.4.0")).toBe(false);
+  });
+});
+
+describe("in-app update capability", () => {
+  it("is true only for a git checkout", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "be-update-"));
+    try {
+      expect(isSourceCheckout(dir)).toBe(false);
+      // Worktrees use a `.git` file, not a directory.
+      fs.writeFileSync(path.join(dir, ".git"), "gitdir: elsewhere\n");
+      expect(isSourceCheckout(dir)).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

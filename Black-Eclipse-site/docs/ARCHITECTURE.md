@@ -1657,7 +1657,13 @@ is no "API Keys", "Integrations", "Data Sources" or "AI Agent" menu overlap:
 
 - **AI / LLM** — every LLM concern (preset picker, provider keys, base URL,
   model, active provider, **Test Connection**, status). Strictly separated from
-  financial/data APIs.
+  financial/data APIs. A provider here is ONE row in `LLM_PRESETS`
+  (`src/lib/agent/presets.ts`) **and** ONE `ProviderSpec` with the *same id* in
+  `PROVIDER_CATALOG` (`python/harness/models.py`): the preset id is handed to the
+  runtime as the provider id, and the runtime raises "Unknown model provider" for
+  an id it does not know. The key lives in the vault under the preset's `envVar`
+  (`src/lib/provider-keys.ts`); a custom endpoint uses `CUSTOM_LLM_API_KEY`, and
+  only local base URLs may be saved without a key.
 - **Investor Eye** — every financial/data provider grouped by the purpose it
   serves (market, fundamentals, economics, news, earnings, SEC/company, crypto)
   plus a feature→provider map and the Data Sources wizard for custom APIs.

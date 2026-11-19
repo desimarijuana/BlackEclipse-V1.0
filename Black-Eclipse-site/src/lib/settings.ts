@@ -73,7 +73,8 @@ export async function setConfigJSON(key: string, value: unknown): Promise<void> 
 export type LLMProviderName =
   | "auto" | "mock"
   | "openai" | "anthropic" | "google" | "mistral" | "groq"
-  | "ollama" | "lmstudio" | "deepseek" | "xai" | "openrouter" | "opencode"
+  | "ollama" | "ollama-cloud" | "lmstudio" | "deepseek" | "xai"
+  | "openrouter" | "opencode" | "opencode-go"
   | "together" | "perplexity" | "fireworks" | "custom";
 
 export interface LLMConfig {

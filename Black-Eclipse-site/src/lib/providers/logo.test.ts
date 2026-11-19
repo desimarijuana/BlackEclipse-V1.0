@@ -20,6 +20,8 @@ describe('providerLogoId', () => {
     expect(providerLogoId('gemini')).toBe('google');
     expect(providerLogoId('grok')).toBe('xai');
     expect(providerLogoId('opencode zen')).toBe('opencode');
+    expect(providerLogoId('opencode-go')).toBe('opencode');
+    expect(providerLogoId('ollama-cloud')).toBe('ollama');
   });
 
   it('never invents a brand for custom/auto/unknown providers', () => {

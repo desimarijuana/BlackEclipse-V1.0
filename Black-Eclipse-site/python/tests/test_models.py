@@ -13,7 +13,7 @@ def test_catalog_covers_first_party_and_compatible():
     # First-party integrations
     assert {"anthropic", "google", "mistral", "groq"}.issubset(ids)
     # OpenAI-compatible endpoints (the path that reaches "all models")
-    assert {"openai", "ollama", "lmstudio", "openrouter", "opencode", "deepseek", "xai", "custom"}.issubset(ids)
+    assert {"openai", "ollama", "ollama-cloud", "lmstudio", "openrouter", "opencode", "opencode-go", "deepseek", "xai", "custom"}.issubset(ids)
 
 
 def test_every_catalog_entry_has_a_factory_kind():

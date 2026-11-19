@@ -45,6 +45,10 @@ export function UpdateBanner() {
   if (!mounted || hidden || !checked) return null;
 
   const status: UpdateStatus = checked;
+  // A packaged install updates by running the new release's installer, not by
+  // checking out a tag (there is no repository in its install directory).
+  const manual = !status.canSelfUpdate;
+  const downloadHref = status.notesUrl ?? status.downloadUrl;
 
   const dismiss = () => {
     saveUpdatePrefs({ ...prefs, dismissedVersion: status.latestVersion });
@@ -100,6 +104,13 @@ export function UpdateBanner() {
           </p>
         )}
 
+        {manual && (
+          <p className="text-[10px] text-muted-foreground/80">
+            This installed build updates by downloading the release and running
+            its installer.
+          </p>
+        )}
+
         {showCommand ? (
           <div className="space-y-2">
             <p className="text-[11px] text-muted-foreground">
@@ -127,17 +138,31 @@ export function UpdateBanner() {
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              className="cursor-pointer rounded-xl"
-              onClick={() => {
-                setShowCommand(true);
-                void copyCommand();
-              }}
-            >
-              <RefreshCw size={13} className="mr-1" />
-              How to update
-            </Button>
+            {manual ? (
+              downloadHref && (
+                <a
+                  href={downloadHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <Download size={13} />
+                  Download v{status.latestVersion}
+                </a>
+              )
+            ) : (
+              <Button
+                size="sm"
+                className="cursor-pointer rounded-xl"
+                onClick={() => {
+                  setShowCommand(true);
+                  void copyCommand();
+                }}
+              >
+                <RefreshCw size={13} className="mr-1" />
+                How to update
+              </Button>
+            )}
             {status.notesUrl && (
               <a
                 href={status.notesUrl}

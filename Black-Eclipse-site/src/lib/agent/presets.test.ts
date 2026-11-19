@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   LLM_PRESETS,
   getLLMPreset,
@@ -93,6 +94,7 @@ describe("resolveLLMProviderId", () => {
 });
 
 describe("CATALOG_ENV_VARS", () => {
+
   it("lists every env var the UI reports, with no duplicates", () => {
     expect(new Set(CATALOG_ENV_VARS).size).toBe(CATALOG_ENV_VARS.length);
     expect(CATALOG_ENV_VARS.length).toBeGreaterThan(15);
@@ -101,6 +103,26 @@ describe("CATALOG_ENV_VARS", () => {
   it("includes every remote preset key", () => {
     for (const preset of LLM_PRESETS) {
       if (preset.envVar) expect(CATALOG_ENV_VARS).toContain(preset.envVar);
+    }
+  });
+});
+
+// A preset id IS the provider id the runtime is handed (selectProvider writes
+// `provider: preset.id`), and `build_chat_model` raises "Unknown model provider"
+// for any id missing from the Python catalog — a preset the runtime does not know
+// silently breaks every run. This guard is the reason both sides stay in step.
+describe("presets ↔ runtime provider catalog", () => {
+  const catalogSource = readFileSync(
+    new URL("../../../python/harness/models.py", import.meta.url),
+    "utf8",
+  );
+
+  it("every preset id exists in python/harness/models.py PROVIDER_CATALOG", () => {
+    for (const preset of LLM_PRESETS) {
+      expect(
+        new RegExp(`^\\s*"${preset.id}": ProviderSpec\\(`, "m").test(catalogSource),
+        `${preset.id} is not in PROVIDER_CATALOG`,
+      ).toBe(true);
     }
   });
 });

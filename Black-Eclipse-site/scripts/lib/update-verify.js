@@ -257,7 +257,9 @@ async function fetchManifest(channel, cfg) {
     res = await fetch(url, {
       headers: { accept: "application/json", "cache-control": "no-cache" },
       redirect: "follow",
-      signal: AbortSignal.timeout(8000),
+      // GitHub redirects to release-assets; a cold connection has measured
+      // 6.4 s, so 8 s used to turn a slow check into a false "unreachable".
+      signal: AbortSignal.timeout(20000),
     });
   } catch {
     throw new UpdateVerifyError("network", "Could not reach the update service.");

@@ -114,6 +114,9 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     # Local servers: the window is chosen by the operator's loaded model, which
     # the runtime cannot know. Unknown stays unknown (conservative ceiling).
     "ollama": ProviderSpec("ollama", "Ollama (local)", "openai", "http://localhost:11434/v1", "llama3.1", "OLLAMA_BASE_URL", keyless=True, openai_compatible=True, dynamic_discovery=True),
+    # Ollama's hosted models (no local server). Direct cloud access is keyed; the
+    # local endpoint above stays keyless.
+    "ollama-cloud": ProviderSpec("ollama-cloud", "Ollama Cloud", "openai", "https://ollama.com/v1", "gemma4:31b", "OLLAMA_API_KEY", openai_compatible=True, dynamic_discovery=True),
     "lmstudio": ProviderSpec("lmstudio", "LM Studio (local)", "openai", "http://localhost:1234/v1", "local-model", keyless=True, openai_compatible=True, dynamic_discovery=True),
     # DeepSeek V3 chat models are 64k.
     "deepseek": ProviderSpec("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/v1", "deepseek-chat", "DEEPSEEK_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=64_000),
@@ -126,6 +129,10 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     # (`…/inference/v1/models`), which the OpenCode adapter probes directly. Its
     # hosted models vary widely, so the window stays unknown.
     "opencode": ProviderSpec("opencode", "OpenCode Zen", "openai", "https://opencode.ai/inference/openai/v1", "glm-5.3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True),
+    # OpenCode Go is the subscription gateway: same Console key, different base
+    # URL. Sending a Go key to the Zen base bills it as pay-as-you-go, which is
+    # why Go gets its own row (and its own TS preset).
+    "opencode-go": ProviderSpec("opencode-go", "OpenCode Go", "openai", "https://opencode.ai/inference/go/openai/v1", "kimi-k3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True),
     # Together/Fireworks host many model families of different sizes. Only the
     # known Llama-3.3 entry is declared (below); the row is left unknown.
     "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True, dynamic_discovery=True),

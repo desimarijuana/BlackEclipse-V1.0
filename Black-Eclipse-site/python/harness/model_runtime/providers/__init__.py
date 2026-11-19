@@ -39,6 +39,9 @@ _FAMILY_ADAPTERS: dict[str, type[ProviderAdapter]] = {
     "custom": OpenAICompatibleAdapter,
     "openrouter": OpenAICompatibleAdapter,
     "opencode": OpenCodeAdapter,
+    # Go is the same gateway on a different base URL; the adapter's catalog
+    # rewrite is what makes `/models` resolve there.
+    "opencode-go": OpenCodeAdapter,
     "together": OpenAICompatibleAdapter,
     "deepseek": OpenAICompatibleAdapter,
     "cerebras": OpenAICompatibleAdapter,

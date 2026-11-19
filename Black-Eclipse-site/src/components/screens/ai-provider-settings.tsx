@@ -57,7 +57,7 @@ interface KeyStatus {
 }
 
 /** Providers shown in the "Popular" group, in this order. */
-const POPULAR_IDS = ["openai", "anthropic", "ollama", "deepseek", "groq", "google", "openrouter", "mistral"];
+const POPULAR_IDS = ["openai", "anthropic", "ollama", "ollama-cloud", "deepseek", "groq", "google", "openrouter", "opencode", "opencode-go", "mistral", "custom"];
 
 function useKeyStatuses() {
   const [map, setMap] = useState<Record<string, KeyStatus>>({});
@@ -307,10 +307,23 @@ function ActiveSetup({
   const [test, setTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
 
   const activePreset = presetForBaseUrl(llm.baseUrl);
-  const activeKeyEnvVar = activePreset?.envVar;
+  // A custom endpoint never matches a preset base URL, so fall back to the saved
+  // provider id — the same rule the server applies in `llmKeyEnvVar` (settings.ts).
+  // Without it the key field vanished exactly when a custom provider needed one.
+  const activeKeyEnvVar =
+    activePreset?.envVar ?? (llm.provider === "custom" ? "CUSTOM_LLM_API_KEY" : undefined);
   const catalogProvider =
     (llm.provider !== "auto" && llm.provider !== "mock" ? modelCatalog[llm.provider] : undefined) ??
     modelCatalog[activePreset?.id ?? ""];
+  // The id the picker probes. Also used to decide whether "Discover models" is
+  // offered: the runtime — not this cached catalog — decides what a provider
+  // serves, so a missing catalog row must never remove the only way to load the
+  // list (it used to, leaving an empty dropdown and no action).
+  const pickerProviderId =
+    activePreset?.id ?? (llm.provider !== "auto" && llm.provider !== "mock" ? llm.provider : undefined);
+  const canDiscoverModels = catalogProvider
+    ? Boolean(catalogProvider.dynamicDiscovery)
+    : Boolean(pickerProviderId);
   const modelOptions = catalogProvider?.models ?? [];
   const window_ =
     catalogProvider?.modelWindows?.[llm.model] ?? catalogProvider?.contextWindow ?? null;
@@ -363,10 +376,10 @@ function ActiveSetup({
             windowKnown={windowKnown}
             windowLabel={window_ ? `${window_.toLocaleString()}-token context window` : null}
             onChange={(m) => updateLlm({ model: m }, 0)}
-            providerId={activePreset?.id ?? (llm.provider !== "auto" && llm.provider !== "mock" ? llm.provider : undefined)}
+            providerId={pickerProviderId}
             baseUrl={llm.baseUrl}
             apiKey={llm.apiKey}
-            canDiscover={Boolean(catalogProvider?.dynamicDiscovery)}
+            canDiscover={canDiscoverModels}
             onDiscovered={() => void loadModelCatalog(true)}
           />
         </div>
@@ -441,7 +454,7 @@ function ActiveSetup({
           No API key needed — local endpoints ignore it.
         </p>
       ) : activeKeyEnvVar ? (
-        <ProviderKeyEditor envVar={activeKeyEnvVar} label={activePreset?.name} />
+        <ProviderKeyEditor envVar={activeKeyEnvVar} label={activePreset?.name ?? "Custom endpoint"} />
       ) : (
         <p className="text-[10px] text-muted-foreground">
           Custom endpoint — connect a preset above to manage its key in the vault.

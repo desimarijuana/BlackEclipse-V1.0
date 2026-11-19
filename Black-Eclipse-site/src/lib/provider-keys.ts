@@ -71,6 +71,11 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
   { envVar: 'ANTHROPIC_API_KEY', label: 'Anthropic', provider: 'Anthropic', category: 'ai', description: 'Claude models for the AI agent.', docsUrl: 'https://console.anthropic.com/settings/keys',
     test: { url: 'https://api.anthropic.com/v1/models', auth: { kind: 'header', name: 'x-api-key' } } },
   { envVar: 'OLLAMA_BASE_URL', label: 'Ollama base URL', provider: 'Ollama', category: 'ai', description: 'Local models. No key — the base URL, e.g. http://localhost:11434/v1.', docsUrl: 'https://ollama.com/download', publicValue: true },
+  // Cloud models through ollama.com (or a local server signed in to Ollama) need a
+  // key; the local endpoint itself never does.
+  // No `test`: ollama.com lists its models publicly, so a 2xx there proves nothing
+  // about the key. The honest check is a real chat run.
+  { envVar: 'OLLAMA_API_KEY', label: 'Ollama Cloud', provider: 'Ollama', category: 'ai', description: 'Key for ollama.com hosted models (the "Ollama Cloud" provider). Local models need none.', docsUrl: 'https://ollama.com/settings/keys' },
   { envVar: 'GROQ_API_KEY', label: 'Groq', provider: 'Groq', category: 'ai', description: 'Fast OpenAI-compatible inference.', docsUrl: 'https://console.groq.com/keys',
     test: { url: 'https://api.groq.com/openai/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'DEEPSEEK_API_KEY', label: 'DeepSeek', provider: 'DeepSeek', category: 'ai', description: 'OpenAI-compatible endpoint.', docsUrl: 'https://platform.deepseek.com/api_keys',

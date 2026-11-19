@@ -18,6 +18,8 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const { buildEnv } = require("./lib/server");
+
 const ROOT = path.join(__dirname, "..");
 const DIST = ".next-desktop";
 const STANDALONE = path.join(ROOT, DIST, "standalone");
@@ -137,13 +139,12 @@ if (process.argv.includes("--prune-only")) {
 
 console.log("Building standalone payload into " + DIST + "\n");
 
-const env = {
-  ...process.env,
+const env = buildEnv({
   NODE_ENV: "production",
   NEXT_DIST_DIR: DIST,
   BE_STANDALONE: "1",
   NEXT_TELEMETRY_DISABLED: "1",
-};
+});
 
 // Next rewrites `tsconfig.json` `include` to add the new distDir. That is a
 // tracked file shared with everyone, so snapshot it and put it back afterwards.

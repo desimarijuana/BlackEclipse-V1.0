@@ -219,7 +219,8 @@ manifest on a `beta` release/tag and use the `beta` URL in
 ## How users are notified
 
 - `UpdateBanner` waits ~6 s after boot, then calls `GET /api/updates`.
-- The local server fetches the public manifest (8 s timeout), verifies it, and
+- The local server fetches the public manifest (20 s timeout — GitHub answers
+  through a redirect and a cold connection has measured 6.4 s), verifies it, and
   compares versions. The result is cached in-process for 6 hours; `?refresh=1`
   (used by Settings › Check now) bypasses the cache.
 - The banner appears only when the manifest verifies and the version is newer.
@@ -238,7 +239,19 @@ manifest on a `beta` release/tag and use the `beta` URL in
 
 The signed-release check is also exposed as a **download button in the window
 chrome**, immediately left of Minimize, with a dot when a newer release exists.
-It opens a glass panel that reports the check honestly and can act:
+It opens a glass panel that reports the check honestly and can act.
+
+**Two install shapes, two update paths.** `canSelfUpdate` on `/api/updates` is
+true only when the running app has a git checkout (`<root>/.git`). A **packaged
+install** — the normal user's app — ships a frozen payload under
+`<install>\app` and has no repository, so the git-based updater cannot run
+there. The panel and the banner therefore offer **Download vX** (the
+signature-checked `notesUrl`, where the installers are attached) instead of
+*Update now*; the user downloads the release and runs its installer. Both
+`POST /api/updates/apply` and `scripts/update-apply.js` refuse a packaged
+install with 409 / an explicit message, so an older UI cannot spawn a runner
+that can only fail. In-app staging below applies to **checkouts only**:
+
 
 1. **Stage.** *Update now* asks the shell (Tauri event `be-update`,
    `{action:"apply"}`) to spawn `scripts/update-apply.js`; the shell runs it as
