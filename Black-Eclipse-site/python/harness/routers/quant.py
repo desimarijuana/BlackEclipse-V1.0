@@ -19,6 +19,7 @@ from ..quant.bundle import bundle_to_bytes, export_bundle, import_bundle
 from ..quant.data_quality import inspect_dataset
 from ..quant.compiler import compile_graph
 from ..quant.datasets import dataset_from_strategy, resolve_dataset
+from ..quant.custom_source import stamp_provenance
 from ..quant.sdk_runtime import run_strategy_source
 from ..quant.nodes import REGISTRY
 from ..quant.engine import BacktestConfig, run_backtest, run_portfolio_backtest
@@ -55,6 +56,11 @@ def _market_gateway() -> Any:
         cache=getattr(service, "market_cache", None),
         router=getattr(service, "market_router", None),
     )
+
+
+def _data_bridge() -> Any:
+    """The read-only bridge a declared data source is read through."""
+    return service.server_bridge()
 
 
 def _http(exc: Exception) -> HTTPException:
@@ -564,6 +570,16 @@ async def python_run_route(body: PythonRunBody, _: bool = Depends(require_operat
 
 # ── Backtests ────────────────────────────────────────────────────────────────
 
+class DataSourceBody(BaseModel):
+    """A dataset the operator declared in Settings -> Data Sources.
+
+    Naming one makes it the run's ONLY data origin: the market gateway is not
+    consulted and there is no fallback (see `quant/custom_source.py`).
+    """
+    dataset: str
+    values: Optional[dict[str, Any]] = None
+
+
 class BacktestBody(BaseModel):
     strategyId: Optional[str] = None
     version: Optional[str] = None
@@ -578,6 +594,7 @@ class BacktestBody(BaseModel):
     save: bool = True
     background: bool = False
     allowDirtyData: bool = False
+    dataSource: Optional[DataSourceBody] = None
 
 
 @router.post("/quant/backtest")
@@ -601,8 +618,13 @@ async def run_backtest_route(body: BacktestBody, _: bool = Depends(require_opera
             })
 
         async def work(progress: Any) -> dict:
+            source = (
+                body.dataSource.model_dump(exclude_none=True)
+                if body.dataSource is not None else None
+            )
             dataset = await dataset_from_strategy(
-                _market_gateway(), strategy, start=body.start, end=body.end, symbols=body.symbols
+                _market_gateway(), strategy, start=body.start, end=body.end,
+                symbols=body.symbols, data_source=source, bridge=_data_bridge(),
             )
             quality = inspect_dataset(
                 dataset, symbols=body.symbols or strategy.universe.symbols,
@@ -618,6 +640,7 @@ async def run_backtest_route(body: BacktestBody, _: bool = Depends(require_opera
                 initial_capital=body.initialCapital, start=body.start, end=body.end,
                 risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
             ))
+            stamp_provenance(result, source)
             exp_id = None
             if body.save:
                 exp_id = store.save_experiment(
@@ -643,6 +666,7 @@ class PortfolioBacktestBody(BaseModel):
     randomSeed: int = 42
     save: bool = True
     background: bool = False
+    dataSource: Optional[DataSourceBody] = None
 
 
 @router.post("/quant/portfolio-backtest")
@@ -663,14 +687,20 @@ async def portfolio_backtest_route(body: PortfolioBacktestBody,
         async def work(progress: Any) -> dict:
             symbols = sorted({sym for s in strategies for sym in s.universe.symbols})
             confirmation = sorted({tf for s in strategies for tf in s.timeframes.confirmation})
+            source = (
+                body.dataSource.model_dump(exclude_none=True)
+                if body.dataSource is not None else None
+            )
             dataset = await resolve_dataset(
                 _market_gateway(), symbols, primary=next(iter(primaries)),
                 confirmation=confirmation, start=body.start, end=body.end,
+                data_source=source, bridge=_data_bridge(),
             )
             result = run_portfolio_backtest(strategies, dataset, BacktestConfig(
                 initial_capital=body.initialCapital, start=body.start, end=body.end,
                 risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
             ))
+            stamp_provenance(result, source)
             exp_id = None
             if body.save:
                 exp_id = store.save_experiment(

@@ -126,6 +126,23 @@ class UnsupportedTimeframe(QuantError):
     code = "UNSUPPORTED_TIMEFRAME"
 
 
+class InvalidDataSource(QuantError):
+    """A caller-named data source is malformed (no dataset name / bad values)."""
+
+    code = "INVALID_DATA_SOURCE"
+
+
+class CustomSourceUnavailable(QuantError):
+    """An operator-declared data source could not be read.
+
+    Never silently replaced by a built-in market provider: a backtest that names
+    its own source either uses it or fails honestly.
+    """
+
+    code = "CUSTOM_SOURCE_UNAVAILABLE"
+    http_status = 502
+
+
 # ── Order / execution / portfolio errors ─────────────────────────────────────
 
 class InvalidOrder(QuantError):
@@ -192,6 +209,8 @@ __all__ = [
     "CorruptDataset",
     "UnsupportedAsset",
     "UnsupportedTimeframe",
+    "InvalidDataSource",
+    "CustomSourceUnavailable",
     "InvalidOrder",
     "IllegalOrderTransition",
     "InsufficientCapital",

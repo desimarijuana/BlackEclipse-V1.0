@@ -1,5 +1,5 @@
 {
-  "digest": "03177dd0162122b4",
+  "digest": "771ff7ada93632cd",
   "manifestVersion": "1",
   "toolCount": 1106,
   "tools": [
@@ -21545,6 +21545,23 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
+          },
           "end": {
             "type": "string"
           },
@@ -26671,10 +26688,27 @@
     },
     {
       "deprecated": false,
-      "description": "Run a deterministic event-driven backtest for a persisted strategy over real historical data, apply commission/slippage/spread/latency, and persist an experiment.",
+      "description": "Run a deterministic event-driven backtest for a persisted strategy over real historical data, apply commission/slippage/spread/latency, and persist an experiment. Pass `dataSource` to run on the operator's own declared dataset instead of the built-in market providers.",
       "effect": null,
       "inputSchema": {
         "properties": {
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
+          },
           "end": {
             "type": "string"
           },
@@ -26882,6 +26916,23 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
+          },
           "end": {
             "type": "string"
           },
@@ -27255,6 +27306,23 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
+          },
           "end": {
             "type": "string"
           },
@@ -27418,6 +27486,23 @@
         "properties": {
           "className": {
             "type": "string"
+          },
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
           },
           "end": {
             "type": "string"
@@ -27618,6 +27703,23 @@
             },
             "type": "array"
           },
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
+          },
           "end": {
             "type": "string"
           },
@@ -27673,6 +27775,23 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
+          },
           "end": {
             "type": "string"
           },
@@ -27872,6 +27991,23 @@
         "properties": {
           "anchored": {
             "type": "boolean"
+          },
+          "dataSource": {
+            "description": "Read bars from a dataset the operator declared in Settings -> Data Sources (their own REST API + key) instead of the built-in market providers. The source is exclusive: nothing is mixed in and there is no silent fallback, so the run uses this source or fails honestly.",
+            "properties": {
+              "dataset": {
+                "description": "Dataset name exactly as it appears in Settings -> Data Sources.",
+                "type": "string"
+              },
+              "values": {
+                "description": "Extra values for the dataset's declared parameters. symbol, interval, start and end are supplied automatically; unused values are ignored.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "dataset"
+            ],
+            "type": "object"
           },
           "end": {
             "type": "string"

@@ -132,6 +132,14 @@ export interface RunBacktestInput {
   randomSeed?: number;
   save?: boolean;
   background?: boolean;
+  /** Read bars from a dataset declared in Settings -> Data Sources (exclusive). */
+  dataSource?: DataSourceInput;
+}
+
+/** The operator's own dataset, by the name it was declared under. */
+export interface DataSourceInput {
+  dataset: string;
+  values?: Record<string, string | number | boolean>;
 }
 
 export interface PortfolioBacktestInput {
@@ -143,6 +151,7 @@ export interface PortfolioBacktestInput {
   randomSeed?: number;
   save?: boolean;
   background?: boolean;
+  dataSource?: DataSourceInput;
 }
 
 export interface QuantRun {

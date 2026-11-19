@@ -16,6 +16,27 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Docs: `docs/CHANGELOG.md` only (no behaviour change beyond the two entries
   below).
 
+- **feat(quant): a backtest can run on the operator's own declared dataset.**
+  The Custom REST API connector (Settings → Data Sources) already let an
+  operator bring any endpoint with their own key; the backtester could not read
+  it, so "backtest my model on my data" silently ran on the built-in providers.
+  `quant/custom_source.py` now resolves a named dataset through the existing
+  `custom_dataset_records` bridge capability, and `quant/datasets.py` treats it
+  as exclusive — no gateway call, no cache, no fallback; a failure is
+  `CUSTOM_SOURCE_UNAVAILABLE` / `MISSING_DATA`. The requested window is
+  re-applied to returned rows, records are mapped from
+  `timestamp/open/high/low/close/volume` (common aliases accepted), and the
+  result carries `metadata.dataSource` + a `CUSTOM_DATA_SOURCE` warning so a
+  user-data run is never mistaken for Eclipse-verified market data. New
+  `dataSource` argument on `run_backtest`, `run_portfolio_backtest`,
+  `run_python_strategy`, `optimize_parameters`, `run_walk_forward`,
+  `run_monte_carlo`, `run_sensitivity_analysis`, `run_robustness_analysis`.
+  The Backtest screen gains a **Data source** selector (declared datasets with a
+  connector attached), typed in `src/lib/backtest/backtest-client.ts` and
+  forwarded by `POST /quant/backtest` / `portfolio-backtest`.
+  Docs updated: `docs/quant-engine.md`, `docs/harness/tool-registry.json`
+  (regenerated), `docs/CHANGELOG.md`.
+
 - **fix(release): the packaged smoke gate now waits as long as the runtime is
   allowed, and reports why.** v0.4.4–v0.4.7 could not publish: the Windows and
   macOS builds failed `Smoke test` with "the Python runtime never became healthy
@@ -36,6 +57,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `/health/live` 200 and `/api/harness/model-runtime/health` returns 200.
   Docs updated: `docs/ARCHITECTURE.md`, `docs/onboarding-plan.md`,
   `docs/CHANGELOG.md`.
+
+- **chore(issues): backlog triaged on the renamed remote.** Filed six issues on
+  `dumbpabloo/BlackEclipse-V1.0` (#15–#20) from an audit of the tree: Eclipse
+  as an MCP server is implemented and tested but no transport is ever mounted
+  (`mcp/server_exposure.py::build_asgi_app` has no caller); non-text MCP results
+  are flattened to metadata; the MCP authorization-code OAuth leg still needs a
+  manual https step; the per-run call budget falls back to one shared
+  `"anonymous"` bucket and truncation names no tools; five stale PRs (#10–#14)
+  need triage; and `screens/settings.tsx` (1,023 lines) still holds its tab
+  bodies inline. No code changed — `npx tsc --noEmit` was clean before filing.
+  no doc change — issue tracker only.
 
 - **release: cut v0.4.6.** Carries the first-run setup fix: a new install no
   longer mounts the streaming app shell behind the wizard (the cause of the
@@ -86,11 +118,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **feat(setup): the first run now competes with nothing, and every failure is
   actionable.** Follow-up to the fix above, so a cold or loaded machine cannot
   reproduce a setup stall through a different door:
-  - `instrumentation.ts` defers the whole background boot pipeline (Python
-    pre-start, universe seed, market warm-up, news/Investor-Eye ingests,
-    schedules, daily backup) until `onboarding_v1.completed` is set (2 s poll,
-    30 min cap). A new install can only see the wizard, so none of that work is
-    visible — it was only competing for CPU, SQLite and network.
+  - `instrumentation.ts` defers the heavy half of the background boot pipeline
+    (universe seed, market warm-up, news/Investor-Eye ingests, schedules, daily
+    backup) until `onboarding_v1.completed` is set (2 s poll, 30 min cap), after
+    the cheap essentials. The Python runtime warm-up deliberately still runs
+    during setup: its first import from a cold payload measured over three
+    minutes, and deferring it moved that cold start onto the first chat after
+    setup (and failed the packaged release smoke). A new install can only see
+    the wizard, so the deferred jobs were only competing for CPU, SQLite and
+    network.
   - `src/components/layout/app-activity.tsx` holds back every app-wide poller,
     stream, update check and shell guard while `page.tsx` withholds the shell;
     the wizard is the only client traffic on a first run.

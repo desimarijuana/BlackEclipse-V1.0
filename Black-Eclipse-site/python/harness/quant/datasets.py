@@ -1,8 +1,13 @@
-"""Resolve a backtest dataset from the Market Data Gateway.
+"""Resolve a backtest dataset from the Market Data Gateway or a declared source.
 
 The engine never calls a provider: this adapter asks the gateway (which routes,
 paces, normalizes and quality-checks) for a normalized `HistoricalPriceSeries`
 per symbol/timeframe and packs the results into the engine's `MarketDataset`.
+
+A caller may instead NAME an operator-declared dataset (Settings -> Data
+Sources, `custom_dataset_records`). That path is exclusive: it never mixes with
+the market providers and there is no fallback, so a result is always built on
+the data the caller actually asked for. See `custom_source.py`.
 
 An unavailable symbol/timeframe is an honest, typed error — never a fabricated
 series. Confirmation timeframes that the providers cannot supply are simply
@@ -14,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ..market.errors import MarketError
+from .custom_source import fetch_custom_series, normalize_data_source
 from .data import BarSeries, MarketDataset, series_from_historical, series_from_rows
 from .errors import InvalidSymbol, MissingData, UnsupportedTimeframe
 from .strategy import StrategySpec
@@ -27,7 +33,17 @@ async def fetch_series(
     start: Optional[str] = None,
     end: Optional[str] = None,
     adjusted: bool = True,
+    data_source: Optional[dict[str, Any]] = None,
+    bridge: Any = None,
 ) -> BarSeries:
+    # A named operator dataset is the ONLY source for this series. No gateway
+    # call, no cache lookup, no fallback: the caller asked for their own data.
+    if data_source:
+        source = normalize_data_source(data_source)
+        return await fetch_custom_series(
+            bridge, source, symbol, interval, start=start, end=end
+        )
+
     # The DURABLE cache comes first: history the runtime has already paid for
     # is kept on this machine, so a repeat run is served from it and the whole
     # stack (the backtest, the regimes, the Monte-Carlo, Pine, the trade-log
@@ -86,6 +102,8 @@ async def resolve_dataset(
     start: Optional[str] = None,
     end: Optional[str] = None,
     adjusted: bool = True,
+    data_source: Optional[dict[str, Any]] = None,
+    bridge: Any = None,
 ) -> MarketDataset:
     confirmation = confirmation or []
     for tf in confirmation:
@@ -97,12 +115,14 @@ async def resolve_dataset(
     higher: dict[tuple[str, str], BarSeries] = {}
     for symbol in symbols:
         series[symbol] = await fetch_series(
-            gateway, symbol, interval=primary, start=start, end=end, adjusted=adjusted
+            gateway, symbol, interval=primary, start=start, end=end, adjusted=adjusted,
+            data_source=data_source, bridge=bridge,
         )
         for tf in confirmation:
             try:
                 higher[(symbol, tf)] = await fetch_series(
-                    gateway, symbol, interval=tf, start=start, end=end, adjusted=adjusted
+                    gateway, symbol, interval=tf, start=start, end=end, adjusted=adjusted,
+                    data_source=data_source, bridge=bridge,
                 )
             except (MissingData, InvalidSymbol):
                 # Confirmation data is optional; the engine warns when it is absent.
@@ -118,11 +138,17 @@ async def dataset_from_strategy(
     end: Optional[str] = None,
     symbols: Optional[list[str]] = None,
     adjusted: bool = True,
+    data_source: Optional[dict[str, Any]] = None,
+    bridge: Any = None,
 ) -> MarketDataset:
     selected = [s.upper() for s in (symbols or strategy.universe.symbols)]
+    # An explicit call argument wins; otherwise a strategy may PIN its source in
+    # `metadata.dataSource` so a saved strategy reproduces on its own data.
+    source = data_source if data_source is not None else strategy.metadata.get("dataSource")
     return await resolve_dataset(
         gateway, selected, primary=strategy.timeframes.primary,
-        confirmation=strategy.timeframes.confirmation, start=start, end=end, adjusted=adjusted,
+        confirmation=strategy.timeframes.confirmation, start=start, end=end,
+        adjusted=adjusted, data_source=source, bridge=bridge,
     )
 
 

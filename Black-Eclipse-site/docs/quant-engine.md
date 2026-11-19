@@ -1,7 +1,7 @@
 ---
 title: Quant Engine — Trading, Backtesting & Research
 status: Current
-last-verified: 2026-11-10
+last-verified: 2026-11-18
 ---
 
 # Quant Engine — Trading, Backtesting & Research
@@ -47,6 +47,7 @@ market data → indicator context → signal (rules) → risk → order
 | Causal indicators (EMA/SMA/RSI/ATR/MACD/Bollinger/…) | `quant/indicators.py` |
 | Market-data adapter, point-in-time dataset, quality checks, MTF alignment | `quant/data.py` |
 | Gateway → dataset resolution | `quant/datasets.py` |
+| Operator-declared dataset → dataset resolution (their own REST API) | `quant/custom_source.py` |
 | Order lifecycle + state machine | `quant/orders.py` |
 | Commission / slippage / spread / impact / latency | `quant/execution.py` |
 | Position sizing methods | `quant/sizing.py` |
@@ -112,6 +113,46 @@ market data → indicator context → signal (rules) → risk → order
    higher bar's close is at or before the primary bar's close
    (`data.align_higher_to_primary`). Confirmation indicators are namespaced
    `key@tf`; higher-TF price fields are exposed as `close@tf`, etc.
+
+## Data sources — built-in providers vs. your own dataset
+
+A run has exactly one origin. By default it is the Market Data Gateway (the
+provider router). A caller may instead name a dataset the operator declared in
+**Settings → Data Sources** (`Custom REST API`: their own endpoint + key, mapped
+into a dataset and read through the bridge capability
+`custom_dataset_records`).
+
+The contract (`quant/custom_source.py` + `quant/datasets.py`):
+
+1. **Exclusive, never mixed.** Naming a `dataSource` bypasses the gateway and its
+   durable history cache entirely. One run never blends operator data with
+   provider data.
+2. **No fallback.** A source that cannot be read is `CUSTOM_SOURCE_UNAVAILABLE`
+   (bridge/dataset/fetch) or `MISSING_DATA` (no usable rows), and the run stops.
+   Silently switching providers would report a result built on data the caller
+   did not choose.
+3. **The window is enforced locally.** `start`/`end` are passed to the source as
+   `from`/`to` *and* re-applied to the returned rows, so an endpoint that ignores
+   them cannot widen a backtest.
+4. **Declared shape only.** Records are mapped to
+   `timestamp/open/high/low/close/volume` (common aliases such as `time`, `o`,
+   `c`, `v` are accepted). Rows without a timestamp + close are reported as
+   unusable — never inferred.
+5. **Provenance is stamped.** `result.metadata.dataSource` records
+   `{kind: "custom", dataset, provenance: "operator_declared", verified: false}`
+   and a `CUSTOM_DATA_SOURCE` warning is appended, so a run on user data can
+   never be mistaken for Eclipse-verified market data.
+
+Surface: `run_backtest`, `run_portfolio_backtest`, `run_python_strategy`,
+`optimize_parameters`, `run_walk_forward`, `run_monte_carlo`,
+`run_sensitivity_analysis` and `run_robustness_analysis` accept
+`dataSource: {dataset, values?}`. A strategy may also pin
+`metadata.dataSource` (the tool argument wins). The Backtest screen's
+**Data source** selector sends the same object through
+`POST /quant/backtest` / `POST /quant/portfolio-backtest` (typed in
+`src/lib/backtest/backtest-client.ts`), listing only datasets that have a
+connector attached. Other quant tools read the gateway only and do not accept
+the parameter.
 
 ## Execution model
 

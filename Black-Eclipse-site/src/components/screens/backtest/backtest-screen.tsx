@@ -23,6 +23,14 @@ import {
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 
+/** A dataset declared in Settings -> Data Sources (GET /api/datasets). */
+interface DeclaredDataset {
+  id: string;
+  name: string;
+  connectorId: string | null;
+  recordCount: number;
+}
+
 const SAMPLE_STRATEGY = {
   strategy: { id: 'ema_cross_demo', name: 'EMA Cross (demo)', version: '1.0.0' },
   universe: { asset_classes: ['crypto'], symbols: ['BTC-USD'] },
@@ -110,6 +118,26 @@ export function BacktestScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [bgMode, setBgMode] = useState(true);
+  // Datasets the operator declared in Settings -> Data Sources. Only ones with
+  // an attached connector can be pulled live (the backtester reads through it).
+  const [datasets, setDatasets] = useState<DeclaredDataset[]>([]);
+  const [dataSourceName, setDataSourceName] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/datasets')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: { datasets?: DeclaredDataset[] } | null) => {
+        if (cancelled || !payload?.datasets) return;
+        setDatasets(payload.datasets.filter((d) => Boolean(d.connectorId)));
+      })
+      .catch(() => {
+        // An unreadable list is not an error here: the built-in providers work.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (state.selected) {
@@ -148,11 +176,12 @@ export function BacktestScreen() {
       initialCapital: capital,
       save: true,
       background: bgMode,
+      dataSource: dataSourceName ? { dataset: dataSourceName } : undefined,
     });
     if (result && result.status === 'OK' && !result.trades.length) {
       setNotice('The run completed with no trades (check history length, warm-up and rule thresholds).');
     }
-  }, [parseSpec, symbols, start, end, capital, commission, slippage, spread, state, bgMode]);
+  }, [parseSpec, symbols, start, end, capital, commission, slippage, spread, state, bgMode, dataSourceName]);
 
   const handleSave = useCallback(async () => {
     setFormError(null);
@@ -259,6 +288,28 @@ export function BacktestScreen() {
               placeholder="BTC-USD, ETH-USD"
               className="glass-card-subtle rounded-lg px-2 py-1.5 font-mono text-xs text-foreground outline-none" />
           </label>
+
+          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Data source
+            <select
+              value={dataSourceName}
+              onChange={(e) => setDataSourceName(e.target.value)}
+              className="glass-card-subtle rounded-lg px-2 py-1.5 text-xs text-foreground outline-none"
+            >
+              <option value="">Built-in market providers</option>
+              {datasets.map((d) => (
+                <option key={d.id} value={d.name}>
+                  {d.name}{d.recordCount ? ` · ${d.recordCount.toLocaleString()} records` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {dataSourceName && (
+            <p className="rounded-lg border border-amber-500/30 px-2 py-1.5 text-[10px] text-amber-300">
+              Bars come from your declared dataset &ldquo;{dataSourceName}&rdquo;, not from
+              Eclipse&apos;s verified market providers. The run uses this source only.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">

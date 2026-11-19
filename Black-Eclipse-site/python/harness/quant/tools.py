@@ -27,6 +27,7 @@ from . import StrategySpec, parse_strategy, validate_strategy
 from .bundle import bundle_to_bytes, export_bundle, import_bundle, write_bundle
 from .compiler import compile_graph
 from .copilot_tools import COPILOT_TOOLS, register_copilot_tools
+from .custom_source import normalize_data_source, stamp_provenance
 from .datasets import dataset_from_strategy, resolve_dataset
 from .desk_tools import DESK_TOOLS, register_desk_tools
 from .discovery_tools import DISCOVERY_TOOLS, register_discovery_tools
@@ -100,6 +101,43 @@ def _gateway(ctx: Any):
     from ..market.tools import _gateway as market_gateway  # noqa: PLC0415
 
     return market_gateway(ctx)
+
+
+def _data_source(strategy: Optional[StrategySpec], args: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The data source this call must use, or None for the market gateway.
+
+    Precedence: the tool argument, then a source PINNED on the strategy itself
+    (`metadata.dataSource`). A malformed value raises `INVALID_DATA_SOURCE`;
+    it is never dropped, because that would run the backtest on data the caller
+    did not choose.
+    """
+    raw = args.get("dataSource")
+    if raw is None:
+        raw = args.get("data_source")
+    if raw is None and strategy is not None:
+        raw = (strategy.metadata or {}).get("dataSource")
+    return normalize_data_source(raw)
+
+
+async def _dataset_for(
+    ctx: Any,
+    strategy: StrategySpec,
+    args: dict[str, Any],
+    source: Optional[dict[str, Any]],
+    *,
+    symbols: Optional[list[str]] = None,
+):
+    """Resolve the dataset for a call, honouring the declared source."""
+    return await dataset_from_strategy(
+        _gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
+        symbols=symbols if symbols is not None else args.get("symbols"),
+        data_source=source, bridge=getattr(ctx, "data_bridge", None),
+    )
+
+
+def _stamp_source(result: Any, source: Optional[dict[str, Any]]) -> None:
+    """Record provenance for a run built on a declared source (see custom_source)."""
+    stamp_provenance(result, source)
 
 
 def _err(exc: Exception) -> tuple[str, Any]:
@@ -180,10 +218,17 @@ async def _persist(result: BacktestResult, strategy: StrategySpec, store, kind: 
 BACKTEST_TIMEOUT_S = 300
 
 
-async def _run_one(strategy: StrategySpec, gateway, args: dict[str, Any]) -> BacktestResult:
+async def _run_one(
+    strategy: StrategySpec,
+    gateway,
+    args: dict[str, Any],
+    *,
+    data_source: Optional[dict[str, Any]] = None,
+    bridge: Any = None,
+) -> BacktestResult:
     dataset = await dataset_from_strategy(
         gateway, strategy, start=args.get("start"), end=args.get("end"),
-        symbols=args.get("symbols"),
+        symbols=args.get("symbols"), data_source=data_source, bridge=bridge,
     )
     cfg = BacktestConfig(
         initial_capital=float(args.get("initialCapital") or 100_000.0),
@@ -410,8 +455,10 @@ async def run_python_strategy(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
                                                   "message": "symbols required"}})
         interval = str(args.get("interval") or "1d")
         start, end = args.get("start"), args.get("end")
+        source = _data_source(None, args)
         dataset = await resolve_dataset(
-            _gateway(ctx), symbols, primary=interval, start=start, end=end)
+            _gateway(ctx), symbols, primary=interval, start=start, end=end,
+            data_source=source, bridge=getattr(ctx, "data_bridge", None))
         rows = _series_rows(dataset)
         timeout_s = min(300.0, float(args.get("timeoutSeconds") or 60.0))
         result, err = await asyncio.to_thread(
@@ -428,6 +475,7 @@ async def run_python_strategy(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
             return (f"ERROR — {err.get('code')}: {err.get('message')}",
                     {"status": "ERROR", "error": err})
         assert result is not None
+        _stamp_source(result, source)
         exp_id = None
         if _flag(args, "save", True):
             exp_id = store.save_experiment(
@@ -565,7 +613,12 @@ async def run_backtest_tool(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         store = _store(ctx)
         spec = store.get_strategy(str(args.get("strategyId")), args.get("version"))["spec"]
         strategy = StrategySpec.model_validate(spec)
-        result = await _run_one(strategy, _gateway(ctx), args)
+        source = _data_source(strategy, args)
+        result = await _run_one(
+            strategy, _gateway(ctx), args,
+            data_source=source, bridge=getattr(ctx, "data_bridge", None),
+        )
+        _stamp_source(result, source)
         exp_id = await _persist(result, strategy, store, "backtest") if _flag(args, "save", True) else None
         return (_render_result(result, exp_id), _result_data(result, exp_id))
     except Exception as exc:  # noqa: BLE001
@@ -588,9 +641,24 @@ async def run_portfolio_backtest_tool(args: dict[str, Any], ctx: Any) -> tuple[s
                     {"status": "ERROR", "error": {"message": "primary timeframe mismatch"}})
         primary = strategies[0].timeframes.primary
         confirmation = sorted({tf for strat in strategies for tf in strat.timeframes.confirmation})
+        source = _data_source(None, args)
+        if source is None:
+            pinned = [
+                normalize_data_source((strat.metadata or {}).get("dataSource"))
+                for strat in strategies
+            ]
+            pinned = [item for item in pinned if item]
+            if len({item["dataset"] for item in pinned}) > 1:
+                return ("ERROR — the strategies pin different custom data sources; pass one "
+                        "`dataSource` for the portfolio run.",
+                        {"status": "ERROR",
+                         "error": {"code": "INVALID_DATA_SOURCE",
+                                   "message": "conflicting pinned data sources"}})
+            source = pinned[0] if pinned else None
         dataset = await resolve_dataset(
             _gateway(ctx), symbols, primary=primary, confirmation=confirmation,
-            start=start, end=end,
+            start=start, end=end, data_source=source,
+            bridge=getattr(ctx, "data_bridge", None),
         )
         cfg = BacktestConfig(
             initial_capital=float(args.get("initialCapital") or 100_000.0),
@@ -598,6 +666,7 @@ async def run_portfolio_backtest_tool(args: dict[str, Any], ctx: Any) -> tuple[s
             random_seed=int(args.get("randomSeed") or 42),
         )
         result = run_portfolio_backtest(strategies, dataset, cfg)
+        _stamp_source(result, source)
         exp_id = None
         if _flag(args, "save", True):
             exp_id = store.save_experiment(
@@ -827,9 +896,8 @@ async def optimize_parameters(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
         store = _store(ctx)
         strategy = await _load_strategy(store, args)
         space = ParamSpace.from_dict(args.get("paramSpace") or {})
-        dataset = await dataset_from_strategy(
-            _gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
-            symbols=args.get("symbols"))
+        source = _data_source(strategy, args)
+        dataset = await _dataset_for(ctx, strategy, args, source)
         config = OptimizationConfig(
             method=str(args.get("method") or "random"),
             objective=str(args.get("objective") or "sharpe"),
@@ -841,6 +909,7 @@ async def optimize_parameters(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
             start=args.get("start"), end=args.get("end"), symbols=args.get("symbols"),
         )
         result = OptimizationEngine(strategy, dataset, space, config).run()
+        _stamp_source(result, source)
         exp_id = store.save_experiment(
             result, strategy_id=strategy.id, strategy_version=strategy.version,
             kind="optimization") if _flag(args, "save", True) else None
@@ -853,9 +922,8 @@ async def run_walk_forward(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     try:
         store = _store(ctx)
         strategy = await _load_strategy(store, args)
-        dataset = await dataset_from_strategy(
-            _gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
-            symbols=args.get("symbols"))
+        source = _data_source(strategy, args)
+        dataset = await _dataset_for(ctx, strategy, args, source)
         config = WalkForwardConfig(
             train_bars=int(args.get("trainBars") or 250),
             test_bars=int(args.get("testBars") or 60),
@@ -870,6 +938,7 @@ async def run_walk_forward(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             anchored=bool(args.get("anchored", False)),
         )
         result = WalkForwardEngine(strategy, dataset, config).run()
+        _stamp_source(result, source)
         exp_id = store.save_experiment(
             result, strategy_id=strategy.id, strategy_version=strategy.version,
             kind="walk_forward") if _flag(args, "save", True) else None
@@ -882,9 +951,8 @@ async def run_monte_carlo(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     try:
         store = _store(ctx)
         strategy = await _load_strategy(store, args)
-        dataset = await dataset_from_strategy(
-            _gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
-            symbols=args.get("symbols"))
+        source = _data_source(strategy, args)
+        dataset = await _dataset_for(ctx, strategy, args, source)
         config = MonteCarloConfig(
             method=str(args.get("method") or "trade_reshuffle"),
             simulations=int(args.get("simulations") or 1000),
@@ -897,6 +965,7 @@ async def run_monte_carlo(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             risk_free_rate=float(args.get("riskFreeRate") or 0.0),
         )
         result = MonteCarloEngine(strategy, dataset, config).run()
+        _stamp_source(result, source)
         exp_id = store.save_experiment(
             result, strategy_id=strategy.id, strategy_version=strategy.version,
             kind="monte_carlo") if _flag(args, "save", True) else None
@@ -909,9 +978,8 @@ async def run_sensitivity_analysis(args: dict[str, Any], ctx: Any) -> tuple[str,
     try:
         store = _store(ctx)
         strategy = await _load_strategy(store, args)
-        dataset = await dataset_from_strategy(
-            _gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
-            symbols=args.get("symbols"))
+        source = _data_source(strategy, args)
+        dataset = await _dataset_for(ctx, strategy, args, source)
         config = SensitivityConfig(
             param_ranges=args.get("paramRanges") or {},
             objective=str(args.get("objective") or "sharpe"),
@@ -920,6 +988,7 @@ async def run_sensitivity_analysis(args: dict[str, Any], ctx: Any) -> tuple[str,
             seed=int(args.get("seed") or 42),
         )
         result = SensitivityEngine(strategy, dataset, config).run()
+        _stamp_source(result, source)
         exp_id = store.save_experiment(
             result, strategy_id=strategy.id, strategy_version=strategy.version,
             kind="sensitivity") if _flag(args, "save", True) else None
@@ -932,9 +1001,8 @@ async def run_robustness_analysis(args: dict[str, Any], ctx: Any) -> tuple[str, 
     try:
         store = _store(ctx)
         strategy = await _load_strategy(store, args)
-        dataset = await dataset_from_strategy(
-            _gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
-            symbols=args.get("symbols"))
+        source = _data_source(strategy, args)
+        dataset = await _dataset_for(ctx, strategy, args, source)
         config = RobustnessConfig(
             param_ranges=args.get("paramRanges") or {},
             objective=str(args.get("objective") or "sharpe"),
@@ -945,6 +1013,7 @@ async def run_robustness_analysis(args: dict[str, Any], ctx: Any) -> tuple[str, 
             seed=int(args.get("seed") or 42),
         )
         result = RobustnessEngine(strategy, dataset, config).run()
+        _stamp_source(result, source)
         exp_id = store.save_experiment(
             result, strategy_id=strategy.id, strategy_version=strategy.version,
             kind="robustness") if _flag(args, "save", True) else None
@@ -954,6 +1023,24 @@ async def run_robustness_analysis(args: dict[str, Any], ctx: Any) -> tuple[str, 
 
 
 # ── Registration ─────────────────────────────────────────────────────────────
+
+_DATA_SOURCE_INPUT = {
+    "type": "object",
+    "description": (
+        "Read bars from a dataset the operator declared in Settings -> Data Sources "
+        "(their own REST API + key) instead of the built-in market providers. The "
+        "source is exclusive: nothing is mixed in and there is no silent fallback, "
+        "so the run uses this source or fails honestly."
+    ),
+    "properties": {
+        "dataset": {"type": "string", "description":
+                    "Dataset name exactly as it appears in Settings -> Data Sources."},
+        "values": {"type": "object", "description":
+                   "Extra values for the dataset's declared parameters. symbol, interval, "
+                   "start and end are supplied automatically; unused values are ignored."},
+    },
+    "required": ["dataset"],
+}
 
 _STRATEGY_INPUT = {"type": "object", "properties": {
     "strategy": STRATEGY_SCHEMA,
@@ -1062,17 +1149,21 @@ def register_quant_tools(registry: Any) -> list[str]:
              "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
              "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"},
              "randomSeed": {"type": "integer"}, "params": {"type": "object"},
-             "timeoutSeconds": {"type": "number"}, "save": {"type": "boolean"}},
+             "timeoutSeconds": {"type": "number"}, "save": {"type": "boolean"},
+             "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyCode", "symbols"]}, 180_000, long_running=True)
     _def("run_backtest",
          "Run a deterministic event-driven backtest for a persisted strategy over real "
-         "historical data, apply commission/slippage/spread/latency, and persist an experiment.",
+         "historical data, apply commission/slippage/spread/latency, and persist an experiment. "
+         "Pass `dataSource` to run on the operator's own declared dataset instead of the "
+         "built-in market providers.",
          run_backtest_tool, {"type": "object", "properties": {
              "strategyId": {"type": "string"}, "version": {"type": "string"},
              "symbols": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
              "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"},
-             "randomSeed": {"type": "integer"}, "save": {"type": "boolean"}},
+             "randomSeed": {"type": "integer"}, "save": {"type": "boolean"},
+             "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyId"]}, 120_000, long_running=True)
     _def("run_portfolio_backtest",
          "Run several strategies over ONE shared portfolio (shared cash + risk).",
@@ -1080,7 +1171,8 @@ def register_quant_tools(registry: Any) -> list[str]:
              "strategyIds": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
              "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"},
-             "randomSeed": {"type": "integer"}, "save": {"type": "boolean"}},
+             "randomSeed": {"type": "integer"}, "save": {"type": "boolean"},
+             "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyIds"]}, 120_000, long_running=True)
     _def("calculate_metrics",
          "Return the computed metric set (with definitions) for a stored experiment.",
@@ -1141,7 +1233,7 @@ def register_quant_tools(registry: Any) -> list[str]:
              "symbols": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
              "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"},
-             "save": {"type": "boolean"}}, "required": ["strategyId", "paramSpace"]},
+             "save": {"type": "boolean"}, "dataSource": _DATA_SOURCE_INPUT}, "required": ["strategyId", "paramSpace"]},
          120_000, long_running=True)
     _def("run_walk_forward",
          "Walk-forward analysis: optimize on each training window (only), evaluate on the unseen "
@@ -1156,7 +1248,7 @@ def register_quant_tools(registry: Any) -> list[str]:
              "seed": {"type": "integer"}, "anchored": {"type": "boolean"},
              "symbols": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
-             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
+             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}, "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyId", "paramSpace", "trainBars", "testBars"]},
          120_000, long_running=True)
     _def("run_monte_carlo",
@@ -1173,7 +1265,7 @@ def register_quant_tools(registry: Any) -> list[str]:
              "perturbation": {"type": "object"}, "executionPerturbation": {"type": "object"},
              "symbols": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
-             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
+             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}, "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyId"]}, 120_000, long_running=True)
     _def("run_sensitivity_analysis",
          "Sweep one parameter at a time and report the objective curve, best value, collapse and "
@@ -1184,7 +1276,7 @@ def register_quant_tools(registry: Any) -> list[str]:
              "seed": {"type": "integer"},
              "symbols": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
-             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
+             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}, "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyId", "paramRanges"]}, 120_000, long_running=True)
     register_copilot_tools(registry)
     register_strategy_ops_tools(registry)
@@ -1215,7 +1307,7 @@ def register_quant_tools(registry: Any) -> list[str]:
              "minTrades": {"type": "integer"}, "seed": {"type": "integer"},
              "symbols": {"type": "array", "items": {"type": "string"}},
              "start": {"type": "string"}, "end": {"type": "string"},
-             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}},
+             "initialCapital": {"type": "number"}, "save": {"type": "boolean"}, "dataSource": _DATA_SOURCE_INPUT},
              "required": ["strategyId"]}, 120_000, long_running=True)
 
     return list(QUANT_TOOLS)
