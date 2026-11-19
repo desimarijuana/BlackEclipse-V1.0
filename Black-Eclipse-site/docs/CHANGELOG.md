@@ -6,6 +6,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **perf(release): publish what builds, and make a Windows-only run cheap.**
+  A red macOS job used to block the Windows and Linux installers from
+  publishing, and every attempt paid for three full payload builds. The release
+  workflow now:
+  - runs the `release` job with `always()` and refuses only when there is **no**
+    installer at all, so a failing platform no longer withholds the others;
+  - treats the macOS smoke as advisory (`continue-on-error`) with a 15-minute
+    step timeout — the run still records it, and the smoke prints the runtime's
+    own log lines;
+  - caches `Black-Eclipse-site/.next/cache` per runner, so a tag build reuses
+    the previous compile (the payload build is the 6–8 minute step);
+  - accepts a `workflow_dispatch` `only` input (`windows-latest` etc.) to build
+    one platform in ~20 minutes while iterating, while tag pushes still build
+    all three (`!inputs.only`).
+  Docs updated: `docs/CHANGELOG.md`.
+
 - **release: cut v0.4.11.** Build budgets only: 12 GB heap for the Windows
   payload build and the runtime's 600 s cold-start budget with a 420 s smoke
   wait (plus first-harness-line evidence). The runtime itself is unchanged;
