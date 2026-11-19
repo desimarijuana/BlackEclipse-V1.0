@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/dialog';
 import { BotChat } from '@/components/bots/bot-chat';
 import { CreateBotDialog } from '@/components/bots/create-bot-dialog';
+import { DeskBuilderDialog } from '@/components/bots/desk-builder-dialog';
+import { DeskRoom } from '@/components/bots/desk-room';
 import { GroupChatDialog } from '@/components/bots/group-chat-dialog';
 import { GroupChatRoom } from '@/components/bots/group-chat-room';
 import { InstitutionRunDialog } from '@/components/bots/institution-run-dialog';
@@ -23,6 +25,7 @@ import {
   deleteAutomation, runAutomationNow,
   type AutomationView,
 } from '@/lib/harness/clients/automation-browser';
+import { isDesk } from '@/lib/bots/desk';
 import { duplicateBot } from '@/lib/bots/duplicate';
 import { useSeedFinancePack } from '@/lib/bots/finance-bots';
 import { useSeedEur1mBot } from '@/lib/bots/trading/eur-1m-seed';
@@ -59,6 +62,8 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [institutionOpen, setInstitutionOpen] = useState(false);
+  const [deskOpen, setDeskOpen] = useState(false);
+  const [editDesk, setEditDesk] = useState<AutomationView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AutomationView | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -211,23 +216,40 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
             onChanged={() => void hydrate()}
           />
         ) : selectedBot ? (
-          <BotChat
-            key={selectedBot.id}
-            bot={selectedBot}
-            active={active}
-            busy={busyId === selectedBot.id}
-            onClose={() => select(null)}
-            onChanged={() => void hydrate()}
-            onRunNow={(bot) => runNow(bot)}
-            refreshKey={runKey}
-            onDuplicate={(bot) => runAction(bot.id, () => duplicateBot(bot))}
-            onDelete={(bot) => setDeleteTarget(bot)}
-          />
+          isDesk(selectedBot) ? (
+            <DeskRoom
+              key={selectedBot.id}
+              bot={selectedBot}
+              onClose={() => select(null)}
+              onChanged={() => void hydrate()}
+              onEdit={(desk) => {
+                setEditDesk(desk);
+                setDeskOpen(true);
+              }}
+            />
+          ) : (
+            <BotChat
+              key={selectedBot.id}
+              bot={selectedBot}
+              active={active}
+              busy={busyId === selectedBot.id}
+              onClose={() => select(null)}
+              onChanged={() => void hydrate()}
+              onRunNow={(bot) => runNow(bot)}
+              refreshKey={runKey}
+              onDuplicate={(bot) => runAction(bot.id, () => duplicateBot(bot))}
+              onDelete={(bot) => setDeleteTarget(bot)}
+            />
+          )
         ) : (
           <CenterEmpty
             onCreate={openCreate}
             onCreateGroup={openGroupCreate}
             onInstitution={() => setInstitutionOpen(true)}
+            onCreateDesk={() => {
+              setEditDesk(null);
+              setDeskOpen(true);
+            }}
           />
         )}
       </div>
@@ -247,6 +269,21 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
         onOpenChange={setInstitutionOpen}
         existingBots={bots}
         onSeeded={() => void hydrate()}
+      />
+
+      {/* New / edit desk — a user-authored team run stored on a bot. */}
+      <DeskBuilderDialog
+        open={deskOpen}
+        onOpenChange={(open) => {
+          setDeskOpen(open);
+          if (!open) setEditDesk(null);
+        }}
+        desk={editDesk}
+        bots={bots}
+        onSaved={(saved) => {
+          void hydrate();
+          select(saved.id);
+        }}
       />
 
       {/* New group chat — pick 2–6 bots. */}
@@ -284,11 +321,12 @@ function recency(bot: AutomationView): number {
 }
 
 function CenterEmpty({
-  onCreate, onCreateGroup, onInstitution,
+  onCreate, onCreateGroup, onInstitution, onCreateDesk,
 }: {
   onCreate: () => void;
   onCreateGroup: () => void;
   onInstitution: () => void;
+  onCreateDesk: () => void;
 }) {
   const t = useT();
   const { seed, busy, error } = useSeedFinancePack();
@@ -309,6 +347,9 @@ function CenterEmpty({
         </Button>
         <Button variant="outline" onClick={onCreateGroup}>
           <Users size={14} /> {t('bots.groups.new')}
+        </Button>
+        <Button variant="outline" onClick={onCreateDesk}>
+          <Users size={14} /> New desk
         </Button>
         <Button variant="outline" onClick={() => void seed()} disabled={busy}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}

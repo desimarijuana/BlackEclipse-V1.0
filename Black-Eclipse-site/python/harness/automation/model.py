@@ -206,7 +206,10 @@ class ExecutionPolicy(BaseModel):
 
     model_config = _CAMEL
 
-    max_runtime_s: int = Field(900, ge=5, le=86_400)
+    # Same 20-minute floor as one chat turn (`DEFAULT_CHAT_RUN_TIMEOUT_S`): a
+    # scheduled bot doing the same research must not be cut five minutes earlier
+    # just because it runs in the background. The operator can raise it to a day.
+    max_runtime_s: int = Field(1200, ge=5, le=86_400)
     # A fire missed while the app was CLOSED runs once when the app returns —
     # never silently dropped. `skip` (the old default) discarded every scheduled
     # run whenever Eclipse wasn't open at the exact minute, so a daily bot never

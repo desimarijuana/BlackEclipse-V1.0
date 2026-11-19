@@ -451,7 +451,9 @@ export function emptyBotDraft(): BotDraft {
     onConflict: 'skip_if_running',
     maxRuns: 1,
     maxAttempts: 1,
-    maxRuntimeS: 900,
+    // Matches one chat turn's 20-minute wall clock, so a scheduled bot is not
+    // cut earlier than the same work in chat (`DEFAULT_CHAT_RUN_TIMEOUT_S`).
+    maxRuntimeS: 1200,
     modelProvider: '',
     model: '',
   };
@@ -604,6 +606,18 @@ export function validateDraft(draft: BotDraft, knownAgentIds?: readonly string[]
   if (draft.schedule === 'cron') {
     const parts = draft.cron.trim().split(/\s+/);
     if (parts.length !== 5) issues.push({ field: 'cron', message: 'A cron schedule has five fields.' });
+  }
+  if (draft.schedule === 'event') {
+    const name = (draft.eventType ?? '').trim();
+    if (!name || !/^[a-z0-9_]+(\.[a-z0-9_]+)+$/i.test(name)) {
+      issues.push({
+        field: 'eventType',
+        message: 'An event needs a dotted name, e.g. automation.completed.',
+      });
+    }
+  }
+  if (draft.schedule === 'condition' && !(draft.condition?.expression ?? '').trim()) {
+    issues.push({ field: 'condition', message: 'Write the condition the bot waits for.' });
   }
   return issues;
 }

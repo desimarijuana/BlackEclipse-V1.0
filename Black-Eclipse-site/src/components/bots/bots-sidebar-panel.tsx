@@ -24,6 +24,7 @@ import {
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotChatStore } from '@/lib/bots/chat-store';
+import { isDesk } from '@/lib/bots/desk';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { duplicateBot } from '@/lib/bots/duplicate';
@@ -357,9 +358,11 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
             const unread = isUnread(bot.id);
             const subtitle = live
               ? executionLabel(live.state)
-              : bot.state === 'active'
-                ? t('bots.state.active')
-                : bot.state;
+              : isDesk(bot)
+                ? 'desk'
+                : bot.state === 'active'
+                  ? t('bots.state.active')
+                  : bot.state;
             return (
               <li
                 key={bot.id}

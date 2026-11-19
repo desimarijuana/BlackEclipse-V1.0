@@ -251,6 +251,28 @@ export async function getTeamRun(runId: string): Promise<TeamStatusView> {
   return data.teamRun;
 }
 
+/** Resolve a desk's stage timeline from its automation execution's run id. */
+export async function getTeamRunByRoot(rootRunId: string): Promise<TeamStatusView> {
+  const data = await call<{ teamRun: TeamStatusView }>(
+    `/runs/by-root/${encodeURIComponent(rootRunId)}`,
+  );
+  return data.teamRun;
+}
+
+export interface TeamValidateResult {
+  errors: string[];
+  stages: string[];
+}
+
+/** Every reason a team cannot run (the server is the only gate). */
+export async function validateTeam(team: TeamDefinitionView): Promise<TeamValidateResult> {
+  const data = await call<{ errors?: string[]; stages?: string[] }>("/validate", {
+    method: "POST",
+    body: JSON.stringify({ team }),
+  });
+  return { errors: data.errors ?? [], stages: data.stages ?? [] };
+}
+
 export async function getTeamResult(runId: string): Promise<string> {
   const data = await call<{ result: string }>(`/runs/${runId}/result`);
   return data.result;

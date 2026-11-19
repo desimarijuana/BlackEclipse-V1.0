@@ -1,7 +1,7 @@
 ---
 title: Bots Mode
 status: Current
-last-verified: 2026-11-17
+last-verified: 2026-11-18
 ---
 
 # Bots Mode
@@ -124,6 +124,40 @@ panel, type the consent phrase once (demo or live), and from then on it renews i
 own bounded mandate — no repeated phrases. Live additionally needs tier L2 and an
 armed connection.
 
+## Desks (a saved team run)
+
+A **desk** is a bot whose brain is a team, not a single agent:
+`action.type = "run_team"` with `action.config.team` holding the
+`TeamDefinition`, tagged `bot` + `desk`. It is created from the Bots empty state
+(**New desk**) and edited in the same builder. One list, one lifecycle: schedule,
+pause, delete, version and run history are the automation's own.
+
+- **Roles are stages.** Each stage is a full member of the team (real instructions
+  and a least-privilege tool list) and runs as its own durable task. The builder's
+  role templates seed research / challenge / proposal / risk / decision; stages
+  read an earlier stage's memo by its run id, never its prose.
+- **It proposes; a trading bot executes.** A team has no pinned mandate, so
+  `order_submit` is refused in every member (create-time validation and the
+  delegated surface). A proposal stage calls `order_preview`; the operator
+  confirms the approval card, or a separate trading bot fills under its own
+  authority. There is no second order path.
+- **It can wake on a bot's finish.** "When a bot finishes" makes an event trigger
+  on `automation.completed` filtered to that bot, and passes the bot's last result
+  in as a labelled **unverified lead** the first stage must re-check. The lead is
+  never written into findings.
+- **It runs from its own room.** Selecting a desk opens the stage timeline, the
+  result, and the run history — not the agent composer. Desks are excluded from
+  group-room members, because a room member answers as a correspondent. When a
+  proposal stage called `order_preview`, the same self-polling trade-approval
+  banner the bot composer mounts appears in the desk room, so the operator can
+  confirm (or deny) the exact order there. A desk's execution also reports that
+  approval: `Dispatcher._pending_trade_approvals` matches the stage's run, not only
+  the team's root run.
+
+The team layer itself (graph, conflicts, review, budgets) is
+`docs/harness/bot-team-orchestration.md`; the design and its phases are
+`docs/harness/desks-plan.md`.
+
 ## Conversation durability
 
 The visible threads are **local-first**: the stores hydrate from localStorage so
@@ -167,6 +201,34 @@ an unconfigured provider fails honestly rather than silently using another
 model. (An explicit model chosen by the caller — e.g. the main-chat composer
 during `@`-delegation — wins, and the bot's provider pin is dropped so a model
 is never paired with the wrong provider.)
+
+## Chat ↔ bots: one capability contract
+
+A bot is an automation on the same run plane, so "the agent can do it" and "a
+bot can do it" are meant to be the same sentence. A chat turn and a scheduled
+bot run both carry:
+
+- the bot's **own brain** (`action.agentId`, default `eclipse-agent`) and
+  therefore the same tool allowlist — including automation, scheduling and team
+  tools;
+- the same read-only **analysis sandbox**, model pin, autonomy profile,
+  workspace and reference images;
+- the same **private-memory pipeline** (a bot only ever uses its own
+  `conversation` bucket).
+
+Deliberate differences — not parity gaps:
+
+| | Chat turn | Scheduled bot run |
+| --- | --- | --- |
+| Approval | pauses mid-run (`approvalMode: "ask"`) | no operator present: the automation-level `permissions.requiresApproval` gate runs first, and an order awaiting a decision is reported as `AWAITING APPROVAL` |
+| Memory | the signed-in user's scope | `conversation` scope, `bot-<id>` |
+| Wall clock | 20 min default | `execution.maxRuntimeS`, 20 min default, up to 24 h |
+| Trigger | the composer | the scheduler (cron / interval / event / condition / webhook) |
+
+When a capability is added to one path it belongs in the other:
+`python/tests/test_automation_bot_parity.py` and
+`src/lib/agent/registry.test.ts` fail if the bot/scheduled request stops
+carrying the shared fields.
 
 ## Chat and the full agent
 

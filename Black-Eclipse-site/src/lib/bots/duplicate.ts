@@ -6,8 +6,10 @@ import {
   createAutomation,
   type AutomationView,
 } from '@/lib/harness/clients/automation-browser';
+import { duplicateDeskConfig } from '@/lib/bots/desk';
 
 export async function duplicateBot(bot: AutomationView): Promise<AutomationView> {
+  const deskConfig = duplicateDeskConfig(bot);
   return createAutomation({
     name: `${bot.name} copy`,
     description: bot.description ?? bot.action.objective ?? undefined,
@@ -32,7 +34,7 @@ export async function duplicateBot(bot: AutomationView): Promise<AutomationView>
       objective: bot.action.objective,
       agentId: bot.action.agentId,
       // Keep the model/engine settings that are part of the bot's behaviour.
-      config: { ...(bot.action.config ?? {}) },
+      config: deskConfig ?? { ...(bot.action.config ?? {}) },
     },
     execution: { ...bot.execution },
     retry: { ...bot.retry },

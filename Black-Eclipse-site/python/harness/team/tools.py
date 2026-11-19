@@ -268,4 +268,93 @@ def register_team_tools(registry: ToolRegistry) -> list[str]:
     return names
 
 
-__all__ = ["TEAM_TOOLS", "forget_team", "register_team_tools", "team_for"]
+# ── the prerequisite-memo hand-off (read-only) ─────────────────────────────────
+
+_READ_OUTPUT_MAX_CHARS = 20_000
+_READ_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "runId": {
+            "type": "string",
+            "description": "The run id of a completed prerequisite (listed in the task context).",
+        },
+    },
+    "required": ["runId"],
+}
+
+
+async def read_run_output(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Read a completed prerequisite run's final output by its run id.
+
+    A downstream stage does not inherit an upstream agent's prose: the task
+    context names the prerequisite (`output: <runId>`) and this tool reads the ONE
+    run store. No second transcript, no prompt-injected memory.
+    """
+    run_id = str(args.get("runId") or "").strip()
+    if not run_id:
+        return "Provide the prerequisite runId.", {
+            "ok": False, "code": "INVALID_ARGUMENT", "message": "runId is required",
+        }
+    store = getattr(ctx, "memory_store", None)
+    if store is None:
+        return "The run store is unavailable in this run.", {
+            "ok": False, "code": "RUNTIME_UNAVAILABLE",
+        }
+    try:
+        run = store.get_run(run_id)
+    except Exception as exc:  # noqa: BLE001 - a missing run is an honest refusal
+        return f"Could not read run {run_id}: {exc}", {
+            "ok": False, "code": "RUN_READ_FAILED", "runId": run_id,
+        }
+    if not run:
+        return f"No run {run_id!r} exists.", {
+            "ok": False, "code": "RUN_NOT_FOUND", "runId": run_id,
+        }
+    status = str(run.get("status") or "")
+    output = str(run.get("output") or "")
+    if not output.strip():
+        return (
+            f"Run {run_id} is {status or 'unknown'} and produced no output.",
+            {"ok": False, "code": "RUN_OUTPUT_EMPTY", "runId": run_id, "status": status},
+        )
+    bounded = output[:_READ_OUTPUT_MAX_CHARS]
+    return (
+        f"Run {run_id} ({status or 'unknown'}) output:\n\n{bounded}",
+        {
+            "ok": True,
+            "runId": run_id,
+            "status": status,
+            "output": bounded,
+            "truncated": len(output) > len(bounded),
+        },
+    )
+
+
+def register_run_output_tool(registry: ToolRegistry) -> list[str]:
+    """Register `read_run_output`. Idempotent like every other layer."""
+    if registry.get("read_run_output") is not None:
+        return []
+    registry.register(ToolDefinition(
+        name="read_run_output",
+        description=(
+            "Read a completed prerequisite run's final output by its run id. "
+            "Use it to read the brief, debate record, proposal or verdict handed "
+            "to your stage."
+        ),
+        input_schema=_READ_OUTPUT_SCHEMA,
+        handler=read_run_output,
+        permission="read",
+        risk="low",
+        timeout_ms=10_000,
+    ))
+    return ["read_run_output"]
+
+
+__all__ = [
+    "TEAM_TOOLS",
+    "forget_team",
+    "read_run_output",
+    "register_run_output_tool",
+    "register_team_tools",
+    "team_for",
+]

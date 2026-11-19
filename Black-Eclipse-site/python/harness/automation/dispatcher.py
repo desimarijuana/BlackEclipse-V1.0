@@ -332,11 +332,40 @@ class Dispatcher:
             detail={"pendingApprovals": pending} if pending else {},
         )
 
-    def _pending_trade_approvals(self, run_id: str) -> list[dict[str, Any]]:
-        """Pending trade approvals requested BY this run. Best-effort, never raises.
+    def _team_task_runs(self, run_id: str) -> set[str]:
+        """The run ids of a team's subtasks.
 
-        An unavailable broker layer is not an error: a run that never touched a
-        broker simply has nothing to report.
+        A desk's `order_preview` is requested by the SUBTASK run (the stage that
+        called it), not by the team's root run, so matching only the execution's
+        run id would miss every desk approval. `Task.assigned_run_id` is the
+        durable link; an unreadable task is simply skipped (fail-open for display,
+        never for the order itself).
+        """
+        team = getattr(self._service, "team", None)
+        manager = getattr(self._service, "tasks", None)
+        if team is None or manager is None:
+            return set()
+        try:
+            team_run = team.store.find_by_root(run_id)
+        except Exception:  # noqa: BLE001
+            return set()
+        if team_run is None:
+            return set()
+        runs: set[str] = set()
+        for task_id in team_run.subtask_task_ids.values():
+            try:
+                task = manager.get_task(task_id)
+            except Exception:  # noqa: BLE001 - a missing task is not an error here
+                continue
+            if task is not None and getattr(task, "assigned_run_id", None):
+                runs.add(str(task.assigned_run_id))
+        return runs
+
+    def _pending_trade_approvals(self, run_id: str) -> list[dict[str, Any]]:
+        """Pending trade approvals requested BY this run (or its team stages).
+
+        Best-effort, never raises. An unavailable broker layer is not an error: a
+        run that never touched a broker simply has nothing to report.
         """
         if not run_id:
             return []
@@ -347,7 +376,7 @@ class Dispatcher:
             rows = brokers.list_approvals(status="pending", limit=50)
         except Exception:  # noqa: BLE001 - reporting must never fail the run
             return []
-        wanted = str(run_id)
+        wanted = {str(run_id)} | self._team_task_runs(str(run_id))
         return [
             {
                 "approvalId": row.get("id"),
@@ -356,24 +385,89 @@ class Dispatcher:
                 "risk": row.get("risk"),
             }
             for row in rows
-            if str(row.get("requestedByRunId") or "") == wanted
+            if str(row.get("requestedByRunId") or "") in wanted
         ]
 
-    async def _run_team(self, definition: AutomationDefinition) -> DispatchResult:
-        """Start the Institution committee and wait for its terminal decision.
+    def _latest_automation_output(self, automation_id: str) -> tuple[str, str] | None:
+        """The most recent finished output of another automation, for a desk lead."""
+        getter = getattr(self._service, "automation_service", None)
+        if not callable(getter):
+            return None
+        try:
+            service = getter()
+            runs = service.history(automation_id, limit=1)
+        except Exception:  # noqa: BLE001 - a missing/misconfigured source is no lead
+            return None
+        if not runs:
+            return None
+        latest = runs[0] or {}
+        output = str(latest.get("output") or "").strip()
+        if not output:
+            return None
+        return str(latest.get("finishedAt") or latest.get("startedAt") or ""), output
 
-        A scheduled institution run is one automation execution: it opens a team
-        run, waits (bounded by the automation's own runtime budget) for the task
-        graph to finish, then finalises and returns the deterministic synthesis.
-        It never places an order.
+    def _attach_lead(self, team: Any, config: dict[str, Any]) -> None:
+        """Give a desk the monitor's latest memo as a LABELLED, unverified lead.
+
+        It is prepended to each starting stage's objective only. It is never
+        written into findings, so a claim still needs an evidence ref to be
+        promoted (a bare lead stays `UNSUPPORTED_CLAIM`).
+        """
+        source = str(config.get("contextAutomationId") or "").strip()
+        if not source:
+            return
+        lead = self._latest_automation_output(source)
+        if lead is None:
+            block = (
+                f"Lead source {source} has no finished run with an output. Start from "
+                "retrieved data only; do not assume what it would have said."
+            )
+        else:
+            finished_at, output = lead
+            block = (
+                f"UNVERIFIED LEAD from automation {source} (finished {finished_at or 'unknown'}). "
+                "This is a trigger and a pointer, NOT evidence: re-verify every figure, cite the "
+                "source and as-of you retrieved yourself, and write UNAVAILABLE where it cannot be "
+                "confirmed.\n\n" + output[:6_000]
+            )
+        for subtask in getattr(team, "subtasks", []):
+            if not subtask.depends_on:
+                subtask.objective = f"{block}\n\n{subtask.objective}"[:2_000]
+
+    async def _run_team(self, definition: AutomationDefinition) -> DispatchResult:
+        """Start a team run (a user-authored desk, or the Institution preset).
+
+        A team run is one automation execution: it opens a durable team run, waits
+        (bounded by the automation's own runtime budget) for the task graph to
+        finish, then finalises and returns the deterministic synthesis. It never
+        places an order.
         """
         action = definition.action
-        preset_id = str(action.config.get("presetId") or "institution")
-        if preset_id != "institution":
-            return DispatchResult(
-                state=FAILED, error=f"unknown team preset {preset_id!r}",
-                error_class="INVALID_CONFIGURATION",
-            )
+        config = action.config or {}
+        # A desk carries its own TeamDefinition in `config.team`; without one the
+        # action is the Institution preset (unchanged behaviour).
+        raw_team = config.get("team")
+        preset_id = str(config.get("presetId") or "")
+        team: Any = None
+        if isinstance(raw_team, dict):
+            from ..team.model import TeamDefinition  # noqa: PLC0415
+
+            try:
+                team = TeamDefinition(**raw_team)
+            except Exception as exc:  # noqa: BLE001 - a malformed desk is refused
+                return DispatchResult(
+                    state=FAILED, error=f"invalid team definition: {exc}"[:2000],
+                    error_class="INVALID_CONFIGURATION",
+                )
+            if not team.objective.strip():
+                team.objective = (action.objective or definition.name)[:4_000]
+        else:
+            preset_id = preset_id or "institution"
+            if preset_id != "institution":
+                return DispatchResult(
+                    state=FAILED, error=f"unknown team preset {preset_id!r}",
+                    error_class="INVALID_CONFIGURATION",
+                )
         team_service = getattr(self._service, "team", None)
         if team_service is None:
             try:
@@ -389,19 +483,27 @@ class Dispatcher:
                 error_class="RUNTIME_UNAVAILABLE",
             )
         try:
-            from ..institution.preset import build_team  # noqa: PLC0415
+            if team is None:
+                from ..institution.preset import build_team  # noqa: PLC0415
 
-            raw_constraints = action.config.get("constraints")
-            constraints = (
-                [str(c) for c in raw_constraints if str(c).strip()]
-                if isinstance(raw_constraints, list) else []
-            )
-            team = build_team(
-                action.objective or definition.name,
-                universe=str(action.config.get("universe") or ""),
-                horizon=str(action.config.get("horizon") or ""),
-                constraints=constraints,
-            )
+                raw_constraints = config.get("constraints")
+                constraints = (
+                    [str(c) for c in raw_constraints if str(c).strip()]
+                    if isinstance(raw_constraints, list) else []
+                )
+                team = build_team(
+                    action.objective or definition.name,
+                    universe=str(config.get("universe") or ""),
+                    horizon=str(config.get("horizon") or ""),
+                    constraints=constraints,
+                )
+            errors = team_service.validate(team)
+            if errors:
+                return DispatchResult(
+                    state=FAILED, error="; ".join(errors)[:2000],
+                    error_class="INVALID_CONFIGURATION", detail={"errors": errors},
+                )
+            self._attach_lead(team, config)
             settings = self._model_settings_for(definition)
             run = await team_service.run(
                 team, model_settings=settings.model_dump(by_alias=True),
@@ -424,7 +526,8 @@ class Dispatcher:
                 error_class=None if status in ("COMPLETED", "PARTIAL") else "TEAM_INCOMPLETE",
                 detail={
                     "teamRunId": run.id,
-                    "presetId": preset_id,
+                    "teamId": team.id,
+                    "presetId": preset_id or None,
                     "teamStatus": status,
                     "reviewOutcome": final.get("reviewOutcome"),
                     "conflicts": len(final.get("conflicts") or []),

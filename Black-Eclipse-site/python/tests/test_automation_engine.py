@@ -596,3 +596,63 @@ async def test_approval_gate_waits_then_resumes(env):
     await env.engine.wait_idle()
     assert env.auto_store.get_execution(execution_id)["state"] == "completed"
     assert ad.calls == 1
+
+async def test_a_finished_run_publishes_one_completion_event(env):
+    """The chain contract: a monitor's finish is an event a desk can subscribe to.
+    The output stays on the execution, never on the bus."""
+    published: list[dict] = []
+
+    class Bus:
+        def publish(self, event):
+            published.append(event)
+
+        def subscribe(self, _handler):
+            return lambda: None
+
+    env.engine._bus = Bus()
+    _save(env)
+    env.clock.advance(minutes=61)
+    await env.engine._tick()
+    await env.engine.wait_idle()
+
+    completion = [e for e in published if e["type"] in ("automation.completed", "automation.failed")]
+    assert len(completion) == 1
+    event = completion[0]
+    assert event["type"] == "automation.completed"
+    assert event["data"]["automationId"] == "auto_test"
+    assert event["data"]["status"] == "completed"
+    assert event["data"]["executionId"]
+    assert "output" not in event["data"]
+
+
+async def test_a_monitor_finish_wakes_the_desk_once(env):
+    from harness.events import EventBus
+
+    bus = EventBus()
+    env.engine._bus = bus
+    env.engine._loop_ref = asyncio.get_running_loop()
+    env.engine._subscribe_events()
+
+    _save(env, id="monitor", name="News monitor")
+    _save(
+        env,
+        id="desk",
+        name="Rates desk",
+        trigger={
+            "type": "event", "event_type": "automation.completed",
+            "event_filter": {"automationId": "monitor"}, "timezone": "UTC",
+        },
+        action={"type": "run_team", "objective": "decide", "config": {"team": {}}},
+    )
+
+    env.clock.advance(minutes=61)
+    await env.engine._tick()
+    await env.engine.wait_idle()
+    for _ in range(5):
+        await asyncio.sleep(0)
+    await env.engine.wait_idle()
+
+    assert env.dispatcher.calls == 2  # the monitor, then the desk it woke
+    desk_runs = env.auto_store.list_executions("desk")
+    assert len(desk_runs) == 1
+    assert desk_runs[0]["triggerType"] == "event"

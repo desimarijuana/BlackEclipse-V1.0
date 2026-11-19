@@ -220,12 +220,18 @@ def _build_trigger(args: dict[str, Any]) -> dict[str, Any]:
         trigger["intervalSeconds"] = int(args.get("intervalSeconds") or 0)
     elif kind == "one_time":
         trigger["runAt"] = args.get("runAt")
+    elif kind == "event":
+        trigger["eventType"] = str(args.get("eventType") or "")
+        raw_filter = args.get("eventFilter")
+        trigger["eventFilter"] = dict(raw_filter) if isinstance(raw_filter, dict) else {}
+    elif kind == "condition":
+        trigger["condition"] = {"expression": str(args.get("conditionExpression") or "")}
     return trigger
 
 
 #: Trigger kinds that make a bot run BY ITSELF. A manual bot only runs when the
 #: user (or `bot_run`) asks, so it needs no schedule approval.
-_AUTONOMOUS_TRIGGERS = ("cron", "interval", "one_time")
+_AUTONOMOUS_TRIGGERS = ("cron", "interval", "one_time", "event", "condition")
 
 _SCHEDULE_NEEDS_APPROVAL = (
     "This needs your go-ahead first: I've asked to set up (or start) a scheduled "
@@ -634,7 +640,7 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
             name="bot_create",
             description="Create a persistent autonomous bot (a scheduled agent) that runs in the "
             "background even after the browser closes. Set triggerType to manual, one_time, "
-            "interval or cron; provide objective; optionally name, agentId (any installed "
+            "interval, cron, event or condition; provide objective; optionally name, agentId (any installed "
             "preset), description, state, workspaceRoot, autonomy, and the execution, retry, "
             "concurrency, limits, delivery and permissions blocks the Bots UI also exposes. "
             "A bot gets the SAME tool surface as an interactive turn of its agent.",
@@ -648,9 +654,12 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
                     "code-agent). An unknown id is refused.",
                 },
                 "state": {"type": "string", "enum": ["draft", "active", "paused", "disabled"]},
-                "triggerType": {"type": "string", "enum": ["manual", "one_time", "interval", "cron"]},
+                "triggerType": {"type": "string", "enum": ["manual", "one_time", "interval", "cron", "event", "condition"]},
                 "cron": {"type": "string"}, "intervalSeconds": {"type": "integer"},
                 "runAt": {"type": "string"}, "timezone": {"type": "string"},
+                "eventType": {"type": "string", "description": "Dotted event name for an event trigger, e.g. 'automation.completed'."},
+                "eventFilter": {"type": "object", "description": "Event fields that must match, e.g. {\"automationId\": \"<bot id>\"}."},
+                "conditionExpression": {"type": "string", "description": "Deterministic condition for a condition trigger."},
                 "workspaceRoot": {
                     "type": "string",
                     "description": "An approved workspace root. Binding one is what grants "
@@ -687,9 +696,12 @@ def register_automation_tools(registry: ToolRegistry) -> list[str]:
             input_schema=_obj({
                 "botId": {"type": "string"}, "name": {"type": "string"}, "objective": {"type": "string"},
                 "agentId": {"type": "string"},
-                "triggerType": {"type": "string", "enum": ["manual", "one_time", "interval", "cron"]},
+                "triggerType": {"type": "string", "enum": ["manual", "one_time", "interval", "cron", "event", "condition"]},
                 "cron": {"type": "string"}, "intervalSeconds": {"type": "integer"},
                 "runAt": {"type": "string"}, "timezone": {"type": "string"},
+                "eventType": {"type": "string", "description": "Dotted event name for an event trigger, e.g. 'automation.completed'."},
+                "eventFilter": {"type": "object", "description": "Event fields that must match, e.g. {\"automationId\": \"<bot id>\"}."},
+                "conditionExpression": {"type": "string", "description": "Deterministic condition for a condition trigger."},
                 "workspaceRoot": {"type": "string"}, "autonomy": {"type": "string"},
                 "executionAuthority": _authority_schema(),
                 **_runtime_block_schema(),

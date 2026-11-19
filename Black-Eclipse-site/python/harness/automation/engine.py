@@ -142,8 +142,12 @@ class AutomationEngine:
         self._active.clear()
 
     async def wait_idle(self) -> None:
+        # `_active` is popped by a done callback, which runs on the next loop
+        # turn. Gathering only already-done tasks returns without yielding, so
+        # yield once or this becomes a busy loop that never exits.
         while self._active:
             await asyncio.gather(*list(self._active.values()), return_exceptions=True)
+            await asyncio.sleep(0)
 
     def _now(self) -> _dt.datetime:
         moment = self._clock()
@@ -588,6 +592,21 @@ class AutomationEngine:
             decision=decision,
         )
         self._store.append_execution_event(execution_id, state, {"reason": reason, "errorClass": error_class})
+        # One completion contract for chains: a monitor bot finishing can wake a
+        # desk (event trigger with `eventFilter: { automationId }`). The OUTPUT is
+        # deliberately NOT on the event — it stays on the execution, so a bus event
+        # never carries a memo (size and provenance).
+        await self.emit_event(
+            "automation.failed" if state in ("failed", "timed_out") else "automation.completed",
+            {
+                "automationId": definition.id,
+                "executionId": execution_id,
+                "runId": run_id_out,
+                "status": state,
+                "triggerType": definition.trigger.type,
+                "teamRunId": (getattr(result, "detail", None) or {}).get("teamRunId") if result else None,
+            },
+        )
         pending = (getattr(result, "detail", None) or {}).get("pendingApprovals") if result else None
         await self._deliver(
             definition, execution_id, run_id_out, state,

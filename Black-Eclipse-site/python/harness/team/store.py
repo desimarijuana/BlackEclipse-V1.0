@@ -79,6 +79,17 @@ class TeamStore:
         ).fetchone()
         return self._row_to_run(row)
 
+    def find_by_root(self, root_run_id: str) -> Optional[TeamRun]:
+        """The team run whose root run id matches (an automation execution
+        stores only that id, so the desk UI resolves its stage timeline here)."""
+        if not root_run_id:
+            return None
+        row = self._db.execute(
+            "SELECT record FROM TeamRun WHERE rootRunId=? ORDER BY createdAt DESC LIMIT 1",
+            (root_run_id,),
+        ).fetchone()
+        return self._row_to_run(row)
+
     def list_runs(self, *, limit: int = 100, status: Optional[str] = None) -> list[TeamRun]:
         if status:
             rows = self._db.execute(

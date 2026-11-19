@@ -48,6 +48,15 @@ TEAM_NO_AGENT = "TEAM_NO_AGENT"
 TEAM_NOT_FOUND = "TEAM_NOT_FOUND"
 TEAM_APPROVAL_REQUIRED = "TEAM_APPROVAL_REQUIRED"
 
+#: Tools that SUBMIT an order. A team has no pinned mandate and no bot-level
+#: authority, so a member may propose (`order_preview`) but never submit: a demo
+#: submit could otherwise spend an unrelated connection's active mandate. This is
+#: enforced when the member's tool list is declared (validation) and again when
+#: the delegated surface is built.
+ORDER_SUBMIT_TOOLS: frozenset[str] = frozenset({
+    "order_submit", "submit_order", "place_order", "trade_submit",
+})
+
 
 class TeamError(RuntimeError):
     """A structured team refusal. ``code`` is stable and testable."""
@@ -129,13 +138,37 @@ class TeamService:
             return member.tools
         return member.tools if "delegate" in member.tools else [*member.tools, "delegate"]
 
+    def _team_tools(self, member: TeamMember, *, allow_fanout: bool) -> Optional[list[str]]:
+        """The surface a DELEGATED subtask may use: declared (or registered)
+        tools, never an order-submitting tool. `None` stays `None` when the
+        target agent's own surface cannot be enumerated (the live submit path
+        still fails closed; `order_preview` is the proposal path)."""
+        tools = self._member_tools(member, allow_fanout)
+        if tools is None:
+            try:
+                agent = self._ensure_a2a().registry.get_agent(member.agent_id)
+                declared = getattr(agent, "tools", None)
+                tools = list(declared) if declared is not None else None
+            except Exception:  # noqa: BLE001 - an unknown agent is caught by validate
+                tools = None
+        if tools is None:
+            # An inherited surface: materialise the registry's current names so
+            # the forbidden tool can actually be removed (a preset with `tools=None`
+            # would otherwise inherit everything, including order_submit).
+            registry = getattr(self._host, "registry", None)
+            names = registry.names() if registry is not None and hasattr(registry, "names") else None
+            tools = list(names) if names else None
+        if tools is None:
+            return None
+        return [name for name in tools if name not in ORDER_SUBMIT_TOOLS]
+
     def _ensure_member_agent(self, member: TeamMember, *, allow_fanout: bool = False) -> None:
         """Register a member agent (and its run preset) if it is not known yet."""
         a2a = self._ensure_a2a()
         from ..a2a.model import AgentDefinition, AgentStatus  # noqa: PLC0415
         from ..a2a.registry import RegistryError  # noqa: PLC0415
 
-        tools = self._member_tools(member, allow_fanout)
+        tools = self._team_tools(member, allow_fanout=allow_fanout)
         try:
             a2a.registry.get_agent(member.agent_id)
             return
@@ -212,6 +245,34 @@ class TeamService:
             errors.append("a team needs at least one member")
         if not team.subtasks:
             errors.append("a team needs at least one subtask")
+        for member in team.members:
+            declared = member.tools or []
+            forbidden = sorted(ORDER_SUBMIT_TOOLS.intersection(declared))
+            if forbidden:
+                errors.append(
+                    f"member {member.agent_id!r} declares order-submitting tool "
+                    f"{', '.join(forbidden)}; a team may propose (order_preview) but "
+                    "never submit — execution belongs to a trading bot"
+                )
+                continue
+            # A member with no declared surface reuses an existing preset, which
+            # may itself carry order_submit. Refuse to inherit it; the caller must
+            # declare a narrower list (a NEW member id is narrowed automatically).
+            if member.tools is not None:
+                continue
+            try:
+                from ..agents import AGENT_PRESETS  # noqa: PLC0415
+
+                preset = AGENT_PRESETS.get(member.agent_id)
+            except Exception:  # noqa: BLE001 - an unreadable preset list is not a refusal
+                preset = None
+            inherited = sorted(ORDER_SUBMIT_TOOLS.intersection(getattr(preset, "tools", None) or []))
+            if inherited:
+                errors.append(
+                    f"member {member.agent_id!r} inherits order-submitting tool "
+                    f"{', '.join(inherited)} from its preset; declare the tools this "
+                    "stage may use (order_preview is allowed, order_submit is not)"
+                )
         if not team.policy.delegation_enabled:
             errors.append("delegation is disabled for this team")
         if len(team.subtasks) > team.policy.max_children:
@@ -293,7 +354,7 @@ class TeamService:
                 target_agent_id=agent_id, capability=subtask.capability or None,
                 context=self._render_context(team, subtask),
                 tool_subset=(
-                    self._member_tools(member, team.policy.member_fanout)
+                    self._team_tools(member, allow_fanout=team.policy.member_fanout)
                     if member else None
                 ),
                 priority=subtask.priority, root_run_id=root,
@@ -350,6 +411,13 @@ class TeamService:
         run = self.store.get_run(run_id)
         if run is None:
             raise TeamError(TEAM_NOT_FOUND, f"no team run {run_id!r}")
+        return run
+
+    def get_run_by_root(self, root_run_id: str) -> TeamRun:
+        """Resolve the team run from the automation execution's run id."""
+        run = self.store.find_by_root(root_run_id)
+        if run is None:
+            raise TeamError(TEAM_NOT_FOUND, f"no team run for root run {root_run_id!r}")
         return run
 
     def list_runs(self, *, limit: int = 50, status: Optional[str] = None) -> list[TeamRun]:

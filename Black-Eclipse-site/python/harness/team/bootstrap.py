@@ -30,6 +30,11 @@ def install_team_layer(service: Any) -> bool:
         from .tools import register_team_tools  # noqa: PLC0415
 
         register_team_tools(service.registry)
+        # The read-only prerequisite-memo tool belongs to the team layer (a desk
+        # uses it with or without the Institution preset installed).
+        from .tools import register_run_output_tool  # noqa: PLC0415
+
+        register_run_output_tool(service.registry)
         return True
     except Exception:  # noqa: BLE001 - the team layer must never block boot
         log.warning("team layer unavailable", exc_info=True)

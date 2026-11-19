@@ -187,6 +187,12 @@ struct Prefs {
     #[serde(default)]
     version: u32,
     keep_warm: bool,
+    /// Start (minimized) when the operator signs in. Set together with
+    /// `keep_warm` by the one tray switch: autostart without keep-warm still
+    /// quits on close, and keep-warm without autostart does not survive reboot,
+    /// so neither alone is "always on".
+    #[serde(default)]
+    auto_start: bool,
     width: u32,
     height: u32,
     x: Option<i32>,
@@ -209,6 +215,7 @@ impl Default for Prefs {
             // the tray (and remembered); it is not the out-of-the-box answer,
             // because a window that only minimizes on close reads as a bug.
             keep_warm: false,
+            auto_start: false,
             version: PREFS_VERSION,
             width: 1440,
             height: 900,
@@ -418,6 +425,109 @@ fn save_prefs(path: &PathBuf, prefs: &Prefs) {
     if let Ok(json) = serde_json::to_string_pretty(prefs) {
         let _ = fs::write(path, json);
     }
+}
+
+/// The HKCU Run value that launches this build at sign-in.
+#[cfg(windows)]
+const LOGIN_ITEM_NAME: &str = "Black Eclipse";
+
+/// The exact `reg.exe` invocation. Pure so the value name, the
+/// `--background` argument and the quoted path are testable without touching a
+/// real registry.
+#[cfg(windows)]
+fn login_item_command(enabled: bool, exe: &std::path::Path) -> (String, Vec<String>) {
+    let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    if enabled {
+        (
+            "reg".to_string(),
+            vec![
+                "add".to_string(),
+                key.to_string(),
+                "/v".to_string(),
+                LOGIN_ITEM_NAME.to_string(),
+                "/t".to_string(),
+                "REG_SZ".to_string(),
+                "/d".to_string(),
+                format!("\"{}\" --background", exe.display()),
+                "/f".to_string(),
+            ],
+        )
+    } else {
+        (
+            "reg".to_string(),
+            vec![
+                "delete".to_string(),
+                key.to_string(),
+                "/v".to_string(),
+                LOGIN_ITEM_NAME.to_string(),
+                "/f".to_string(),
+            ],
+        )
+    }
+}
+
+#[cfg(windows)]
+fn login_item_present() -> bool {
+    Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            "/v",
+            LOGIN_ITEM_NAME,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// Register/unregister the sign-in launch. Returns an error instead of
+/// pretending: the tray switch is only turned on when the registry write
+/// actually succeeded.
+#[cfg(windows)]
+fn set_login_item(enabled: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|err| format!("current_exe: {err}"))?;
+    let (program, args) = login_item_command(enabled, &exe);
+    let output = Command::new(&program)
+        .args(&args)
+        .output()
+        .map_err(|err| format!("{program} failed to start: {err}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    // Deleting a value that is already absent is success, not a lie.
+    if !enabled && !login_item_present() {
+        return Ok(());
+    }
+    Err(format!(
+        "{program} exited {}: {}",
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
+/// Only Windows ships today (the browser lane is deleted and no macOS/Linux
+/// shell exists). If one lands, replace this one function with the platform's
+/// login-item API; nothing else knows how autostart is implemented.
+#[cfg(not(windows))]
+fn set_login_item(_enabled: bool) -> Result<(), String> {
+    Err("starting at sign-in is not implemented on this platform".to_string())
+}
+
+/// One switch, two prefs: "always on" means start at sign-in AND keep running
+/// when the window closes. Either alone leaves a silent gap. Nothing is written
+/// unless the registry write succeeded.
+fn set_background(state: &AppState, enabled: bool) -> Result<(), String> {
+    let mut prefs = state
+        .prefs
+        .lock()
+        .map_err(|_| "prefs lock poisoned".to_string())?;
+    set_login_item(enabled)?;
+    prefs.auto_start = enabled;
+    prefs.keep_warm = enabled;
+    save_prefs(&state.prefs_file, &prefs);
+    Ok(())
 }
 
 /// Kill the whole process tree. `next start` runs as a grandchild (Rust →
@@ -1617,6 +1727,14 @@ fn main() {
             let handle = app.handle().clone();
             let win = build_window(&handle, &prefs)?;
 
+            // Launched by the sign-in entry: show on the taskbar, minimized —
+            // never hidden, because a hidden window has no taskbar button and
+            // the operator needs to see that it is running.
+            if std::env::args().any(|arg| arg == "--background") {
+                let _ = win.minimize();
+                log_line("[shell] started with --background (minimized)");
+            }
+
             // --- window lifecycle -------------------------------------------------
             let win_for_events = win.clone();
             let app_for_events = handle.clone();
@@ -1656,22 +1774,22 @@ fn main() {
 
             // --- tray -------------------------------------------------------------
             let open_item = MenuItem::with_id(&handle, "open", "Open Black Eclipse", true, None::<&str>)?;
-            let keep_item = CheckMenuItem::with_id(
+            let background_item = CheckMenuItem::with_id(
                 &handle,
-                "keep_warm",
-                "Keep running after the window closes (minimize to taskbar)",
+                "background",
+                "Run in background (start with Windows, keep running when closed)",
                 true,
-                prefs.keep_warm,
+                prefs.auto_start,
                 None::<&str>,
             )?;
             let quit_item = MenuItem::with_id(&handle, "quit", "Quit Black Eclipse", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(&handle)?;
-            let menu = Menu::with_items(&handle, &[&open_item, &keep_item, &separator, &quit_item])?;
+            let menu = Menu::with_items(&handle, &[&open_item, &background_item, &separator, &quit_item])?;
 
             // The check item is the source of truth: the platform toggles it on
             // click, and mirroring our own `!value` could drift from what the
             // menu shows.
-            let keep_switch = keep_item.clone();
+            let background_switch = background_item.clone();
 
             let mut tray = TrayIconBuilder::with_id("main-tray")
                 .tooltip("Black Eclipse")
@@ -1679,15 +1797,18 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open" => show_window(app),
-                    "keep_warm" => {
+                    "background" => {
                         let state = app.state::<AppState>();
                         // On a read error fall back to "off": closing must quit.
-                        let next = keep_switch.is_checked().unwrap_or(false);
-                        if let Ok(mut prefs) = state.prefs.lock() {
-                            prefs.keep_warm = next;
-                            save_prefs(&state.prefs_file, &prefs);
+                        let next = background_switch.is_checked().unwrap_or(false);
+                        if let Err(err) = set_background(&state, next) {
+                            // The registry write failed: put the switch back so the
+                            // menu never claims a background that will not start.
+                            log_line(&format!("[shell] background mode failed: {err}"));
+                            let _ = background_switch.set_checked(!next);
+                        } else {
+                            log_line(&format!("[shell] background mode = {next}"));
                         }
-                        log_line(&format!("[shell] keep-warm = {next}"));
                     }
                     "quit" => {
                         let state = app.state::<AppState>();
@@ -1912,5 +2033,34 @@ mod taskbar_icon_tests {
         let rim = pixel(&img, 16, 6);
         assert!(rim.3 > 0, "rim must be drawn, not a hole");
         assert!(rim.0 < centre.0, "rim must be darker than the dot");
+    }
+}
+
+/// The sign-in entry is a string contract with Windows: the value name, the
+/// quoted path and `--background` must match what the shell parses at startup.
+#[cfg(all(test, windows))]
+mod login_item_tests {
+    use super::login_item_command;
+
+    #[test]
+    fn sign_in_entry_launches_this_exe_minimized() {
+        let exe = std::path::Path::new(r"C:\Program Files\Black Eclipse\black-eclipse.exe");
+        let (program, add) = login_item_command(true, exe);
+        assert_eq!(program, "reg");
+        assert_eq!(add[0], "add");
+        assert!(add.iter().any(|arg| arg == "REG_SZ"));
+        let data = &add[add.iter().position(|arg| arg == "/d").expect("/d") + 1];
+        assert_eq!(
+            data,
+            "\"C:\\Program Files\\Black Eclipse\\black-eclipse.exe\" --background"
+        );
+    }
+
+    #[test]
+    fn disabling_removes_the_same_value() {
+        let exe = std::path::Path::new(r"C:\Black Eclipse\black-eclipse.exe");
+        let (_, delete) = login_item_command(false, exe);
+        assert_eq!(delete[0], "delete");
+        assert!(delete.iter().any(|arg| arg == "Black Eclipse"));
     }
 }

@@ -198,6 +198,82 @@ def _validate_trading(
     return issues
 
 
+def _validate_team_action(
+    config: dict[str, Any], issues: list[ValidationIssue],
+) -> None:
+    """Create-time validation for a desk (`action.type == 'run_team'`).
+
+    A desk carries its own `TeamDefinition` in `config.team`; without one the
+    action is the Institution preset and needs no team check. Everything here is
+    refused at SAVE time so a broken graph is never stored.
+    """
+    raw = config.get("team")
+    if raw is None:
+        return  # the Institution preset path
+
+    def error(code: str, field: str, message: str) -> None:
+        issues.append(ValidationIssue(ERROR, code, field, message))
+
+    if not isinstance(raw, dict):
+        error("INVALID_TEAM", "action.config.team", "config.team must be a team object")
+        return
+    try:
+        from ..team.model import TeamDefinition  # noqa: PLC0415
+        from ..team.graph import validate_graph  # noqa: PLC0415
+        from ..team.service import ORDER_SUBMIT_TOOLS  # noqa: PLC0415
+
+        team = TeamDefinition(**raw)
+    except Exception as exc:  # noqa: BLE001 - a malformed desk is refused, never guessed
+        error("INVALID_TEAM", "action.config.team", f"that team is not valid: {exc}")
+        return
+
+    # A one-member "team" is a bot with extra steps; the product path is a bot.
+    if len(team.members) < 2:
+        error("TEAM_TOO_SMALL", "action.config.team.members",
+              "a desk needs at least two members (use a bot for a single agent)")
+    if not team.subtasks:
+        error("TEAM_NO_STAGES", "action.config.team.subtasks",
+              "a desk needs at least one stage")
+    if not team.policy.delegation_enabled:
+        error("TEAM_DELEGATION_DISABLED", "action.config.team.policy.delegationEnabled",
+              "delegation must stay enabled: every stage is a delegated run")
+    for problem in validate_graph(team.subtasks):
+        error("INVALID_TEAM_GRAPH", "action.config.team.subtasks", problem)
+
+    member_ids = {member.agent_id for member in team.members}
+    capabilities = {c for member in team.members for c in member.capabilities}
+    for subtask in team.subtasks:
+        if subtask.assigned_agent_id and subtask.assigned_agent_id not in member_ids:
+            error("TEAM_UNASSIGNED_STAGE", f"action.config.team.subtasks.{subtask.id}",
+                  f"stage {subtask.id!r} is assigned to {subtask.assigned_agent_id!r}, "
+                  "which is not a member")
+        elif not subtask.assigned_agent_id and subtask.capability not in capabilities:
+            error("TEAM_UNROUTABLE_STAGE", f"action.config.team.subtasks.{subtask.id}",
+                  f"stage {subtask.id!r} names no member and no member declares "
+                  f"capability {subtask.capability!r}")
+
+    # A team may PROPOSE an order (`order_preview`) but never submit one: it has
+    # no pinned mandate and no bot authority.
+    for member in team.members:
+        forbidden = sorted(ORDER_SUBMIT_TOOLS.intersection(member.tools or []))
+        if forbidden:
+            error("TEAM_ORDER_SUBMIT_REFUSED", "action.config.team.members",
+                  f"member {member.agent_id!r} declares order-submitting tool "
+                  f"{', '.join(forbidden)}; a desk proposes (order_preview) and a "
+                  "trading bot executes")
+
+    if not team.policy.require_review:
+        issues.append(ValidationIssue(
+            WARNING, "TEAM_REVIEW_OFF", "action.config.team.policy.requireReview",
+            "review is off: conflicting or unsupported claims will not be independently checked",
+        ))
+
+    source = config.get("contextAutomationId")
+    if source is not None and (not isinstance(source, str) or not source.strip()):
+        error("INVALID_LEAD_SOURCE", "action.config.contextAutomationId",
+              "contextAutomationId must be the id of an existing bot")
+
+
 def validate_automation(
     definition: AutomationDefinition,
     *,
@@ -284,6 +360,10 @@ def validate_automation(
     # ── Trading action (run_strategy) ─────────────────────────────────────────
     if action.type == "run_strategy":
         issues.extend(_validate_trading(definition, strategy_lookup))
+
+    # ── Desk (run_team) ───────────────────────────────────────────────────────
+    if action.type == "run_team":
+        _validate_team_action(action.config if isinstance(action.config, dict) else {}, issues)
 
     # ── Referenced entities ──────────────────────────────────────────────────
     graph_workflow_id = action.config.get("graphWorkflowId") if isinstance(action.config, dict) else None

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
+import { isDesk } from '@/lib/bots/desk';
 import { fileToAvatarDataUrl } from '@/lib/bots/image';
 import type { AutomationView } from '@/lib/harness/clients/automation-browser';
 
@@ -56,9 +57,11 @@ export function GroupChatDialog({ open, onOpenChange, bots, onCreate }: GroupCha
   }, [open]);
 
   const filtered = useMemo(() => {
+    // A room member answers as a bot; a desk is a pipeline, not a correspondent.
+    const candidates = bots.filter((b) => !isDesk(b));
     const q = query.trim().toLowerCase();
-    if (!q) return bots;
-    return bots.filter((b) =>
+    if (!q) return candidates;
+    return candidates.filter((b) =>
       b.name.toLowerCase().includes(q) || (b.description ?? '').toLowerCase().includes(q),
     );
   }, [bots, query]);

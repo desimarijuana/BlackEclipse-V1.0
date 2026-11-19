@@ -106,6 +106,9 @@ class _FakeTeam:
         self.team = None
         self.model_settings = None
 
+    def validate(self, team):
+        return []
+
     async def run(self, team, *, model_settings=None, **_):
         self.team = team
         self.model_settings = model_settings

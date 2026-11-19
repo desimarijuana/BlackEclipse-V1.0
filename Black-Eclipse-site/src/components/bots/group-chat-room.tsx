@@ -35,6 +35,7 @@ import type { SessionFile } from '@/lib/chat/session-types';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { listAutomationHistory, type ExecutionView } from '@/lib/harness/clients/automation-browser';
 import { mentionedTargets } from '@/lib/bots/mentions';
+import { isDesk } from '@/lib/bots/desk';
 import { forgetGroupMemory } from '@/lib/bots/purge';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
@@ -142,7 +143,12 @@ export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged
   );
 
   const members = useMemo(
-    () => group.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is AutomationView => Boolean(b)),
+    () =>
+      group.memberIds
+        .map((id) => bots.find((b) => b.id === id))
+        // A desk is a pipeline, not a room correspondent (older rooms may still
+        // name one); it must never be run as an agent turn.
+        .filter((b): b is AutomationView => b !== undefined && !isDesk(b)),
     [group.memberIds, bots],
   );
 

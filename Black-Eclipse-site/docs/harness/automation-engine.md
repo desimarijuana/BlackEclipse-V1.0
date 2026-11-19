@@ -1,7 +1,7 @@
 ---
 title: Native Automation Engine
 status: Current
-last-verified: 2026-10-26
+last-verified: 2026-11-18
 ---
 
 # Native Automation Engine
@@ -139,6 +139,16 @@ eventId)` is recorded in `AutomationEventDedup`: a redelivered event fires the
 automation at most once unless it is explicitly re-fetched. An optional gate
 condition on an event trigger is evaluated against the event's data (bare keys and
 `data.<key>`, plus `event.type`).
+
+**A finished run publishes a completion event.** When an execution reaches a
+terminal state the engine emits `automation.completed` (or `automation.failed`
+for `failed`/`timed_out`) with `{automationId, executionId, runId, status,
+triggerType, teamRunId}`. The run's **output is deliberately not on the event** —
+it stays on the execution, so a bus event never carries a memo or a transcript.
+This is the one chain contract: a monitor bot can wake a desk with an event
+trigger filtered by `automationId`, and a desk reads the monitor's last output at
+run time (labelled unverified) rather than from the bus. A paused bot still cannot
+be woken, because the event launch requires `active`.
 
 ## Actions
 
@@ -356,6 +366,14 @@ automation:
 
 ## Operational notes
 
+- **Always-on.** The engine runs inside the app process, so a schedule only  fires while Eclipse is running. The desktop tray's **Run in background**
+  switch does both halves of "always on" — it starts Eclipse (minimized) at
+  sign-in and keeps the server running when the window closes. The machine must
+  stay awake: a sleeping PC has no scheduler. A fire that came due while the app
+  was closed still follows the misfire policy (`run_once` by default).
+- **Per-run wall clock.** `execution.maxRuntimeS` defaults to **1200 s** — the
+  same 20-minute floor as one chat turn — and can be raised to 24 h.
+  `execution.timeoutS`, when set, is a tighter per-attempt cap.
 - `service.start_automation()` / `stop_automation()` are wired in `boot.py`;
   `start_jobs()` / `stop_jobs()` remain as deprecated aliases that delegate to the
   engine.

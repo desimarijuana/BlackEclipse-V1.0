@@ -1,7 +1,7 @@
 ---
 title: Bot Team Orchestration
 status: Current
-last-verified: 2026-10-18
+last-verified: 2026-11-18
 ---
 
 # Bot Team Orchestration
@@ -218,6 +218,11 @@ team; the preset routes are `GET /team/presets`,
   and `maxRuntimeMs` remain advertised caps rather than enforced ones.
   Remediation: surface a per-run cost/runtime on `RunResult`/`TaskRunOutcome`, then
   feed them to `record_usage` alongside tokens.
+- **A team can now be saved and authored as a "desk".** A `run_team` automation
+  carries its `TeamDefinition` in `action.config.team`; the Bots builder maps a
+  draft to that definition and `dispatcher._run_team` runs it (the Institution
+  preset remains the fallback when `config.team` is absent). See
+  `docs/harness/desks-plan.md` and the Bots doc.
 - **The rich Agent Studio graph / live-execution views are not built.** The
   chatbot (via the `team_*` tools), the `/team/*` routes and the Task screen
   expose the underlying data.

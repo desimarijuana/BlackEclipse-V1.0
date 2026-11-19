@@ -296,7 +296,7 @@ export const en = {
   'bots.groups.create': 'Create group',
   'bots.groups.cancel': 'Cancel',
   'bots.groups.dialogTitle': 'New group chat',
-  'bots.groups.dialogHint': 'Pick 2–6 bots. Each bot keeps its own identity; the room is shared.',
+  'bots.groups.dialogHint': 'Pick 2-6 bots. Each bot keeps its own identity; the room is shared. Members answer independently — for a pipeline of bots, use a desk.',
   'bots.groups.search': 'Search bots to add…',
   'bots.groups.namePlaceholder': 'Group name',
   'bots.groups.empty': 'No group chats yet. Start one with two or more bots.',

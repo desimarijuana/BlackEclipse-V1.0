@@ -176,3 +176,51 @@ def test_update_with_no_fields_is_a_no_op():
         assert service.updated is None
     finally:
         set_automation_service(None)
+
+
+def test_a_scheduled_run_carries_the_same_capabilities_as_a_chat_turn():
+    """The background path must not be a narrower agent.
+
+    If a capability is added to the interactive run, this is the test that says
+    the scheduled path needs it too: the bot's own brain, the read-only analysis
+    sandbox, its private conversation memory, the model pin and reference images.
+    """
+    from harness.automation.dispatcher import Dispatcher
+    from harness.automation.model import AutomationDefinition
+    from harness.schemas import ModelSettings
+
+    definition = AutomationDefinition(
+        id="bot_x",
+        name="Watcher",
+        state="active",
+        trigger={"type": "cron", "cron": "0 8 * * *", "timezone": "UTC"},
+        action={
+            "type": "run_agent",
+            "objective": "review the watchlist",
+            "agentId": "code-agent",
+            "config": {
+                "visuals": [
+                    {"dataUrl": "data:image/png;base64," + "A" * 64, "caption": "pattern"},
+                ],
+            },
+        },
+        created_at="2026-01-01T00:00:00+00:00",
+        updated_at="2026-01-01T00:00:00+00:00",
+    )
+    dispatcher = Dispatcher(
+        SimpleNamespace(),
+        model_settings_factory=lambda: ModelSettings(
+            provider="ollama", model="pinned-model",
+        ),
+    )
+
+    request = dispatcher._run_request(definition, "run_1", "review the watchlist")
+
+    assert request.agentId == "code-agent"
+    assert request.analysisEnabled is True
+    assert request.conversationId == "bot-bot_x"
+    assert request.modelSettings.model == "pinned-model"
+    assert request.input.images and request.input.images[0].data_url.startswith("data:image/")
+    # Deliberate difference: a scheduled run has no operator to answer a mid-run
+    # approval card, so it uses the automation-level approval gate instead.
+    assert request.approvalMode is None

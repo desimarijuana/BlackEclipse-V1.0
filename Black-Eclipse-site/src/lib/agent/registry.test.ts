@@ -115,4 +115,41 @@ describe("eclipseAgent chat — a refused request", () => {
     expect(reply).toBe("the answer");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("forwards a bot's own brain, private memory, model pin and images", async () => {
+    // A bot turn is not a second, narrower chat: the same request carries the
+    // bot's preset, its private conversation bucket, its pinned model and the
+    // reference images. Dropping any of these silently demotes the bot.
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response('event: client.final\ndata: {"output":"ok"}\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const images = [
+      { dataUrl: "data:image/png;base64," + "A".repeat(64), caption: "pattern", mime: "image/png" },
+    ];
+    await getAgentProvider().chat([{ role: "user", content: "hi" }], undefined, {
+      agentId: "code-agent",
+      chatId: "bot-b1",
+      memoryScope: "conversation",
+      model: "pinned-model",
+      modelProvider: "ollama",
+      images,
+      onEvent: () => {},
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(init?.body));
+    expect(body).toMatchObject({
+      agentId: "code-agent",
+      chatId: "bot-b1",
+      memoryScope: "conversation",
+      model: "pinned-model",
+      modelProvider: "ollama",
+      images,
+    });
+  });
 });

@@ -51,6 +51,10 @@ class TeamRunBody(BaseModel):
     rootRunId: Optional[str] = None  # noqa: N815
 
 
+class TeamValidateBody(BaseModel):
+    team: TeamDefinition
+
+
 class ReviewBody(BaseModel):
     reviewerAgentId: str = "qa-agent"  # noqa: N815
 
@@ -106,6 +110,17 @@ async def run_institution_preset(
         _raise(exc)
 
 
+@router.post("/team/validate")
+async def validate_team(body: TeamValidateBody, _: Any = Depends(require_operator)) -> dict[str, Any]:
+    """Every reason a team cannot run, so the desk builder refuses before save."""
+    service_ = _team()
+    return {
+        "success": True,
+        "errors": service_.validate(body.team),
+        "stages": [subtask.id for subtask in body.team.subtasks],
+    }
+
+
 @router.post("/team/runs")
 async def start_run(body: TeamRunBody, _: Any = Depends(require_operator)) -> dict[str, Any]:
     try:
@@ -121,6 +136,16 @@ async def start_run(body: TeamRunBody, _: Any = Depends(require_operator)) -> di
 async def list_runs(status: Optional[str] = None, _: Any = Depends(require_operator)) -> dict[str, Any]:
     runs = _team().list_runs(limit=100, status=status)
     return {"success": True, "runs": [r.model_dump(by_alias=True) for r in runs]}
+
+
+@router.get("/team/runs/by-root/{root_run_id}")
+async def get_run_by_root(root_run_id: str, _: Any = Depends(require_operator)) -> dict[str, Any]:
+    """Resolve a desk's stage timeline from its automation execution run id."""
+    try:
+        run = _team().get_run_by_root(root_run_id)
+        return {"success": True, "teamRun": _team().status(run.id)}
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
 
 
 @router.get("/team/runs/{run_id}")

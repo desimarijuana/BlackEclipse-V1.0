@@ -34,13 +34,14 @@ export interface ScheduleEditorProps {
 
 export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorProps) {
   const t = useT();
-  const choices: ScheduleChoice[] = ['manual', 'once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron'];
-  // An event/condition bot keeps its original trigger type visible (and can
-  // switch away from it), but this builder never pretends to edit the event
-  // filter or condition expression — those are preserved verbatim on save.
-  if (draft.schedule === 'event' || draft.schedule === 'condition') {
-    choices.unshift(draft.schedule);
-  }
+  const choices: ScheduleChoice[] = [
+    'manual', 'once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron',
+    'event', 'condition',
+  ];
+  // The first filter field drives the two-input editor; the practical case is
+  // "wake when this bot finishes" (`automationId`). Extra keys authored through
+  // the API are preserved verbatim on save.
+  const filterEntry = Object.entries(draft.eventFilter)[0] ?? ['', ''];
   // Every IANA zone the engine accepts. `supportedValuesOf` is widely available;
   // the current draft's zone is always included so the select can never show an
   // empty value.
@@ -167,8 +168,65 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
           />
         )}
       </div>
-      {(draft.schedule === 'event' || draft.schedule === 'condition') && (
-        <p className="text-xs text-muted-foreground">{t('bots.sched.preservedNote')}</p>
+      {draft.schedule === 'event' && (
+        <div className="space-y-2 rounded-xl border border-border/15 bg-white/[0.02] p-2">
+          <Input
+            value={draft.eventType ?? ''}
+            onChange={(e) => onChange({ eventType: e.target.value })}
+            placeholder="automation.completed"
+            className="font-mono"
+            aria-label="Event type"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={filterEntry[0]}
+              onChange={(e) =>
+                onChange({
+                  eventFilter: e.target.value.trim()
+                    ? { [e.target.value.trim()]: String(filterEntry[1] ?? '') }
+                    : {},
+                })
+              }
+              placeholder="automationId"
+              className="w-[11rem] font-mono"
+              aria-label="Event filter field"
+            />
+            <span className="text-xs text-muted-foreground">=</span>
+            <Input
+              value={String(filterEntry[1] ?? '')}
+              onChange={(e) =>
+                onChange({
+                  eventFilter: filterEntry[0]
+                    ? { [String(filterEntry[0])]: e.target.value }
+                    : {},
+                })
+              }
+              placeholder="the bot id to wake on"
+              className="min-w-[12rem] flex-1 font-mono"
+              aria-label="Event filter value"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            A dotted event name. Every filter field must match; leave both empty to accept the event from anywhere.
+          </p>
+        </div>
+      )}
+      {draft.schedule === 'condition' && (
+        <Input
+          value={draft.condition?.expression ?? ''}
+          onChange={(e) =>
+            onChange({
+              condition: {
+                expression: e.target.value,
+                edge: draft.condition?.edge ?? false,
+                variables: draft.condition?.variables ?? [],
+              },
+            })
+          }
+          placeholder="AAPL.price > 200"
+          className="font-mono"
+          aria-label="Condition expression"
+        />
       )}
       {draft.schedule !== 'manual' && (
         <div className="flex items-center gap-2">

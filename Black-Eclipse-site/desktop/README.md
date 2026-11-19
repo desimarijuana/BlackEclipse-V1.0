@@ -433,15 +433,26 @@ Decisions worth keeping:
   the download link and the browser fallback.
 - **Closing the window quits the app.** Closing (the tab-strip `X`, the taskbar
   menu, or Alt+F4) hides the window, stops the owned server tree and exits, so
-  there is no invisible process left behind. **Keep-warm** is opt-in from the
-  tray menu and persisted to `.black-eclipse/desktop-prefs.json` (window bounds
-  live there too). When it is on, closing the window **minimizes** it instead of
-  hiding it: a hidden window has no taskbar button, which would remove the badge,
-  the progress bar and the attention flash. The server stays warm either way;
-  the tray and the taskbar both reopen the same window. `desktop-prefs.json`
-  carries a `version` field: files written before v1 (no `version`) inherited
-  `keep_warm: true` from the old default, so they are migrated once to `false`
-  rather than making every existing install keep minimizing forever.
+  there is no invisible process left behind. **Run in background** is the one
+  opt-in tray switch and it persists to `.black-eclipse/desktop-prefs.json`
+  (window bounds live there too):
+  - it writes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (value
+    `Black Eclipse`) with `"<exe>" --background`, so sign-in starts the window
+    minimized;
+  - it sets `keep_warm`, so closing the window **minimizes** it instead of
+    hiding it: a hidden window has no taskbar button, which would remove the
+    badge, the progress bar and the attention flash. The server stays warm and
+    the scheduler keeps running; the tray and the taskbar both reopen the same
+    window.
+  - Both halves are one switch because either alone leaves a silent gap:
+    autostart without keep-warm quits on close, keep-warm without autostart does
+    not survive a reboot. A failed registry write turns the switch back off and
+    logs the reason; the menu never claims background mode it did not get.
+  - Unregister with the same switch, or delete the `Run` value manually.
+  - `desktop-prefs.json` carries a `version` field: files written before v1 (no
+    `version`) inherited `keep_warm: true` from the old default, so they are
+    migrated once to `false` rather than making every existing install keep
+    minimizing forever. `auto_start` defaults to `false` and is not migrated.
 - **Logs:** `.black-eclipse/desktop-native.log`, truncated at 8 MB. Read
   byte-wise (lossy), so non-UTF-8 output from Python/Next cannot end the stream.
 
@@ -451,5 +462,9 @@ Decisions worth keeping:
 - A checkout serves the **last completed** build, not unsaved source. Refresh it
   with `npm run build` + `npm run desktop:refresh`; a launch refreshes the pin
   automatically once `.next` contains a completed build.
+- **Background mode needs an awake machine.** Windows sleep/hibernate stops the
+  scheduler and any in-flight run; the shell does not call
+  `SetThreadExecutionState`. Sign-in autostart is Windows-only today — a
+  macOS/Linux shell must replace the one `set_login_item` function.
 - Playwright/PDF features that expect a browser download are untested inside
   WebView2.
