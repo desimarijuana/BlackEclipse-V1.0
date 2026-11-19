@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.9.** Fixes the reason v0.4.4–v0.4.8 could not publish:
+  a packaged macOS/Linux install could not find its own vendored Python, so the
+  release smoke (correctly) refused to ship a build whose agent runtime never
+  became healthy. Version bump across `package.json`, `package-lock.json`,
+  `pyproject.toml` and `harness.__version__`; `sbom.cdx.json`,
+  `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md` regenerated.
+  Docs: `docs/CHANGELOG.md` only.
+
 - **fix(runtime): a packaged macOS or Linux install can find its own Python.**
   `findPython()` only ever considered the vendored interpreter on Windows
   (`scripts/vendor/python/python.exe`); everywhere else it fell straight through
