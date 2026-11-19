@@ -86,8 +86,12 @@ async function probeDb() {
  * healthy answer here means the pages have something to talk to. Verified
  * against a live install: 200 while uvicorn answers, 500 once it is killed.
  */
-/** Tail of the packaged app's own log, wherever the shell writes it. */
-function nativeLogTail(dataDir, lines = 25) {
+/**
+ * The packaged app's own log, filtered to the lines that explain a runtime
+ * failure. A plain tail is mostly Next route stack traces; the spawn command,
+ * the interpreter path and the Python traceback are what identify the cause.
+ */
+function nativeLogTail(dataDir, lines = 60) {
   const candidates = [
     path.join(path.dirname(BIN), "app", ".black-eclipse", "desktop-native.log"),
     path.join(path.dirname(BIN), ".black-eclipse", "desktop-native.log"),
@@ -95,8 +99,11 @@ function nativeLogTail(dataDir, lines = 25) {
   ];
   const found = candidates.find((p) => fs.existsSync(p));
   if (!found) return [`[smoke] no shell log found in: ${candidates.join(", ")}`];
-  const tail = fs.readFileSync(found, "utf8").split("\n").slice(-lines);
-  return [`[smoke] shell log ${found}:`, ...tail.map((l) => `  ${l}`)];
+  const all = fs.readFileSync(found, "utf8").split("\n");
+  const relevant = all
+    .filter((line) => /harness|uvicorn|traceback|error|spawn|python/i.test(line))
+    .slice(-lines);
+  return [`[smoke] shell log ${found} (last ${relevant.length} relevant lines):`, ...relevant.map((l) => `  ${l}`)];
 }
 
 async function probeHarness() {

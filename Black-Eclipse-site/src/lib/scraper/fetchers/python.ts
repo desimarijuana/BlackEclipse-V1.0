@@ -14,13 +14,21 @@ type PythonInfo = { cmd: string } | null;
 
 const CANDIDATES = process.platform === "win32" ? ["python", "python3", "py"] : ["python3", "python"];
 
-// Vendored embedded Python downloaded by scripts/setup-embedded-python.js.
-// When present it is the preferred interpreter so the yfinance/scrapling
-// bridges work for new users without a system Python install.
-const VENDOR_PYTHON =
-  process.platform === "win32"
-    ? path.join(process.cwd(), "scripts", "vendor", "python", "python.exe")
-    : null;
+// Vendored runtime provisioned by scripts/setup-embedded-python.js (Windows)
+// and scripts/setup-portable-python.js (macOS/Linux). When present it is the
+// preferred interpreter, so agent features work without a system Python.
+//
+// This used to be Windows-only, which meant a packaged macOS/Linux install
+// looked for a SYSTEM python3 with `langgraph` and never found it: the release
+// smoke reported "Python with agent dependencies not found" while the app's own
+// interpreter sat unused in scripts/vendor/python/bin/python3.
+const VENDOR_PYTHON = path.join(
+  process.cwd(),
+  "scripts",
+  "vendor",
+  "python",
+  ...(process.platform === "win32" ? ["python.exe"] : ["bin", "python3"]),
+);
 
 async function canRun(cmd: string, mod?: string): Promise<boolean> {
   try {

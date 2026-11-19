@@ -6,6 +6,20 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(runtime): a packaged macOS or Linux install can find its own Python.**
+  `findPython()` only ever considered the vendored interpreter on Windows
+  (`scripts/vendor/python/python.exe`); everywhere else it fell straight through
+  to a SYSTEM `python3`, which rarely has `langgraph`. The release smoke said it
+  plainly — `[harness] Python with agent dependencies not found` — while the
+  portable runtime provisioned by `setup-portable-python.js` sat unused at
+  `scripts/vendor/python/bin/python3`. It is now the preferred interpreter on
+  every platform, so Linux/macOS installs get working agent features instead of
+  a permanent "runtime unavailable". The spawn path also logs the resolved
+  interpreter and port, a held cross-context spawn lock, and a spawn `error`
+  event, and the packaged smoke prints the log's harness/spawn/traceback lines
+  instead of a raw tail — the missing evidence that hid this for three releases.
+  Docs updated: `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`.
+
 - **release: cut v0.4.8.** Ships the first-run setup fix (no app shell behind
   the wizard, bounded and recoverable finish, plain-language database errors)
   and the release-gate fix (Python warm-up on every boot, smoke budget matching

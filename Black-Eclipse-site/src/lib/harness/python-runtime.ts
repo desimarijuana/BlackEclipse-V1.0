@@ -548,6 +548,10 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   // runtime, wait for it instead of booting a second uvicorn.
   const spawnLock = acquireSpawnLock();
   if (spawnLock === null) {
+    // Another server context owns the cold start. Say so: without this, a
+    // packaged runtime that never answers logs only "still starting" and the
+    // real reason (this wait) is invisible in a release smoke failure.
+    console.log("[harness] another context is already starting the Python runtime — waiting");
     return waitForHealth(resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS));
   }
 
@@ -615,6 +619,7 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       console.warn("[harness] could not resolve saved model config for the runtime:", err);
     }
 
+    console.log(`[harness] starting Python runtime: ${py.cmd} (port ${HARNESS_PY_PORT})`);
     const proc = spawn(
       py.cmd,
       ["-m", "uvicorn", "harness.main:app", "--host", HARNESS_PY_HOST, "--port", String(HARNESS_PY_PORT), "--app-dir", appDir],
@@ -640,6 +645,12 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       if (code !== 0 && code !== null) console.error(`[harness-py] exited with code ${code}`);
       g.__harnessPyProc = undefined;
       g.__harnessPyStart = undefined;
+    });
+    // A spawn that cannot even start (missing interpreter/DLL, EACCES) must be
+    // visible: otherwise the only symptom is "still starting" for the whole
+    // budget, which is what hid a broken release runtime for three releases.
+    proc.on("error", (err) => {
+      console.error(`[harness-py] failed to start (${py.cmd}): ${err.message}`);
     });
 
     const timeoutMs = resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS);
