@@ -10,9 +10,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   sessions, the `desktop:refresh` bridge and the 12 GB default build heap
   (entries below). Regenerates `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` —
   v0.4.14 shipped while the SBOM still said 0.4.13, which failed
-  `sbom-artifact.test.ts` on every run after it. Signed `stable.json` attached
-  to the release so in-app updates resolve to 0.4.15. Docs updated:
-  `docs/UPDATES.md` (release state).
+  `sbom-artifact.test.ts` on every run after it. Bumps `pyproject.toml` and
+  `harness.__version__` to 0.4.15 (they had stayed at 0.4.12 since v0.4.12, so
+  the PyPI tag check failed on 0.4.13 and 0.4.14). The signed `stable.json` is
+  produced offline with key `3e5f4f12` and uploaded before the draft release is
+  published. Docs updated: `docs/UPDATES.md` (release state).
 - **fix(charts): a missing drawing library is now a named, testable failure
   instead of a silent 503.** The vendored interpreter can boot the agent stack
   (`langgraph`) while `matplotlib`/`plotly` are absent, so every chat chart

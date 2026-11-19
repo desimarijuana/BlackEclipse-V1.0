@@ -106,10 +106,17 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 
 Updates are **published**: the repository is
 `dumbpabloo/BlackEclipse-V1.0` (public), `config/updates.json` has
-`"published": true`, and a signed `stable.json` for **v0.4.15** is attached to
+`"published": true`, and a signed `stable.json` for **v0.4.14** is attached to
 that release. A live check therefore verifies the signature and reports *up to
-date* for anyone on 0.4.15; it starts offering a release as soon as a newer
+date* for anyone on 0.4.14; it starts offering a release as soon as a newer
 signed manifest exists.
+
+**v0.4.15 is tagged** (`bc3afca9` and later) but stays a **draft** until its
+signed manifest is uploaded: the release workflow builds installers but never
+holds the signing key. Publishing the draft without `stable.json` would 404
+`releases/latest/download/stable.json` for every user, so the draft must not be
+published until the offline key signs it. A draft is not `releases/latest`, so
+v0.4.14 keeps serving updates in the meantime.
 
 **Signing key id `3e5f4f12096f06ac`.** The previous key (`7a08848038457e37`) was
 retired on 2026-11-19 — its private half no longer existed, so nothing could be
@@ -144,7 +151,7 @@ would fail with "Could not reach the update service", which is worse than an
 honest "not published yet".
 
 Because the manifest is a release asset, it must be re-signed and re-uploaded for
-**every** release. The current one describes v0.4.15 only — bump, re-sign,
+**every** release. The current published one describes v0.4.14 — bump, re-sign,
 re-upload, then publish the draft, in that order.
 
 > Keeping the **source** private forever means there is nothing for `black update`
