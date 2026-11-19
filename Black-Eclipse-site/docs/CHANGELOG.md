@@ -16,6 +16,9 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   private half stays gitignored in `.black-eclipse/update-keys/`. Anyone on
   0.4.12 or older trusts the old key and must install 0.4.13 manually once, then
   updates resume normally. Version bumped 0.4.12 → 0.4.13.
+  Published with the signed manifest attached: `node scripts/update.js --check`
+  now verifies and reports *up to date* on 0.4.13 (it printed `HTTP 404` before),
+  and `npm run check:downloads` serves all three installer aliases.
   Docs updated: `docs/UPDATES.md` (release state, key id, rotation cost).
 
 - **chore(repo): the project now lives at `dumbpabloo/BlackEclipse-V1.0`.** Every
