@@ -28,9 +28,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     # The Next build exceeds Node's default ~4 GB heap on a runner; macOS failed
-    # with "JavaScript heap out of memory" before this was set.
+    # with "JavaScript heap out of memory" before this was set. 6144 was enough
+    # until v0.4.9, whose Windows payload build died at 6064 MB ("Reached heap
+    # limit"); its Linux twin passed, so this is per-runner headroom, not a code
+    # regression. Runners have 14-16 GB.
     env:
-      NODE_OPTIONS: --max-old-space-size=6144
+      NODE_OPTIONS: --max-old-space-size=8192
       NEXT_TELEMETRY_DISABLED: "1"
     strategy:
       fail-fast: false

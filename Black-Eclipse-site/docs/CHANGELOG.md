@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(release): give the Windows payload build the heap it actually needs.**
+  v0.4.9's Linux job passed (including the smoke — the vendored-Python fix
+  works), its macOS job failed fetching the Rust toolchain (transient), and its
+  Windows job died in `Build the standalone payload` with
+  `FATAL ERROR: Reached heap limit … 6064 MB` against the 6144 MB cap. The
+  release workflow's `NODE_OPTIONS` is raised to 8192 MB (runners have 14–16 GB).
+  Docs updated: `docs/CHANGELOG.md`.
+
 - **release: cut v0.4.9.** Fixes the reason v0.4.4–v0.4.8 could not publish:
   a packaged macOS/Linux install could not find its own vendored Python, so the
   release smoke (correctly) refused to ship a build whose agent runtime never
