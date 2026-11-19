@@ -341,9 +341,9 @@ jobs:
 
             | Platform | File |
             |---|---|
-            | **Windows 10/11** | [BlackEclipse-Setup.exe](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) |
-            | **macOS (Apple Silicon)** | [BlackEclipse-mac-arm64.dmg](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) |
-            | **Linux (amd64)** | [BlackEclipse-linux-amd64.deb](https://github.com/desimarijuana/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) |
+            | **Windows 10/11** | [BlackEclipse-Setup.exe](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) |
+            | **macOS (Apple Silicon)** | [BlackEclipse-mac-arm64.dmg](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) |
+            | **Linux (amd64)** | [BlackEclipse-linux-amd64.deb](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) |
 
             These are the same files the README buttons serve. The versioned
             `BlackEclipse-Setup-<version>*.exe`, `BlackEclipse-<version>-<arch>.dmg`

@@ -23,7 +23,7 @@
 
 set -euo pipefail
 
-REPO="${BLACK_ECLIPSE_REPO:-desimarijuana/BlackEclipse-V1.0}"
+REPO="${BLACK_ECLIPSE_REPO:-dumbpabloo/BlackEclipse-V1.0}"
 VERSION="latest"
 SHA256=""
 NO_LAUNCH=0

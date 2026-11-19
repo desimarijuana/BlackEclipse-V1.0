@@ -21,7 +21,7 @@
 //
 // Exit 0 = every button serves a file. Exit 1 = at least one does not.
 
-const DEFAULT_REPO = process.env.BLACK_ECLIPSE_REPO || "desimarijuana/BlackEclipse-V1.0";
+const DEFAULT_REPO = process.env.BLACK_ECLIPSE_REPO || "dumbpabloo/BlackEclipse-V1.0";
 
 // The aliases the README buttons point at. The release workflow asserts each of
 // these exists before it publishes, so a name here that 404s on a public repo

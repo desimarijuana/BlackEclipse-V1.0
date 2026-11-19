@@ -1,7 +1,7 @@
 ---
 title: Updates & Release Signing
 status: Current
-last-verified: 2026-11-18
+last-verified: 2026-11-19
 ---
 
 # Updates & Release Signing
@@ -86,7 +86,7 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 | Server mirror used by the route | `src/lib/updates/core.ts` |
 | Shared types (client-safe) | `src/lib/updates/types.ts` |
 | Repo slug, manifest URLs, allowed hosts | `config/updates.json` |
-| Committed public key / key id `7a08848038457e37` | `config/update-signing-key.pub` |
+| Committed public key / key id `3e5f4f12096f06ac` | `config/update-signing-key.pub` |
 | Generate / print fingerprint | `scripts/update-keys.js` (`npm run update:keys`) |
 | Sign a release manifest | `scripts/update-sign.js` (`npm run update:sign`) |
 | `black update` / `npm run update` | `scripts/update.js`, wired in `bin/black.js` |
@@ -105,11 +105,27 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 ## Release state (current)
 
 Updates are **published**: the repository is
-`desimarijuana/BlackEclipse-V1.0` (public), `config/updates.json` has
-`"published": true`, and a signed `stable.json` for **v0.4.1** is attached to that
-release. A live check therefore verifies the signature and reports *up to date*
-for anyone on 0.4.1; it starts offering a release as soon as a newer signed
-manifest exists.
+`dumbpabloo/BlackEclipse-V1.0` (public), `config/updates.json` has
+`"published": true`, and a signed `stable.json` for **v0.4.13** is attached to
+that release. A live check therefore verifies the signature and reports *up to
+date* for anyone on 0.4.13; it starts offering a release as soon as a newer
+signed manifest exists.
+
+**Signing key id `3e5f4f12096f06ac`.** The previous key (`7a08848038457e37`) was
+retired on 2026-11-19 — its private half no longer existed, so nothing could be
+signed with it. Rotating leaves a one-time scar, not a permanent one: a build
+verifies manifests against the `.pub` it shipped with, so anyone on **0.4.12 or
+older** cannot verify a manifest signed by the new key. They keep running, get
+no notice, and rejoin the update path by installing 0.4.13 manually once. 0.4.13
+and later ship the new key and update normally.
+
+Every release asset gap is visible from outside, so check it after publishing:
+`node scripts/update.js --check` prints `HTTP 404` when the **latest** release
+carries no `stable.json` (that was the state of v0.4.2 and v0.4.3: the manifest
+was only ever on v0.4.1, and `releases/latest/download/stable.json` therefore
+404'd for every user). CI creates the release as a **draft** and never signs one;
+a release is only live for users once a manifest is uploaded and the draft is
+published.
 
 `published: false` remains the correct setting only for a private pre-launch
 repo. While it is false:
@@ -124,7 +140,8 @@ would fail with "Could not reach the update service", which is worse than an
 honest "not published yet".
 
 Because the manifest is a release asset, it must be re-signed and re-uploaded for
-**every** release. The current one describes v0.4.0 only.
+**every** release. The current one describes v0.4.13 only — bump, re-sign,
+re-upload, then publish the draft, in that order.
 
 > Keeping the **source** private forever means there is nothing for `black update`
 > to fetch. The git-based updater assumes users can reach the repo. If you later

@@ -255,7 +255,7 @@ Repository content:
       (`repository`, `homepage`, `bugs`), the README download/release links,
       `.github/ISSUE_TEMPLATE/config.yml`, and the API URL in
       `repository-guards.md`; the current links all name
-      `desimarijuana/BlackEclipse-V1.0`.
+      `dumbpabloo/BlackEclipse-V1.0`.
 
 GitHub settings (all free once public):
 

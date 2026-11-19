@@ -2,7 +2,7 @@
   "schema": 1,
   "enabled": true,
   "published": true,
-  "repository": "desimarijuana/BlackEclipse-V1.0",
+  "repository": "dumbpabloo/BlackEclipse-V1.0",
   "manifestUrls": {
     "stable": "https://github.com/{repository}/releases/latest/download/stable.json",
     "beta": "https://github.com/{repository}/releases/download/beta/beta.json"

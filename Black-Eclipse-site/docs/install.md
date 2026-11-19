@@ -29,13 +29,13 @@ and never read the git tree, so they are not a source install.
 
 ```powershell
 # Windows
-irm https://raw.githubusercontent.com/desimarijuana/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.ps1 -OutFile install-release.ps1
+irm https://raw.githubusercontent.com/dumbpabloo/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.ps1 -OutFile install-release.ps1
 ./install-release.ps1
 ```
 
 ```bash
 # Linux (amd64) and macOS (Apple silicon)
-curl -fsSLO https://raw.githubusercontent.com/desimarijuana/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.sh
+curl -fsSLO https://raw.githubusercontent.com/dumbpabloo/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.sh
 bash install-release.sh
 ```
 
