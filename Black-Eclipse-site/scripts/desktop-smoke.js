@@ -100,10 +100,18 @@ function nativeLogTail(dataDir, lines = 60) {
   const found = candidates.find((p) => fs.existsSync(p));
   if (!found) return [`[smoke] no shell log found in: ${candidates.join(", ")}`];
   const all = fs.readFileSync(found, "utf8").split("\n");
-  const relevant = all
-    .filter((line) => /harness|uvicorn|traceback|error|spawn|python/i.test(line))
-    .slice(-lines);
-  return [`[smoke] shell log ${found} (last ${relevant.length} relevant lines):`, ...relevant.map((l) => `  ${l}`)];
+  const relevant = all.filter((line) => /harness|uvicorn|traceback|error|spawn|python/i.test(line));
+  // Both ends matter: the FIRST lines carry the resolved interpreter and the
+  // spawn command; the LAST lines carry what it was doing when time ran out.
+  const head = relevant.slice(0, 15);
+  const tail = relevant.slice(-45);
+  return [
+    `[smoke] shell log ${found} (${relevant.length} relevant lines)`,
+    "[smoke] first:",
+    ...head.map((l) => `  ${l}`),
+    "[smoke] last:",
+    ...tail.map((l) => `  ${l}`),
+  ];
 }
 
 async function probeHarness() {

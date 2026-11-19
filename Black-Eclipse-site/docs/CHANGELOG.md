@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(release): finish the build-budget fix for the packaged release.** v0.4.10
+  still failed on Windows at the standalone payload (`Reached heap limit` with
+  the 8 GB cap) and on macOS at the runtime smoke (the agent runtime was still
+  starting when the smoke's 300 s budget expired). The workflow now uses a
+  12 GB heap and gives the runtime its documented 600 s cold-start budget with a
+  420 s smoke wait. The smoke also prints the FIRST harness lines (resolved
+  interpreter + spawn command), not only the tail, so a macOS failure names its
+  own cause. Docs updated: `docs/CHANGELOG.md`.
+
 - **release: cut v0.4.10.** The Linux job of v0.4.9 proved the vendored-Python
   fix (smoke passed); this release adds the Windows heap fix (8 GB) so the
   standalone payload builds on every runner. Version bump across `package.json`,

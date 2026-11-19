@@ -33,8 +33,13 @@ jobs:
     # limit"); its Linux twin passed, so this is per-runner headroom, not a code
     # regression. Runners have 14-16 GB.
     env:
-      NODE_OPTIONS: --max-old-space-size=8192
+      NODE_OPTIONS: --max-old-space-size=12288
       NEXT_TELEMETRY_DISABLED: "1"
+      # The packaged agent runtime may be cold on a runner (a first import of
+      # the whole harness). Its own start budget defaults to 300 s; give CI
+      # double that, and let the smoke wait long enough to observe it.
+      HARNESS_PY_START_TIMEOUT_MS: "600000"
+      BE_SMOKE_HARNESS_MS: "420000"
     strategy:
       fail-fast: false
       matrix:
