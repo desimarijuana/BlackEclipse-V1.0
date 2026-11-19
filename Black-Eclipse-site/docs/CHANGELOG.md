@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(build): bound the build's memory instead of raising one process's cap.**
+  v0.4.9–v0.4.11 all died in the Windows payload build (`FATAL ERROR: Reached
+  heap limit`, then killed outright at 12 GB). `NODE_OPTIONS` applies to every
+  Node child, so a large `--max-old-space-size` multiplied by Next's build
+  worker pool exhausted a 16 GB runner. With `BE_BUILD_LOW_MEMORY=1` (set for CI
+  only) `next.config.ts` uses one build worker and webpack's low-memory mode,
+  and the per-process cap goes back to 6 GB. Local builds keep the fast
+  defaults. Docs updated: `docs/CHANGELOG.md`.
+
 - **perf(release): publish what builds, and make a Windows-only run cheap.**
   A red macOS job used to block the Windows and Linux installers from
   publishing, and every attempt paid for three full payload builds. The release

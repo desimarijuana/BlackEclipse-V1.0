@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
     // The icon surface re-exports ~250 icons from a 9k-icon barrel. Without
     // this, the full icon definition set (~1.5 MB) lands in the boot chunk.
     optimizePackageImports: ["@phosphor-icons/react"],
+    // CPU/memory knobs for CI (`BE_BUILD_LOW_MEMORY=1`). `NODE_OPTIONS` applies
+    // to EVERY Node child, so a big `--max-old-space-size` multiplied by the
+    // build's worker pool is what ran a 16 GB Windows runner out of memory
+    // (v0.4.9–v0.4.11). One worker plus webpack's low-memory mode keeps the
+    // total bounded; local builds keep the fast defaults.
+    ...(process.env.BE_BUILD_LOW_MEMORY === "1"
+      ? { cpus: 1, webpackMemoryOptimizations: true }
+      : {}),
   },
   // Dev and production builds get separate output directories. `next dev`
   // deletes `BUILD_ID`, which invalidated the cached production build and made

@@ -35,13 +35,14 @@ jobs:
     # fix can be verified in ~20 minutes instead of paying for three builds.
     # `!inputs.only` keeps tag pushes (no inputs at all) building every platform.
     if: ${{ !inputs.only || contains(inputs.only, matrix.os) }}
-    # The Next build exceeds Node's default ~4 GB heap on a runner; macOS failed
-    # with "JavaScript heap out of memory" before this was set. 6144 was enough
-    # until v0.4.9, whose Windows payload build died at 6064 MB ("Reached heap
-    # limit"); its Linux twin passed, so this is per-runner headroom, not a code
-    # regression. Runners have 14-16 GB.
+    # The Next build exceeds Node's default ~4 GB heap on a runner. Raising the
+    # per-process cap alone made v0.4.9–v0.4.11 WORSE: `NODE_OPTIONS` applies to
+    # every Node child, and the build's worker pool multiplied it until a 16 GB
+    # runner was out of memory. Keep a sane per-process cap and bound the total
+    # instead: one worker + webpack's low-memory mode (BE_BUILD_LOW_MEMORY).
     env:
-      NODE_OPTIONS: --max-old-space-size=12288
+      NODE_OPTIONS: --max-old-space-size=6144
+      BE_BUILD_LOW_MEMORY: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       # The packaged agent runtime may be cold on a runner (a first import of
       # the whole harness). Its own start budget defaults to 300 s; give CI
