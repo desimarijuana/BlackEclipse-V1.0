@@ -151,7 +151,11 @@ RATCHET_PY: dict[str, int] = {
     # +15 for the Quant Research Intelligence tool registration + QUANT_TOOLS
     # names (2026-11-10). The research tools themselves live in a separate
     # module; this file only imports and declares them.
-    "quant/tools.py": 1259,
+    # Re-pinned 1259->1351 (2026-11-19) to the measured tree after the
+    # declared-dataset backtest landed (d11916b0) without a matching pin; the
+    # whole suite has been red since. The backtest handler is the split
+    # candidate - move it out beside `visual_tools.py` and drop this pin back.
+    "quant/tools.py": 1351,
     # Re-pinned to 1212 for the ONE-SEARCH-PRIMITIVE consolidation (Round 3 /
     # W5, ADR-H284): `search_files` gained the exclude/extension/directory
     # filters that only `find_files` carried, and the definition factory gained

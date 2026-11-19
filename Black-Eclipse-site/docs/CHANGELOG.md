@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **release: cut v0.4.15.** Ships the chart-engine readiness fix, per-tab chat
+  sessions, the `desktop:refresh` bridge and the 12 GB default build heap
+  (entries below). Regenerates `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` —
+  v0.4.14 shipped while the SBOM still said 0.4.13, which failed
+  `sbom-artifact.test.ts` on every run after it. Signed `stable.json` attached
+  to the release so in-app updates resolve to 0.4.15. Docs updated:
+  `docs/UPDATES.md` (release state).
 - **fix(charts): a missing drawing library is now a named, testable failure
   instead of a silent 503.** The vendored interpreter can boot the agent stack
   (`langgraph`) while `matplotlib`/`plotly` are absent, so every chat chart

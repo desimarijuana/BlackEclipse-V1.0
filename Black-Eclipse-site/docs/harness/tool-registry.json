@@ -1,5 +1,5 @@
 {
-  "digest": "771ff7ada93632cd",
+  "digest": "9fcfacba26636ecf",
   "manifestVersion": "1",
   "toolCount": 1106,
   "tools": [
@@ -1267,7 +1267,7 @@
     },
     {
       "deprecated": false,
-      "description": "Create a persistent autonomous bot (a scheduled agent) that runs in the background even after the browser closes. Set triggerType to manual, one_time, interval or cron; provide objective; optionally name, agentId (any installed preset), description, state, workspaceRoot, autonomy, and the execution, retry, concurrency, limits, delivery and permissions blocks the Bots UI also exposes. A bot gets the SAME tool surface as an interactive turn of its agent.",
+      "description": "Create a persistent autonomous bot (a scheduled agent) that runs in the background even after the browser closes. Set triggerType to manual, one_time, interval, cron, event or condition; provide objective; optionally name, agentId (any installed preset), description, state, workspaceRoot, autonomy, and the execution, retry, concurrency, limits, delivery and permissions blocks the Bots UI also exposes. A bot gets the SAME tool surface as an interactive turn of its agent.",
       "effect": "external_action",
       "inputSchema": {
         "properties": {
@@ -1297,6 +1297,10 @@
               }
             },
             "type": "object"
+          },
+          "conditionExpression": {
+            "description": "Deterministic condition for a condition trigger.",
+            "type": "string"
           },
           "cron": {
             "type": "string"
@@ -1334,6 +1338,14 @@
             "type": "object"
           },
           "description": {
+            "type": "string"
+          },
+          "eventFilter": {
+            "description": "Event fields that must match, e.g. {\"automationId\": \"<bot id>\"}.",
+            "type": "object"
+          },
+          "eventType": {
+            "description": "Dotted event name for an event trigger, e.g. 'automation.completed'.",
             "type": "string"
           },
           "execution": {
@@ -1521,7 +1533,9 @@
               "manual",
               "one_time",
               "interval",
-              "cron"
+              "cron",
+              "event",
+              "condition"
             ],
             "type": "string"
           },
@@ -1812,6 +1826,10 @@
             },
             "type": "object"
           },
+          "conditionExpression": {
+            "description": "Deterministic condition for a condition trigger.",
+            "type": "string"
+          },
           "cron": {
             "type": "string"
           },
@@ -1846,6 +1864,14 @@
               }
             },
             "type": "object"
+          },
+          "eventFilter": {
+            "description": "Event fields that must match, e.g. {\"automationId\": \"<bot id>\"}.",
+            "type": "object"
+          },
+          "eventType": {
+            "description": "Dotted event name for an event trigger, e.g. 'automation.completed'.",
+            "type": "string"
           },
           "execution": {
             "description": "Timing policy: maxRuntimeS, timeoutS, misfire (skip|run_once|catch_up), catchUpMax.",
@@ -2023,7 +2049,9 @@
               "manual",
               "one_time",
               "interval",
-              "cron"
+              "cron",
+              "event",
+              "condition"
             ],
             "type": "string"
           },
