@@ -1,171 +1,10 @@
 # Change Log
 
 Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/)
-â€” one file per month. This file keeps the newest seven dated sections;
+— one file per month. This file keeps the newest seven dated sections;
 `npm run rotate:changelog -- --write` performs the move.
 
 ## 2026-11-18
-
-  on Ubuntu, package jobs only do the platform half. Ships the first-run setup
-  fix (the reason this release chain exists) plus the vendored-Python fix for
-  macOS/Linux; the macOS smoke is advisory so the Windows and Linux installers
-  publish even if it is slow. Version bump across `package.json`,
-  `package-lock.json`, `pyproject.toml` and `harness.__version__`;
-  `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md`
-  regenerated. Docs: `docs/CHANGELOG.md` only.
-
-- **perf(release): build the Next payload once, on Ubuntu, for every platform.**
-  This supersedes the `cpus: 1` + low-memory experiment above (not viable: one
-  worker took >16 minutes locally and still needed >6 GB, and raising
-  `NODE_OPTIONS` multiplied by the build's worker pool is what exhausted the
-  16 GB Windows runner). The release workflow now has a `payload` job that
-  builds `.next-desktop` once and uploads it; the Windows/macOS/Linux jobs
-  download it and only do the platform-specific half (Python provisioning,
-  Tauri shell, packaging, installers, smoke). Windows never runs a Next build,
-  so its OOM cannot recur, and each release does one compile instead of three.
-  Docs updated: `docs/CHANGELOG.md`.
-
-- **fix(build): bound the build's memory instead of raising one process's cap.**
-  v0.4.9â€“v0.4.11 all died in the Windows payload build (`FATAL ERROR: Reached
-  heap limit`, then killed outright at 12 GB). `NODE_OPTIONS` applies to every
-  Node child, so a large `--max-old-space-size` multiplied by Next's build
-  worker pool exhausted a 16 GB runner. With `BE_BUILD_LOW_MEMORY=1` (set for CI
-  only) `next.config.ts` uses one build worker and webpack's low-memory mode,
-  and the per-process cap goes back to 6 GB. Local builds keep the fast
-  defaults. Docs updated: `docs/CHANGELOG.md`.
-
-- **perf(release): publish what builds, and make a Windows-only run cheap.**
-  A red macOS job used to block the Windows and Linux installers from
-  publishing, and every attempt paid for three full payload builds. The release
-  workflow now:
-  - runs the `release` job with `always()` and refuses only when there is **no**
-    installer at all, so a failing platform no longer withholds the others;
-  - treats the macOS smoke as advisory (`continue-on-error`) with a 15-minute
-    step timeout â€” the run still records it, and the smoke prints the runtime's
-    own log lines;
-  - caches `Black-Eclipse-site/.next/cache` per runner, so a tag build reuses
-    the previous compile (the payload build is the 6â€“8 minute step);
-  - accepts a `workflow_dispatch` `only` input (`windows-latest` etc.) to build
-    one platform in ~20 minutes while iterating, while tag pushes still build
-    all three (`!inputs.only`).
-  Docs updated: `docs/CHANGELOG.md`.
-
-- **release: cut v0.4.11.** Build budgets only: 12 GB heap for the Windows
-  payload build and the runtime's 600 s cold-start budget with a 420 s smoke
-  wait (plus first-harness-line evidence). The runtime itself is unchanged;
-  Ubuntu has passed its smoke on every attempt since the vendored-Python fix.
-  Version bump across `package.json`, `package-lock.json`, `pyproject.toml` and
-  `harness.__version__`; `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and
-  `docs/harness/benchmarks.md` regenerated. Docs: `docs/CHANGELOG.md` only.
-
-- **fix(release): finish the build-budget fix for the packaged release.** v0.4.10
-  still failed on Windows at the standalone payload (`Reached heap limit` with
-  the 8 GB cap) and on macOS at the runtime smoke (the agent runtime was still
-  starting when the smoke's 300 s budget expired). The workflow now uses a
-  12 GB heap and gives the runtime its documented 600 s cold-start budget with a
-  420 s smoke wait. The smoke also prints the FIRST harness lines (resolved
-  interpreter + spawn command), not only the tail, so a macOS failure names its
-  own cause. Docs updated: `docs/CHANGELOG.md`.
-
-- **release: cut v0.4.10.** The Linux job of v0.4.9 proved the vendored-Python
-  fix (smoke passed); this release adds the Windows heap fix (8 GB) so the
-  standalone payload builds on every runner. Version bump across `package.json`,
-  `package-lock.json`, `pyproject.toml` and `harness.__version__`;
-  `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md`
-  regenerated. Docs: `docs/CHANGELOG.md` only.
-
-- **fix(release): give the Windows payload build the heap it actually needs.**
-  v0.4.9's Linux job passed (including the smoke â€” the vendored-Python fix
-  works), its macOS job failed fetching the Rust toolchain (transient), and its
-  Windows job died in `Build the standalone payload` with
-  `FATAL ERROR: Reached heap limit â€¦ 6064 MB` against the 6144 MB cap. The
-  release workflow's `NODE_OPTIONS` is raised to 8192 MB (runners have 14â€“16 GB).
-  Docs updated: `docs/CHANGELOG.md`.
-
-- **release: cut v0.4.9.** Fixes the reason v0.4.4â€“v0.4.8 could not publish:
-  a packaged macOS/Linux install could not find its own vendored Python, so the
-  release smoke (correctly) refused to ship a build whose agent runtime never
-  became healthy. Version bump across `package.json`, `package-lock.json`,
-  `pyproject.toml` and `harness.__version__`; `sbom.cdx.json`,
-  `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md` regenerated.
-  Docs: `docs/CHANGELOG.md` only.
-
-- **fix(runtime): a packaged macOS or Linux install can find its own Python.**
-  `findPython()` only ever considered the vendored interpreter on Windows
-  (`scripts/vendor/python/python.exe`); everywhere else it fell straight through
-  to a SYSTEM `python3`, which rarely has `langgraph`. The release smoke said it
-  plainly â€” `[harness] Python with agent dependencies not found` â€” while the
-  portable runtime provisioned by `setup-portable-python.js` sat unused at
-  `scripts/vendor/python/bin/python3`. It is now the preferred interpreter on
-  every platform, so Linux/macOS installs get working agent features instead of
-  a permanent "runtime unavailable". The spawn path also logs the resolved
-  interpreter and port, a held cross-context spawn lock, and a spawn `error`
-  event, and the packaged smoke prints the log's harness/spawn/traceback lines
-  instead of a raw tail â€” the missing evidence that hid this for three releases.
-  Docs updated: `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`.
-
-- **release: cut v0.4.8.** Ships the first-run setup fix (no app shell behind
-  the wizard, bounded and recoverable finish, plain-language database errors)
-  and the release-gate fix (Python warm-up on every boot, smoke budget matching
-  the runtime's 300 s, app-log tail on failure) so the packaged installers can
-  finally publish. Version bump across `package.json`, `package-lock.json`,
-  `pyproject.toml` and `harness.__version__`; `sbom.cdx.json`,
-  `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md` regenerated.
-  Docs: `docs/CHANGELOG.md` only (no behaviour change beyond the two entries
-  below).
-
-- **feat(quant): a backtest can run on the operator's own declared dataset.**
-  The Custom REST API connector (Settings â†’ Data Sources) already let an
-  operator bring any endpoint with their own key; the backtester could not read
-  it, so "backtest my model on my data" silently ran on the built-in providers.
-  `quant/custom_source.py` now resolves a named dataset through the existing
-  `custom_dataset_records` bridge capability, and `quant/datasets.py` treats it
-  as exclusive â€” no gateway call, no cache, no fallback; a failure is
-  `CUSTOM_SOURCE_UNAVAILABLE` / `MISSING_DATA`. The requested window is
-  re-applied to returned rows, records are mapped from
-  `timestamp/open/high/low/close/volume` (common aliases accepted), and the
-  result carries `metadata.dataSource` + a `CUSTOM_DATA_SOURCE` warning so a
-  user-data run is never mistaken for Eclipse-verified market data. New
-  `dataSource` argument on `run_backtest`, `run_portfolio_backtest`,
-  `run_python_strategy`, `optimize_parameters`, `run_walk_forward`,
-  `run_monte_carlo`, `run_sensitivity_analysis`, `run_robustness_analysis`.
-  The Backtest screen gains a **Data source** selector (declared datasets with a
-  connector attached), typed in `src/lib/backtest/backtest-client.ts` and
-  forwarded by `POST /quant/backtest` / `portfolio-backtest`.
-  Docs updated: `docs/quant-engine.md`, `docs/harness/tool-registry.json`
-  (regenerated), `docs/CHANGELOG.md`.
-
-- **fix(release): the packaged smoke gate now waits as long as the runtime is
-  allowed, and reports why.** v0.4.4â€“v0.4.7 could not publish: the Windows and
-  macOS builds failed `Smoke test` with "the Python runtime never became healthy
-  within 180s" while the runtime log showed uvicorn up. The gate's budget (180 s)
-  was shorter than the runtime's own cold-start budget (300 s), and a cold first
-  import from a freshly written 2.3 GB payload measured over three minutes. On a
-  first run the runtime is warmed during setup again (see the entry above), which
-  removes the cold start from the first chat; `scripts/desktop-smoke.js` now
-  defaults to 300 s and prints the packaged app's log tail on a harness failure
-  instead of only "never healthy" (the shell's stdout does not carry it).
-  Packaging tooling: `desktop-package.js --link` used `unlinkSync` on a
-  directory (so local linked packaging always died with EEXIST), a PE layout
-  `pe-library` cannot parse aborted the whole package at the branding step â€”
-  branding is cosmetic, so it now warns and continues â€” and `BE_PACKAGE_OUT`
-  lets a local test package build beside the real `dist/BlackEclipse` instead
-  of fighting a stale file handle there.
-  Verified locally on a full-copy Windows package: uvicorn answers
-  `/health/live` 200 and `/api/harness/model-runtime/health` returns 200.
-  Docs updated: `docs/ARCHITECTURE.md`, `docs/onboarding-plan.md`,
-  `docs/CHANGELOG.md`.
-
-- **chore(issues): backlog triaged on the renamed remote.** Filed six issues on
-  `dumbpabloo/BlackEclipse-V1.0` (#15â€“#20) from an audit of the tree: Eclipse
-  as an MCP server is implemented and tested but no transport is ever mounted
-  (`mcp/server_exposure.py::build_asgi_app` has no caller); non-text MCP results
-  are flattened to metadata; the MCP authorization-code OAuth leg still needs a
-  manual https step; the per-run call budget falls back to one shared
-  `"anonymous"` bucket and truncation names no tools; five stale PRs (#10â€“#14)
-  need triage; and `screens/settings.tsx` (1,023 lines) still holds its tab
-  bodies inline. No code changed â€” `npx tsc --noEmit` was clean before filing.
-  no doc change â€” issue tracker only.
 
 - **feat(bots): desks — a saved team run, so a monitor bot and an executor bot can
   work one question.** A desk is an automation with `action.type = "run_team"`
@@ -206,7 +45,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   keep-warm still quits on close; keep-warm without autostart does not survive
   reboot). `--background` starts the window minimized; a failed registry write
   turns the switch back off and logs why.
-  The automation default `execution.maxRuntimeS` rises 900 â†’ 1200 s so a
+  The automation default `execution.maxRuntimeS` rises 900 → 1200 s so a
   scheduled bot gets the same 20-minute floor as one chat turn (UI bot draft
   matches; cap stays 24 h). Parity is now pinned by
   `python/tests/test_automation_bot_parity.py` (a scheduled run carries the bot
@@ -217,7 +56,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `desktop/README.md`, `docs/CHANGELOG.md`.
 
 - **plan(desks): user-authored bot teams, end to end.** A design for the
-  monitor-bot â†’ desk â†’ executor topology: a desk is a `run_team` automation whose
+  monitor-bot → desk → executor topology: a desk is a `run_team` automation whose
   `config.team` is the `TeamDefinition` (so durability, versioning, triggers,
   delivery and history are reused), roles are team members rather than bot rows,
   the desk may only `order_preview`, and a trading bot keeps the mandate and the
@@ -229,8 +68,171 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Docs: `docs/harness/desks-plan.md` (new, status `Proposed`),
   `docs/harness/bot-team-orchestration.md`, `docs/NAVIGATION.md`.
 
+- **release: cut v0.4.12.** The shared-payload release build: one Next compile
+  on Ubuntu, package jobs only do the platform half. Ships the first-run setup
+  fix (the reason this release chain exists) plus the vendored-Python fix for
+  macOS/Linux; the macOS smoke is advisory so the Windows and Linux installers
+  publish even if it is slow. Version bump across `package.json`,
+  `package-lock.json`, `pyproject.toml` and `harness.__version__`;
+  `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md`
+  regenerated. Docs: `docs/CHANGELOG.md` only.
+
+- **perf(release): build the Next payload once, on Ubuntu, for every platform.**
+  This supersedes the `cpus: 1` + low-memory experiment above (not viable: one
+  worker took >16 minutes locally and still needed >6 GB, and raising
+  `NODE_OPTIONS` multiplied by the build's worker pool is what exhausted the
+  16 GB Windows runner). The release workflow now has a `payload` job that
+  builds `.next-desktop` once and uploads it; the Windows/macOS/Linux jobs
+  download it and only do the platform-specific half (Python provisioning,
+  Tauri shell, packaging, installers, smoke). Windows never runs a Next build,
+  so its OOM cannot recur, and each release does one compile instead of three.
+  Docs updated: `docs/CHANGELOG.md`.
+
+- **fix(build): bound the build's memory instead of raising one process's cap.**
+  v0.4.9–v0.4.11 all died in the Windows payload build (`FATAL ERROR: Reached
+  heap limit`, then killed outright at 12 GB). `NODE_OPTIONS` applies to every
+  Node child, so a large `--max-old-space-size` multiplied by Next's build
+  worker pool exhausted a 16 GB runner. With `BE_BUILD_LOW_MEMORY=1` (set for CI
+  only) `next.config.ts` uses one build worker and webpack's low-memory mode,
+  and the per-process cap goes back to 6 GB. Local builds keep the fast
+  defaults. Docs updated: `docs/CHANGELOG.md`.
+
+- **perf(release): publish what builds, and make a Windows-only run cheap.**
+  A red macOS job used to block the Windows and Linux installers from
+  publishing, and every attempt paid for three full payload builds. The release
+  workflow now:
+  - runs the `release` job with `always()` and refuses only when there is **no**
+    installer at all, so a failing platform no longer withholds the others;
+  - treats the macOS smoke as advisory (`continue-on-error`) with a 15-minute
+    step timeout — the run still records it, and the smoke prints the runtime's
+    own log lines;
+  - caches `Black-Eclipse-site/.next/cache` per runner, so a tag build reuses
+    the previous compile (the payload build is the 6–8 minute step);
+  - accepts a `workflow_dispatch` `only` input (`windows-latest` etc.) to build
+    one platform in ~20 minutes while iterating, while tag pushes still build
+    all three (`!inputs.only`).
+  Docs updated: `docs/CHANGELOG.md`.
+
+- **release: cut v0.4.11.** Build budgets only: 12 GB heap for the Windows
+  payload build and the runtime's 600 s cold-start budget with a 420 s smoke
+  wait (plus first-harness-line evidence). The runtime itself is unchanged;
+  Ubuntu has passed its smoke on every attempt since the vendored-Python fix.
+  Version bump across `package.json`, `package-lock.json`, `pyproject.toml` and
+  `harness.__version__`; `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and
+  `docs/harness/benchmarks.md` regenerated. Docs: `docs/CHANGELOG.md` only.
+
+- **fix(release): finish the build-budget fix for the packaged release.** v0.4.10
+  still failed on Windows at the standalone payload (`Reached heap limit` with
+  the 8 GB cap) and on macOS at the runtime smoke (the agent runtime was still
+  starting when the smoke's 300 s budget expired). The workflow now uses a
+  12 GB heap and gives the runtime its documented 600 s cold-start budget with a
+  420 s smoke wait. The smoke also prints the FIRST harness lines (resolved
+  interpreter + spawn command), not only the tail, so a macOS failure names its
+  own cause. Docs updated: `docs/CHANGELOG.md`.
+
+- **release: cut v0.4.10.** The Linux job of v0.4.9 proved the vendored-Python
+  fix (smoke passed); this release adds the Windows heap fix (8 GB) so the
+  standalone payload builds on every runner. Version bump across `package.json`,
+  `package-lock.json`, `pyproject.toml` and `harness.__version__`;
+  `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md`
+  regenerated. Docs: `docs/CHANGELOG.md` only.
+
+- **fix(release): give the Windows payload build the heap it actually needs.**
+  v0.4.9's Linux job passed (including the smoke — the vendored-Python fix
+  works), its macOS job failed fetching the Rust toolchain (transient), and its
+  Windows job died in `Build the standalone payload` with
+  `FATAL ERROR: Reached heap limit … 6064 MB` against the 6144 MB cap. The
+  release workflow's `NODE_OPTIONS` is raised to 8192 MB (runners have 14–16 GB).
+  Docs updated: `docs/CHANGELOG.md`.
+
+- **release: cut v0.4.9.** Fixes the reason v0.4.4–v0.4.8 could not publish:
+  a packaged macOS/Linux install could not find its own vendored Python, so the
+  release smoke (correctly) refused to ship a build whose agent runtime never
+  became healthy. Version bump across `package.json`, `package-lock.json`,
+  `pyproject.toml` and `harness.__version__`; `sbom.cdx.json`,
+  `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md` regenerated.
+  Docs: `docs/CHANGELOG.md` only.
+
+- **fix(runtime): a packaged macOS or Linux install can find its own Python.**
+  `findPython()` only ever considered the vendored interpreter on Windows
+  (`scripts/vendor/python/python.exe`); everywhere else it fell straight through
+  to a SYSTEM `python3`, which rarely has `langgraph`. The release smoke said it
+  plainly — `[harness] Python with agent dependencies not found` — while the
+  portable runtime provisioned by `setup-portable-python.js` sat unused at
+  `scripts/vendor/python/bin/python3`. It is now the preferred interpreter on
+  every platform, so Linux/macOS installs get working agent features instead of
+  a permanent "runtime unavailable". The spawn path also logs the resolved
+  interpreter and port, a held cross-context spawn lock, and a spawn `error`
+  event, and the packaged smoke prints the log's harness/spawn/traceback lines
+  instead of a raw tail — the missing evidence that hid this for three releases.
+  Docs updated: `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`.
+
+- **release: cut v0.4.8.** Ships the first-run setup fix (no app shell behind
+  the wizard, bounded and recoverable finish, plain-language database errors)
+  and the release-gate fix (Python warm-up on every boot, smoke budget matching
+  the runtime's 300 s, app-log tail on failure) so the packaged installers can
+  finally publish. Version bump across `package.json`, `package-lock.json`,
+  `pyproject.toml` and `harness.__version__`; `sbom.cdx.json`,
+  `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md` regenerated.
+  Docs: `docs/CHANGELOG.md` only (no behaviour change beyond the two entries
+  below).
+
+- **feat(quant): a backtest can run on the operator's own declared dataset.**
+  The Custom REST API connector (Settings → Data Sources) already let an
+  operator bring any endpoint with their own key; the backtester could not read
+  it, so "backtest my model on my data" silently ran on the built-in providers.
+  `quant/custom_source.py` now resolves a named dataset through the existing
+  `custom_dataset_records` bridge capability, and `quant/datasets.py` treats it
+  as exclusive — no gateway call, no cache, no fallback; a failure is
+  `CUSTOM_SOURCE_UNAVAILABLE` / `MISSING_DATA`. The requested window is
+  re-applied to returned rows, records are mapped from
+  `timestamp/open/high/low/close/volume` (common aliases accepted), and the
+  result carries `metadata.dataSource` + a `CUSTOM_DATA_SOURCE` warning so a
+  user-data run is never mistaken for Eclipse-verified market data. New
+  `dataSource` argument on `run_backtest`, `run_portfolio_backtest`,
+  `run_python_strategy`, `optimize_parameters`, `run_walk_forward`,
+  `run_monte_carlo`, `run_sensitivity_analysis`, `run_robustness_analysis`.
+  The Backtest screen gains a **Data source** selector (declared datasets with a
+  connector attached), typed in `src/lib/backtest/backtest-client.ts` and
+  forwarded by `POST /quant/backtest` / `portfolio-backtest`.
+  Docs updated: `docs/quant-engine.md`, `docs/harness/tool-registry.json`
+  (regenerated), `docs/CHANGELOG.md`.
+
+- **fix(release): the packaged smoke gate now waits as long as the runtime is
+  allowed, and reports why.** v0.4.4–v0.4.7 could not publish: the Windows and
+  macOS builds failed `Smoke test` with "the Python runtime never became healthy
+  within 180s" while the runtime log showed uvicorn up. The gate's budget (180 s)
+  was shorter than the runtime's own cold-start budget (300 s), and a cold first
+  import from a freshly written 2.3 GB payload measured over three minutes. On a
+  first run the runtime is warmed during setup again (see the entry above), which
+  removes the cold start from the first chat; `scripts/desktop-smoke.js` now
+  defaults to 300 s and prints the packaged app's log tail on a harness failure
+  instead of only "never healthy" (the shell's stdout does not carry it).
+  Packaging tooling: `desktop-package.js --link` used `unlinkSync` on a
+  directory (so local linked packaging always died with EEXIST), a PE layout
+  `pe-library` cannot parse aborted the whole package at the branding step —
+  branding is cosmetic, so it now warns and continues — and `BE_PACKAGE_OUT`
+  lets a local test package build beside the real `dist/BlackEclipse` instead
+  of fighting a stale file handle there.
+  Verified locally on a full-copy Windows package: uvicorn answers
+  `/health/live` 200 and `/api/harness/model-runtime/health` returns 200.
+  Docs updated: `docs/ARCHITECTURE.md`, `docs/onboarding-plan.md`,
+  `docs/CHANGELOG.md`.
+
+- **chore(issues): backlog triaged on the renamed remote.** Filed six issues on
+  `dumbpabloo/BlackEclipse-V1.0` (#15–#20) from an audit of the tree: Eclipse
+  as an MCP server is implemented and tested but no transport is ever mounted
+  (`mcp/server_exposure.py::build_asgi_app` has no caller); non-text MCP results
+  are flattened to metadata; the MCP authorization-code OAuth leg still needs a
+  manual https step; the per-run call budget falls back to one shared
+  `"anonymous"` bucket and truncation names no tools; five stale PRs (#10–#14)
+  need triage; and `screens/settings.tsx` (1,023 lines) still holds its tab
+  bodies inline. No code changed — `npx tsc --noEmit` was clean before filing.
+  no doc change — issue tracker only.
+
+- **release: cut v0.4.6.** Carries the first-run setup fix: a new install no
   longer mounts the streaming app shell behind the wizard (the cause of the
-  permanent "Savingâ€¦"), the boot pipeline and every app-wide poller wait for
+  permanent "Saving…"), the boot pipeline and every app-wide poller wait for
   setup to finish, finishing is bounded and retryable, busy-database writes are
   retried and explained in plain language, and the wizard gets Copy diagnostics.
   Version bump across `package.json`, `package-lock.json`, `pyproject.toml` and
@@ -239,13 +241,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Docs: `docs/CHANGELOG.md` only (no behaviour change beyond the fix already
   documented below).
 
-- **fix(setup): a new install can no longer get stuck on "Savingâ€¦".** The
+- **fix(setup): a new install can no longer get stuck on "Saving…".** The
   wizard is a full-screen overlay mounted over the *live* app shell, so a
   first run had the whole terminal running behind it: two permanent SSE streams
   (`/api/ui/stream`, `/api/sdk/app/stream`) plus ~30 boot requests. Browsers
   allow six concurrent HTTP/1.1 connections per origin and an SSE holds its slot
   for the life of the page, so `POST /api/setup` queued behind them and was
-  never dispatched â€” reproduced by holding the connection slots open, which
+  never dispatched — reproduced by holding the connection slots open, which
   leaves the footer spinning indefinitely (the reported screenshot). Two fixes,
   one structural and one defensive:
   - `src/app/page.tsx` now asks `src/lib/setup/gate.ts` (server-side, per
@@ -271,7 +273,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
     5069 pass; `npx tsc --noEmit` clean. Verified end-to-end on a throwaway
     `BE_DATA_DIR`: the wizard opens with **zero** SSE streams and the save
     posts immediately; the app mounts after finish.
-  Docs updated: `docs/onboarding-plan.md` (Â§4.6 mounting invariant, Â§7
+  Docs updated: `docs/onboarding-plan.md` (§4.6 mounting invariant, §7
   failure table), `docs/CHANGELOG.md`.
 
 - **feat(setup): the first run now competes with nothing, and every failure is
@@ -310,7 +312,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   - Tests: `npx vitest run` 5074 pass; `npx tsc --noEmit` clean.
   - Verified end-to-end on a throwaway `BE_DATA_DIR` (production build):
     wizard visible in 0.9 s with **0 SSE streams** and only
-    `GET theme` + `GET setup` + `GET provider-keys`; Finish â†’ app in 1.4 s; a
+    `GET theme` + `GET setup` + `GET provider-keys`; Finish → app in 1.4 s; a
     forced re-run over the live shell holds 0 open streams; a deliberately
     locked database showed the slow-save hint at 6.1 s, the plain-language busy
     message at 21.2 s (wizard still retryable, no raw Prisma text), and the
@@ -358,23 +360,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   rollback, and corrects the release state to v0.4.1.
   Docs: `docs/UPDATES.md`, `docs/CHANGELOG.md`.
 
-- **test(trading): demo soak closed at 156 minutes â€” properties proven, 48â€“72 h
+- **test(trading): demo soak closed at 156 minutes — properties proven, 48–72 h
   deferred by the operator.** Final measured record (isolated runtime :8799,
-  copied state): 03:02:59Zâ†’05:38:09Z, **156 fires, 156 distinct minutes, 0
+  copied state): 03:02:59Z→05:38:09Z, **156 fires, 156 distinct minutes, 0
   duplicate minutes**, 136 `BAR_ALREADY_PROCESSED`, 2 filled on fresh 5-minute
   bars (`ord_aa35ce8b730b` / `ord_44af638be5fc`), 2 `POSITION_ALREADY_OPEN`, 14
   no-signal (MT5 down), 1 `MANDATE_INACTIVE` (the 2-order daily cap), 1
   `QUANT_ERROR`; **2 ledger rows, 0 unexplained orders**. Supervisor, MT5
-  watchdog and :8799 stopped; demo account flat. A 48â€“72 h record is explicitly
+  watchdog and :8799 stopped; demo account flat. A 48–72 h record is explicitly
   deferred (needs a host that stays up), not failed.
   Docs: `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
 
 - **feat(trading): fresh-bar entries captured in minutes, not a day.** The soak
   bot was switched to a **5-minute** smoke strategy (`eurusd_m5_smoke`, synthetic
   backtest for the approval gate, real M5 broker bars at runtime). Isolated
-  runtime (:8799) at 05:29â€“05:31Z: `ord_aa35ce8b730b` (ticket 11451776390,
+  runtime (:8799) at 05:29–05:31Z: `ord_aa35ce8b730b` (ticket 11451776390,
   1.09863) on bar 07:20, a `POSITION_ALREADY_OPEN` skip on the next fire, then
-  `ord_44af638be5fc` (ticket 11451810596, 1.09835) on bar 07:25 â€” all with
+  `ord_44af638be5fc` (ticket 11451810596, 1.09835) on bar 07:25 — all with
   `automationId`, `mandateId`, `runId`, magic 741879. Soak to 05:32Z: **150
   fires, 150 distinct minutes, 0 duplicate minutes**, 132
   `BAR_ALREADY_PROCESSED`, 2 filled, 2 not-stacked, 14 no-signal (MT5 down), and
@@ -408,23 +410,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   share a bubble and a late step cannot reopen a closed turn; the card persists
   so a reload keeps it. Two gaps the live check exposed and this closes: a turn
   that ENDS a goal records its verdict and flips status in the same instant (so
-  open-only polling missed `done` â€” each goal is now swept once as it closes),
+  open-only polling missed `done` — each goal is now swept once as it closes),
   and a running task exposes no run id (it is derived from
   `taskrun_<taskId>_<attempt>`). Tests: mapping, watch-target sweep, run-id
   candidates, transcript builders, size ratchet re-pinned, plus an opt-in live
   check (`goal-watch.live.test.ts`, `BE_LIVE_GOAL=<goalId>`). Verified in the
-  running app: "**Goal Â· turn 1** â€” working" with its steps, closing to "**done**"
+  running app: "**Goal · turn 1** — working" with its steps, closing to "**done**"
   with the steps retained. Docs: `docs/harness/autonomy.md`.
 
 - **test(trading): the demo soak runs isolated and has 119 clean minutes.** The
   shared app is killed every few minutes, so the soak was moved to a copy of the
   bot state (`VACUUM INTO .black-eclipse/soak-iso/agent-memory.db`), harness
   port **8799**, its own `BE_DATA_DIR`, a restarting supervisor (25 h horizon)
-  and an MT5 watchdog. Measured 03:02â†’05:01Z: 119 unattended fires, **119 distinct
+  and an MT5 watchdog. Measured 03:02→05:01Z: 119 unattended fires, **119 distinct
   minutes, 0 duplicate minutes**, 106 `BAR_ALREADY_PROCESSED` + 13 no-signal fires
   while MT5 was down, **0 orders, 0 ledger rows, 0 positions**. The runner now
   carries the failed symbol's reason into the decision
-  (`no actionable signal (EURUSD: signal failed: â€¦)`).
+  (`no actionable signal (EURUSD: signal failed: …)`).
   Note: a concurrent session committed the tree and a later restore discarded the
   uncommitted doc edits; the code fix and this entry were re-applied on top of
   `76f87305`. Tests: 32 runner/e2e/size/phase. Docs:
@@ -441,7 +443,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `docs/CHANGELOG.md`, `README.md`.
 
 - **fix(test): the watcher test was time-dependent, not broken.** The test wrote
-  `two\n` over `one\n` â€” the same length â€” and then called `os.utime(target,
+  `two\n` over `one\n` — the same length — and then called `os.utime(target,
   None)`, which can land on the same timestamp on a filesystem with coarse mtime
   resolution. The watcher diffs mtime+size, so the "modified" event was simply
   invisible and the assertion failed intermittently (it passed on the branch and
@@ -458,7 +460,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   copy and no loadable binding for the bundled runtime. Every query then failed,
   `db-guard` threw "Could not locate the bindings file", classified it as
   corruption, wrote `<data>/.runtime/db-guard.failed`, and every later launch
-  short-circuited with "The server stopped before the app was ready" â€” a dead end,
+  short-circuited with "The server stopped before the app was ready" — a dead end,
   because the marker was only cleared by the successful guard run it was blocking.
   Fixes: the binding guard is restored, and it now probes under the payload's
   *bundled* Node (`ensureRuntimeSqlite` fetches the prebuilt for that ABI) instead
@@ -470,13 +472,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   reading as corrupt; `desktop-server.js` re-runs the guard for a stored failure
   and clears it on success, and names the real backups directory instead of
   `Black-Eclipse-site/backups/` plus `npm run doctor`, neither of which exists in
-  an install. The release smoke test â€” which runs the packaged binary in CI and
+  an install. The release smoke test — which runs the packaged binary in CI and
   previously asserted only that `/` answered, so an unusable binding passed the
-  gate and published â€” now also requires `/api/alerts` to answer 200 (a plain
+  gate and published — now also requires `/api/alerts` to answer 200 (a plain
   table read: 200 with an empty list on a fresh install, 500 without the binding).
   `/api/setup` is deliberately not the probe: with no database yet it returns 200
   from defaults without ever touching SQLite.
-  Test: `src/lib/desktop/db-guard.test.ts` pins "missing binding â‡’ exit 2, never
+  Test: `src/lib/desktop/db-guard.test.ts` pins "missing binding ⇒ exit 2, never
   corruption". Verified on a real 0.4.3 install: the guard reports healthy and the
   app boots with the user's data intact; the `/api/alerts` gate was verified to
   return 200 on a healthy payload and 500 with the binding removed.
@@ -489,7 +491,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 - **fix(release): the packaged-app smoke test now fails when the Python runtime
   never becomes healthy.** A build whose agent runtime hangs still serves `/` and
-  still passes the database probe, so it published â€” and every chat, agent and
+  still passes the database probe, so it published — and every chat, agent and
   research page then waits on a runtime that never answers while the window looks
   fine. `scripts/desktop-smoke.js` (already run by the release workflow on the
   real packaged binary) now requires
@@ -502,12 +504,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   red before an installer is published instead of reaching users. Version bumped
   to 0.4.5 (`package.json`, `package-lock.json`, `pyproject.toml`,
   `harness.__version__`, regenerated `sbom.cdx.json` + `THIRD-PARTY-NOTICES.md`)
-  so the gate is inside the artifact that ships â€” `v0.4.4` was built before it.
+  so the gate is inside the artifact that ships — `v0.4.4` was built before it.
   Doc change: `desktop/README.md` (release-gate bullet now names the runtime
   assertion).
 
 - **fix(harness): a request no longer waits the runtime's whole cold-start
-  budget.** `DEFAULT_START_TIMEOUT_MS` is 5 minutes on purpose â€” the interpreter
+  budget.** `DEFAULT_START_TIMEOUT_MS` is 5 minutes on purpose — the interpreter
   imports langchain, browser, quant and ML, and a constrained host genuinely
   needs minutes. But `ensurePythonRuntime()` let a *page request* inherit that
   budget, so a stalled runtime made every agent/chat/research page spin silently
@@ -515,7 +517,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   working". The budget is now split: the background spawn keeps its 5-minute
   allowance, while a request waits at most `DEFAULT_REQUEST_WAIT_MS` (45 s,
   `HARNESS_PY_REQUEST_WAIT_MS`) and then returns `false`, which the routes already
-  turn into a 503 with a reason. The spawn is NOT cancelled â€” the next request
+  turn into a 503 with a reason. The spawn is NOT cancelled — the next request
   hits the healthy TTL fast path, so a slow first launch recovers without a
   restart. Test: `runtime-supervision.test.ts` pins the relationship
   (`DEFAULT_REQUEST_WAIT_MS < DEFAULT_START_TIMEOUT_MS / 2`) and the override /
@@ -525,7 +527,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **fix(harness): a stale cold-start lock left by one crash no longer kills the
   agent runtime for five minutes.** Symptom seen on a real install: the window
   served pages, the log repeated `[harness] Python runtime still starting (Ns)`
-  for minutes, and **no Python process existed at all** â€” so every chat/agent/
+  for minutes, and **no Python process existed at all** — so every chat/agent/
   research page failed with nothing to talk to. Cause: `acquireSpawnLock()` wrote
   an EMPTY lock file and only took it over after the whole cold-start budget plus
   margin (315 s). The context that loses the lock does not spawn; it calls
@@ -547,7 +549,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   held the file and then waited the full start budget for the start the file was
   blocking. That is why `v0.4.5`'s release run failed the new runtime gate on
   Windows and macOS (step "Smoke test", `[smoke] FAIL - the app served but its
-  Python runtime never became healthy ... within 180s`) â€” the gate blocked the
+  Python runtime never became healthy ... within 180s`) — the gate blocked the
   release instead of shipping it, which is what it exists for. `isSpawnLockMine()`
   closes that case; 2 more tests. Version bumped to 0.4.7 so the released artifact
   carries the fix.
@@ -568,7 +570,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   patent licence while the contributor keeps copyright) and root `TRADEMARK.md`
   ("code is MIT, the name and logo are not"), wired into both `CONTRIBUTING.md`
   files, the PR template, the README licensing table, the legal register, and
-  `scripts/oss-preflight.js` as required files. The blueprint's Â§1.4
+  `scripts/oss-preflight.js` as required files. The blueprint's §1.4
   "DCO, not a CLA" recommendation is superseded: the strategy is MIT + adoption,
   monetising additive surfaces (pro features, marketplace, live data) instead of
   the licence, and the CLA is cheap only while the repo is single-author.
@@ -600,43 +602,43 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Tests: 57 broker/size/phase (incl. backfill + last-line magic guard).
   Docs: `docs/trading-bot-live-testing-plan.md`, `docs/CHANGELOG.md`.
 
-- **feat(install): a slim install can now actually obtain its optional packs â€”
+- **feat(install): a slim install can now actually obtain its optional packs —
   plus an honest failure screen.** Four gaps were closing the install story
   short. (1) **Feature packs were unreachable.** The slim installer ships the
   core only; browser/ml/documents/computer/charts were built into
   `dist/packs/*.zip` and published, but nothing in the shipped app could fetch
   them, so a capability failed inside a lazy import with no action to take. New
   `src/lib/desktop/packs.ts` reads the manifest the build now writes into the
-  payload (`app/config/packs.json` â€” version, release repo, per-pack
+  payload (`app/config/packs.json` — version, release repo, per-pack
   `sha256`/`zipBytes`), pins the archive to the app's OWN release tag, refuses
   any host outside the allowlist, downloads with live received/total progress,
   verifies SHA-256, extracts into a private staging directory and moves only the
   manifest-named package directories into `site-packages`; Remove is the
   reverse. Exposed by `GET/POST /api/desktop/packs` (guardMutation + rate limit)
-  and **Settings â†’ Data & Storage â†’ Feature packs**
+  and **Settings → Data & Storage → Feature packs**
   (`src/components/settings/feature-packs-settings.tsx`, frosted-glass `Panel`,
   per-pack Download/Remove, progress bar, honest "no manifest in this build"
   state). `scripts/desktop-package.js` writes that manifest and uses the *asset*
   basename for the URL, since release assets are flat; `npm run desktop:doctor`
-  now prints an `installed/total Â· missing â€¦` line for the installed app so a
+  now prints an `installed/total · missing …` line for the installed app so a
   "feature does nothing" report has an answer. (2) **The failure screen
   named a log instead of opening it.** The splash now shows the log path inline,
   with **Copy details** (message + log path, for a bug report) and **Open log
   folder** (`desktop_log_path` / `desktop_open_log` in the Tauri shell), and the
   messages say what to do next. (3) **SmartScreen was undocumented at the moment
-  it appears** â€” the installer's welcome page now explains *More info â†’ Run
+  it appears** — the installer's welcome page now explains *More info → Run
   anyway* and points at `SHA256SUMS.txt`. (4) **The boot screen was off-spec**:
   it used a 0.72-alpha panel and 22px blur (a flat panel per the glass rules) and
   an opaque title strip; it now uses the exact `.glass-card` recipe and a
   transparent strip. Also corrected the WebView2 message, which still told users
   to run `npm start` (deleted with the browser lane). Pack archives are now named
   per target (`browser-win32-x64.zip`) because all three OS builds write
-  `dist/packs/*.zip` into ONE flat release namespace â€” a bare `browser.zip` was
+  `dist/packs/*.zip` into ONE flat release namespace — a bare `browser.zip` was
   uploaded three times and the last platform won. Tests:
   `src/lib/desktop/packs.test.ts` + `src/app/api/desktop/packs/route.test.ts`
-  (23 cases â€” manifest junk, allowlist, version pinning, mirror rules, installed
-  detection, unsupported states, a real local-mirror download â†’ SHA-256 â†’ unpack
-  â†’ install run, a corrupt archive that must install nothing, remove, and the
+  (23 cases — manifest junk, allowlist, version pinning, mirror rules, installed
+  detection, unsupported states, a real local-mirror download → SHA-256 → unpack
+  → install run, a corrupt archive that must install nothing, remove, and the
   route's validation/guard); `tsc` clean; full `npm run test` suite green. Docs:
   `docs/install.md`, `docs/desktop-size-plan.md` (S2 + Settings half of S3
   marked shipped), `docs/NAVIGATION.md`, `README.md`.
@@ -663,18 +665,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `test_rsl_verifier.py` all pass. Doc change: `docs/CHANGELOG.md`.
 
 
-- **feat(trading): a bot placed a real demo order on MT5 â€” and the seven things
+- **feat(trading): a bot placed a real demo order on MT5 — and the seven things
   that stopped it.** L4 of the live-test plan passed against MetaQuotes-Demo
   114826727: bot `auto_21fb2c4a633340f7be2e` (strategy `eurusd_smoke_1d` v1.0.0,
   tier L1, mandate `mnd_ac414e6099be`) filled **EURUSD BUY 0.01 @ 1.09897**
   (MT5 ticket `11447256588`, SL 1.09798, TP 1.10048; closed at 1.0989). Evidence:
-  execution `autoexec_43a3e1b7c92b4962b8f0` â†’ decision `filled` with `orderId`;
+  execution `autoexec_43a3e1b7c92b4962b8f0` → decision `filled` with `orderId`;
   `BrokerOrder ord_e29c7a0e6b41` carrying `automationId`, `automationVersion`,
   `mandateId`, `runId` and the same ticket. Fixes found by doing it:
   (1) a state-only `PATCH` no longer bumps the bot version, so activating a
   prepared bot stops invalidating its mandate (`BOT_VERSION_STALE`);
   (2) `requiredPhrase` is built from the connection LABEL, matching what
-  `prepare` compares; (3) a bare FX pair (`EURUSD`) classifies as FXâ†’`EURUSD=X`
+  `prepare` compares; (3) a bare FX pair (`EURUSD`) classifies as FX→`EURUSD=X`
   in the Python classifier and the Next price-history route, so the app can
   backtest/chart the symbol its broker quotes; (4) a broker symbol signals on the
   broker's own `copy_rates` bars (gateway fallback), (5) the still-forming bar is
@@ -682,7 +684,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   nothing releases the bar claim (`LiveRunner.release`) while a send never does,
   and (7) every broker connection gets a stable non-zero ownership `magic`
   (`_default_magic`) so the kill switch can match Eclipse orders. Tests: 191
-  targeted Python (incl. the L3 E2E), 11 size/phase (service.py pin 1205â†’1214),
+  targeted Python (incl. the L3 E2E), 11 size/phase (service.py pin 1205→1214),
   `tsc` clean. Docs: `docs/trading-bot-live-testing-plan.md`,
   `docs/trading-bots-plan.md`, `docs/harness/market-data.md`, `docs/CHANGELOG.md`.
   L5 (supervised live) and L6 (soak) remain operator-run.
@@ -693,7 +695,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   BUSL, whole-app AGPL, phone-home paywall) and why each was refused. Added to
   `docs/NAVIGATION.md` so future sessions find the policy before proposing a
   licence change. Also normalized two tracked docs whose working-tree CRLF/LF mix
-  turned `gitignore-guard` red (`docs/DECISIONS.md`, `skills/ARCHITECT.md`) â€”
+  turned `gitignore-guard` red (`docs/DECISIONS.md`, `skills/ARCHITECT.md`) —
   index was already LF, so this is a no-op diff.
   Doc change: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 
@@ -710,7 +712,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **feat(updates): in-app update button in the window chrome.** A download icon
   now sits left of Minimize, dot-lit when a newer signed release exists. Panel
   shows the honest check result and can **stage** the release in-app
-  (`be-update` event â†’ the shell spawns `scripts/update-apply.js`, with
+  (`be-update` event → the shell spawns `scripts/update-apply.js`, with
   `POST /api/updates/apply` as the fallback for shells without that listener;
   the runner executes the verified `update.js --yes --no-desktop`: signature, DB
   backup, checkout, `npm ci`, build) and then **restart** onto it. Promotion runs
@@ -731,7 +733,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   patent licence while the contributor keeps copyright) and root `TRADEMARK.md`
   ("code is MIT, the name and logo are not"), wired into both `CONTRIBUTING.md`
   files, the PR template, the README licensing table, the legal register, and
-  `scripts/oss-preflight.js` as required files. The blueprint's Â§1.4
+  `scripts/oss-preflight.js` as required files. The blueprint's §1.4
   "DCO, not a CLA" recommendation is superseded: the strategy is MIT + adoption,
   monetising extras (pro features, marketplace, live data) instead of the
   licence, and the CLA is cheap only while the repo is single-author. Trademark
@@ -761,10 +763,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 
 - **chore(registry): regenerate the published tool manifest.** `npm run eval:registry`
-  after adding the six `intel_*` tools â€” `docs/harness/tool-registry.json` now
+  after adding the six `intel_*` tools — `docs/harness/tool-registry.json` now
   lists 1,106 tools (digest `03177dd0162122b4`), which is what
   `test_public_api.py::test_the_published_manifest_matches_a_fresh_generation`
-  asserts. no doc change â€” generated artefact, and the neighbouring intel entry
+  asserts. no doc change — generated artefact, and the neighbouring intel entry
   above records the change itself.
 
 - **fix(ci): the trading-bot commit left three gates red.** `bot-model-picker.tsx`
@@ -785,12 +787,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   bot-pinned mandate and the submit fence. Refusals from the trial now keep their
   code (`LIVE_NOT_ARMED`, `RISK_REFUSED`, `BAR_ALREADY_PROCESSED`,
   `POSITION_ALREADY_OPEN`, broker codes) instead of being mislabelled as
-  â€œposition already openâ€. Added the missing **full-chain test**
+  “position already open”. Added the missing **full-chain test**
   (`python/tests/test_trading_bot_e2e.py`): a demo bot places exactly one order
-  through the real runner â†’ trial â†’ `BrokerService` (ledger row + position +
+  through the real runner → trial → `BrokerService` (ledger row + position +
   `automationId`), the same bar cannot place a second, and a disarmed live bot is
   refused before the adapter. The size pin for in-flight `service.py` moved
-  2089â†’2098 (shared-tree intel work; no trading code there). Tests: 120 targeted
+  2089→2098 (shared-tree intel work; no trading code there). Tests: 120 targeted
   Python (including 3 E2E), 5015 TS, `tsc` clean. Docs:
   `docs/trading-bot-live-testing-plan.md`, `docs/trading-bots-plan.md`,
   `docs/CHANGELOG.md`.
@@ -818,15 +820,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Docs: `docs/harness/intel-signals.md` (new), `docs/NAVIGATION.md`,
   `docs/CHANGELOG.md`. Tests: `python/tests/test_intel_{sec,attention,engine,service}.py`.
 
-- **docs(plan): trading bots â€” real execution and the test ladder.** Added
+- **docs(plan): trading bots — real execution and the test ladder.** Added
   `docs/trading-bot-live-testing-plan.md`: (a) demo must be an operator choice,
-  not a cage â€” Live is selectable and the live authorization grants L2 in one
+  not a cage — Live is selectable and the live authorization grants L2 in one
   action while keeping the typed phrase, armed connection, bot-pinned mandate
   and the submit fence; (b) how to prove a bot places a trade, layer by layer:
   L0 pure, L1 runner/fake broker, L2 the real MT5 adapter against
   `python/tests/mt5_sim.py`, L3 a full in-process chain (automation engine +
   strategy + broker + simulator), L4 a real MT5 demo smoke, L5 a supervised
-  min-size live smoke, L6 a 48â€“72 h soak. Includes acceptance criteria and the
+  min-size live smoke, L6 a 48–72 h soak. Includes acceptance criteria and the
   honest limits (no 24/7 service, no profitability claim).
 
 - **fix(ci): the last environment gaps in the Windows suite.** Four more causes,
@@ -854,7 +856,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **feat(bots): authorization gate, tier ladder, venue memory, library sort.**
   **Gate:** `authorizeBlockReason` (pure, used by both the create panel and the
   bot's Trading section) blocks Authorize when the selected broker is
-  `unavailable` â€” showing the terminal reason â€” when live is below L2, or when a
+  `unavailable` — showing the terminal reason — when live is below L2, or when a
   live connection is not armed; the button is disabled and the sentence is the
   same in both surfaces. **Ladder:** an explicit L0/L1/L2 panel shows the current
   tier, one-click **Enable L1** (demo), and **Request L2** only after the
@@ -863,7 +865,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   stated as a warning, never faked. **Venue memory:** the last demo/live venue is
   remembered in `localStorage` and preselected only when the bot has none, still
   exists in that mode, and never overrides an explicit choice. **Sort:** the
-  strategy library sorts by newest or name Aâ†’Z. Tests: 16 new TS cases (authorize
+  strategy library sorts by newest or name A→Z. Tests: 16 new TS cases (authorize
   gate, venue memory, L2 eligibility, catalog sort); full suite 5015 pass,
   `tsc --noEmit` clean, 33 targeted pytest pass. Release
   `8DTXGoP3SAiSwhsFZXuUc` promoted and relaunched. Docs:
@@ -879,7 +881,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   longer costs a failed sandbox call. Tests: loop status/cancel handler, artifact
   retry. Docs: `docs/harness/autonomy.md`.
 
-- **fix(harness): serialise every code-index statement â€” a read raced a write
+- **fix(harness): serialise every code-index statement — a read raced a write
   and crashed the process.** `CodeIndex` opens SQLite with
   `check_same_thread=False` and only guarded *writes* with its lock. The docs
   require the caller to serialise access regardless, so a background indexer
@@ -898,13 +900,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   newest backtest/approval/paper run per strategy from a single call
   (`GET /quant/strategies?includeEvidence=true`). **Strategy Studio** shows
   evidence badges, a Refresh control, an archived toggle, and stays fresh on
-  focus/visibility and after any agent turn (`useAgentRun` invalidates it) â€” so
+  focus/visibility and after any agent turn (`useAgentRun` invalidates it) — so
   a strategy the Eclipse agent just made appears without a reload. **New bot**
   replaces its 46-option `<select>` with a searchable `StrategyPicker` (evidence,
-  archived toggle, Refresh, â€œOpen in Strategy Studioâ€ through a typed in-app
+  archived toggle, Refresh, “Open in Strategy Studio” through a typed in-app
   navigation intent, no browser reload). Settings fixes: the agent preset and
   model are visible without opening Advanced, the model picker has
-  loading/â€œruntime startingâ€/error+Retry/â€œno providerâ€ states, broker venues show
+  loading/“runtime starting”/error+Retry/“no provider” states, broker venues show
   `unavailable` with the terminal reason and a Refresh, a mode with no connection
   explains itself, the Create button explains what is missing
   (name/objective/workflow) instead of silently disabling, and the bot detail can
@@ -917,8 +919,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 - **fix(autonomy): a goal turn can bind the finance tools and compute.**
   Live finance goals could only describe a backtest: the run query contains the
-  rule words **â€œentryâ€/â€œexitâ€** and the acceptance word **â€œallâ€**, and
-  `trading_intent` read â€œexit â€¦ allâ€ as *â€œclose all positionsâ€*. That narrowed the
+  rule words **“entry”/“exit”** and the acceptance word **“all”**, and
+  `trading_intent` read “exit … all” as *“close all positions”*. That narrowed the
   run to the 18-tool **trade** surface, so `get_historical_prices` and
   `analysis_run` were not bound and the goal correctly blocked. The classifier now
   recognizes a backtest/simulation as research (word-bounded nouns, analysis
@@ -998,12 +1000,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   accepts the adapter-list shape (`data: [...]`) and only reports unavailable for
   a genuinely unreadable payload. **Proof at the broker seam:** three new tests in
   `python/tests/test_broker_orders.py` drive `BrokerService.submit_order` with a
-  counting fake adapter and a bot-pinned live mandate â€” an L1 bot is refused
+  counting fake adapter and a bot-pinned live mandate — an L1 bot is refused
   before `order_preview`/`submit` are called, an L2 bot sends exactly once and
   records `automationId`/`mandateId` on the ledger (a second submit is refused
   without a new send), and a stale bot version is rejected `BOT_VERSION_STALE`.
   Also extracted the human-turn builder into `harness/turn_content.py` to keep
-  `graph.py` under its size ratchet, re-pinned `main.py` 1270â†’1272 for the two
+  `graph.py` under its size ratchet, re-pinned `main.py` 1270→1272 for the two
   router lines, and trimmed `trade/service.py` back under 1200. Two full Python
   runs: **11114 passed / 1 failed** (`test_learning_review`) and **11117 passed /
   1 failed** (`test_w4_autonomy`); each failure passes alone (15 and 30) and both
@@ -1029,10 +1031,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Doc change: `docs/CHANGELOG.md`.
 
 
-- **feat(trading): the four remaining gaps â€” real image parts, find-trades scan,
+- **feat(trading): the four remaining gaps — real image parts, find-trades scan,
   agent live path tested, lessons in chat.** (1) **Images**: `RunInput.images`
   (bounded PNG/JPEG/WebP data URLs) becomes native `image_url` content blocks on
-  the human turn, both on a bot chat (`ChatOptions.images` â†’ payload â†’ both chat
+  the human turn, both on a bot chat (`ChatOptions.images` → payload → both chat
   routes) and on a scheduled agent run (the dispatcher forwards the bot's
   visuals); a text block still marks them as guidance, never market data.
   (2) **Find trades**: `POST /automations/{id}/trading/scan` evaluates the
@@ -1062,7 +1064,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **fix(autonomy): `/goal` turns actually run (and a finance goal is not typed
   as code).** The live DB showed every goal turn stranded: `start_turn` called
   `start_task`, which moves a task to `IN_PROGRESS` without a claim token or
-  lease, and the scheduler only claims `TODO` â€” so the goal sat `active` with a
+  lease, and the scheduler only claims `TODO` — so the goal sat `active` with a
   turn that never ran (no execution row, no run). Goal turns now stay `TODO` for
   the scheduler's atomic claim, and `start_tasks` repairs rows the old path left
   behind (`repair_orphaned_goal_tasks`, scoped to `metadata.goalId`). Separately,
@@ -1073,7 +1075,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   explicitly. `/api/harness/command` also accepts a `chatId`, so the explicit
   command entry point can run session-scoped goals. A goal plan that auto-completed
   when its turn finished is also **reopened** for the next turn (`resume_plan_for_work`,
-  plus a boot repair), because the scheduler only runs tasks in a RUNNING plan â€”
+  plus a boot repair), because the scheduler only runs tasks in a RUNNING plan —
   otherwise the loop stalled after turn 1. Tests: stranded-turn, boot-repair,
   plan-reopen, explicit-type, finance-vs-app classification. Docs:
   `docs/harness/autonomy.md`.
@@ -1115,7 +1117,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   brain (`action.type = "run_strategy"`). One execution = one decision on the
   last closed bar: the runner checks standing consent, the session window, data
   freshness and the symbol universe, then calls the existing
-  `LiveStrategyService.run_once` â†’ `BrokerService.submit_order` path. Every run
+  `LiveStrategyService.run_once` → `BrokerService.submit_order` path. Every run
   persists a structured decision (no-signal and refusals included) on the
   execution, so "why didn't it trade?" is answerable in Run History and in the
   new Trading section. **Auto mode:** the operator types the consent phrase once;
@@ -1172,8 +1174,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 - **chore(eval): regenerate the published benchmarks.** The guard
   (`test_published_benchmarks`) caught `docs/harness/benchmarks.md` stale against
-  the current deterministic runtime: task_success 0.9940â†’0.9970, adversarial
-  14/14 (100%), latency 0.1384â†’0.1124. Generated with `npm run eval:benchmarks`;
+  the current deterministic runtime: task_success 0.9940→0.9970, adversarial
+  14/14 (100%), latency 0.1384→0.1124. Generated with `npm run eval:benchmarks`;
   no hand-editing, and the guard was green on re-run. Doc change: the generated
   file itself.
 
@@ -1221,22 +1223,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   13,049) over. Re-pinned to the measured values; the next line over fails.
   Doc change: `docs/CHANGELOG.md`.
 
-- **docs(plan): trading bots.** Added `docs/trading-bots-plan.md` â€” how a bot
+- **docs(plan): trading bots.** Added `docs/trading-bots-plan.md` — how a bot
   becomes a trading agent: a saved strategy version (or agent brain) bound to an
   Automation, executed through the existing quant signal + broker path under the
   existing L0/L1/L2 authority ladder and mandates. Records the reuse map (most
-  of the substrate already ships), eight decisions, phases P0â€“P5, a test matrix
+  of the substrate already ships), eight decisions, phases P0–P5, a test matrix
   and open questions. No code changed. `docs/NAVIGATION.md` gained a trigger row
   pointing at it.
-- **docs(plan): trading bots â€” implementation spec.** Expanded
+- **docs(plan): trading bots — implementation spec.** Expanded
   `docs/trading-bots-plan.md` from an overview into an implementation plan:
   locked contracts (action config, `ExecutionAuthority` matrix, decision record,
-  endpoints, refusal codes), backend work packages WP1â€“WP8 with file-level
-  changes and pseudo-code, frontend WP9â€“WP13, create/run/promote/pause
-  sequences, phases P0â€“P5 with exit criteria, a named test matrix, compatibility
+  endpoints, refusal codes), backend work packages WP1–WP8 with file-level
+  changes and pseudo-code, frontend WP9–WP13, create/run/promote/pause
+  sequences, phases P0–P5 with exit criteria, a named test matrix, compatibility
   notes and risks. Two design corrections landed in the plan: **shadow mode needs
   no broker** (signal on JDdS + order preview), and **demo mandates may pin an L1
-  bot** â€” the code currently demands L2 for any bot pin, which is stricter than
+  bot** — the code currently demands L2 for any bot pin, which is stricter than
   `docs/trading.md` says. No code changed.
 
 - **fix(ui): a malformed `/api/setup` reply no longer white-screens the app.**
@@ -1257,7 +1259,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   returned `(evaluation script exhausted)` - which is what the `exact` grader
   then scored. `adversarial.unavailable.001` (the task asserting an unavailable
   quote service stays unavailable) regressed from passing to failing that way,
-  and the committed-corpus gate correctly flagged it: task_success 0.9958 â†’
+  and the committed-corpus gate correctly flagged it: task_success 0.9958 →
   0.9919. The scripted model now repeats its final answer on exhaustion, so the
   guard's extra turn lands on the same honest reply. Corpus gate: PASS, no
   regressions; 62 evaluation tests pass. Doc change: `docs/CHANGELOG.md`.
@@ -1281,7 +1283,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   runtime state.** `scripts/desktop-package.js` copies whole source trees
   (`python/`, `config/`, `skills/`) with `fs.cpSync`, so a release built from a
   used checkout shipped `python/.black-eclipse/channels/secret.key` (the channel
-  encryption key â€” every install would share one), `python/csess_*/trajectory.json`
+  encryption key — every install would share one), `python/csess_*/trajectory.json`
   (the author's own agent sessions), Python caches and any stray vault. A new
   `scripts/lib/scrub-app-state.js` strips those paths right after the copy and
   `assertNoLocalState()` fails the build if any survive; `seed/jdds.db` (schema +
@@ -1293,24 +1295,24 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-16
 - **fix(readme): space the three download buttons apart.** Four `&nbsp;` between the
-  links (â‰ˆ24px total with the SVGs' own 8px edge gap) so the row reads as three
+  links (≈24px total with the SVGs' own 8px edge gap) so the row reads as three
   buttons rather than one segmented control. Row measures 748px, still one line
   inside GitHub's ~880px column. Markdown gaps had been a single space (~4px).
-  docs updated: `docs/CHANGELOG.md` (no doc change needed beyond the log â€” spacing
+  docs updated: `docs/CHANGELOG.md` (no doc change needed beyond the log — spacing
   only).
 - **fix(readme): download glyph back on the left, hairline border on the dark
   buttons.** Final button pass: the download glyph (arrow into a tray) sits left of
   the label again, the secondaries keep a **1px** `#2b2f33` border so they hold an
   edge on a dark page, and the row measures 249 + 220 + 231 = 716px so all three stay
   on one line well inside GitHub's column. Widths are now **measured with
-  `sharp().trim()`** rather than estimated â€” the previous two attempts clipped the
+  `sharp().trim()`** rather than estimated — the previous two attempts clipped the
   label and collided the chevron, and the generator also caught a `<rect>` emitted
   without a `height`, which rendered the primary button as dark-on-dark. docs
   updated: `docs/public-readme.md` (measured-width rule, border rule),
   `docs/CHANGELOG.md`.
 - **fix(readme): cleaner download buttons.** Full labels ("Download for Windows"),
   a chevron instead of the download-tray glyph, **no border** (fill only) and no
-  sublabel â€” `141 MB Â· x64 Â· no admin` and the architecture notes are gone from the
+  sublabel — `141 MB · x64 · no admin` and the architecture notes are gone from the
   button and left in the Install table where they belong. Secondary buttons stay
   visible on a dark page through their fill (`#16181a`), not a hairline. Widths
   recut to 300 + 272 + 272 (860px) so the row still fits GitHub's column without
@@ -1370,7 +1372,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   as the blocker and treated branch deletion as sufficient. Branches were only
   half of it: GitHub's server-side `refs/pull/*` kept 11 PRs' worth of
   pre-rewrite commits, including the 38 MB `jdds.db`, reachable no matter what a
-  client deleted. O1/O4 are marked resolved, Â§2 names the PR-ref mechanism and
+  client deleted. O1/O4 are marked resolved, §2 names the PR-ref mechanism and
   the new repository / private archive split. Docs updated:
   `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
 
@@ -1387,7 +1389,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   actor; GitHub never counts a self-approval, so the only account able to merge
   would have been a second person who does not exist. The ruleset keeps what
   actually protects the branch - no deletion, no force-push, PR required, the
-  `typecheck Â· lint Â· unit Â· python Â· evals` check required in strict mode - and
+  `typecheck · lint · unit · python · evals` check required in strict mode - and
   drops the approval count to 0. Raise it to 1 the day there is a second
   maintainer; `docs/` unchanged because this is repository policy, not system
   behaviour. Doc change: `docs/CHANGELOG.md`.
@@ -1442,12 +1444,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Shift-click selects a range, and a bulk bar offers Select all / Clear, Pin or
   Unpin, and Delete (one themed confirmation, then the existing delete path so
   live runs and queues are reset). Escape leaves select mode. This exposes the
-  already-present `bulkPin`/`bulk*` organization API; no doc change â€” UI-only
+  already-present `bulkPin`/`bulk*` organization API; no doc change — UI-only
   behaviour over an unchanged data layer.
 
 - **chore(repo): a junk sweep that cannot be re-broken by the test suite.** The
-  checkout had accumulated ~9.6 GB of dead code-index scratch â€” thousands of
-  `ws_tools_*.db` per-run test indexes and `.corrupt-*` snapshots â€” because
+  checkout had accumulated ~9.6 GB of dead code-index scratch — thousands of
+  `ws_tools_*.db` per-run test indexes and `.corrupt-*` snapshots — because
   tests that build a real workspace index wrote into
   `.black-eclipse/code-index/`. `HARNESS_CODE_INTEL_INDEX_DIR` now really
   relocates that store (it previously only reached the reported config), and
@@ -1478,7 +1480,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   and is NOT claimed by these scripts (the Ed25519 manifest stays
   `published: false`, and the README's "every release publishes SHA256SUMS.txt"
   claim is corrected to Windows-only). Docs updated: new `docs/install.md`;
-  `README.md` Â§Install now leads with the installer and keeps the source build
+  `README.md` §Install now leads with the installer and keeps the source build
   as a contributor sub-section; `docs/QUICKSTART.md` disambiguates install vs
   checkout; `docs/UPDATES.md` drops the "users clone the repo" premise;
   `docs/NAVIGATION.md` gains the delivery row.
@@ -1499,7 +1501,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   the seven `.corrupt-*.db` code-index snapshots (`CodeIndex.recover` never
   re-reads them), 11,927 empty `ws_tools_*.db` pytest leftovers and 13,710 stale
   per-workspace index caches (the index is a cache and rebuilds on demand, so
-  the live `ws_c58â€¦db` and WAL were kept), all 205 dev/prod logs, the literal
+  the live `ws_c58…db` and WAL were kept), all 205 dev/prod logs, the literal
   `%SystemDrive%` directory (Windows cache DBs from an unexpanded path),
   `.tmp-tests/`, empty root `eclipse-memory.db`, regenerable build output
   (`.next`, `.next-dev`, `dist`, `build`, `src-tauri/target{,-dev}`,
@@ -1511,7 +1513,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   git bundle were preserved on purpose. Also untracked the committed
   HyperFrames `.thumbnails/` and `.waveform-cache/` caches (now ignored by
   `media/blackeclipse-launch/.gitignore`) and removed a duplicate harness-report
-  PDF. no doc change â€” runtime/scratch cleanup only, no architecture, data
+  PDF. no doc change — runtime/scratch cleanup only, no architecture, data
   shape, or setup contract changed.
 
 - **style(desktop): remove the last browser tells from the app window.** The
@@ -1521,25 +1523,25 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   light), selectable-and-draggable UI chrome, anchor/image drag ghosts,
   rubber-band overscroll, Chromium's autofill wash, and the WebView context
   menu (Reload / Save as / Print / View source / Inspect) plus Ctrl+R / Ctrl+P
-  / Ctrl+S / Ctrl+U / Ctrl+Â±/0 / ctrl+wheel page zoom and file-drop
+  / Ctrl+S / Ctrl+U / Ctrl+±/0 / ctrl+wheel page zoom and file-drop
   navigation. A new unlayered "Desktop shell chrome" block in
   `src/app/globals.css` themes the UA surface and a new
   `DesktopShellGuards` (`src/components/layout/desktop-shell-guards.tsx`,
-  mounted in the root layout) suppresses the browser chrome â€” text fields
+  mounted in the root layout) suppresses the browser chrome — text fields
   keep the platform undo/cut/copy/paste menu, and a text selection on content
   gets an Eclipse-glass Copy menu instead of the WebView menu. Sidebar links
   no longer honour Ctrl/Cmd-click "open in a new browser tab"; the desktop
   shell has one window and its own tab strip. Helpers live in
-  `src/lib/desktop/shell-guards.ts` with unit tests. no doc change â€” UI
+  `src/lib/desktop/shell-guards.ts` with unit tests. no doc change — UI
   behaviour only, no architecture/data/setup contract changed.
 
 - **fix(ui): destructive confirmations use an Eclipse-themed centred dialog, not
   the browser's OS pop-up.** Every `window.confirm/alert/prompt` call site
   (deleting a chat, bot memory, theses, tables, artifacts, journal records,
   skills/bundles, workspaces, graph workflows, broker actions, settings resets,
-  renames/link prompts) now goes through one queued primitive â€”
+  renames/link prompts) now goes through one queued primitive —
   `confirmDialog`/`alertDialog`/`promptDialog` in `src/lib/ui/confirm-dialog.ts`
-  â€” rendered by `ConfirmDialogHost`
+  — rendered by `ConfirmDialogHost`
   (`src/components/ui/confirm-dialog-host.tsx`, mounted in `src/app/layout.tsx`)
   as a `.glass-card-strong` dialog centred in the window. The helper is UI-free
   so `src/lib` widgets can use it without breaking the import boundary.
@@ -1664,7 +1666,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   (`desktop:build:dev-shell` / `desktop:installer`) when the Rust shell is stale
   - a compiled binary still cannot hot-reload, so the caveat is surfaced instead
   of discovered. The live splash now says "compiling the UI for this window"
-  rather than "Starting the serverâ€¦", matching the one-minute first compile.
+  rather than "Starting the server…", matching the one-minute first compile.
   Docs updated: `docs/environments.md`, `docs/QUICKSTART.md`.
 - **fix(desktop): live relaunch waits for the old window to exit.** Verified end
   to end (shell up, `next dev` on 3100, `.next` untouched). The first attempt
@@ -1672,22 +1674,22 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   issued, and Tauri's single-instance plugin handed the new launch to the OLD
   process while it was still exiting, so no bootstrap ran. `desktop-process.js`
   now exposes `waitForShellExit(channel)` and `desktop-live.js` blocks on it
-  before relaunching. No doc change beyond this entry â€” the behaviour is what
+  before relaunching. No doc change beyond this entry — the behaviour is what
   `docs/environments.md` already describes.
 - **fix(desktop): `npm run desktop:live` actually exists now.** The live-mode
   note above landed the bootstrap half (`.next-live-<channel>` + `next dev`)
   but no entry point: `package.json` had no `desktop:live`, no script set
   `BE_DESKTOP_LIVE`, and a live server left no owner marker, so a second live
   launch would have been refused as a port conflict. Added
-  `scripts/desktop-live.js` (verify the channel runs THIS checkout â€” Stable
-  refuses without the dev bridge, Dev refuses without its shell â€” then stop the
+  `scripts/desktop-live.js` (verify the channel runs THIS checkout — Stable
+  refuses without the dev bridge, Dev refuses without its shell — then stop the
   channel window + owned server and relaunch with `BE_DESKTOP_LIVE=1`),
   `launchShell(channel, extraEnv)`, the npm script, and
   `.next-live-stable/types/**/*.ts` / `.next-live-dev/types/**/*.ts` in
   `tsconfig.json` plus `.next-live-*/**` in the eslint ignores, so a live
   session cannot make Next rewrite `tsconfig.json` or lint generated output.
   Docs updated: `docs/QUICKSTART.md`.
-- **feat(desktop): live mode â€” the window updates on every save.** The desktop
+- **feat(desktop): live mode — the window updates on every save.** The desktop
   serves an immutable pinned build, so a `src/` edit was invisible until
   `desktop:refresh` rebuilt, promoted and reopened the app (Python changes were
   live immediately, which is how a chart could be coloured in the PNG and grey
@@ -1721,8 +1723,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   schema even when the model's context window is unknown (`ABSOLUTE_SCHEMA_BUDGET_TOKENS`
   = 20k), and the read-only tail is query-focused (`FOCUS_READ_TOOLS` +
   `rank_tools`, 32 extras) instead of all-or-nothing. Measured on the live
-  registry: 853 bound tools / 103,265 schema tokens â†’ 142â€“174 bound / 20â€“26k
-  (â‰ˆ77â€“82k saved per step). (2) `answer_guard.py` + `graph.py`: a bare,
+  registry: 853 bound tools / 103,265 schema tokens → 142–174 bound / 20–26k
+  (≈77–82k saved per step). (2) `answer_guard.py` + `graph.py`: a bare,
   route-specific refusal is sent back for at most 2 extra turns with a
   deterministic directive naming the untried permitted routes; a substantive
   partial answer, a policy refusal and an explicitly source-restricted request
@@ -1769,7 +1771,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   refusals are the product. Dashboard and Journal remain staged pending fresh
   prices. docs updated: `docs/public-readme.md` (capture lane + staged list),
   `docs/CHANGELOG.md`.
- **feat(response): answers are figure-first â€” a backtest is drawn, not tabulated.**
+ **feat(response): answers are figure-first — a backtest is drawn, not tabulated.**
   Added a top-level "Show the result, don't table it" section to the Eclipse agent
   prompt (`python/harness/prompts.py`): data and computations (backtests, equity
   curves, drawdowns, series, distributions, comparisons, allocations) are shown as
@@ -1788,13 +1790,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   arrives.** `GET /runs/{id}/stream` waited only for the event-bus sentinel when
   the run looked active. `end_stream()` runs in a `finally` BEFORE the task is
   marked done, so a stream opened in that window never got the sentinel and held
-  the connection open forever â€” the UI showed the full answer and stayed
+  the connection open forever — the UI showed the full answer and stayed
   "writing". The frame producer moved to the new `python/harness/run_stream.py`
   (out of the size-ratcheted `main.py`) and now closes on a terminal event, on an
   inactive run, and re-checks the durable trace on each keep-alive tick.
   `EventBus.end_stream` also makes room for the sentinel when a slow client's
   queue is full instead of silently dropping it. Tests:
-  `python/tests/test_run_stream_close.py`. no doc change â€” behavioral bug fix,
+  `python/tests/test_run_stream_close.py`. no doc change — behavioral bug fix,
   contracts unchanged.
 
 ## 2026-11-15
@@ -1881,7 +1883,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   docs updated: `docs/public-readme.md` (three-button contract table),
   `docs/CHANGELOG.md`.
 - **docs(launch): record the four blocked launch items with an owner each.**
-  `docs/public-readme.md` Â§6 went from "two things that are not finished" to a
+  `docs/public-readme.md` §6 went from "two things that are not finished" to a
   four-row table naming who can actually close each one (social preview: web UI
   only, GitHub has no API for it; the four screenshots: one command against a
   running install; PyPI: a token; public repo: a decision plus the history
@@ -1911,7 +1913,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **docs(readme): stage the Graph Studio and Bots figures behind a capture gate.**
   Tried to capture the workflow editor and the bots workspace for the README. Both
   tabs open (`?tab=graph-studio`, `?tab=bots`), but on a dev server with no seeded
-  harness they render `BOTS Â· 0 / Loading` and a blank canvas, so neither was
+  harness they render `BOTS · 0 / Loading` and a blank canvas, so neither was
   added - an empty workspace photograph is worse than none. Instead:
   `scripts/capture-readme-shots.js` captures both from a seeded install at
   1920x1080, crops to 1600, and **refuses to write a figure whose expected content
@@ -1995,21 +1997,21 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   stale installer can never be published, and includes it in `SHA256SUMS.txt`;
   `desktop-release.yml` uploads it as a release asset and fails the build when it
   is missing. The release body now leads with the direct link (the winget line is
-  gone â€” those manifests still point at a repository that does not exist). The
+  gone — those manifests still point at a repository that does not exist). The
   README's source instructions moved under "Build from source" so a downloader is
   not told to run `npm install` first. docs updated:
   `docs/desktop-size-plan.md` (the alias is the public download contract),
   `docs/CHANGELOG.md`.
 - **feat(release): the download row covers every desktop platform.** Windows
   stays the primary button; `download-macos.svg` and `download-linux.svg` sit
-  beside it (dark fill, accent outline â€” secondary weight). `desktop-bundle.js`
+  beside it (dark fill, accent outline — secondary weight). `desktop-bundle.js`
   now also writes stable aliases, `BlackEclipse-linux-<arch>.deb` (from
   `buildDeb`) and `BlackEclipse-mac-<arch>.dmg` (from `buildMac`), so the macOS
   and Linux buttons never break on a version bump. The macOS alias keeps the
   arch in its name on purpose: one arch is produced per runner and a Mac cannot
   run the other, so the button links `arm64` explicitly instead of handing an
   Intel Mac a binary it can never launch. `desktop-release.yml` asserts each
-  alias exists, and the release body is now a platform â†’ file table with the
+  alias exists, and the release body is now a platform → file table with the
   first-open step for each OS. docs updated: `docs/desktop-size-plan.md`
   (three-row name table), `docs/CHANGELOG.md`.
 - **fix(desktop): closing the window now quits instead of only minimizing.**
@@ -2017,21 +2019,21 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   tab strip, taskbar close, Alt+F4) hit `prevent_close()` + `minimize()` and the
   app looked like it never closed; the tray checkbox was the only way out.
   Keep-warm is now opt-in (`false` by default) and the shell logs
-  `window closed â€” quitting`, hides the window, stops the owned server tree and
+  `window closed — quitting`, hides the window, stops the owned server tree and
   exits. `desktop-prefs.json` gained a `version` field and a one-time
   `migrate_prefs` reset (v1) so installs that inherited the old default do not
   keep minimizing forever; the tray checkbox now reads its own checked state
   instead of flipping a mirror. Verified on the Dev shell: `CloseMainWindow()`
-  â†’ process exits, `[shell] server tree <pid> stopped`, no leftover node or
+  → process exits, `[shell] server tree <pid> stopped`, no leftover node or
   python. docs updated: `desktop/README.md`, `docs/desktop-app-plan.md`.
 
 ## 2026-11-14
 - **fix(desktop): installers ship a populated seed, not an empty one.** The
   packaged `app/seed/jdds.db` was schema-only, so a first run opened an empty
   journal until the boot hook fired. `scripts/lib/seed-db.js` (new) generates the
-  schema, runs the *shared* demo seeder (`scripts/seed-journal.ts` â†’
+  schema, runs the *shared* demo seeder (`scripts/seed-journal.ts` →
   `src/lib/journal/demo.ts`), checkpoints WAL, and verifies `source:'demo'` rows
-  before copying â€” packaged installs now open with ~88 labelled demo trades. It
+  before copying — packaged installs now open with ~88 labelled demo trades. It
   also regenerates a stale schema-only seed left by an earlier build (early-exit
   only when demo rows already exist) and clears an inherited `BE_DB_PATH` so the
   developer's own vault can never be baked into a release. No database is
@@ -2055,18 +2057,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   nothing and the history scan is green with the new reviewed `.gitleaks.toml`
   allowlist (test fixtures, `STORAGE_KEY` constants, eval `"key"` fields, a
   cache hash, the fake `AKIA...EXAMPLE`). **The two tokens still need to be
-  rotated â€” scrubbing history does not revoke them.** docs updated:
+  rotated — scrubbing history does not revoke them.** docs updated:
   `docs/OPEN-SOURCE-READINESS.md`, `docs/CHANGELOG.md`.
 - **test(fs): make the polling-modified check deterministic.** The watcher
   fingerprints `(st_mtime_ns, st_size)`; the test rewrote `one\n` as the
   same-sized `two\n` and used `os.utime(..., None)`, which can land in the same
   Windows timestamp tick. It now sets mtime +5 s explicitly. Passes 20/20 alone.
-  no doc change â€” test-isolation fix.
+  no doc change — test-isolation fix.
 - **test(automation): make the singleton-wired assertion self-contained.**
   `test_service_singleton_is_wired` now takes the module `ctx` fixture, so a
   prior module's app shutdown can no longer clear the process-wide automation
   singleton between tests (it passed alone, failed late in the full run). The
-  file passes 8/8 alone. no doc change â€” test-isolation fix.
+  file passes 8/8 alone. no doc change — test-isolation fix.
 - **docs(readiness): record that the soak has no evidence on this host.** There
   is no `BlackEclipse App` or `Black Eclipse Backup` scheduled task, and
   `%LOCALAPPDATA%\BlackEclipse\health.log` is absent, so
@@ -2098,8 +2100,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   refreshed BlackEclipse mark (`ICON-LOGO-DESKTOP.svg`: dark radial tile,
   silver-gradient eclipse glyph, rounded card edge). Regenerated
   `desktop/src-tauri/icons/icon.ico` (16/24/32/48/64/128/256, 32-bit DIB entries)
-  and `desktop/src-tauri/icons/icon.png` (512) â€” the pair Tauri embeds in
-  `Black Eclipse.exe` and uses for the window/tray icon â€” plus
+  and `desktop/src-tauri/icons/icon.png` (512) — the pair Tauri embeds in
+  `Black Eclipse.exe` and uses for the window/tray icon — plus
   `public/branding/black-eclipse.ico`, which `scripts/brand-runtime.js` stamps
   onto the packaged Node/Python runtime executables. Rasterised from the SVG with
   `sharp`; no dependency added. The installed shell only picks the new resource
@@ -2117,31 +2119,31 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   directory into a tree headed public. They now resolve through
   `scripts/lib/import-paths.js`: `BE_IMPORT_ROOT` (set it to a directory that
   mirrors the documented layout) or `./data/imports` under the app directory.
-  no doc change â€” one-off tooling; the helper's header documents the layout and
+  no doc change — one-off tooling; the helper's header documents the layout and
   the env var.
 
 ## 2026-11-13
 - **fix(chat): the transcript cache write no longer freezes the composer on
-  every turn.** Root cause of the "it stops for 10â€“15 s when I send, then stops
+  every turn.** Root cause of the "it stops for 10–15 s when I send, then stops
   again when the reply appears" report: `saveConversationsCache` removed ONE
   conversation per attempt and re-serialized the whole (barely smaller) list each
-  time. It runs on the main thread 400 ms after every transcript change â€” i.e.
-  exactly at send and at reply â€” so once the history passed the ~5 MB
-  localStorage quota the eviction was O(nÂ²) `JSON.stringify`: seconds of frozen
+  time. It runs on the main thread 400 ms after every transcript change — i.e.
+  exactly at send and at reply — so once the history passed the ~5 MB
+  localStorage quota the eviction was O(n²) `JSON.stringify`: seconds of frozen
   UI, twice per turn, growing with history (this install holds 234 chats /
   19.3k messages). It now serializes each conversation once and binary-searches
   the smallest eviction that fits, so the cost is O(n) serialization + O(log n)
   `setItem` calls regardless of how far over quota the list is. Payload bytes are
   unchanged (`[` + pre-serialized rows + `]` is exactly `JSON.stringify(list)`),
-  and the eviction order (trashed â†’ archived â†’ oldest unpinned) and return value
+  and the eviction order (trashed → archived → oldest unpinned) and return value
   are preserved. Test `chat-organization.test.ts` pins the write count to
-  â‰¤ ceil(log2 n)+1 for a 2 000-chat over-quota list (the old loop made ~2 000 full
+  ≤ ceil(log2 n)+1 for a 2 000-chat over-quota list (the old loop made ~2 000 full
   re-serializations). `npx tsc --noEmit`, vitest 524 files / 4 831 tests.
-  no doc change â€” behaviour-preserving performance fix; the cache contract is
+  no doc change — behaviour-preserving performance fix; the cache contract is
   already described in `docs/chat-ui-audit.md`.
 - **fix(skills): `/skills run` now sends the skill's input.** The command called
-  `executeSkill` with no `input`, so every skill with a required input â€” including
-  EVERY user-authored skill, whose schema requires `objective` â€” was blocked by the
+  `executeSkill` with no `input`, so every skill with a required input — including
+  EVERY user-authored skill, whose schema requires `objective` — was blocked by the
   Python runtime with `INPUT_VALIDATION_FAILED` before it ran. `/skills` now opts
   into `passThroughFlags` and `run` forwards `--key value` flags (plus trailing free
   text as `objective`, and `--version` as a pin) into the execution request; an
@@ -2151,7 +2153,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **feat(build): `npm run build` can no longer break the running app.**
   The last "I built it and the app broke" path: a raw build rewrites `.next`,
   deletes `BUILD_ID` and saturates the CPU while the desktop app is up, which
-  starves the Python runtime's cold start (33â€“67 s idle, >5 min under a build)
+  starves the Python runtime's cold start (33–67 s idle, >5 min under a build)
   and leaves doctor reporting no available build. Policy now lives in
   `scripts/lib/build-guard.js` (pure, 9 tests in `src/lib/build-guard.test.ts`);
   `scripts/build-prod.js` probes channel ports + owner markers and **refuses**
@@ -2165,7 +2167,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `npm run desktop:refresh` still builds + promotes + reopens.
   docs updated: `docs/environments.md`, `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
 - **fix(voice): the Stop control fits inside the composer; stale builds cannot
-  skip a rebuild.** The recording control grew to `â–  Stop 0:12` but the call
+  skip a rebuild.** The recording control grew to `■ Stop 0:12` but the call
   sites passed `w-8`/`w-9`, which won the cascade and squeezed the label so it
   spilled past the composer's right edge. The button now keeps the caller's
   height, drops its width while recording, and the composer chip is
@@ -2174,14 +2176,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   finished, so an edit made mid-build was marked "already built" and a stale
   chat chunk was promoted (the release missing the Stop UI). It now writes the
   hash taken at build START, and `scripts/mark-build.js` is a documented no-op.
-  no doc change â€” layout fix plus build-tooling correctness.
+  no doc change — layout fix plus build-tooling correctness.
 - **fix(harness): a slow boot no longer becomes a permanent 503.** Root cause of
   the "runtime never came up after a relaunch" report: a **concurrent
   `npm run build`** (a stale session's `BE_FORCE_BUILD=1; npm run build`) held
   `.next-build.lock`, deleted `BUILD_ID` and saturated the CPU, so the Python
   cold start could not finish. The supervisor then made it permanent in two ways:
   (1) on timeout it called `killTrackedRuntime()`, killing a child that was still
-  importing â€” measured boot is 33â€“67 s idle, but the budget is a timeout, not a
+  importing — measured boot is 33–67 s idle, but the budget is a timeout, not a
   verdict; (2) the boot pre-start was a single fire-and-forget attempt, so
   nothing retried and agent features 503'd until someone POSTed
   `/api/harness/runtime/restart` by hand. Now `python-runtime.ts` leaves a
@@ -2195,19 +2197,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/CHANGELOG.md`.
 - **fix(voice): the Stop control is now labelled, and the field says what to do.**
   On-device transcription runs when the operator STOPS recording, but the only
-  affordance was an unlabelled square in the composer â€” so a live mic stretched
+  affordance was an unlabelled square in the composer — so a live mic stretched
   on and nothing was ever transcribed (the runtime log showed zero
   `/voice/transcribe` calls from dictation). Recording now renders an explicit
-  **Stop** control with the elapsed time, the field reads "Listening â€” speak,
+  **Stop** control with the elapsed time, the field reads "Listening — speak,
   then press Stop to transcribe", and the composer chip names the engine
-  (On-device / Whisper / Browser) plus "stop to transcribe Â· esc cancels".
-  no doc change â€” copy and affordance only.
-- **feat(desktop): the last web surfaces are gone â€” service worker, offline
+  (On-device / Whisper / Browser) plus "stop to transcribe · esc cancels".
+  no doc change — copy and affordance only.
+- **feat(desktop): the last web surfaces are gone — service worker, offline
   page, container deployment.** Deleting the browser lane left three things that
-  only made sense with a browser: (1) the PWA offline layer â€” `public/sw.js`,
+  only made sense with a browser: (1) the PWA offline layer — `public/sw.js`,
   `src/app/offline/route.ts`, `src/lib/offline/page.ts`, its test and the
   `OfflineReady` registration in `src/app/layout.tsx`; (2) the container
-  deployment â€” `Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`,
+  deployment — `Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`,
   `.dockerignore`; (3) the `blackeclipse` dev-origin allowance in
   `next.config.ts` (`allowedDevOrigins`), now unreachable. The shell's own boot
   screen (`desktop/ui/index.html` + `desktop-server.js` markers) is the only
@@ -2221,7 +2223,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `SECURITY.md`, `docs/CHANGELOG.md`.
   Also normalised `python/tests/test_transcription.py` to LF (one stray CRLF made
   `src/lib/gitignore-guard.test.ts` fail its mixed-line-ending scan).
-- **feat(voice): dictation now runs on this machine â€” no API key, no setup.**
+- **feat(voice): dictation now runs on this machine — no API key, no setup.**
   WebView2 has no speech engine, so `auto` used to resolve to a dead browser
   recognizer (or to "not configured"). Transcription now has a first-class
   **local** provider: `python/harness/transcription/local.py` runs
@@ -2229,19 +2231,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   thread, with the model cached under `.black-eclipse/models/whisper` (downloads
   once, then offline). `auto` prefers a configured cloud key and otherwise uses
   the on-device engine, so plugging nothing in still works. pyav is pinned
-  `>=12,<15` in `python/requirements.txt` â€” 15+ removed the `metadata_errors`
+  `>=12,<15` in `python/requirements.txt` — 15+ removed the `metadata_errors`
   keyword faster-whisper passes to `av.open()` and local transcription failed
-  with "unexpected keyword argument". Measured: 4 s clip â†’ 1.7 s, transcript
+  with "unexpected keyword argument". Measured: 4 s clip → 1.7 s, transcript
   correct. Also: `TranscriptionError` moved to
   `python/harness/transcription/errors.py` (local + HTTP paths share it without a
   cycle), the settings provider list gained "On this device", and the runtime
   client timeout is 300 s so a first-run model download is not mistaken for a
   hang. docs updated: `docs/voice.md`, `docs/CHANGELOG.md`.
-- **feat(desktop): the browser lane is deleted â€” there is one front door.**
+- **feat(desktop): the browser lane is deleted — there is one front door.**
   Gating was not enough: `bin/black.js` still DEFAULTED to `black eclipse`, which
   booted the old Next site on 3105 behind the local proxy, and `setup:desktop`
-  installed an icon whose target chain (`Black Eclipse.exe` shim â†’
-  `start-eclipse.vbs` â†’ `scripts/start-desktop.js`) exited silently because that
+  installed an icon whose target chain (`Black Eclipse.exe` shim →
+  `start-eclipse.vbs` → `scripts/start-desktop.js`) exited silently because that
   launcher was already behind the web guard. So the product could still be
   started as a website, and a fresh checkout could get a dead shortcut. Fix: the
   CLI is desktop-first (`black`/`black app` open the installed Stable window,
@@ -2260,12 +2262,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/ARCHITECTURE.md` (Layer 0), `docs/desktop-app-plan.md`,
   `docs/local-hostname.md` (Stale), `docs/DECISIONS.md` (ADR-079 superseded),
   `README.md`, `AGENTS.md`, `docs/CHANGELOG.md`.
-- **feat(trading): the bot execution ladder (P5) â€” L0/L1/L2 with a real leash.**
+- **feat(trading): the bot execution ladder (P5) — L0/L1/L2 with a real leash.**
   `AutomationDefinition` gains a typed, versioned `executionAuthority`
   (`tier l0|l1|l2`, `appetite`, `sizingMode`, `requireStop`, `maxOpenPositions`,
   `maxMarginPerOrder`, `cooldownS`). A NEW bot is always L0 (`bot_create` refuses a
   higher tier); raising to L1/L2 is a single-use operator approval
-  (`bot_authority`), and L2 additionally requires â‰¥30 scored advisory calls for
+  (`bot_authority`), and L2 additionally requires ≥30 scored advisory calls for
   that bot (a new `conversation_id` filter on `AdvisoryStore.list_decisions`), so
   the request is refused before the operator is even asked. `trade/authority.py`
   is the ONE place that answers "may this bot place a live order?": armed live
@@ -2278,10 +2280,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   ordinary chat. Appetite bands: conservative 0.25%/1 position/2 orders, normal
   0.5%/2/4, aggressive 1%/3/8, with `risk_amount()` for risk-based sizing. Tests
   `python/tests/test_bot_execution_authority.py` (18). docs updated:
-  `docs/harness/bot-parity-and-trade-execution-plan.md` (Â§ P5, Â§ 5),
-  `docs/trading.md` (Â§ unattended live execution), `docs/harness/tool-registry.json`
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P5, § 5),
+  `docs/trading.md` (§ unattended live execution), `docs/harness/tool-registry.json`
   (regenerated), `docs/CHANGELOG.md`.
-- **fix(voice): dictation ended after a breath â€” and on desktop it was never
+- **fix(voice): dictation ended after a breath — and on desktop it was never
   working at all.** WebView2 exposes `webkitSpeechRecognition` with no speech
   service behind it, so `describeVoiceEngine` picked the browser engine, the
   session started and ended a second later, and the composer honestly reported
@@ -2310,35 +2312,35 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   record P5 is gated on is already reachable by joining on the run. Tests
   `python/tests/test_trade_order_traceability.py` (6), including the legacy-DB
   migration path. docs updated:
-  `docs/harness/bot-parity-and-trade-execution-plan.md` (Â§ P4, Â§ 5),
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P4, § 5),
   `docs/trading.md` (ledger traceability), `docs/harness/tool-registry.json`
   (regenerated), `docs/CHANGELOG.md`.
 - **style(voice): the recording timer no longer sits in a pink bubble.** The mic
   control's recording state was `bg-rose-500/15` with a hover fill, which read as
   a circle drawn behind the stop square and the elapsed time. The fill is gone;
   the stop glyph and `m:ss` stay on the composer with the rose text tone only.
-  no doc change â€” styling only.
+  no doc change — styling only.
 - **feat(bots): a scheduled bot reports the live order it proposed, with the real
   window, into its own conversation (P3).** `order_preview` now passes the run id
-  through `preview_order` â†’ `request_approval`, so the approval row carries
+  through `preview_order` → `request_approval`, so the approval row carries
   `requestedByRunId` (also exposed by `approval_view`). `Dispatcher._run_agent`
   collects this run's pending trade approvals and hands them to delivery;
-  `render_run_report` puts them first as `AWAITING APPROVAL â€” <order> (good for N
+  `render_run_report` puts them first as `AWAITING APPROVAL — <order> (good for N
   minutes)` plus the approval id, and a completed run with a pending order is no
   longer reported as "produced no result". The `automation.delivered` event
   carries `botId` + `approvalIds`, and the bot composer banner (mounted in the
   previous entry) picks them up, so approval happens in that chat. Important
   finding recorded in code and docs: a trade approval's window is 300 seconds
   (`APPROVAL_TTL_SECONDS`), so an overnight proposal is correctly dead by morning
-  â€” the report says when the window closed and to re-run, rather than implying the
+  — the report says when the window closed and to re-run, rather than implying the
   order still waits. Tests `python/tests/test_automation_trade_report.py` (12).
-  docs updated: `docs/harness/bot-parity-and-trade-execution-plan.md` (Â§ P3, Â§ 5),
+  docs updated: `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P3, § 5),
   `docs/harness/automation-engine.md` (unattended answer contract),
   `docs/trading.md` (manual approval path), `docs/CHANGELOG.md`.
 - **fix(bots): a trade approval is completed in the bot conversation, like every
   other card.** The bot composer already mounted the generic `ApprovalCard` and
   `ClarificationCard` but not `TradeApprovalBanner`, which was only in the main
-  chat composer â€” so a pending `order_preview` raised by a bot (or by one of its
+  chat composer — so a pending `order_preview` raised by a bot (or by one of its
   scheduled runs) could not be approved where it was proposed. The banner is now
   mounted in `bot-chat.tsx` above the composer: it is the same store-driven,
   self-polling component, bound to the same single-use digest and the same
@@ -2346,13 +2348,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   The plan drops the separate bot settings/review UI entirely and records "the
   bot conversation is the surface" as design principle 0: configuration is a chat
   request (`bot_update`), and a proposal is an in-thread card. docs updated:
-  `docs/harness/bot-parity-and-trade-execution-plan.md` (Â§ 3.0, Â§ P1, Â§ P3, Â§ 5),
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ 3.0, § P1, § P3, § 5),
   `docs/CHANGELOG.md`.
 - **fix(voice): the field was frozen on this machine, and the mic prompt lived
   in the top-left corner.** Two real defects on the desktop: (1) Windows
   client-area animations are OFF, so WebView2 reported
   `prefers-reduced-motion: reduce` and `voice-fire-field.tsx` drew exactly ONE
-  frame â€” the field looked dead while speaking. The OS signal now selects a calm
+  frame — the field looked dead while speaking. The OS signal now selects a calm
   8 fps breathing flame (no sparks); only the app's own reduce-motion /
   animations-off classes still freeze it. (2) WebView2's media consent dialog is
   drawn top-left and cannot be themed or moved, so the shell now suppresses it
@@ -2375,13 +2377,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   by the computer/browser/MCP/guardrail tools, which block until the run deadline
   (`clarify` returns `no_interactive_user`), so setting it on a scheduled run would
   turn "deny fast" into "hang, then fail". A bot's ask channel is the
-  execution-level `permissions.requiresApproval` (engine â†’ execution `waiting` â†’
+  execution-level `permissions.requiresApproval` (engine → execution `waiting` →
   `POST /automations/executions/{id}/resume`) plus durable approval rows raised by
   a tool (`order_preview`), and `permissions.requiresApproval` is now settable at
   creation. Tests `python/tests/test_automation_bot_parity.py` (7). docs updated:
-  `docs/harness/bot-parity-and-trade-execution-plan.md` (Â§ P1, Â§ 3.3),
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ P1, § 3.3),
   `docs/harness/tool-registry.json` (regenerated), `docs/CHANGELOG.md`.
-- **docs(trading): correction to the P0 write-up â€” there was no exploitable live
+- **docs(trading): correction to the P0 write-up — there was no exploitable live
   path, and `create_mandate` never allowed an unpinned live mandate.**
   `TradingMandateStore.create` already required `workflowId` **and**
   `workflowVersion` for a live mandate (`MANDATE_WORKFLOW_REQUIRED`), and because
@@ -2392,10 +2394,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   the workflow pin, with a misleading error, one edit away from disappearing (a
   bot-pinned mandate in P5 would have reopened it silently). The redundant
   `LIVE_MANDATE_UNPINNED` check this session briefly added to `create_mandate` was
-  removed â€” the store stays the single authority and the error code is unchanged.
+  removed — the store stays the single authority and the error code is unchanged.
   The mode check, `covers(mode=)`, the handler-level `LIVE_ORDER_REFUSED` and the
   corrected descriptions remain as defence in depth. docs updated:
-  `docs/harness/bot-parity-and-trade-execution-plan.md` (Â§ G5, Â§ P0),
+  `docs/harness/bot-parity-and-trade-execution-plan.md` (§ G5, § P0),
   `docs/trading.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **fix(chat): the session-files row no longer collides with the project chip.**
   On the landing composer the row under it was full-width while the composer is
@@ -2404,51 +2406,51 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   The row now shares the composer's px/max-w column, `SessionBar` is a
   shrinkable flex item (`min-w-0 flex-1`, optional `className`) whose path
   truncates, and "Session 3" (which read like a session number) is now
-  "Session files" with the count in a badge. no doc change â€” layout/copy fix,
+  "Session files" with the count in a badge. no doc change — layout/copy fix,
   no contract change.
 - **fix(charts): a drawn chart is never replaced by an error, and the chart
   stack is guaranteed on install.** Three failure paths were closed: (1) a
   chart whose Artifact Center registration failed was discarded by both chart
-  surfaces as "drawn but could not be stored" â€” the render route now returns the
+  surfaces as "drawn but could not be stored" — the render route now returns the
   PNG inline and `chartImageSrc()` shows it as a data URL; (2) the plotly
   library route was `force-static` and only looked in vendored paths, so
   macOS/Linux installs and any build performed before `postinstall` finished
-  could cache a permanent 503 â€” it now resolves the library through the running
+  could cache a permanent 503 — it now resolves the library through the running
   interpreter and stays dynamic; (3) `plotly` was missing from the analysis
   requirements and from `setup-python`'s stack probe, so an install that already
-  had `langgraph` never got it â€” it is now installed and probed by both
+  had `langgraph` never got it — it is now installed and probed by both
   `setup-python` and `doctor`. docs updated: `docs/chart-engine.md`,
   `docs/CHANGELOG.md`.
 - **chore(desktop): ship the voice field to Stable (`UvJqNNf5nTphjUbd36d_I`).**
-  Built, validated, promoted and relaunched through `desktop:refresh` only â€”
+  Built, validated, promoted and relaunched through `desktop:refresh` only —
   the browser lane stayed off (`:3000` free, `web-guard` intact). Release
   `releases/stable/UvJqNNf5nTphjUbd36d_I` contains the field (verified by
   `speak naturally` + `esc to cancel` in `static/chunks/56648-*.js`), `:3100`
   serves that build id, and the desktop shell was relaunched. Also tuned the
   flame after the first render (per-column tongues, slower decay, tighter base
   glow, top-aligned transcript with a text shadow, softer pointer wind) and
-  clamped the advected heat to 0..1. no doc change â€” build/promotion plus
+  clamped the advected heat to 0..1. no doc change — build/promotion plus
   visual tuning, no contract change.
 - **docs(trading): autonomy tiers for bots (L0/L1/L2) added to the parity plan.**
   Decision recorded: live is the target, per-order approval is the default (L0),
   and unattended execution (`order_submit` under a live mandate pinned to
-  `botId` + `botVersion`) is tier L2 â€” granted per bot only after a scored
+  `botId` + `botVersion`) is tier L2 — granted per bot only after a scored
   advisory track record, and bounded by an armed connection, mandate caps
   (`maxOrders`/`maxMargin`), the daily-loss brake, the money guardrails, a
   per-bot position/cooldown limit and the magic-scoped kill switch. Sizing is
   `risk_based` by default with a stop required on every order; `user_fixed` is a
   per-bot override where the bot may decline but never resize. "Based on its
   mood" is replaced by a versioned risk-appetite band so a loss can be traced to
-  a rule. Sequence is P0 â†’ P1 â†’ P3 â†’ P4 â†’ P5, because L2 is gated on the scored
+  a rule. Sequence is P0 → P1 → P3 → P4 → P5, because L2 is gated on the scored
   record P4 produces. No code change in this entry. docs updated:
   `docs/harness/bot-parity-and-trade-execution-plan.md`, `docs/NAVIGATION.md`,
   `docs/CHANGELOG.md`.
 - **fix(chat): the composer crashed with `ModelSelector is not defined`.** After
   `ModelSelector` moved to `src/components/chat/model-selector.tsx`,
   `chat-input.tsx` kept only `export { ModelSelector } from './model-selector'`
-  â€” a re-export does not create a local binding, so the JSX reference threw and
+  — a re-export does not create a local binding, so the JSX reference threw and
   the whole shell rendered "Something went wrong" (digest 938137588). The module
-  now imports it for use and still re-exports it. no doc change â€” restoring
+  now imports it for use and still re-exports it. no doc change — restoring
   intended behaviour, no contract change.
 - **fix(trading): the "no agent path for live orders" rule is now enforced by code,
   not by prompt wording.** `wrap_trade_authorizer` checked mandate coverage without
@@ -2464,7 +2466,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `position_modify` stay allowed on a live connection so an expired grant never
   traps a position. Tests `python/tests/test_broker_agent_trade.py` (+5) and
   `python/tests/test_trade_mandate_mode.py` (4). docs updated: `docs/trading.md`
-  (Â§ two operator-gated paths), `docs/harness/bot-parity-and-trade-execution-plan.md`
+  (§ two operator-gated paths), `docs/harness/bot-parity-and-trade-execution-plan.md`
   (decision recorded: live with per-order approval; P3 rewritten, standing mandate
   out of scope), `docs/CHANGELOG.md`.
 - **docs(harness): plan bot capability parity and governed trade execution.** New
@@ -2485,38 +2487,38 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/harness/bot-parity-and-trade-execution-plan.md`, `docs/CHANGELOG.md`.
 - **perf(chat): progressive Markdown parsing + a per-run latency record.** A
   streaming turn re-parsed and re-diffed the whole answer on every animation
-  frame, so a long reply got slower the longer it streamed (O(nÂ²) parse plus a
+  frame, so a long reply got slower the longer it streamed (O(n²) parse plus a
   new object for every block, which defeated memoization). `lib/chat/markdown.ts`
   now exposes `stableBoundary()` and `parseMarkdownStream()`: only the part
   after the last completed block boundary is parsed, earlier blocks are returned
-  by identity, and `Block` is memoized â€” already-written prose is neither
+  by identity, and `Block` is memoized — already-written prose is neither
   re-parsed nor re-rendered. Boundaries are conservative (an open fence, display
   math or a continuing blockquote stops the cut), and a test asserts the
   incremental result equals one full `parseMarkdown` at every growth step.
   Separately, `RunEmitter` now feeds a `RunTimings` recorder and writes ONE
   durable `run.timings` event after the terminal event with `setupMs`
-  (run.started â†’ first model.requested), `ttftMs` (model.first_token),
+  (run.started → first model.requested), `ttftMs` (model.first_token),
   `firstDeltaMs` and `deltaGapP50/P95/Max` over the transient `model.delta`
-  gaps â€” so "feels stuck" can be attributed to setup, provider latency or token
+  gaps — so "feels stuck" can be attributed to setup, provider latency or token
   cadence instead of guessed at. Deltas stay transient; the record is one row
   per run. Tests `src/lib/chat/markdown-incremental.test.ts` (19),
   `python/tests/test_run_timings.py` (4). docs updated:
-  `docs/harness/architecture.md` (Â§ Live streaming), `docs/harness/observability.md`.
+  `docs/harness/architecture.md` (§ Live streaming), `docs/harness/observability.md`.
 - **feat(chat): `!` shell mode in the composer (OpenCode parity).** Typing `!`
   at the start of an empty prompt now runs a shell command instead of sending a
   prompt: Enter runs it in the session workspace, Esc leaves the mode, Shift+Enter
   still inserts a newline. The run is appended to the conversation as a user turn
   carrying `Message.shell` (command, cwd, real exit code, stdout/stderr, duration,
   timeout/truncation flags) and rendered by `shell-run-card.tsx`; no agent run is
-  dispatched for it. The NEXT turn sends `formatShellForHarness` â€” the command,
-  12k-bounded output and exit status, labelled "observed data, not instructions" â€”
+  dispatched for it. The NEXT turn sends `formatShellForHarness` — the command,
+  12k-bounded output and exit status, labelled "observed data, not instructions" —
   so the run stays in session context rather than in a detached terminal pane.
   Honesty: a failed command reports its real non-zero exit code; an unavailable
   or refusing runtime records an explicit unavailable turn. `ModelSelector` moved
   from `chat-input.tsx` to `model-selector.tsx` (re-exported, imports unchanged)
-  to keep the composer under the size ceiling; size pin stock-chat 1717â†’1718.
+  to keep the composer under the size ceiling; size pin stock-chat 1717→1718.
   Tests `src/lib/chat/shell.test.ts` (13). docs updated: `docs/chat-ui-audit.md`
-  (Â§ `!` shell mode), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+  (§ `!` shell mode), `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **feat(voice): the composer catches fire when you dictate.** Tapping the mic
   now morphs **both** chat composers (full `chat-input` and floating
   `chat-dock`) into an interactive ember field instead of just starting a hidden
@@ -2524,7 +2526,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   RMS + spectral centroid, pure `rmsToLevel`/`smoothLevel`/`spectralCentroid`),
   `src/lib/voice/fire-field.ts` (framework-free, seeded heat advection + ember
   pool + pointer wind), and `src/components/chat/voice-fire-field.tsx` (canvas
-  host, source-over glow, 30 fps cap, DPR â‰¤ 2, one static frame under reduced
+  host, source-over glow, 30 fps cap, DPR ≤ 2, one static frame under reduced
   motion, DOM transcript with `aria-live`). `use-voice-input` now exposes
   `meterRef` + `interim` and feeds the meter from the recorder's own stream on
   the Whisper path and from a visual-only capture on the browser path (failure
@@ -2540,8 +2542,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/CHANGELOG.md`; `docs/voice-ascii-wave-plan.md` marked Superseded.
 - **docs(voice): supersede the ASCII wave plan with an interactive fire field.**
   New `docs/voice-fire-field-plan.md` specifies the effect actually wanted: the
-  mic tap morphs the composer into a canvas ember field â€” an advected heat field
-  with a heat ramp, an additive ember pool, and pointer "wind" â€” driven by a new
+  mic tap morphs the composer into a canvas ember field — an advected heat field
+  with a heat ramp, an additive ember pool, and pointer "wind" — driven by a new
   `VoiceMeter` (RMS + spectral centroid). Loudness drives height/ember rate, the
   centroid drives colour temperature, the cursor bends the flame, and Stop banks
   it down before the transcript inserts at the caret. Same plumbing as before
@@ -2563,8 +2565,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   killed real 20-step research turns just before the answer). The compression
   ladder is now ON by default (`HARNESS_COMPRESSION_LADDER=on`) so the extra wall
   clock is not extra prompt cost. Tests: `test_run_resume.py`,
-  `run-manager.test.ts`. Size pin: `graph.py` 2763â†’2797. docs updated:
-  `docs/CHANGELOG.md` (no architecture change â€” behavior and defaults only).
+  `run-manager.test.ts`. Size pin: `graph.py` 2763→2797. docs updated:
+  `docs/CHANGELOG.md` (no architecture change — behavior and defaults only).
 - **docs(voice): plan an ASCII-wave voice field for the composer.** New
   `docs/voice-ascii-wave-plan.md` (status: Proposed) specifies turning the chat
   composer into a live ASCII wave while dictating and adding a streaming
@@ -2575,7 +2577,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   composer can morph on `data-voice`, interim text through the existing unused
   `onInterim`, and honest limits (desktop/WebView2 has no browser STT, so it
   gets amplitude + a post-stop reveal; reduced-motion gets a static frame).
-  Phased P0â€“P3 with tests and risks. docs updated:
+  Phased P0–P3 with tests and risks. docs updated:
   `docs/voice-ascii-wave-plan.md` (new), `docs/CHANGELOG.md`.
 - **test(accounting): hardcore cross-book accounting prompts + offline suite; 6
   real bugs fixed.** Added `docs/accounting-hardcore-tests.md` (20 chat prompts
@@ -2586,8 +2588,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   fabricated total loss (now uses the net amount; cash ledger follows); (2) an
   oversell clamped to available quantity divided the full gross by the reduced
   quantity, inflating proceeds (now prorated over the requested quantity);
-  (3) the documented `acquired âˆ’ disposed == remaining` invariant broke after
-  every split â€” both rollups are now restated in post-split share units;
+  (3) the documented `acquired − disposed == remaining` invariant broke after
+  every split — both rollups are now restated in post-split share units;
   (4) `SPECIFIC_ID` lot ids were random per recompute, so a lot id read from
   `tax_lots` could never be found when the sell posted (now deterministic
   `lot_<transaction id>` ids, deterministic match ids); (5) an unknown,
@@ -2615,9 +2617,9 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   one-time `VACUUM INTO` copy of `jdds.db`. Two live-launch bugs found and fixed
   in QA: the bootstrap readiness budget was 90 s and Next measured 126 s under a
   concurrent build (a healthy child was left unowned and the window showed a
-  failure panel) â€” now 300 s; and the Dev window lookup JSON-escaped a Windows
+  failure panel) — now 300 s; and the Dev window lookup JSON-escaped a Windows
   path (`\\`), so `stopShell` matched nothing and single-instance silently kept
-  the stale window â€” now a PowerShell single-quoted path. Also: harness readiness now probes a
+  the stale window — now a PowerShell single-quoted path. Also: harness readiness now probes a
   constant-time `/health/live` with a 30 s budget (the 20 s diagnostic `/health`
   under load made a healthy runtime look dead and restart-loop), and
   `isHarnessHealth` accepts `harness-runtime`. docs updated:
@@ -2635,16 +2637,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Root cause (QA of 15 stored runs): `portfolio_get` fetched quotes one symbol
   at a time with no per-call timeout, so one slow PSX quote consumed the tool's
   20 s budget and returned `TOOL_TIMEOUT`. The agent then guessed app routes
-  (`/api/journal/open`, `/api/broker/positions`, â€¦); each 404 came back as a
+  (`/api/journal/open`, `/api/broker/positions`, …); each 404 came back as a
   42 KB HTML page, `/api/journal/trades` ignored `?limit`/`?status` and returned
   104 KB every time, and the run hit its deadline with partial text only.
   Fixes: `MarketAdapter` bounds each quote/FX lookup
   (`PORTFOLIO_MARK_TIMEOUT_S`, default 8 s) and reports a MISSING mark;
   `PortfolioService.read` resolves symbols concurrently (bounded 6);
-  `app_api_get` turns an HTML 404 into a short "no such API route â€” do not
+  `app_api_get` turns an HTML 404 into a short "no such API route — do not
   guess" result; `GET /api/journal/trades` honours `limit`/`take`, `status`,
   `symbol` (filters before limit, adds `count`/`total`). Verified end to end:
-  the reported question ("look at my current tradeâ€¦") now completes in 167 s
+  the reported question ("look at my current trade…") now completes in 167 s
   with a full trade/risk answer. Tests: new
   `python/tests/test_portfolio_market_adapter.py`, extended
   `test_app_api_tools.py` and `route.test.ts`. docs updated:
@@ -2653,7 +2655,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   3100 is now the desktop's own port and the app serves an immutable pinned copy
   of the last completed build (`.black-eclipse/desktop-dist/.next`); the
   website/agent production profile moved to 3105 (dev stays 3000). A checkout
-  never attaches to a website server â€” only to its own owner-marked pinned
+  never attaches to a website server — only to its own owner-marked pinned
   server. `npm run desktop:refresh` builds, re-pins and reopens. docs updated:
   `desktop/README.md`, `docs/desktop-app-plan.md`, `docs/environments.md`,
   `docs/QUICKSTART.md`, `docs/local-hostname.md`, `docs/DEPLOYMENT.md`,
@@ -2665,7 +2667,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **feat(desktop): one-command refresh for the dev-bridged desktop window.**
   Added `npm run desktop:refresh` (`scripts/desktop-refresh.js`): builds only
   when source is newer, restarts the 3100 server via `up.js --restart`, and
-  reopens the shell â€” so a source edit no longer leaves the window serving a
+  reopens the shell — so a source edit no longer leaves the window serving a
   stale `.next` build. Leaves packaged (non-bridged) installs alone. docs
   updated: `desktop/README.md`.
 - **fix(chat): the dark-mode prompt bubble reads grey, not black.** The default
@@ -2676,13 +2678,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **fix(chat): the "Eclipse has a question" prompt spans the composer width.**
   `ClarificationCard` was capped at 720px, so it floated as a narrower island
   above the full-width composer. It now uses the anchor's measured width.
-  no doc change â€” visual fix.
+  no doc change — visual fix.
 - **fix(chat): a finished answer can no longer disappear from a conversation.**
   The transcript is written by the browser in two steps: an empty
   `status: "queued"` placeholder at send time, then the answer when the run
   resolves **in the same tab**. A reload / second tab / app restart mid-run left
   that empty placeholder as the last turn forever, while the answer sat safely in
-  `HarnessRun.output` â€” the conversation looked erased. New
+  `HarnessRun.output` — the conversation looked erased. New
   `src/lib/chat/transcript-reconcile.ts` runs from `GET /api/chat/transcript`:
   it finds a stuck last turn, matches it to a COMPLETED run (the turn's `runId`,
   else the session's newest completed run that started after the prompt), fills
@@ -2695,7 +2697,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `transcript-reconcile.test.ts` (11 cases). Also: split the run-patch
   serializer into `harness/run_patch.py` (persistence was over its size pin) and
   re-pinned the size ratchet for the committed concurrency growth
-  (`service.py` 2068â†’2072, new `model_runtime/runtime.py` entry). docs updated:
+  (`service.py` 2068→2072, new `model_runtime/runtime.py` entry). docs updated:
   `docs/chat-ui-audit.md`, `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-12
@@ -2733,7 +2735,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 - **fix(chat): solid busy-state controls and roomier error card.** While a turn
   runs, the Queue/Stop controls are now solid fills (no outline pill), and the
   "Something went wrong" card gets extra bottom padding plus spacing beneath it
-  so the Retry action no longer hugs the card edge. no doc change â€” visual fix.
+  so the Retry action no longer hugs the card edge. no doc change — visual fix.
 - **feat(chat): durable, shared, pausable prompt queue.** `queue-store.ts`
   persists each conversation's queue in `localStorage`, broadcasts changes over
   BroadcastChannel, and dequeues under a per-chat Web Lock so two tabs cannot
@@ -2746,8 +2748,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   reload.** The local (non-hosted) reminder moved from a bottom-centre banner
   (which sat on top of the chat composer and crossed the sidebar column) to the
   top-right corner, and its dismissal now persists in `localStorage` instead of
-  per-session `sessionStorage`. Consent is still only recorded by Review â†’
-  Accept. no doc change â€” UI/UX bug fix, no contract change.
+  per-session `sessionStorage`. Consent is still only recorded by Review →
+  Accept. no doc change — UI/UX bug fix, no contract change.
 - **feat(model): quota-aware admission + cross-tab runs.** Provider capacity is
   now a shared, process-wide gate: `get_credential_pool()` shares 429 cooldowns
   and key rotation across runs, `RateLimitManager.acquire_slot()` queues on a
@@ -2768,7 +2770,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `run-manager.ts` now owns one stream per `chatId` (many chats at once), the
   hook is a thin selector, each run has its own `onTurn` sink, queued prompts
   keep their originating chat (`use-chat-queue-drain.ts`), active-run recovery
-  is a `chatId â†’ run` map, and only the focused chat's run feeds the Agent
+  is a `chatId → run` map, and only the focused chat's run feeds the Agent
   Workspace. The runtime's process-wide market bridge/MCP sampling model are
   per-run `ContextVar`s (`run_binding.py`) instead of singleton fields, so
   concurrent runs cannot cross-wire transports or models. Tests: new
@@ -2837,7 +2839,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   3 skipped (graph/context/tool/run/recovery) plus 2,046 passed / 4 skipped
   (agent/prompt/plugin/skill/evaluation/persistence group); `audit:agent`
   49/49, offline eval gate ALL PASS, `tsc --noEmit` clean. Docs:
-  `docs/harness/roadmap/w3-tool-execution-plan.md` (status + Â§15),
+  `docs/harness/roadmap/w3-tool-execution-plan.md` (status + §15),
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
   `docs/harness/roadmap/w0-flags-and-review.md`.
 - **feat(harness): W8 observability, SLOs and conformance (implemented).** Adds
@@ -2863,7 +2865,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `docs/DEPLOYMENT.md`, `docs/harness/decisions.md` (ADR-H360),
   `docs/harness/roadmap/w8-observability-and-slos-plan.md`,
   `docs/NAVIGATION.md`. Also re-pins `scripts/size-budget.json` to the measured
-  landed tree (the W0â€“W8 runtime + W8 signals) so the size gate stays green;
+  landed tree (the W0–W8 runtime + W8 signals) so the size gate stays green;
   per-file ratchets unchanged. No schema change, no new dependency.
 - **test(harness): W2 closeout verification.** W2-focused suite 159 passed; full
   tree vitest 4,749 passed and pytest 10,718 passed / 35 skipped. Seven pytest
@@ -2871,7 +2873,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   (the other stream changed `eclipse_memory/*`, `main.py`, flags and the
   registry mid-run); each failed file passed on immediate rerun (30 passed).
   tsc clean, audit 46/46, conformance 16/16, SLO 8/8, live NOT MEASURED.
-  Docs: `docs/harness/roadmap/w2-context-economics-plan.md` Â§15.
+  Docs: `docs/harness/roadmap/w2-context-economics-plan.md` §15.
 - **feat(harness): W7 async delegation, schema repair, steering, worktrees and
   file checkpoints.** `delegation_store.py` adds the durable
   `HarnessDelegation`/steer rows; `delegation_lifecycle.py` runs one child as a
@@ -2919,7 +2921,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   synonym/stem vocabulary as the lexical scorer. Curator `apply` hands archive
   suggestions to the one maintenance pass, and merged instructions are
   de-duplicated line-by-line. Docs:
-  `docs/harness/roadmap/w5-learning-loop-plan.md` Â§13 update.
+  `docs/harness/roadmap/w5-learning-loop-plan.md` §13 update.
 - **feat(harness): W5 learning loop (core).** Adds
   `skills/execution_eval.py` (real execution tier through
   `ExecutionMode="evaluation"`, existing graders, `ExecutionEvalResult`,
@@ -2934,10 +2936,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Adds `eclipse_memory/bm25.py` (corpus IDF) and the
   `HARNESS_MEMORY_HYBRID` bounded ranking branch with unchanged safety gate;
   diagnostics expose component scores. `/learn` is an alias of the existing
-  inert `skill-create` path. Additive migrations 36â€“37 (evaluation evidence,
+  inert `skill-create` path. Additive migrations 36–37 (evaluation evidence,
   authored case spec, curator ledger). New tests: execution gate, curator,
   BM25, hybrid rank; docs: `docs/harness/roadmap/w5-learning-loop-plan.md`
-  (Â§13 status/gaps), `docs/harness/architecture.md`.
+  (§13 status/gaps), `docs/harness/architecture.md`.
 - **feat(autonomy): W4 goals, deterministic gates, judge and loops.** Adds the
   `HARNESS_GOAL_LOOP` flag (off/shadow/on; `HARNESS_AUTONOMY=off` still vetoes),
   extends `GoalContract` with `verification`/`boundaries`/`stop_when` and adds
@@ -2969,7 +2971,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   report schema v2 + `capabilities`, eager objectives with an honest
   `unmeasured` state, the data-driven budgets/gate design, real Prometheus
   rules, twelve conformance cases (including an alert-metric contract), slices
-  W8.0â€“W8.7, test matrix, rollout and exit criteria. Planning only â€” no
+  W8.0–W8.7, test matrix, rollout and exit criteria. Planning only — no
   production code changed. Docs:
   `docs/harness/roadmap/w8-observability-and-slos-plan.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
@@ -2982,8 +2984,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   rows, the bounded `output_schema` + one-repair contract, step-boundary
   steering, per-child worktrees with diff handles, the shadow-git checkpoint
   store with protected-path excludes, `checkpoint_*` tools and the operator-gated
-  `/rollback`, slices W7.0â€“W7.6, fault matrix, flags, rollout and exit criteria.
-  Parent plan, flag matrix and NAVIGATION now point at it. Planning only â€” no
+  `/rollback`, slices W7.0–W7.6, fault matrix, flags, rollout and exit criteria.
+  Parent plan, flag matrix and NAVIGATION now point at it. Planning only — no
   production code changed. Docs:
   `docs/harness/roadmap/w7-delegation-and-file-safety-plan.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
@@ -2998,8 +3000,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `RunLineage.save_boundary`, `started|done|unknown` idempotency,
   `append_event_sequenced` + duplicate-seq repair, lease-aware `find_stalled`,
   `security/hardline.py`, shell via `code.sandbox`/`terminal.spawn`, staged
-  effect-token enforce), slices W6.1â€“W6.7, fault matrix, test plan, rollout,
-  risks and exit criteria. Planning only â€” no production code changed. Docs:
+  effect-token enforce), slices W6.1–W6.7, fault matrix, test plan, rollout,
+  risks and exit criteria. Planning only — no production code changed. Docs:
   `docs/harness/roadmap/w6-run-kernel-integrity-plan.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
   `docs/NAVIGATION.md`.
@@ -3011,9 +3013,9 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `RunEffects.has_unconfirmed` (started **or** unknown), so a reconciled
   unknown effect cannot be replayed. Tests: `test_context_overflow.py` (17),
   `test_context_recovery.py` (4), `test_prompt_segments.py` cache-plan cases.
-  Docs: `docs/harness/roadmap/w2-context-economics-plan.md` Â§15.
-- **feat(harness): W2 closeout â€” unified ladder, cache markers, tool-bearing
-  recovery.** `context/compression_ladder.py` now owns prune â†’ summary â†’
+  Docs: `docs/harness/roadmap/w2-context-economics-plan.md` §15.
+- **feat(harness): W2 closeout — unified ladder, cache markers, tool-bearing
+  recovery.** `context/compression_ladder.py` now owns prune → summary →
   skeleton (protected tail/last user turn/assistant-tool pairs, persisted
   cooldown, `/compact` force, shadow/on/off) and is used by the tool turn, the
   hard/emergency pre-call gate and overflow recovery. `prompt_segments.py` adds
@@ -3032,9 +3034,9 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   loop, contiguous read-only batching (effectful/interactive never overlap),
   per-call context cloning, the success-signature guardrail contract (warn
   first, controlled halt, poller exemption), BM25 + tags/domain + tiered
-  catalogue disclosure, the read-tool concurrency audit, slices W3.0â€“W3.4,
+  catalogue disclosure, the read-tool concurrency audit, slices W3.0–W3.4,
   fault matrix, rollback and exit criteria. Parent plan, flag matrix and
-  NAVIGATION now point at it. Planning only â€” no production code changed.
+  NAVIGATION now point at it. Planning only — no production code changed.
   Docs: `docs/harness/roadmap/w3-tool-execution-plan.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
   `docs/harness/roadmap/w0-flags-and-review.md`, `docs/NAVIGATION.md`.
@@ -3047,7 +3049,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   brief, no-progress and turn/budget caps, session loop/heartbeat rules
   (idle-only, coalescing, digest, max ticks), routes/commands/goal bar, the
   `HARNESS_GOAL_LOOP` flag split from the existing `HARNESS_AUTONOMY` kill
-  switch, tests, risks and rollout. Planning only â€” no production code changed.
+  switch, tests, risks and rollout. Planning only — no production code changed.
   Docs: `docs/harness/roadmap/w4-autonomy-plan.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
 - **docs(roadmap): complete W5 learning-loop plan.** Adds
@@ -3060,7 +3062,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   tables, dry_run/propose/apply/off, pinned/compliance/external skips, inert
   drafts only), BM25 hybrid retrieval with unchanged safety gates and the
   labelled-eval acceptance, slices, test matrix, rollout, risks and file map.
-  Planning only â€” no production code changed. Docs:
+  Planning only — no production code changed. Docs:
   `docs/harness/roadmap/w5-learning-loop-plan.md`, `docs/NAVIGATION.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
 - **test(harness): W2 verification + baseline.** Full suite PASS (15,444 passed
@@ -3087,13 +3089,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   soft-gate knob. Tests: `test_usage_anchor.py`, `test_context_gates.py`,
   `test_context_prune.py`, updated `test_context_overflow.py`,
   `test_graph.py`, `test_size_budget.py`. Docs:
-  `docs/harness/roadmap/w2-context-economics-plan.md` (status + Â§15 live
+  `docs/harness/roadmap/w2-context-economics-plan.md` (status + §15 live
   surface and deliberate gaps).
 - **docs(roadmap): complete W2 context economics plan.** Adds
   `docs/harness/roadmap/w2-context-economics-plan.md`: usage-anchor schema,
-  50/70/85 budget gates, pruneâ†’summaryâ†’skeleton ladder, tail/evidence
+  50/70/85 budget gates, prune→summary→skeleton ladder, tail/evidence
   protection, cache-stable prompt tiers, any-step overflow recovery, slices
-  W2.1â€“W2.7, fault matrix, rollout and exit criteria. Planning only â€” no
+  W2.1–W2.7, fault matrix, rollout and exit criteria. Planning only — no
   production code changed. Docs: `docs/harness/roadmap/w2-context-economics-plan.md`,
   `docs/NAVIGATION.md`, `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
 - **feat(harness): W1 live model gateway.** Adds `model_runtime/gateway.py`
@@ -3118,19 +3120,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   asserted `result.context is None`, but every run result also carries the
   `flags`/`flagsHash` snapshot (flag registry), so the test failed on a committed
   tree even though no history was dropped. It now asserts that `keptTurns` /
-  `droppedTurns` are absent â€” the contract the test actually describes.
+  `droppedTurns` are absent — the contract the test actually describes.
   `python/tests/test_context_budget.py` (10 passed). Test-only; no app code,
-  contract or runtime changed. `no doc change â€” stale assertion fix only`.
+  contract or runtime changed. `no doc change — stale assertion fix only`.
 - **docs(roadmap): complete W1 model gateway plan.** Adds
   `docs/harness/roadmap/w1-model-gateway-plan.md`: live-path diagram, gateway
   contracts, candidate planning, retry/fallback matrix, credential pool,
   first-token watchdog, per-attempt accounting/cost/budget, observability
-  events, slices W1.1â€“W1.6, fault matrix, rollout/rollback and exit criteria.
-  Planning only â€” no production code changed. Docs:
+  events, slices W1.1–W1.6, fault matrix, rollout/rollback and exit criteria.
+  Planning only — no production code changed. Docs:
   `docs/harness/roadmap/w1-model-gateway-plan.md`, `docs/NAVIGATION.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`.
 - **feat(harness): W0 flag registry, run snapshot and baseline collector.**
-  Adds `harness/config/flags.py` (typed W1â€“W7 flags, parsing/clamping/strict
+  Adds `harness/config/flags.py` (typed W1–W7 flags, parsing/clamping/strict
   mode), `harness/run_flags.py` (`run.flags` event + `HarnessRun.context.flags`
   / `flagsHash`), `graph.execute_run` recording once per run/resume, boot strict
   validation (`HARNESS_FLAG_STRICT`), and
@@ -3144,28 +3146,28 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `test_run_flags.py`, `test_w0_baseline.py`; `test_graph.py` event order
   updated. No prompt, tool, schema or model behaviour changed. Docs:
   `docs/harness/roadmap/w0-*`, `docs/NAVIGATION.md`.
-- **feat(desktop): taskbar presence completes â€” minimize, progress, and "unread
+- **feat(desktop): taskbar presence completes — minimize, progress, and "unread
   means unseen".** Keep-warm now minimizes instead of hiding, so the taskbar
   button (and its badge/flash) survives closing the window. An indeterminate
   progress bar runs while an agent stream is doing work (approvals and
   clarifications pause it, because the run is blocked on the operator); the
   working count lives outside React in `src/lib/desktop/activity.ts` so several
   mounted run surfaces share one bar. The ledger now treats an item as unread
-  when it arrives while the window is in the background â€” via the new shared
-  `src/lib/notifications/focus.ts` â€” so alt-tabbing away mid-answer badges the
+  when it arrives while the window is in the background — via the new shared
+  `src/lib/notifications/focus.ts` — so alt-tabbing away mid-answer badges the
   Chat tab; returning marks the visible tab read. The completion alert in
   `use-agent-run.ts` uses the same rule (previously it stayed silent whenever
-  Chat was selected, even unfocused). Settings â€º Window gains a "Taskbar
+  Chat was selected, even unfocused). Settings › Window gains a "Taskbar
   activity" toggle (`be_taskbar_badge_v1`, default ON). The `be-taskbar` payload
   keeps `state`/`count`/`flash` and adds `working`, so an older shell degrades to
   the badge-only behaviour. Tests: `taskbar.test.ts` (11), `activity.test.ts`
   (5), two background cases in `notifications/store.test.ts`. Docs:
-  `desktop/README.md`, `docs/desktop-app-plan.md` Â§20, `docs/CHANGELOG.md`.
+  `desktop/README.md`, `docs/desktop-app-plan.md` §20, `docs/CHANGELOG.md`.
 - **docs(roadmap): W0 baseline and guardrails plan.** Adds
   `docs/harness/roadmap/w0-baseline-and-guardrails-plan.md`: metric dictionary
   with source tables, baseline artifact schema, isolated measurement protocol
   (offline/live/soak/gates), typed flag registry, kill-switch suite, "no second
-  seam" review gate, day-by-day schedule and exit criteria. Planning only â€” no
+  seam" review gate, day-by-day schedule and exit criteria. Planning only — no
   production code changed. Docs: `docs/harness/roadmap/w0-baseline-and-guardrails-plan.md`,
   `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
   `docs/NAVIGATION.md`.
@@ -3174,7 +3176,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   (model gateway, context economics, tool execution, autonomy, learning loop,
   run-kernel integrity/safety, delegation/file checkpoints, observability),
   with slice-level interfaces, feature flags, file seams, tests, rollout,
-  risks, a 12-week schedule and first-10-days checklist. Planning only â€” no
+  risks, a 12-week schedule and first-10-days checklist. Planning only — no
   production code changed. Docs: `docs/harness/roadmap/hermes-inspired-improvement-plan.md`,
   `docs/NAVIGATION.md`, `docs/research/hermes-vs-eclipse/IMPLEMENTATION-ROADMAP.md`.
 - **feat(desktop): the taskbar now carries the unread signal and an attention
@@ -3186,15 +3188,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   (`src/lib/desktop/taskbar.ts`, `src/lib/notifications/desktop-taskbar-badge.tsx`,
   mounted in `src/app/layout.tsx`): the page owns the state, the flash is
   edge-triggered, and the last count is kept in Rust and re-asserted after
-  hide/show. Scope is M1 â€” keep-warm still hides the window, so there is no
+  hide/show. Scope is M1 — keep-warm still hides the window, so there is no
   taskbar button to badge until the M2 decision (minimize instead of hide).
   Tests: `src/lib/desktop/taskbar.test.ts` (9) plus a Rust unit test for the
   badge geometry. Docs: `desktop/README.md`
-  ("Taskbar presence"), `docs/desktop-app-plan.md` Â§20, `docs/CHANGELOG.md`.
+  ("Taskbar presence"), `docs/desktop-app-plan.md` §20, `docs/CHANGELOG.md`.
 - **docs(research): Hermes-vs-Eclipse architectural comparison.** Adds
   `docs/research/hermes-vs-eclipse/` (six files: executive summary, 25-subsystem
   comparison with source evidence, adoption analysis with MIT licensing review,
-  target architecture with Mermaid flows, prioritized P0â€“P3 roadmap with
+  target architecture with Mermaid flows, prioritized P0–P3 roadmap with
   acceptance/tests/regressions, and a feature-gap matrix). Read-only
   investigation: no production code, schema, runtime or setup changed. Hermes
   evidence is from `NousResearch/hermes-agent` @ `72c8803`; no official
@@ -3204,14 +3206,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   Reworked `media/blackeclipse-launch/SCRIPT.md` around one market-research
   request and added clearer beats for mode selection, bot roles and limits,
   tool/source events, skills, Graph Studio, charts, and run inspection. No app
-  code, data contract, or runtime changed. No doc change â€” content asset only;
+  code, data contract, or runtime changed. No doc change — content asset only;
   it lives outside the Next.js app and adds no runtime or setup surface.
 - **docs(media): add the BlackEclipse harness launch-video script.** Added
   `media/blackeclipse-launch/SCRIPT.md` with a 45-second HyperFrames shot list
   covering bot modes, bounded agent presets, observable runs, skills, Graph
   Studio, charts, and observability, plus a real-UI capture checklist and
   anti-fabrication rules. No app code, data contract, or runtime changed.
-  No doc change â€” content asset only; it lives outside the Next.js app and adds
+  No doc change — content asset only; it lives outside the Next.js app and adds
   no runtime or setup surface.
 - **feat(legal): the risk position is now visible where users act.** Bumped the
   risk notice to `2026-11-12` and made the copy carry one consistent position:
@@ -3220,7 +3222,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   broker, every trade at my own risk"; the trade approval card shows an order
   preview and requires a "my decision / my own risk" checkbox; broker surfaces
   state that Eclipse never holds funds and the broker is the source of truth;
-  every settled AI answer carries "Eclipse is an AI agent. It can be wrong â€”
+  every settled AI answer carries "Eclipse is an AI agent. It can be wrong —
   verify the facts and make the call yourself."; Settings gains a Risk & AI
   panel with the accepted version/date and a re-accept action. `/api/legal/risk-ack`
   now returns `acceptedAt` for the current version. Tests:
@@ -3232,7 +3234,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   stores/transport/UI, a Rust-owned durable run/event/approval runtime, SQLite +
   FTS5 data model, iOS/Android compatibility and physical-device PoC checklist,
   honest best-effort scheduling limits, Rig-vs-custom dependency evaluation,
-  phased roadmap (0â€“8), testing strategy, and decisions D1â€“D14 with a risk
+  phased roadmap (0–8), testing strategy, and decisions D1–D14 with a risk
   register and open questions. No production code, schema, runtime or setup
   changed; the planned roots are repository-root `mobile/` and
   `packages/agent-contracts/`. Docs updated: `docs/mobile/*`,
@@ -3249,11 +3251,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   code, data contract or runtime changed. No doc change - content asset only,
   outside the Next.js app and adding no runtime or setup surface.
 - **feat(media): BlackEclipse 30 s launch film (HyperFrames).** New
-  `media/blackeclipse-launch/` project â€” six scenes at 1920Ã—1080/30 fps, 30.0 s,
+  `media/blackeclipse-launch/` project — six scenes at 1920×1080/30 fps, 30.0 s,
   built from real captures of the running app plus the vault's own values
   (AMD +8.00%, S&P 500 7,619.38, 28 markets, 56,516 instruments, 161 earnings
-  reports) â€” with the rendered `out/blackeclipse-launch.mp4`. No app code or data
-  contract changed. No doc change â€” content asset only; the project lives outside
+  reports) — with the rendered `out/blackeclipse-launch.mp4`. No app code or data
+  contract changed. No doc change — content asset only; the project lives outside
   the Next.js app and adds no runtime or setup surface.
 - **fix(chat): Eclipse Agent composer is neutral grey again.** The
   `.glass-composer` fill used the near-black `--card-rgb` tint, so the input
@@ -3261,10 +3263,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   neutral zinc tint (alpha 0.30, keeping the real blur) with a light-mode
   override, and the composer is excluded from the theme glass tint overrides so
   a customized glass theme cannot repaint it black. `globals.css` only. No doc
-  change â€” styling only, no contract or setup impact.
+  change — styling only, no contract or setup impact.
 - **fix(sidebar): collapsed logo swaps to the expand chevron on hover.**
   Restored the previous affordance: at the collapsed width the brand mark fades
   out and a full-size `ChevronRight` button replaces it (instead of the tiny
-  corner button that left the mark competing with it). No doc change â€” visual
+  corner button that left the mark competing with it). No doc change — visual
   affordance only, no contract or setup impact.
 
