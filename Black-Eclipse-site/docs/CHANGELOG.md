@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.11.** Build budgets only: 12 GB heap for the Windows
+  payload build and the runtime's 600 s cold-start budget with a 420 s smoke
+  wait (plus first-harness-line evidence). The runtime itself is unchanged;
+  Ubuntu has passed its smoke on every attempt since the vendored-Python fix.
+  Version bump across `package.json`, `package-lock.json`, `pyproject.toml` and
+  `harness.__version__`; `sbom.cdx.json`, `THIRD-PARTY-NOTICES.md` and
+  `docs/harness/benchmarks.md` regenerated. Docs: `docs/CHANGELOG.md` only.
+
 - **fix(release): finish the build-budget fix for the packaged release.** v0.4.10
   still failed on Windows at the standalone payload (`Reached heap limit` with
   the 8 GB cap) and on macOS at the runtime smoke (the agent runtime was still
