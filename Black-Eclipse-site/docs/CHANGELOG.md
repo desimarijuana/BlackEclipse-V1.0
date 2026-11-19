@@ -6,6 +6,16 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **release: cut v0.4.8.** Ships the first-run setup fix (no app shell behind
+  the wizard, bounded and recoverable finish, plain-language database errors)
+  and the release-gate fix (Python warm-up on every boot, smoke budget matching
+  the runtime's 300 s, app-log tail on failure) so the packaged installers can
+  finally publish. Version bump across `package.json`, `package-lock.json`,
+  `pyproject.toml` and `harness.__version__`; `sbom.cdx.json`,
+  `THIRD-PARTY-NOTICES.md` and `docs/harness/benchmarks.md` regenerated.
+  Docs: `docs/CHANGELOG.md` only (no behaviour change beyond the two entries
+  below).
+
 - **fix(release): the packaged smoke gate now waits as long as the runtime is
   allowed, and reports why.** v0.4.4–v0.4.7 could not publish: the Windows and
   macOS builds failed `Smoke test` with "the Python runtime never became healthy
