@@ -3,13 +3,20 @@ vector accounting, the recorded keyword fallback, and durable failure detail."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import sqlite3
+import time
 
 import pytest
 
-from harness.search.adapters import documents_from_repository
+from harness.search import adapters
+from harness.search import service as service_module
+from harness.search.adapters import collect_documents, documents_from_repository
+from harness.search.contracts import IndexState
+from harness.search.indexer import IndexResult
 
-from search_helpers import FakeEmbeddingProvider, instrument, make_service
+from search_helpers import FakeEmbeddingProvider, instrument, make_document, make_service
 
 
 def test_repository_adapter_indexes_source_files(tmp_path, monkeypatch):
@@ -43,6 +50,27 @@ def test_repository_adapter_is_disabled_by_env(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("HARNESS_SEARCH_INDEX_REPO", "0")
     assert documents_from_repository(tmp_path) == []
+
+
+def test_repository_adapter_skips_an_installed_payload(tmp_path, monkeypatch):
+    # A packaged install ships its interpreter under scripts/vendor/python. The
+    # payload's own runtime is not the user's project, and indexing it blocked
+    # the runtime's event loop for minutes on every boot.
+    monkeypatch.setenv("HARNESS_SEARCH_INDEX_REPO", "1")
+    (tmp_path / "scripts" / "vendor" / "python").mkdir(parents=True)
+    (tmp_path / "python" / "harness").mkdir(parents=True)
+    (tmp_path / "python" / "harness" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    assert documents_from_repository(tmp_path) == []
+
+
+def test_collect_documents_can_skip_repository(monkeypatch):
+    sentinel = make_document("repository:x", ["alpha"], namespace="repository")
+    monkeypatch.setattr(adapters, "documents_from_repository", lambda: [sentinel])
+    conn = sqlite3.connect(":memory:")
+    # The async caller collects repository documents separately (off the loop).
+    assert collect_documents(conn, include_repository=False) == []
+    assert collect_documents(conn) == [sentinel]
+    conn.close()
 
 
 @pytest.mark.asyncio
@@ -118,4 +146,34 @@ async def test_warm_index_configures_from_the_boot_env(monkeypatch):
     monkeypatch.setenv("HARNESS_JOB_PROVIDER", "ollama")
     await service.warm_index()
     assert seen["settings"] is not None and seen["settings"].provider == "ollama"
+    service.close()
+
+
+@pytest.mark.asyncio
+async def test_index_documents_yields_to_the_event_loop(monkeypatch):
+    # The indexer does synchronous SQLite/chunk work; a bulk index must yield so
+    # /health and every other request keep answering (a whole runtime starved
+    # for minutes on installs that indexed thousands of files).
+    service, _ = make_service(rerank_enabled=False)
+    documents = [make_document(f"doc-{i}", ["alpha"], namespace="memory") for i in range(30)]
+
+    async def slow_index(store, embedder, doc, **kwargs):
+        time.sleep(0.02)  # synchronous work, exactly like the real indexer
+        return IndexResult(document_id=doc.document_id, state=IndexState.INDEXED.value, chunks=1)
+
+    monkeypatch.setattr(service_module, "index_document", slow_index)
+    ticks = 0
+    stop = False
+
+    async def ticker():
+        nonlocal ticks
+        while not stop:
+            ticks += 1
+            await asyncio.sleep(0.005)
+
+    task = asyncio.create_task(ticker())
+    await service.index_documents(documents)
+    stop = True
+    await task
+    assert ticks >= 3  # the loop ran while documents were being indexed
     service.close()

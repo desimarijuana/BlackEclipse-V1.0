@@ -301,6 +301,15 @@ _REPO_SKIP_DIRS = frozenset({
 MAX_REPO_FILES = 4_000
 MAX_REPO_FILE_BYTES = 200_000
 
+# Only a packaged install ships its own interpreter here. Walking it indexes the
+# app's payload (thousands of runtime files) instead of the user's project, and
+# the boot warm-index would spend minutes on it.
+_INSTALLED_RUNTIME_MARKER = Path("scripts") / "vendor" / "python"
+
+
+def _is_installed_payload(root: Path) -> bool:
+    return (root / _INSTALLED_RUNTIME_MARKER).is_dir()
+
 
 def _repo_root() -> Optional[Path]:
     try:
@@ -343,6 +352,8 @@ def documents_from_repository(
     root = Path(repo_root) if repo_root is not None else _repo_root()
     if root is None or not Path(root).is_dir():
         return []
+    if _is_installed_payload(Path(root)):
+        return []
     docs: list[DocumentRecord] = []
     for path in _iter_repo_files(Path(root), limit):
         try:
@@ -379,14 +390,23 @@ def documents_from_repository(
     return docs
 
 
-def collect_documents(conn: sqlite3.Connection, *, namespaces: Optional[list[str]] = None) -> list[DocumentRecord]:
-    """Read every adapter and return the union, filtered by namespace if given."""
+def collect_documents(
+    conn: sqlite3.Connection, *, namespaces: Optional[list[str]] = None,
+    include_repository: bool = True,
+) -> list[DocumentRecord]:
+    """Read every adapter and return the union, filtered by namespace if given.
+
+    ``include_repository=False`` exists for the async caller: repository
+    collection only reads files (no connection), so it can run off the event
+    loop while the store-backed adapters stay on the loop with the connection.
+    """
     everything: list[DocumentRecord] = []
     everything.extend(documents_from_memory(conn))
     everything.extend(documents_from_evidence(conn))
     everything.extend(documents_from_document_store(conn))
     everything.extend(documents_from_skills(conn))
-    everything.extend(documents_from_repository())
+    if include_repository:
+        everything.extend(documents_from_repository())
     if namespaces:
         wanted = set(namespaces)
         everything = [d for d in everything if d.namespace in wanted]

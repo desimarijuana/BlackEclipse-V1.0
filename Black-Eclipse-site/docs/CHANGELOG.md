@@ -6,6 +6,19 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **fix(search): the boot warm-index can no longer freeze the agent runtime.**
+  A packaged install indexes its own payload (`python/harness` under
+  `<install>\app`), so the first boot walked ~1,500 files / 19k chunks while
+  `bulk_index` ran synchronously on the event loop; `/health` never answered,
+  the front door waited 45 s per call and reported "runtime unavailable", and
+  every runtime-backed action (agent, broker/MCP tests) hung until it finished.
+  `documents_from_repository` now skips a payload marked by
+  `scripts/vendor/python` (a packaged install, never the user's project),
+  repository collection runs via `asyncio.to_thread`, and `index_documents`
+  yields to the event loop every 50 ms. Verified with `py-spy` (stack pinned in
+  `save_chunks`) and by a healthy `/health` after a fresh boot.
+  Docs updated: `docs/harness/search-retrieval.md`.
+
 - **fix(release): rotate the update-signing key and ship v0.4.13, the first
   release with a signed manifest since v0.4.1.** The in-app update check polls
   `releases/latest/download/stable.json`; v0.4.2 and v0.4.3 shipped without one,

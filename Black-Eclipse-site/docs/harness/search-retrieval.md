@@ -1,7 +1,7 @@
 ---
 title: Unified Retrieval / Search Intelligence Layer
 status: Current
-last-verified: 2026-11-06
+last-verified: 2026-11-19
 ---
 
 # Unified Retrieval / Search Intelligence Layer
@@ -123,8 +123,11 @@ Document → chunk → embed (batch + cache) → vectors + FTS → INDEXED
 adapter (`documents_from_repository`) indexes the project's OWN source
 (`python/harness/**`, `src/**`, `prisma/**`; `.py`/`.ts`/`.tsx`/`.prisma`) so the
 agent can search its code — bounded by file count and size, binaries skipped;
-disable with `HARNESS_SEARCH_INDEX_REPO=0`. Identical content (by SHA-256) is
-deduplicated so a re-ingest does not create duplicate vectors.
+disable with `HARNESS_SEARCH_INDEX_REPO=0`. A packaged install is never
+indexed: `scripts/vendor/python` marks the app's own payload, which is not the
+user's project (walking it cost thousands of files on every boot). Identical
+content (by SHA-256) is deduplicated so a re-ingest does not create duplicate
+vectors.
 
 Because the boot warm-up now resolves the embedding provider from the front-door
 environment (`HARNESS_JOB_*`, via `SearchService._boot_settings`), it EMBEDS and
@@ -214,9 +217,11 @@ measured failure.
 - **Automatic boot indexing.** On runtime boot the layer builds the index from
   existing sources in a **background task** (`SearchService.schedule_warm_index`,
   called from `harness/boot.py`). Boot is never blocked and a failure is recorded
-  as an event. Disable with `HARNESS_SEARCH_WARM_INDEX=0`. Warm-up is
-  incremental (unchanged documents are skipped), and a keyword-only index is
-  re-run cheaply because no vectors are produced.
+  as an event. Disable with `HARNESS_SEARCH_WARM_INDEX=0`. Repository collection
+  runs in a worker thread and the indexing loop yields to the event loop every
+  50 ms, so `/health` and every other request keep answering during a large or
+  first-run index. Warm-up is incremental (unchanged documents are skipped), and
+  a keyword-only index is re-run cheaply because no vectors are produced.
 - **Configuration.** `HARNESS_SEARCH_EMBEDDING_PROVIDER` /
   `_MODEL` / `_DIMENSIONS` (or the provider's own key env var, or the run's
   `ModelSettings`). With none set the layer is honestly keyword-only.

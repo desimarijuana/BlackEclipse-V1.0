@@ -14,11 +14,12 @@ credentials.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Callable, Optional
 
 from ..persistence import new_id, now_iso
-from .adapters import collect_documents
+from .adapters import collect_documents, documents_from_repository
 from .citations import record_hits_as_evidence, render_citations
 from .config import SearchConfig, load_config
 from .context import ContextAssembler
@@ -431,6 +432,7 @@ class SearchService:
 
     async def index_documents(self, documents: list[DocumentRecord], *, force: bool = False) -> list[IndexResult]:
         results: list[IndexResult] = []
+        slice_started = time.monotonic()
         for doc in documents:
             results.append(
                 await index_document(
@@ -438,6 +440,12 @@ class SearchService:
                     skip_dedup=force,
                 )
             )
+            # index_document is synchronous work (SQLite + chunk hashing). Yield
+            # so /health and every other request keep answering during a large
+            # bulk index — this starved the event loop for minutes on installs.
+            if time.monotonic() - slice_started >= 0.05:
+                await asyncio.sleep(0)
+                slice_started = time.monotonic()
         return results
 
     async def bulk_index(
@@ -451,7 +459,12 @@ class SearchService:
         connection = self._memory_connection()
         if connection is None:
             return {"indexed": 0, "documents": 0, "error": "no agent-memory connection attached"}
-        documents = collect_documents(connection, namespaces=namespaces)
+        # The store-backed adapters share this sqlite connection, so they stay on
+        # this thread; repository collection only reads files and is offloaded so
+        # a large project cannot block the event loop.
+        documents = collect_documents(connection, namespaces=namespaces, include_repository=False)
+        if not namespaces or "repository" in namespaces:
+            documents.extend(await asyncio.to_thread(documents_from_repository))
         started = time.monotonic()
         results = await self.index_documents(documents, force=force)
         indexed = sum(1 for r in results if r.state in (IndexState.INDEXED.value, IndexState.STALE.value))
