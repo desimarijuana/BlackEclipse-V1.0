@@ -32,9 +32,11 @@ const DEFAULT_BIN = path.join(
 const BIN = argBin || DEFAULT_BIN;
 const PORT = Number(process.env.BE_SMOKE_PORT || 3199);
 const TIMEOUT_MS = Number(process.env.BE_SMOKE_TIMEOUT_MS || 120_000);
-// The Python runtime's own cold-start budget is 300s; a first run on an idle CI
-// runner needs far less. Override when testing a deliberately slow machine.
-const HARNESS_WAIT_MS = Number(process.env.BE_SMOKE_HARNESS_MS || 180_000);
+// The Python runtime's own cold-start budget is 300s, and after a fresh install
+// the payload is cold on disk (often still being scanned): a first import
+// measured over 3 minutes. Waiting less than the runtime is allowed makes a
+// healthy runtime fail the gate. Override for a deliberately slow machine.
+const HARNESS_WAIT_MS = Number(process.env.BE_SMOKE_HARNESS_MS || 300_000);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -84,6 +86,19 @@ async function probeDb() {
  * healthy answer here means the pages have something to talk to. Verified
  * against a live install: 200 while uvicorn answers, 500 once it is killed.
  */
+/** Tail of the packaged app's own log, wherever the shell writes it. */
+function nativeLogTail(dataDir, lines = 25) {
+  const candidates = [
+    path.join(path.dirname(BIN), "app", ".black-eclipse", "desktop-native.log"),
+    path.join(path.dirname(BIN), ".black-eclipse", "desktop-native.log"),
+    path.join(dataDir, ".runtime", "desktop-native.log"),
+  ];
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (!found) return [`[smoke] no shell log found in: ${candidates.join(", ")}`];
+  const tail = fs.readFileSync(found, "utf8").split("\n").slice(-lines);
+  return [`[smoke] shell log ${found}:`, ...tail.map((l) => `  ${l}`)];
+}
+
 async function probeHarness() {
   const deadline = Date.now() + HARNESS_WAIT_MS;
   let last = { ok: false, why: "the runtime never answered" };
@@ -227,6 +242,10 @@ function killTree(pid) {
         `(${harness ? harness.why : "not probed"}) within ${Math.round(HARNESS_WAIT_MS / 1000)}s.`
     );
     console.error("[smoke] every agent/chat/research page would hang behind a runtime that never answers.");
+    // The runtime's own log is the only useful evidence (the smoke pipes the
+    // shell's stdout, which does not carry it). Without this the gate reports
+    // "never healthy" with no cause at all.
+    for (const line of nativeLogTail(dataDir)) console.error(line);
     if (interesting.length) {
       console.error("[smoke] captured output:");
       for (const line of interesting) console.error(`  ${line}`);

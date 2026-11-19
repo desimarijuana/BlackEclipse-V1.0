@@ -136,13 +136,53 @@ async function runBackgroundBootTasks(): Promise<void> {
       console.error("[startup] journal demo seed failed:", err);
     }
 
+    // Pre-start the Python agent runtime FIRST, on EVERY boot — including a
+    // first run. A cold spawn imports the entire agent stack, and after a fresh
+    // install the payload is cold on disk (and often still being scanned), which
+    // measured over 3 minutes: exactly the "runtime still starting" every agent
+    // page would sit behind. Users spend that time in the wizard, so warming it
+    // here is free; deferring it with the rest of the pipeline made the first
+    // chat after setup pay the whole cold start. It is asynchronous and does not
+    // touch the setup write path, so it does not compete with finishing setup.
+    void import("@/lib/harness/python-runtime")
+      .then(async (m) => {
+        // Bounded retry, not a single fire-and-forget attempt. A cold start can
+        // outlast one budget, or lose a race with a build/restart; the old code
+        // logged the failure and gave up, leaving agent features 503 for the
+        // rest of the session until a manual /api/harness/runtime/restart.
+        const backoffMs = [0, 20_000, 45_000, 90_000];
+        for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+          if (backoffMs[attempt] > 0) {
+            await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+          }
+          if (await m.ensurePythonRuntime()) {
+            if (attempt > 0) {
+              console.log(`[startup] Python runtime ready after ${attempt + 1} attempt(s)`);
+            }
+            return true;
+          }
+          if (attempt < backoffMs.length - 1) {
+            console.warn(
+              `[startup] Python runtime not ready — retrying (attempt ${attempt + 2}/${backoffMs.length})`
+            );
+          }
+        }
+        console.error(
+          "[startup] Python runtime unavailable after retries — agent runs will 503 until restarted"
+        );
+        return false;
+      })
+      .catch((err) => console.error("[startup] python runtime warm-up failed:", err));
+
     // A first run must do ONE thing: show the setup wizard.
     //
-    // The rest of this pipeline (Python pre-start, market warm-up, news and
-    // event ingests, schedules, backups) is expensive and competes for the same
-    // CPU, SQLite write path and network as the wizard — on exactly the machine
-    // where setup already felt slow. None of it is visible before setup
-    // completes, so wait for the first-run flag and start it then.
+    // The rest of this pipeline (market warm-up, news and event ingests,
+    // schedules, backups) is expensive and competes for the same CPU, SQLite
+    // write path and network as the wizard — on exactly the machine where setup
+    // already felt slow. None of it is visible before setup completes, so wait
+    // for the first-run flag and start it then. (The Python warm-up above is
+    // deliberately NOT deferred: it is what makes the first chat after setup
+    // responsive instead of a three-minute cold import.)
     //
     // Polling is deliberate: `register()` runs once per process, so there is no
     // second chance to call this after the wizard finishes without coupling the
@@ -173,43 +213,6 @@ async function runBackgroundBootTasks(): Promise<void> {
         await new Promise((r) => setTimeout(r, 2_000));
       }
     }
-
-    // Pre-start the Python agent runtime FIRST. A cold spawn imports the entire
-    // agent stack (~9s on a warm machine, longer on a loaded one), and Bots is
-    // usually the first surface a user opens that needs it. The DB seeds and
-    // schedulers below run sequentially and can take a while, so scheduling this
-    // last meant Bots paid the whole cold start. Starting it here boots Python
-    // while the rest of the pipeline runs; concurrent requests still coalesce
-    // onto this same spawn. Non-blocking: the server is fully up.
-    void import("@/lib/harness/python-runtime")
-      .then(async (m) => {
-        // Bounded retry, not a single fire-and-forget attempt. A cold start can
-        // outlast one budget, or lose a race with a build/restart; the old code
-        // logged the failure and gave up, leaving agent features 503 for the
-        // rest of the session until a manual /api/harness/runtime/restart.
-        const backoffMs = [0, 20_000, 45_000, 90_000];
-        for (let attempt = 0; attempt < backoffMs.length; attempt++) {
-          if (backoffMs[attempt] > 0) {
-            await new Promise((r) => setTimeout(r, backoffMs[attempt]));
-          }
-          if (await m.ensurePythonRuntime()) {
-            if (attempt > 0) {
-              console.log(`[startup] Python runtime ready after ${attempt + 1} attempt(s)`);
-            }
-            return true;
-          }
-          if (attempt < backoffMs.length - 1) {
-            console.warn(
-              `[startup] Python runtime not ready — retrying (attempt ${attempt + 2}/${backoffMs.length})`
-            );
-          }
-        }
-        console.error(
-          "[startup] Python runtime unavailable after retries — agent runs will 503 until restarted"
-        );
-        return false;
-      })
-      .catch((err) => console.error("[startup] python runtime warm-up failed:", err));
 
     // Graph Studio workflow schedules: start this FIRST (after the Python
     // warm-up kick-off), not at the end of the boot pipeline. The pipeline

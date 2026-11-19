@@ -740,14 +740,20 @@ They are all kicked off from `runBackgroundBootTasks()` AFTER
 load) never waits on a heavy job — `register()` itself awaits only the
 deployment-exposure log and the LLM-config flag the client reads.
 
-**A first run defers all of them.** `runBackgroundBootTasks()` waits for the
-first-run flag (`onboarding_v1.completed`, polled every 2 s, capped at 30 min)
-before starting anything. A new install can only see the setup wizard, so the
-Python pre-start, universe seed, market warm-up, ingests, schedules and backups
-would compete for the same CPU, SQLite write path and network as the wizard —
-which is exactly where setup used to feel slow. The pipeline starts as soon as
-the wizard writes the completion flag (the reloaded app benefits within a
-couple of seconds).
+**A first run defers the heavy half.** `runBackgroundBootTasks()` first runs the
+cheap essentials (US universe, stored provider keys, one-time journal demo) and
+starts the **Python runtime warm-up**, then waits for the first-run flag
+(`onboarding_v1.completed`, polled every 2 s, capped at 30 min) before starting
+the market warm-up, ingests, schedules and backups. A new install can only see
+the setup wizard, so those jobs would compete for the same CPU, SQLite write
+path and network — which is exactly where setup used to feel slow.
+
+The Python warm-up is deliberately **not** deferred: its first import from a
+cold payload measured over three minutes, and users spend that time in the
+wizard. Deferring it moved the cold start to the first chat after setup
+(“runtime still starting” behind every agent page) and also failed the packaged
+release smoke test. Everything else starts as soon as the wizard writes the
+completion flag (the reloaded app benefits within a couple of seconds).
 
 ### Alert delivery
 

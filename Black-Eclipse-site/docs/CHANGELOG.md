@@ -6,6 +6,27 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-18
 
+- **fix(release): the packaged smoke gate now waits as long as the runtime is
+  allowed, and reports why.** v0.4.4–v0.4.7 could not publish: the Windows and
+  macOS builds failed `Smoke test` with "the Python runtime never became healthy
+  within 180s" while the runtime log showed uvicorn up. The gate's budget (180 s)
+  was shorter than the runtime's own cold-start budget (300 s), and a cold first
+  import from a freshly written 2.3 GB payload measured over three minutes. On a
+  first run the runtime is warmed during setup again (see the entry above), which
+  removes the cold start from the first chat; `scripts/desktop-smoke.js` now
+  defaults to 300 s and prints the packaged app's log tail on a harness failure
+  instead of only "never healthy" (the shell's stdout does not carry it).
+  Packaging tooling: `desktop-package.js --link` used `unlinkSync` on a
+  directory (so local linked packaging always died with EEXIST), a PE layout
+  `pe-library` cannot parse aborted the whole package at the branding step —
+  branding is cosmetic, so it now warns and continues — and `BE_PACKAGE_OUT`
+  lets a local test package build beside the real `dist/BlackEclipse` instead
+  of fighting a stale file handle there.
+  Verified locally on a full-copy Windows package: uvicorn answers
+  `/health/live` 200 and `/api/harness/model-runtime/health` returns 200.
+  Docs updated: `docs/ARCHITECTURE.md`, `docs/onboarding-plan.md`,
+  `docs/CHANGELOG.md`.
+
 - **release: cut v0.4.6.** Carries the first-run setup fix: a new install no
   longer mounts the streaming app shell behind the wizard (the cause of the
   permanent "Saving…"), the boot pipeline and every app-wide poller wait for

@@ -36,8 +36,12 @@ const {
 
 const ROOT = path.join(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next-desktop", "standalone");
-const OUT = path.join(ROOT, "dist", "BlackEclipse");
-const DIST_PACKS = path.join(ROOT, "dist", "packs");
+const OUT = process.env.BE_PACKAGE_OUT
+  ? path.resolve(ROOT, process.env.BE_PACKAGE_OUT)
+  : path.join(ROOT, "dist", "BlackEclipse");
+// Packs sit beside the output so a second package (a local test build) never
+// overwrites the real installer's pack directory.
+const DIST_PACKS = path.join(path.dirname(OUT), "packs");
 const APP = path.join(OUT, "app");
 const SHELL_BIN = process.platform === "win32" ? "black-eclipse-desktop.exe" : "black-eclipse-desktop";
 const SHELL = path.join(ROOT, "desktop", "src-tauri", "target", "release", SHELL_BIN);
@@ -102,8 +106,12 @@ function copyTree(from, to, label) {
   }
   if (LINK) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
+    // `to` is usually a directory created a few lines above; `unlinkSync`
+    // cannot remove a directory and failed silently, so the symlink below hit
+    // EEXIST and local `--link` packaging could never run. `rmSync` removes the
+    // empty dir (or an older junction) without touching a target's contents.
     try {
-      fs.unlinkSync(to);
+      fs.rmSync(to, { recursive: true, force: true });
     } catch {}
     fs.symlinkSync(from, to, "junction");
     console.log(`  link ${label}`);
@@ -450,7 +458,14 @@ console.log("  cleared app/.black-eclipse (runtime state)");
 // "Node.js JavaScript Runtime" and "Python" next to the app. Cosmetics only —
 // the binaries behave identically. (The runtime itself was installed in step 0.)
 const { brandPackagedRuntime } = require("./brand-runtime");
-brandPackagedRuntime(OUT);
+try {
+  brandPackagedRuntime(OUT);
+} catch (err) {
+  // Branding only changes the Task Manager name/icon. A PE layout one of the
+  // bundled executables happens to use must never abort packaging (which is
+  // how a local smoke run died before the shell was even copied).
+  console.warn(`  brand skipped: ${err && err.message ? err.message : err}`);
+}
 
 fs.copyFileSync(SHELL, path.join(OUT, OUT_SHELL));
 try {
