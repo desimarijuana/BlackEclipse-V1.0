@@ -39,6 +39,7 @@ const runtimeFetch = vi.fn(async (_url: string, _init?: RequestInit): Promise<un
 vi.mock("@/lib/harness/python-runtime", () => ({
   HARNESS_PY_URL: "http://127.0.0.1:8765",
   ensurePythonRuntime: vi.fn(async () => true),
+  probeChartEngine: vi.fn(async () => ({ ready: true, python: "/v/python", missing: [] })),
 }));
 
 vi.mock("@/lib/harness/runtime-auth", () => ({
@@ -46,7 +47,7 @@ vi.mock("@/lib/harness/runtime-auth", () => ({
 }));
 
 import { POST } from "@/app/api/harness/charts/route";
-import { ensurePythonRuntime } from "@/lib/harness/python-runtime";
+import { ensurePythonRuntime, probeChartEngine } from "@/lib/harness/python-runtime";
 
 function req(body: unknown): Request {
   return new Request("http://localhost:3000/api/harness/charts", {
@@ -59,6 +60,8 @@ function req(body: unknown): Request {
 beforeEach(() => {
   runtimeFetch.mockClear();
   vi.stubGlobal("fetch", runtimeFetch);
+  vi.mocked(ensurePythonRuntime).mockResolvedValue(true);
+  vi.mocked(probeChartEngine).mockResolvedValue({ ready: true, python: "/v/python", missing: [] });
   runtimeFetch.mockImplementation(async (_url: string, _init?: RequestInit) => ({
     ok: true,
     status: 200,
@@ -135,6 +138,29 @@ describe("POST /api/harness/charts", () => {
     const res = await POST(req({ kind: "line", series: [{ name: "s", data: [1] }] }));
     expect(res.status).toBe(503);
     const body = await res.json();
+    expect(body.error).toContain("setup:python");
+    expect(body.detail.code).toBe("RUNTIME_UNAVAILABLE");
+    expect(runtimeFetch).not.toHaveBeenCalled();
+  });
+
+  // The bug this route used to hide: the runtime is healthy, so the generic
+  // "install the Python runtime" message sent the operator to fix something
+  // that was already installed. A missing drawing library is a DIFFERENT,
+  // named failure that points at the actual interpreter and modules.
+  it("names the missing drawing libraries when the runtime cannot draw", async () => {
+    vi.mocked(probeChartEngine).mockResolvedValueOnce({
+      ready: false,
+      python: "C:/vendor/python/python.exe",
+      missing: ["matplotlib", "plotly"],
+    });
+    const res = await POST(req({ kind: "line", series: [{ name: "s", data: [1] }] }));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.detail.code).toBe("CHART_RENDER_UNAVAILABLE");
+    expect(body.detail.missing).toEqual(["matplotlib", "plotly"]);
+    expect(body.error).toContain("C:/vendor/python/python.exe");
+    expect(body.error).toContain("matplotlib");
     expect(body.error).toContain("setup:python");
     expect(runtimeFetch).not.toHaveBeenCalled();
   });

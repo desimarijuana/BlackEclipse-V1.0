@@ -294,6 +294,30 @@ if (py) {
           `Python chart engine (missing: ${missingCharts.join(", ")})`,
           `"${py}" -m pip install -r "${analysisReq}"`
         );
+        // VERIFY with the SAME interpreter, by actually importing (not just
+        // find_spec). A pip install that exits 0 but leaves matplotlib
+        // unimportable used to pass silently, and doctor still said "healthy"
+        // while every chart was a 503.
+        let verify = run(`"${py}" -c "import matplotlib, plotly, numpy"`, { timeout: 90000 });
+        if (verify.status !== 0) {
+          // The common real-world state is a dist-info that exists while the
+          // package directory is gone, so `pip install` says "satisfied" and
+          // changes nothing. Force a genuine reinstall once.
+          console.log("[setup] Chart libraries installed but unimportable — force-reinstalling...");
+          run(
+            `"${py}" -m pip install --force-reinstall "matplotlib>=3.8" "plotly>=5.20" "numpy>=1.26" --disable-pip-version-check`,
+            { stdio: ["ignore", "inherit", "inherit"], timeout: 600000 }
+          );
+          verify = run(`"${py}" -c "import matplotlib, plotly, numpy"`, { timeout: 90000 });
+        }
+        if (verify.status !== 0) {
+          console.error(
+            "[setup] CHART ENGINE UNAVAILABLE — the chart libraries cannot be imported."
+          );
+          console.error(`        Interpreter: ${py}`);
+          console.error(`        Run: "${py}" -m pip install --force-reinstall -r "${analysisReq}"`);
+          process.exit(1);
+        }
       }
     }
   }

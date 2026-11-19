@@ -22,6 +22,22 @@ const hashFile = path.join(nextDir, ".build-hash");
 // `desktop:promote`, the desktop icon) goes through this lock.
 const BUILD_LOCK = path.join(root, ".next-build.lock");
 const BUILD_WAIT_MS = 45 * 60 * 1000;
+// Node 22's default old-space ceiling is ~4 GB and this app's production graph
+// exceeds it (observed here at 4.04 GB, 6.05 GB and 8.07 GB on the same
+// source). Requiring every caller to remember NODE_OPTIONS made
+// `desktop:refresh` fail late, after a multi-minute compile. Windows payload
+// builds have needed 12 GB since v0.4.10; the Ubuntu release job still fits in
+// 6144. Override with BE_BUILD_HEAP_MB when a host is tighter or roomier.
+const BUILD_HEAP_MB = Number(process.env.BE_BUILD_HEAP_MB) > 0
+  ? Number(process.env.BE_BUILD_HEAP_MB)
+  : 12288;
+
+/** `NODE_OPTIONS` for a production build: respect an explicit heap size. */
+function buildNodeOptions(existing = process.env.NODE_OPTIONS) {
+  const value = String(existing || "");
+  if (/--max[-_]old[-_]space[-_]size(=|\s|$)/.test(value)) return value;
+  return `${value} --max-old-space-size=${BUILD_HEAP_MB}`.trim();
+}
 
 function pidAlive(pid) {
   try {
@@ -162,7 +178,11 @@ function build(options = {}) {
     // and a stale chunk was promoted (the release whose Stop control was
     // missing). Recording the start hash means such a build is honestly stale.
     const startedHash = sourceHash();
-    execSync("npx next build", { cwd: root, stdio: "inherit", env: process.env });
+    execSync("npx next build", {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, NODE_OPTIONS: buildNodeOptions() },
+    });
     fs.mkdirSync(nextDir, { recursive: true });
     fs.writeFileSync(hashFile, startedHash);
     return true;
@@ -324,6 +344,7 @@ module.exports = {
   markBuilt,
   build,
   buildInProgress,
+  buildNodeOptions,
   acquireBuildLock,
   nextBin,
   startServer,

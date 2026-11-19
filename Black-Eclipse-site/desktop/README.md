@@ -155,6 +155,11 @@ drag region plus minimize/maximize/close. Tabs are **instances**, not a
 de-duplicated page set: `+` appends a real new tab that starts on a fresh Chat
 session, and navigating inside that tab (sidebar, palette, deep link) moves the
 tab to the page you chose — so two Chat (or Portfolio, …) tabs can coexist.
+Each tab also **owns its chat session** (`conversationId` on the stored tab
+record): switching away captures the live session, switching back restores that
+tab's transcript, and the front tab is remembered separately
+(`be_desktop_tabs_v2_active`) so a relaunch returns to it — two Chat tabs show
+two different conversations.
 Tabs can be dragged to reorder and closed with their `X` (the last tab stays
 open). Keyboard: `Ctrl/Cmd+Shift+Home` moves the active tab to the first slot,
 `Ctrl/Cmd+Shift+End` to the last, and `Ctrl/Cmd+Shift+PageUp/PageDown` (or ←/→)

@@ -16,6 +16,22 @@ if (!py) {
   process.exit(0);
 }
 
+// The chart engine's dependencies are part of the runtime contract, not an
+// optional extra: a runtime that boots without matplotlib cannot draw a single
+// chart, and that used to surface only as a 503 in the chat. Fail the build
+// here instead, naming the interpreter that is short a package.
+const chartProbe = spawnSync(py, ["-c", "import matplotlib, plotly, numpy, pydantic"], {
+  stdio: "inherit",
+});
+if (chartProbe.status !== 0) {
+  console.error(
+    `[test] CHART ENGINE UNAVAILABLE — ${py} cannot import matplotlib/plotly/numpy/pydantic.`,
+  );
+  console.error("       Install the stack, then re-run:");
+  console.error(`         "${py}" -m pip install -r python/analysis-requirements.txt`);
+  process.exit(1);
+}
+
 // `node scripts/test-python.js smoke` runs the OPERATOR-TRIGGERED live smoke
 // checks, which contact real external providers. They are deliberately separate
 // from the default offline suite: never part of `npm test`.

@@ -18,7 +18,12 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const { channelFor } = require("./lib/channels");
-const { acquireBuildLock, nextBin, sourceHash } = require("./lib/server");
+const {
+  acquireBuildLock,
+  buildNodeOptions,
+  nextBin,
+  sourceHash,
+} = require("./lib/server");
 
 const ROOT = path.join(__dirname, "..");
 const TSCONFIG = path.join(ROOT, "tsconfig.json");
@@ -96,6 +101,7 @@ function buildChannel() {
       env: {
         ...process.env,
         NODE_ENV: "production",
+        NODE_OPTIONS: buildNodeOptions(process.env.NODE_OPTIONS),
         NEXT_DIST_DIR: distDir,
         NEXT_TELEMETRY_DISABLED: "1",
         // A dev-channel build is a normal (non-standalone) build so the desktop

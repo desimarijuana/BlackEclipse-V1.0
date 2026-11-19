@@ -49,9 +49,12 @@ import {
   moveTab,
   moveTabBy,
   moveTabToEdge,
+  readStoredActiveId,
   readStoredTabs,
   removeTab,
+  saveStoredActiveId,
   saveStoredTabs,
+  setTabConversation,
   setTabMode,
   setTabPage,
   type DesktopTab,
@@ -172,11 +175,20 @@ function isChromeTarget(target: EventTarget | null): boolean {
 
 export function DesktopTabBar({
   activeTab,
+  conversationId,
+  conversations,
   onSelectTab,
+  onSelectConversation,
   onNewChat,
 }: {
   activeTab: AppTab;
+  /** The shell's live chat session: a conversation id or `null` for a fresh chat. */
+  conversationId?: string | null;
+  /** Transcript list, so a Chat tab can be named after the session it shows. */
+  conversations?: ReadonlyArray<{ id: string; title: string }>;
   onSelectTab: (tab: AppTab) => void;
+  /** Load an existing chat into the shell when its tab is restored. */
+  onSelectConversation?: (id: string) => void;
   /** `+` starts a fresh session and lands the new tab on the Chat page. */
   onNewChat?: () => void;
 }) {
@@ -239,12 +251,18 @@ export function DesktopTabBar({
 
   // Detect the shell after mount (the Tauri bridge does not exist during SSR).
   // Restore the previous session's tabs once, keeping the URL/boot page open.
+  // The tab that was in front last time wins when it still shows the boot page,
+  // so a relaunch returns to the session the user left, not merely the first tab.
   useEffect(() => {
     if (!hasDesktopShell()) return;
     setDesktop(true);
     const stored = readStoredTabs();
     if (stored.length > 0) {
-      const boot = stored.find((tab) => tab.page === bootTab.current);
+      const lastActive = readStoredActiveId();
+      const preferred = lastActive
+        ? stored.find((tab) => tab.id === lastActive && tab.page === bootTab.current)
+        : undefined;
+      const boot = preferred ?? stored.find((tab) => tab.page === bootTab.current);
       if (boot) {
         // Seed an upgraded tab (stored before modes were part of the record)
         // with the mode this shell is already showing, then restore the mode
@@ -297,10 +315,17 @@ export function DesktopTabBar({
     });
   }, [desktop]);
 
-  // In-app navigation (sidebar, palette, deep link) moves the ACTIVE tab.
+  // In-app navigation (sidebar, palette, deep link) moves the ACTIVE tab. When
+  // that navigation lands on Chat, the tab adopts the session now in front, so
+  // a later switch back restores what this tab was actually showing.
   useEffect(() => {
     if (!desktop) return;
-    setTabs((prev) => setTabPage(prev, activeId, activeTab));
+    setTabs((prev) => {
+      const next = setTabPage(prev, activeId, activeTab);
+      const live = conversationIdRef.current;
+      if (activeTab !== 'chat' || !bootSessionRef.current || live === undefined) return next;
+      return setTabConversation(next, activeId, live);
+    });
   }, [activeTab, activeId, desktop]);
 
   useEffect(() => {
@@ -308,37 +333,114 @@ export function DesktopTabBar({
     saveStoredTabs(tabs);
   }, [tabs, desktop, restored]);
 
+  // Remember which tab was in front so a relaunch returns to that one instead
+  // of the first stored tab (which may belong to a different session).
+  useEffect(() => {
+    if (!desktop || !restored) return;
+    saveStoredActiveId(activeId);
+  }, [desktop, restored, activeId]);
+
+  const onSelectConversationRef = useRef(onSelectConversation);
+  onSelectConversationRef.current = onSelectConversation;
+  const onNewChatRef = useRef(onNewChat);
+  onNewChatRef.current = onNewChat;
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
+  // True once the launch tab's own session has been settled. Until then the
+  // shell's session prop is still the pre-hydration `null`, and writing it into
+  // the restored tab would erase the conversation the tab was bound to.
+  const bootSessionRef = useRef(false);
+
+  // Keep the ACTIVE tab's binding current without a tab switch: sending a
+  // message materialises a conversation, and picking a chat from history
+  // changes it. Written to the tab record so switching away and back is stable.
+  // Declared BEFORE the boot effect: on launch it must stay inert until the
+  // boot session has been settled from the stored record.
+  useEffect(() => {
+    if (!desktop || !bootSessionRef.current || conversationId === undefined) return;
+    if (activeTab !== 'chat') return;
+    setTabs((prev) => setTabConversation(prev, activeId, conversationId));
+  }, [desktop, activeId, activeTab, conversationId]);
+
+  // Restore the launch tab's chat session, once. Deferred one tick so the
+  // shell's own mount effects have hydrated the transcript cache first —
+  // restoring earlier would be overwritten by the "open most recent chat"
+  // boot path. A fresh-chat tab (`null`) keeps that boot behaviour and adopts
+  // whatever the shell opened; a legacy tab (`undefined`) does the same.
+  useEffect(() => {
+    if (!desktop || !restored || bootSessionRef.current) return;
+    bootSessionRef.current = true;
+    const tab = tabsRef.current.find((item) => item.id === activeId);
+    if (!tab || tab.page !== 'chat' || !tab.conversationId) return;
+    const conversation = tab.conversationId;
+    const timer = window.setTimeout(() => onSelectConversationRef.current?.(conversation), 0);
+    return () => window.clearTimeout(timer);
+  }, [desktop, restored, activeId]);
+
+  // Persist the live session into the tab that is about to leave the front.
+  // Returns the updated list, so an append/remove in the same event starts from
+  // the captured bindings instead of the pre-update state. A tab showing another
+  // page is not displaying the chat session, so it keeps its own binding.
+  const captureSession = useCallback((): DesktopTab[] => {
+    const live = conversationIdRef.current;
+    const tabs = tabsRef.current;
+    if (live === undefined) return tabs;
+    const current = tabs.find((tab) => tab.id === activeIdRef.current);
+    if (!current || current.page !== 'chat') return tabs;
+    return setTabConversation(tabs, current.id, live);
+  }, []);
+
+  const restoreSession = useCallback((tab: DesktopTab) => {
+    if (tab.page !== 'chat') return;
+    if (tab.conversationId === null) onNewChatRef.current?.();
+    else if (tab.conversationId) onSelectConversationRef.current?.(tab.conversationId);
+  }, []);
+
   const select = useCallback(
     (tab: DesktopTab) => {
+      const same = tab.id === activeIdRef.current;
+      if (!same) setTabs(captureSession());
       setActiveId(tab.id);
       onSelectTab(tab.page);
+      if (!same) restoreSession(tab);
     },
-    [onSelectTab],
+    [captureSession, onSelectTab, restoreSession],
   );
 
   const close = useCallback(
     (id: string) => {
-      const result = removeTab(tabs, id, activeId);
-      if (result.tabs === tabs) return;
+      const base = captureSession();
+      const result = removeTab(base, id, activeIdRef.current);
+      if (result.tabs === base) return;
       setTabs(result.tabs);
-      if (result.activeId !== activeId) {
+      if (result.activeId !== activeIdRef.current) {
         const next = result.tabs.find((tab) => tab.id === result.activeId);
         setActiveId(result.activeId);
-        if (next) onSelectTab(next.page);
+        if (next) {
+          onSelectTab(next.page);
+          restoreSession(next);
+        }
       }
     },
-    [tabs, activeId, onSelectTab],
+    [captureSession, onSelectTab, restoreSession],
   );
 
   const newTab = useCallback(() => {
-    // A real new tab instance: it starts as a fresh Chat session, and whatever
-    // page the user opens next becomes that tab's page.
-    const { tabs: next, tab } = appendTab(tabs, 'chat', useSidebarConfigStore.getState().mode);
+    // A real new tab instance: it starts as a fresh Chat session (bound to
+    // `null`, so no other tab's conversation is touched), and whatever page the
+    // user opens next becomes that tab's page.
+    const base = captureSession();
+    const { tabs: next, tab } = appendTab(
+      base,
+      'chat',
+      useSidebarConfigStore.getState().mode,
+      null,
+    );
     setTabs(next);
     setActiveId(tab.id);
-    onNewChat?.();
+    onNewChatRef.current?.();
     onSelectTab('chat');
-  }, [tabs, onNewChat, onSelectTab]);
+  }, [captureSession, onSelectTab]);
 
   const labelFor = useCallback(
     (tab: AppTab) => {
@@ -441,7 +543,13 @@ export function DesktopTabBar({
           const meta = metaFor(tab.page);
           const Icon = meta.icon;
           const active = tab.id === activeId;
-          const label = labelFor(tab.page);
+          // A Chat tab is named after the session it holds, so multiple chat
+          // tabs (the whole point of instances) are tellable apart.
+          const sessionTitle =
+            tab.page === 'chat' && tab.conversationId
+              ? conversations?.find((item) => item.id === tab.conversationId)?.title
+              : undefined;
+          const label = sessionTitle?.trim() || labelFor(tab.page);
           return (
             <div
               key={tab.id}

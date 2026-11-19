@@ -85,26 +85,61 @@ for (const cmd of candidates) {
   //    runs (the vendored one on Windows). `plotly` is checked here too: it is
   //    what turns a drawn PNG into a real, zoomable chart, and a runtime that
   //    had langgraph from an earlier install used to skip it forever.
-  if (
-    hasModule(cmd, "numpy") &&
-    hasModule(cmd, "pandas") &&
-    hasModule(cmd, "matplotlib") &&
-    hasModule(cmd, "plotly")
-  ) {
-    console.log("[setup] Python analysis and chart stack already installed.");
-  } else {
-    console.log("[setup] Installing the analysis and chart stack (numpy, pandas, matplotlib, plotly)...");
-    try {
-      execSync(`"${cmd}" -m pip install -r "${analysisRequirements}" --disable-pip-version-check`, {
-        stdio: "inherit",
-        timeout: 600000,
-      });
-      console.log("[setup] Python analysis stack installed.");
-    } catch {
-      console.warn("[setup] Could not install the analysis stack. The sandbox can still run,");
-      console.warn("         but a computation that needs numpy/pandas/matplotlib will fail");
-      console.warn("         honestly. Install later with:");
-      console.warn(`         ${cmd} -m pip install -r python/analysis-requirements.txt`);
+  let chartStackMissing = [];
+  {
+    const chartModules = ["numpy", "pandas", "matplotlib", "plotly"];
+    const missingBefore = chartModules.filter((m) => !hasModule(cmd, m));
+    if (missingBefore.length === 0) {
+      console.log("[setup] Python analysis and chart stack already installed.");
+    } else {
+      console.log(
+        `[setup] Installing the analysis and chart stack (missing: ${missingBefore.join(", ")})...`
+      );
+      try {
+        execSync(`"${cmd}" -m pip install -r "${analysisRequirements}" --disable-pip-version-check`, {
+          stdio: "inherit",
+          timeout: 600000,
+        });
+        console.log("[setup] Python analysis stack installed.");
+      } catch {
+        console.warn("[setup] Could not install the analysis stack. The sandbox can still run,");
+        console.warn("         but a computation that needs numpy/pandas/matplotlib will fail");
+        console.warn("         honestly. Install later with:");
+        console.warn(`         ${cmd} -m pip install -r python/analysis-requirements.txt`);
+      }
+    }
+    // VERIFY with the SAME interpreter. A silent skip used to leave a machine
+    // that "had the runtime" (langgraph) with no drawing library at all: every
+    // chart 503'd while the doctor said the runtime was healthy. A failed
+    // install must be a loud failure here, not a surprise in the chat.
+    chartStackMissing = chartModules.filter((m) => !hasModule(cmd, m));
+    if (chartStackMissing.length > 0) {
+      // A `pip install` can be a no-op while the distribution metadata exists
+      // but its package directory is gone (a partially deleted site-packages
+      // tree). That is precisely the state that produced "no matplotlib" on a
+      // machine whose install said it was satisfied. Force a real reinstall
+      // once, then verify again.
+      console.warn(
+        `[setup] Chart libraries still unimportable (${chartStackMissing.join(", ")}) — force-reinstalling...`
+      );
+      try {
+        execSync(
+          `"${cmd}" -m pip install --force-reinstall "matplotlib>=3.8" "plotly>=5.20" "numpy>=1.26" --disable-pip-version-check`,
+          { stdio: "inherit", timeout: 600000 }
+        );
+      } catch {
+        /* verification below reports the truth either way */
+      }
+      chartStackMissing = chartModules.filter((m) => !hasModule(cmd, m));
+    }
+    if (chartStackMissing.length > 0) {
+      console.error(
+        `[setup] CHART ENGINE UNAVAILABLE — ${cmd} cannot import: ${chartStackMissing.join(", ")}`
+      );
+      console.error("         Chat charts will fail with CHART_RENDER_UNAVAILABLE until this is fixed.");
+      console.error(`         Run: "${cmd}" -m pip install --force-reinstall -r "${analysisRequirements}"`);
+    } else {
+      console.log("[setup] Verified the chart engine can draw (numpy, pandas, matplotlib, plotly).");
     }
   }
 
@@ -131,6 +166,11 @@ for (const cmd of candidates) {
       console.warn("         report unavailable). Install later with:");
       console.warn(`         ${cmd} -m pip install Pillow${process.platform === "win32" ? " uiautomation winsdk" : ""}`);
     }
+  }
+  if (chartStackMissing.length > 0) {
+    // Exit non-zero so `npm install` / `npm run setup:python` cannot report a
+    // clean install while the chart engine is dead.
+    process.exit(1);
   }
   process.exit(0);
 }

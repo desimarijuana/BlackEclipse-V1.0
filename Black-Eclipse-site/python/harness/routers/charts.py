@@ -25,7 +25,7 @@ from ..charts.render import (
     CHART_SPEC_INVALID,
     ChartRenderError,
 )
-from ..charts.service import register_chart_artifact, render_spec
+from ..charts.service import chart_health, register_chart_artifact, render_spec
 from ..charts.source import ChartSourceError, resolve_data_sources
 from ..charts.spec import ChartSpec
 from ..deps import require_operator, service
@@ -170,6 +170,16 @@ async def chart_code_route(
         "unsupported": unsupported,
         "spec": spec.to_dict(),
     }
+
+
+@router.get("/charts/health")
+async def chart_engine_health(_: None = Depends(require_operator)) -> dict[str, Any]:
+    """Whether THIS runtime can draw, and with which interpreter.
+
+    Constant-time (module-spec lookups, no imports), so it can be probed by the
+    front door and the doctor without drawing a chart.
+    """
+    return chart_health()
 
 
 @router.get("/charts/kinds")

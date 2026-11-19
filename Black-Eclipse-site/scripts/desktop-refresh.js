@@ -14,7 +14,11 @@ const { spawnSync } = require("child_process");
 const { channelFor } = require("./lib/channels");
 const { needsBuild, buildInProgress } = require("./lib/server");
 const { buildLooksComplete, readBuildId } = require("./lib/desktop-release");
-const { installedShellPath } = require("./lib/desktop-process");
+const {
+  installedShellPath,
+  stopShell,
+  stopOwnedServer,
+} = require("./lib/desktop-process");
 
 const ROOT = path.resolve(__dirname, "..");
 const argv = process.argv.slice(2);
@@ -48,12 +52,36 @@ function isBridged() {
   }
 }
 
-function main() {
-  if (channel.id === "stable" && fs.existsSync(installedShellPath()) && !isBridged()) {
-    log("the installed app is NOT bridged to this checkout — it serves its bundled payload");
-    log('run "npm run desktop:dev-bridge" to point it at the repo, or promote/reinstall');
+/**
+ * Point the installed Stable shell at this checkout before promoting.
+ *
+ * A packaged install serves the frozen payload under `<install>\app`, so a
+ * refresh that only promotes `releases/stable/<id>/.next` changes nothing the
+ * user sees: the window keeps loading the bundled UI. Bridging is reversible
+ * (the bundled payload is renamed `app.bundled-<version>`, never deleted) and
+ * is exactly what `npm run desktop:dev-bridge` does. Doing it here removes the
+ * silent-stale-app trap. Stop the window/server first so Windows releases the
+ * file handles inside `app` before the rename.
+ */
+function ensureBridged() {
+  if (channel.id !== "stable") return true;
+  if (!fs.existsSync(installedShellPath())) return true;
+  if (isBridged()) return true;
+  log("the installed app serves its bundled payload — bridging it to this checkout…");
+  stopShell(channel);
+  stopOwnedServer(channel);
+  if (!run("desktop-dev-bridge.js", []) || !isBridged()) {
+    console.error(
+      '[desktop:refresh] could not bridge the installed app to this checkout — ' +
+        'run "npm run desktop:dev-bridge" and read its output',
+    );
+    return false;
   }
+  log("installed app now serves this checkout");
+  return true;
+}
 
+function main() {
   const running = buildInProgress();
   if (running) {
     console.error(
@@ -85,6 +113,12 @@ function main() {
 
   if (!buildLooksComplete(source)) {
     console.error(`[desktop:refresh] no completed build in ${from || channel.buildDir}`);
+    process.exit(1);
+  }
+  // Bridge AFTER the build so the old window keeps working during the slow
+  // compile; the promote step restarts it anyway.
+  if (!ensureBridged()) {
+    console.error("[desktop:refresh] the build is ready, but the window was left untouched");
     process.exit(1);
   }
   log(`promoting ${channel.id} build ${readBuildId(source)}…`);

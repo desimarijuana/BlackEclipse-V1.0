@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { chartImageSrc, renderChart, type ChartFigureData, type RenderedChart } from '@/lib/harness/charts';
+import { ChartRenderError, chartImageSrc, renderChart, type ChartFigureData, type RenderedChart } from '@/lib/harness/charts';
 import { PlotlyChart } from '@/components/charts/plotly-chart';
 import { chartBlockToSpec, type ChartPlan } from '@/lib/response/chart-spec';
 import { chartSpecWarning } from '@/lib/response/chart-capabilities';
@@ -49,7 +49,7 @@ type State =
   | { status: 'loading' }
   | { status: 'ready'; src: string; chart?: ChartFigureData; plan: ChartPlan }
   | { status: 'empty'; message: string }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; code?: string };
 
 // A render is keyed on the resolved SPEC, not the block: the same numbers draw
 // the same chart, so re-mounting a message (scrolling, focus) is instant.
@@ -135,6 +135,7 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         setState({
           status: 'error',
           message: err instanceof Error ? err.message : 'the chart could not be drawn',
+          code: err instanceof ChartRenderError ? err.code : undefined,
         });
       }
     })();
@@ -216,6 +217,12 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         </div>
       );
     }
+    // A named unavailability is a REPAIR instruction, not a vague failure.
+    // `CHART_RENDER_UNAVAILABLE` means the runtime is up but its drawing
+    // library is missing; showing only "unavailable" hid which capability was
+    // gone. The route now supplies the interpreter + missing modules, and this
+    // shows them as the cause rather than as passing italic prose.
+    const engineDown = state.status === 'error' && state.code === 'CHART_RENDER_UNAVAILABLE';
     return (
       <div
         className={cn(
@@ -224,10 +231,22 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         )}
         style={{ height }}
         data-testid={state.status === 'error' ? 'response-chart-error' : 'response-chart-empty'}
+        data-error-code={state.status === 'error' ? state.code ?? '' : undefined}
       >
-        <p className={cn('text-xs italic', state.status === 'error' ? 'text-amber-500/80' : 'text-muted-foreground/70')}>
-          {state.message}
-        </p>
+        {engineDown ? (
+          <div className="max-w-[560px] space-y-1 text-left">
+            <p className="text-xs font-medium text-amber-400/90">The chart engine cannot draw</p>
+            <p className="text-[11px] leading-relaxed text-amber-500/70">{state.message}</p>
+            <p className="text-[10px] text-muted-foreground/60">
+              Run <code className="rounded bg-foreground/10 px-1 py-0.5">npm run setup:python</code> to install the
+              missing drawing libraries, then restart Eclipse.
+            </p>
+          </div>
+        ) : (
+          <p className={cn('text-xs italic', state.status === 'error' ? 'text-amber-500/80' : 'text-muted-foreground/70')}>
+            {state.message}
+          </p>
+        )}
       </div>
     );
   })();

@@ -22,6 +22,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const INSTALL = path.join(
@@ -63,6 +64,36 @@ function isBridge(dir) {
   }
 }
 
+/**
+ * Stop process trees still running from the install directory.
+ *
+ * Renaming `app` fails with EBUSY while the bundled server (`app\server.js`),
+ * its vendored Python harness, or the window itself is alive. A window that
+ * crashed or was closed can leave exactly that orphaned server tree behind, so
+ * the bridge must clear it — these processes all belong to the install we are
+ * about to replace, and the relaunch starts fresh ones.
+ */
+function stopInstalledProcesses() {
+  if (process.platform !== "win32") return [];
+  const prefix = INSTALL.replace(/'/g, "''");
+  const script =
+    "Get-CimInstance Win32_Process | Where-Object { " +
+    `($_.ExecutablePath -like '${prefix}\\*') -or ($_.CommandLine -like '*${prefix}\\*') ` +
+    "} | Select-Object -ExpandProperty ProcessId";
+  const out = spawnSync("powershell", ["-NoProfile", "-Command", script], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const pids = (out.stdout || "")
+    .split(/\s+/)
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0 && n !== process.pid);
+  for (const pid of pids) {
+    spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], { stdio: "ignore" });
+  }
+  return pids;
+}
+
 function main() {
   if (!fs.existsSync(INSTALL)) {
     throw new Error(`desktop install not found: ${INSTALL}`);
@@ -73,6 +104,10 @@ function main() {
   }
 
   if (fs.existsSync(PACKAGED_APP) && !isBridge(PACKAGED_APP)) {
+    const stopped = stopInstalledProcesses();
+    if (stopped.length) {
+      log(`stopped ${stopped.length} process(es) still running from the install (pid ${stopped.join(", ")})`);
+    }
     const bundled = path.join(INSTALL, `app.bundled-${readVersion(PACKAGED_APP)}`);
     if (fs.existsSync(bundled)) {
       throw new Error(

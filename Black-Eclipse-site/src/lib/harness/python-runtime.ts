@@ -9,7 +9,8 @@
 //   • readiness is health-checked, and a failure is reported honestly — never
 //     silently degraded into a fake agent.
 
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { spawn, execFile, execSync, type ChildProcess } from "child_process";
+import { promisify } from "util";
 import {
   closeSync,
   existsSync,
@@ -24,7 +25,12 @@ import {
 import path from "path";
 import { findPython } from "@/lib/scraper/fetchers/python";
 import { resolveLLMProviderId } from "@/lib/agent/presets";
-import { PYTHON_RUNTIME_DEPS } from "./runtime-config";
+import {
+  PYTHON_CHART_PACKAGES,
+  PYTHON_RUNTIME_DEPS,
+  chartEngineReadiness,
+  type ChartEngineReadiness,
+} from "./runtime-config";
 import { isRecentlyHealthy, resolveRequestWaitMs, resolveStartTimeoutMs, shouldReplaceStaleRuntime } from "./runtime-supervision";
 
 // The URL is authoritative. When an operator overrides HARNESS_PY_URL, the
@@ -54,9 +60,77 @@ interface RuntimeGlobal {
   __harnessPyHealthyAt?: number;
   /** In-flight ensure() so concurrent callers coalesce onto one probe. */
   __harnessPyEnsure?: Promise<boolean>;
+  /** Last chart-engine capability probe. Short TTL: a pip install must become
+   * visible without a restart, but drawing several charts must not spawn an
+   * interpreter each time. */
+  __chartEngineProbe?: { value: ChartEngineReadiness; at: number };
 }
 
 const g = globalThis as unknown as RuntimeGlobal;
+
+const execFileAsync = promisify(execFile);
+
+// A chart render must not spawn an interpreter every time, but a `pip install`
+// must become visible without restarting the app. 60 s is the compromise.
+const CHART_PROBE_TTL_MS = 60_000;
+
+/**
+ * Can the chart engine actually DRAW?
+ *
+ * `ensurePythonRuntime()` only proves the agent stack can boot. It says nothing
+ * about matplotlib/plotly, which are imported lazily at render time — so a
+ * machine could (and did) report a healthy runtime while every chart 503'd.
+ * This probes the SAME interpreter `findPython()` selects and reports exactly
+ * which modules are missing, so the failure names the capability instead of
+ * pointing at a runtime that is already installed.
+ */
+export async function probeChartEngine(): Promise<ChartEngineReadiness> {
+  const cached = g.__chartEngineProbe;
+  if (cached && Date.now() - cached.at < CHART_PROBE_TTL_MS) return cached.value;
+
+  const py = await findPython();
+  if (!py) {
+    const unavailable = chartEngineReadiness(null, []);
+    g.__chartEngineProbe = { value: unavailable, at: Date.now() };
+    return unavailable;
+  }
+
+  // `find_spec` is a cheap existence check (no heavy imports); `sys.executable`
+  // rides along so an operator can see WHICH python was probed.
+  const script = [
+    "import importlib.util, json, sys",
+    `mods = ${JSON.stringify([...PYTHON_CHART_PACKAGES])}`,
+    "print(json.dumps({",
+    '  "python": sys.executable,',
+    '  "available": [m for m in mods if importlib.util.find_spec(m) is not None],',
+    "}))",
+  ].join("\n");
+
+  try {
+    const { stdout } = await execFileAsync(py.cmd, ["-c", script], {
+      timeout: 30_000,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+    });
+    const parsed = JSON.parse(String(stdout).trim()) as {
+      python?: string;
+      available?: string[];
+    };
+    const value = chartEngineReadiness(parsed.python ?? py.cmd, parsed.available ?? []);
+    g.__chartEngineProbe = { value, at: Date.now() };
+    return value;
+  } catch {
+    // The probe itself failed (interpreter gone, killed). Report the worst
+    // honest case: no interpreter, every chart module unproven.
+    const value: ChartEngineReadiness = {
+      ready: false,
+      python: py.cmd,
+      missing: [...PYTHON_CHART_PACKAGES],
+    };
+    g.__chartEngineProbe = { value, at: Date.now() };
+    return value;
+  }
+}
 
 // A memory/skills tab load fans out several API routes at once; without this,
 // each route re-probed `/health` and re-scanned the source directory on every

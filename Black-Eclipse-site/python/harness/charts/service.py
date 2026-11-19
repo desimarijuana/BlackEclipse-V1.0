@@ -134,8 +134,39 @@ def register_chart_artifact(
         return None
 
 
+def chart_health() -> dict[str, Any]:
+    """Can THIS process draw a chart, and with which interpreter?
+
+    `ensurePythonRuntime` proves the agent stack boots; it says nothing about
+    the lazily-imported plotting libraries. This is the runtime's own answer to
+    "can you draw", so the front door and the operator see the SAME fact — and
+    `python` is `sys.executable`, so a machine with several interpreters shows
+    which one is actually short of matplotlib.
+    """
+    import importlib.util  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    def present(module: str) -> bool:
+        try:
+            return importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            return False
+
+    modules = {name: present(name) for name in ("matplotlib", "plotly", "numpy")}
+    return {
+        "status": "OK",
+        "python": sys.executable,
+        **modules,
+        # Drawing is possible only with a plotting library; numpy alone is not
+        # enough. `plotly` is optional for the PNG but required for the live
+        # figure, so it is reported honestly rather than silently folded in.
+        "canDraw": modules["matplotlib"],
+    }
+
+
 __all__ = [
     "RenderedChart",
+    "chart_health",
     "register_chart_artifact",
     "render_spec",
     "spec_digest",

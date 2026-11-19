@@ -64,7 +64,14 @@ programmatic navigation still read/write the one value for that shell. The
 desktop shell's browser-style tabs are in-page instances inside ONE shell, so
 they cannot use `sessionStorage` for this: each `DesktopTab` records its own
 `mode` and the tab strip replays it on switch (`applyTabMode` never echoes to
-the app-wide nav store), keeping a Bots tab and a Command Center tab separate. Order
+the app-wide nav store), keeping a Bots tab and a Command Center tab separate.
+The slim **chat session is per tab too**: a `DesktopTab` also records the
+`conversationId` it is showing (`null` = its own fresh chat), the strip writes
+the live session into the tab on switch/new/close, and restoring a tab loads
+that conversation — so `+` starts a new session without replacing the old tab's
+transcript. `be_desktop_tabs_v2_active` remembers the front tab across a
+relaunch (the launch tab's own session is restored after the transcript cache
+hydrates). Order
 and visibility are mirrored app-wide through `/api/sdk/app` (JDDS
 `SystemConfig` key `eclipse_app_shell_nav`); `localStorage` is the instant cache
 and the shared mode seed for newly opened shells, and SSE

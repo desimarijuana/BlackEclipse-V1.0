@@ -1,7 +1,7 @@
 ---
 title: Development and production servers
 status: Current
-last-verified: 2026-11-16
+last-verified: 2026-11-19
 ---
 
 # Desktop channels — Stable and Dev
@@ -36,7 +36,16 @@ the completed `.next` into `releases/stable/<buildId>/`, validates the copy,
 writes `current.json` (keeping `previous.json`), then restarts the Stable
 window. A build that fails validation never becomes current. `npm run
 desktop:rollback` flips back. `npm run desktop:refresh` is build-if-needed +
-promote + reopen.
+bridge + promote + reopen.
+
+**A refresh also repairs a stale install.** A packaged Stable shell normally
+serves the frozen UI bundled at `<install>\app`, so promoting
+`releases/stable/<buildId>/.next` alone changes nothing the window shows. Before
+promoting, `desktop:refresh` checks for the dev bridge; when it is missing it
+stops the window and its owned server, bridges the install to this checkout
+(`scripts/desktop-dev-bridge.js`, preserving the bundled payload as
+`app.bundled-<version>`), then promotes and relaunches. This happens after the
+build, so the old window keeps working during the slow compile.
 
 **Orphaned server recovery.** A window can crash, be force-closed, or be
 promoted while its server tree is still exiting. The next launch then finds the
@@ -83,7 +92,12 @@ the open window. There is no build, no promotion and no relaunch per change.
 - Leaving live mode is an ordinary command: `npm run desktop:refresh` (build,
   promote, reopen Stable) or `npm run desktop:dev` (Dev channel).
 - Stable requires the dev bridge (`npm run desktop:dev-bridge`) so the installed
-  shell runs the repo's bootstrap; the launcher says so and refuses otherwise.
+  shell runs the repo's bootstrap. Both `desktop:live` and `desktop:refresh`
+  apply the bridge automatically (it is reversible), so there is no manual setup
+  step; a failure is reported with the command to run by hand. Before renaming
+  `app`, the bridge stops any process tree still running from the install
+  directory — an orphaned bundled `server.js`/Python harness otherwise holds the
+  folder and Windows answers `EBUSY`.
 
 **Health is cheap.** The harness serves `/health/live` (constant time) for the
 supervisor's readiness probe; `/health` remains the diagnostic document. The
@@ -132,6 +146,16 @@ Builds are **serialized**: `npm run build`, `desktop:build:dev`,
 instead of wiping the same directory underneath it. The lock lives outside
 `.next` because the build deletes that directory; it is advisory, so a raw
 `npx next build` bypasses it.
+
+**The production build needs more than Node's default heap.** The module graph
+exceeds Node 22's ~4 GB ceiling, so the managed entry points
+(`scripts/lib/server.js` → `build()`, and Dev's `scripts/desktop-build.js`)
+default `NODE_OPTIONS` to `--max-old-space-size=12288` unless the caller already
+set an explicit heap size. (The Ubuntu release job still uses 6144 and passes;
+the Windows host exhausted 4 GB, 6 GB and 8 GB on the same source, matching the
+12 GB ceiling the release workflow used for Windows payload builds through
+v0.4.10.) Override with `BE_BUILD_HEAP_MB` on a tighter or roomier machine. A
+4 GB crash is the signature of that default being bypassed.
 
 **A plain `npm run build` refuses while a channel is live.** The window is safe
 (it serves a pinned copy), but a build started under a running app saturates the

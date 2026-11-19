@@ -6,6 +6,53 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **fix(charts): a missing drawing library is now a named, testable failure
+  instead of a silent 503.** The vendored interpreter can boot the agent stack
+  (`langgraph`) while `matplotlib`/`plotly` are absent, so every chat chart
+  returned `503 "install the Python runtime"` — pointing at a runtime that was
+  already installed. `PYTHON_RUNTIME_PACKAGES` now enumerates `matplotlib`,
+  `plotly`, `numpy` and `pydantic`; `PYTHON_CHART_PACKAGES` +
+  `chartEngineReadiness()` define "can draw"; `probeChartEngine()` checks the
+  SAME interpreter `findPython()` selects and the charts route distinguishes
+  `RUNTIME_UNAVAILABLE` from `CHART_RENDER_UNAVAILABLE` (with the interpreter
+  path and missing modules); `scripts/setup-python.js` verifies by importing and
+  exits non-zero when the stack is missing, force-reinstalling a corrupt
+  distribution; `scripts/doctor.js` verifies after a repair;
+  `scripts/test-python.js` refuses to run without the chart stack;
+  `python/harness/charts/render.py` names `sys.executable`; the runtime
+  exposes `GET /charts/health`; `response-chart.tsx` shows the cause instead of
+  italic prose; and a source-scanning regression test fails the build when the
+  charts package imports a module the install list does not cover. Docs updated:
+  `docs/chart-engine.md`, `docs/harness/python-runtime.md`.
+- **fix(desktop): each tab now owns its chat session.** The tab strip recorded
+  only the page (plus sidebar mode), so the single shell-wide
+  `activeConversationId`/transcript was shared by every Chat tab: pressing `+`
+  ran the global "new chat" reset and the old tab then showed the new (or empty)
+  session. `DesktopTab` now carries `conversationId` (`null` = that tab's own
+  fresh chat), the strip captures the live session into the tab on
+  switch/new/close, restores the selected tab's conversation, names Chat tabs
+  after their session, and persists the front tab
+  (`be_desktop_tabs_v2_active`) so a relaunch returns to the session that was
+  open. Selecting a conversation also clears a stale transcript when the id is
+  not loaded yet. Docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
+  `desktop/README.md`.
+- **fix(desktop): `desktop:refresh` bridges a stale install instead of leaving
+  the old UI on screen.** A packaged Stable shell serves its bundled payload
+  under `<install>\app`; promoting `releases/stable/<buildId>/.next` therefore
+  did not change what the window loaded, and refresh only printed a warning the
+  user could miss. Refresh now stops the window and its owned server after the
+  build, runs `desktop-dev-bridge.js` (reversible; keeps
+  `app.bundled-<version>`), then promotes and relaunches. Docs updated:
+  `docs/environments.md`.
+- **fix(build): default the production build to a 12 GB V8 heap.** A local
+  `desktop:refresh` died at Node 22's ~4 GB default (`JavaScript heap out of
+  memory`), then again at 6.05 GB and 8.07 GB as the cap was raised. The repo's
+  release history already established that the Windows payload build needs
+  12 GB (v0.4.10). `scripts/lib/server.js` now supplies
+  `--max-old-space-size=12288` for the managed Stable build (and
+  `scripts/desktop-build.js` for Dev), keeping any explicit caller value and
+  allowing `BE_BUILD_HEAP_MB` to override. Docs updated: `docs/environments.md`.
+
 - **fix(search): the boot warm-index can no longer freeze the agent runtime.**
   A packaged install indexes its own payload (`python/harness` under
   `<install>\app`), so the first boot walked ~1,500 files / 19k chunks while

@@ -281,6 +281,23 @@ export function chartImageSrc(rendered: RenderedChart): string | null {
 }
 
 /**
+ * A chart refusal that keeps the runtime's stable CODE, not just its prose.
+ *
+ * The code is what lets the UI distinguish "the engine cannot draw here"
+ * (`CHART_RENDER_UNAVAILABLE`, a repair) from "this spec is invalid" (the
+ * model's mistake) instead of showing every failure as the same italic line.
+ */
+export class ChartRenderError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "ChartRenderError";
+    this.code = code;
+  }
+}
+
+/**
  * Draw a chart. The request is a SPEC — the runtime validates it and refuses
  * a malformed one with the missing part named.
  */
@@ -299,15 +316,21 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
   };
   if (!res.ok) {
     const detail = body.detail;
+    const code =
+      typeof detail === "object" && detail && "code" in detail
+        ? String(detail.code)
+        : body.status === "UNAVAILABLE"
+          ? "CHART_RENDER_UNAVAILABLE"
+          : undefined;
     const message =
       typeof detail === "object" && detail && "message" in detail
         ? String(detail.message)
         : typeof detail === "string"
           ? detail
           : body.error ?? `the chart could not be drawn (${res.status})`;
-    throw new Error(message);
+    throw new ChartRenderError(message, code);
   }
-  if (!body.figure) throw new Error("the chart engine returned no figure");
+  if (!body.figure) throw new ChartRenderError("the chart engine returned no figure", "CHART_RENDER_FAILED");
   return {
     figure: body.figure,
     ...(body.chart ? { chart: body.chart } : {}),

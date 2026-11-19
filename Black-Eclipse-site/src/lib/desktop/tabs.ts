@@ -11,6 +11,8 @@ import { APP_TABS, type AppTab } from '@/lib/app-tabs';
 import { isNavGroup, type NavGroup } from '@/lib/sidebar/config';
 
 const STORAGE_KEY = 'be_desktop_tabs_v2';
+/** Which stored tab was in front, so a relaunch returns to it (not just tab 1). */
+const ACTIVE_KEY = 'be_desktop_tabs_v2_active';
 /** Pre-instances format: an array of page ids only. Read once on upgrade. */
 const LEGACY_KEY = 'be_desktop_tabs_v1';
 const TAB_SET = new Set<string>(APP_TABS);
@@ -28,6 +30,14 @@ export interface DesktopTab {
    * Absent on upgraded stores; the shell then seeds it with the current mode.
    */
   mode?: NavGroup;
+  /**
+   * The chat session this tab is showing. Tabs are instances over ONE shell, so
+   * without this every Chat tab would mirror whatever conversation happens to be
+   * active — opening a new tab would replace the old tab's session.
+   * `undefined` = never recorded (an upgraded store; adopt the live session),
+   * `null` = an explicit fresh chat, otherwise the conversation id.
+   */
+  conversationId?: string | null;
 }
 
 let seq = 0;
@@ -50,18 +60,34 @@ export function setTabMode(tabs: DesktopTab[], id: string, mode: NavGroup): Desk
   return next;
 }
 
+/** Record the chat session a tab is showing (`null` = its fresh, unsaved chat). */
+export function setTabConversation(
+  tabs: DesktopTab[],
+  id: string,
+  conversationId: string | null,
+): DesktopTab[] {
+  const index = tabs.findIndex((tab) => tab.id === id);
+  if (index === -1 || tabs[index].conversationId === conversationId) return tabs;
+  const next = [...tabs];
+  next[index] = { ...next[index], conversationId };
+  return next;
+}
+
 export function isAppTab(value: unknown): value is AppTab {
   return typeof value === 'string' && TAB_SET.has(value);
 }
 
 /** Append a tab instance (duplicates of a page are allowed). A new tab starts
- *  in the mode the user is currently looking at. */
+ *  in the mode the user is currently looking at. Pass `conversationId: null`
+ *  for a brand-new chat; omit it to adopt whatever session the shell has. */
 export function appendTab(
   tabs: DesktopTab[],
   page: AppTab,
   mode?: NavGroup,
+  conversationId?: string | null,
 ): { tabs: DesktopTab[]; tab: DesktopTab } {
-  const tab = createTab(page, undefined, mode);
+  const tab: DesktopTab = createTab(page, undefined, mode);
+  if (conversationId !== undefined) tab.conversationId = conversationId;
   return { tabs: [...tabs, tab], tab };
 }
 
@@ -133,12 +159,23 @@ export function parseStoredTabs(raw: string | null): DesktopTab[] {
       // Current shape: { id, page }. Legacy shape: a bare page id.
       const candidate = typeof item === 'string' ? { id: newId(), page: item } : item;
       if (!candidate || typeof candidate !== 'object') continue;
-      const { id, page, mode } = candidate as { id?: unknown; page?: unknown; mode?: unknown };
+      const { id, page, mode, conversationId } = candidate as {
+        id?: unknown;
+        page?: unknown;
+        mode?: unknown;
+        conversationId?: unknown;
+      };
       if (!isAppTab(page)) continue;
       const tabId = typeof id === 'string' && id.trim() ? id : newId();
       if (seen.has(tabId)) continue;
       seen.add(tabId);
-      out.push(isNavGroup(mode) ? { id: tabId, page, mode } : { id: tabId, page });
+      const tab: DesktopTab = isNavGroup(mode) ? { id: tabId, page, mode } : { id: tabId, page };
+      // A non-string, non-null value is malformed: drop it and let the shell
+      // adopt the live session rather than restoring a bogus id.
+      if (conversationId === null || typeof conversationId === 'string') {
+        tab.conversationId = conversationId;
+      }
+      out.push(tab);
     }
     return out;
   } catch {
@@ -164,6 +201,27 @@ export function saveStoredTabs(tabs: DesktopTab[]): void {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));
+  } catch {
+    // Quota / private mode: the strip still works for this session.
+  }
+}
+
+/** The tab that was in front at the last save (callers validate it still exists). */
+export function readStoredActiveId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const id = window.localStorage.getItem(ACTIVE_KEY);
+    return id && id.trim() ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveStoredActiveId(id: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (id) window.localStorage.setItem(ACTIVE_KEY, id);
+    else window.localStorage.removeItem(ACTIVE_KEY);
   } catch {
     // Quota / private mode: the strip still works for this session.
   }

@@ -1,6 +1,6 @@
 # The chart engine — Eclipse draws its charts with Python
 
-**Status:** Active. **Last verified:** 2026-11-16.
+**Status:** Active. **Last verified:** 2026-11-19.
 
 Eclipse renders every chart with the Python runtime's chart engine: a validated
 **chart spec** goes in, `matplotlib` draws a transparent PNG, and the picture is
@@ -338,6 +338,35 @@ already had `langgraph`: the runtime marker used to skip the requirements file
 forever, so the chart stack was never completed. A missing stack is repaired with
 `npm run setup:python`.
 
+**"Installed" is not "can draw".** The agent stack (`langgraph`) can be healthy
+while `matplotlib`/`plotly` are absent — those imports are lazy, inside the
+renderer, so a boot probe never touches them. The contract that makes this
+visible:
+
+* `src/lib/harness/runtime-config.ts` — `PYTHON_CHART_PACKAGES` names every
+  third-party module `python/harness/charts/*.py` imports (`matplotlib`,
+  `numpy`, `plotly`, `pydantic`), and `PYTHON_RUNTIME_PACKAGES` installs each
+  one. `chartEngineReadiness()` is the single "can draw" decision, shared by the
+  front door, the doctor and the tests.
+* `probeChartEngine()` in `src/lib/harness/python-runtime.ts` asks the SAME
+  interpreter `findPython()` selects which modules it can find, and reports the
+  interpreter path plus the missing ones.
+* The front door's `POST /api/harness/charts` therefore returns **two different
+  503s**: `RUNTIME_UNAVAILABLE` (the runtime cannot boot) and
+  `CHART_RENDER_UNAVAILABLE` (the runtime is up but a drawing library is
+  missing — with the interpreter path and module names). The UI shows that
+  cause instead of generic italic text.
+* The runtime's `GET /charts/health` reports `{ matplotlib, plotly, numpy,
+  python }` from inside the drawing process.
+* **Never again:** `src/lib/harness/runtime-config.test.ts` scans the charts
+  package for third-party imports and fails when one is absent from
+  `PYTHON_RUNTIME_PACKAGES`, and asserts the selected interpreter can import
+  the whole chart stack. `scripts/setup-python.js` and `scripts/doctor.js` also
+  verify by *importing* after an install (retrying with `--force-reinstall` when
+  a distribution exists but is unimportable), and `scripts/test-python.js`
+  refuses to run the Python suite without the stack — so a pip that exits 0 but
+  leaves the library unusable is a loud failure rather than a silent skip.
+
 ## 4. What the user gets
 
 | | The chat's chart |
@@ -372,7 +401,7 @@ crosshair and zoom.
 | The live figure | `python/harness/charts/plotly_figure.py` |
 | The chart library route | `src/app/api/harness/charts/plotly/route.ts` |
 | The live chart component | `src/components/charts/plotly-chart.tsx` |
-| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `python/tests/test_chart_figure.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
+| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `python/tests/test_chart_figure.py`, `src/lib/harness/charts.test.ts`, `src/lib/harness/runtime-config.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
 
 The decision itself is **ADR-050** (`skills/ARCHITECT.md`, mirrored in
 `docs/DECISIONS.md`).

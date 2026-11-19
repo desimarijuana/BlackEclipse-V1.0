@@ -94,9 +94,14 @@ interpreter (`scripts/vendor/python/python.exe`, resolved by
 
 - **The environment is pinned, not incidental.** The numerical stack the
   programs may import is pinned in `python/analysis-requirements.txt`
-  (numpy, pandas, matplotlib) and installed INTO that interpreter by
-  `scripts/setup-python.js` — which, on Windows, provisions the vendored
-  interpreter FIRST (a system Python cannot serve the sandbox).
+  (numpy, pandas, matplotlib) plus the chart engine's live `plotly`, and
+  installed INTO that interpreter by `scripts/setup-python.js` — which, on
+  Windows, provisions the vendored interpreter FIRST (a system Python cannot
+  serve the sandbox). Both setup and `scripts/doctor.js` **verify by importing**
+  after an install (a `pip` that exits 0 while the package directory is gone is
+  a loud failure, not a silent skip), and
+  `src/lib/harness/runtime-config.test.ts` fails the build when the charts
+  package imports a module the install list does not cover.
   `scripts/doctor.js` reports the stack's versions, so a stale or missing
   stack is visible instead of guessed.
 - **The provenance digest describes the right environment.**

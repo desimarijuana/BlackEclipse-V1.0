@@ -7,6 +7,7 @@ import {
   moveTabToEdge,
   parseStoredTabs,
   removeTab,
+  setTabConversation,
   setTabMode,
   setTabPage,
   type DesktopTab,
@@ -101,6 +102,39 @@ describe('desktop tabs', () => {
     expect(setTabMode(tagged, 'a', 'bots')).toBe(tagged);
     expect(setTabMode(tagged, 'a', 'terminal')[0].mode).toBe('terminal');
     expect(setTabMode(tabs, 'missing', 'bots')).toBe(tabs);
+  });
+
+  it('records and restores the chat session a tab is showing', () => {
+    const tabs = [tab('a'), tab('b', 'home')];
+    const bound = setTabConversation(tabs, 'a', 'chat_1');
+    expect(bound[0]).toEqual({ id: 'a', page: 'chat', conversationId: 'chat_1' });
+    expect(bound[1]).toEqual(tab('b', 'home'));
+    expect(setTabConversation(bound, 'a', 'chat_1')).toBe(bound);
+    // `null` is a meaningful value: this tab holds an explicit fresh chat.
+    expect(setTabConversation(bound, 'a', null)[0].conversationId).toBeNull();
+    expect(setTabConversation(bound, 'missing', 'chat_2')).toBe(bound);
+  });
+
+  it('appends a fresh-chat binding without touching existing tabs', () => {
+    const tabs = [tab('a'), tab('b', 'home')];
+    const added = appendTab(tabs, 'chat', undefined, null);
+    expect(added.tabs).toHaveLength(3);
+    expect(added.tab.page).toBe('chat');
+    expect(added.tab.conversationId).toBeNull();
+    expect(added.tabs.slice(0, 2)).toEqual(tabs);
+  });
+
+  it('round-trips tab sessions through storage and drops malformed ones', () => {
+    const stored =
+      '[{"id":"a","page":"chat","conversationId":"chat_1"},' +
+      '{"id":"b","page":"chat","conversationId":null},' +
+      '{"id":"c","page":"chat","conversationId":42}]';
+    expect(parseStoredTabs(stored)).toEqual([
+      { id: 'a', page: 'chat', conversationId: 'chat_1' },
+      { id: 'b', page: 'chat', conversationId: null },
+      // A malformed binding is dropped, not guessed: the tab adopts the live chat.
+      { id: 'c', page: 'chat' },
+    ]);
   });
 
   it('round-trips tab modes through storage and drops malformed ones', () => {

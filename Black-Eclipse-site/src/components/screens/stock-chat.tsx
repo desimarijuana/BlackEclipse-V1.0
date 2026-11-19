@@ -677,10 +677,10 @@ function StockChatContent() {
       setMessages(chat.messages);
       void restoreWorkspaceForChat(chat.messages, id);
     } else {
+      setMessages([]);
       useWorkspaceStore.getState().clear();
     }
   };
-
   const handleNewChat = () => {
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
@@ -1289,7 +1289,7 @@ function StockChatContent() {
               'glass-card before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/60 dark:before:via-white/10 before:to-transparent',
           )}
         >
-        <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} onNewChat={handleNewChat} />
+        <DesktopTabBar activeTab={activeTab} onSelectTab={setActiveTab} onNewChat={handleNewChat} conversationId={activeConversationId} conversations={conversations} onSelectConversation={handleSelectConversation} />
         {/* ChatBot wallpaper. Sits in the main content panel (right of the
             sidebar) so it resizes with the panel and stays fully visible when
             the sidebar opens/closes. Rendered only on the chat landing (empty

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
+import {
+  HARNESS_PY_URL,
+  ensurePythonRuntime,
+  probeChartEngine,
+} from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +18,13 @@ export const dynamic = "force-dynamic";
 // The route is the front door's validation boundary: it forwards the spec
 // unchanged (the runtime owns the spec contract) and turns a runtime refusal
 // into an honest error the UI can show. It never draws anything itself.
+//
+// TWO different unavailabilities, two different messages:
+//   * the runtime cannot boot at all (no interpreter / broken stack) — the
+//     operator must repair the runtime;
+//   * the runtime is healthy but the drawing library is missing — the runtime
+//     is installed, `matplotlib`/`plotly` are not. Saying "install the runtime"
+//     here sends the operator to fix something that already works.
 export async function POST(request: Request) {
   let spec: unknown;
   try {
@@ -38,11 +49,38 @@ export async function POST(request: Request) {
         {
           status: "UNAVAILABLE",
           error:
-            "the chart engine is unavailable — install the Python runtime with `npm run setup:python`",
+            "the Python runtime is unavailable — it is installed but not running (or its agent stack is incomplete). Run `npm run setup:python`, then restart the app.",
+          detail: {
+            code: "RUNTIME_UNAVAILABLE",
+            message:
+              "the Python runtime is not available, so the chart engine cannot start. Run `npm run setup:python`.",
+          },
         },
         { status: 503 },
       );
     }
+
+    // The runtime is up. It still cannot draw without its plotting libraries,
+    // and that is a DIFFERENT failure with a different repair.
+    const engine = await probeChartEngine();
+    if (!engine.ready) {
+      const missing = engine.missing.length > 0 ? engine.missing.join(", ") : "matplotlib/plotly";
+      const python = engine.python ?? "the selected Python interpreter";
+      return NextResponse.json(
+        {
+          status: "UNAVAILABLE",
+          error: `the chart engine cannot draw — ${python} is missing ${missing}. Run \`npm run setup:python\`.`,
+          detail: {
+            code: "CHART_RENDER_UNAVAILABLE",
+            message: `the Python runtime at ${python} is missing ${missing}, so a chart cannot be drawn. Run \`npm run setup:python\`.`,
+            missing: engine.missing,
+            python: engine.python,
+          },
+        },
+        { status: 503 },
+      );
+    }
+
     const url = new URL(`${HARNESS_PY_URL}/charts/render`);
     const operatorToken = runtimeCallbackToken();
     const res = await fetch(url, {
@@ -77,7 +115,14 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("[api/harness/charts] POST error:", err);
     return NextResponse.json(
-      { status: "UNAVAILABLE", error: "the chart engine is unavailable" },
+      {
+        status: "UNAVAILABLE",
+        error: "the chart engine is unavailable — the runtime did not answer.",
+        detail: {
+          code: "RUNTIME_UNAVAILABLE",
+          message: "the chart engine is unavailable — the runtime did not answer.",
+        },
+      },
       { status: 503 },
     );
   }

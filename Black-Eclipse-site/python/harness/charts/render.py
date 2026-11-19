@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import math
+import sys
 import warnings
 from typing import Any, Optional
 
@@ -53,7 +54,7 @@ def _pyplot() -> Any:
         raise ChartRenderError(
             CHART_RENDER_UNAVAILABLE,
             "matplotlib is not installed, so the chart cannot be drawn: "
-            f"{exc}",
+            f"{exc} (interpreter: {sys.executable})",
         ) from exc
     try:
         matplotlib.use("Agg", force=False)
@@ -61,7 +62,7 @@ def _pyplot() -> Any:
     except Exception as exc:  # noqa: BLE001
         raise ChartRenderError(
             CHART_RENDER_UNAVAILABLE,
-            f"matplotlib could not start: {exc}",
+            f"matplotlib could not start: {exc} (interpreter: {sys.executable})",
         ) from exc
     return plt
 
@@ -72,7 +73,7 @@ def _numpy() -> Any:
     except Exception as exc:  # noqa: BLE001
         raise ChartRenderError(
             CHART_RENDER_UNAVAILABLE,
-            f"numpy could not start: {exc}",
+            f"numpy could not start: {exc} (interpreter: {sys.executable})",
         ) from exc
     return np
 
