@@ -6,6 +6,17 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **fix(release): a blank `only` no longer rebuilds all three OSes, and the
+  release body stops describing downloads that do not exist.** `e6c21adc`
+  removed the macOS/Linux download links but left two traps: a manual
+  `workflow_dispatch` with `only` blank still built `ubuntu-latest` and
+  `macos-latest` (the slow path the Windows-first lane was meant to remove), and
+  the generated release body still told macOS/Linux users how to open an app
+  they cannot download. Blank `only` now resolves to `windows-latest` (name an OS
+  to backfill), and the body's **First open** paragraph is Windows-only. Same
+  semantics on a tag push, so no release path changed behaviour.
+  Docs updated: `docs/UPDATES.md` (backfill table, iterate note).
+
 - **fix(ci): regenerate the published benchmark page for 0.4.15.** Every push
   since v0.4.13 failed `test_published_benchmarks` because
   `docs/harness/benchmarks.md` still said `agent version: 0.4.12` (and pointed at

@@ -227,7 +227,7 @@ attach the other platforms by running the workflow again:
 | Tag push | — | Windows installer + `SHA256SUMS.txt`, as a draft |
 | Backfill | `tag: v0.4.16`, `only: macos-latest`, `upload_release: true` | `.dmg` attached to the same release |
 | Backfill | `tag: v0.4.16`, `only: ubuntu-latest`, `upload_release: true` | `.deb` attached |
-| Full rebuild | `tag: v0.4.16`, `upload_release: true` (blank `only`) | all three |
+| Re-tag | `tag: v0.4.16`, `upload_release: true` (blank `only`) | Windows only — name an OS for anything else |
 
 A backfill preserves the release's existing state — `action-gh-release` updates
 with `draft: existingRelease.draft`, so it never re-drafts or unpublishes what
@@ -237,7 +237,7 @@ with `npm run check:downloads -- --all`.
 
 ### Iterating on a release build
 
-A tag push builds Windows only; a manual run can build any subset. While
+A tag push builds Windows only; a manual run builds one named OS. While
 iterating, run the workflow by hand (`workflow_dispatch`) instead:
 
 - `tag: v0.4.16` names the release and checks out exactly that commit. A

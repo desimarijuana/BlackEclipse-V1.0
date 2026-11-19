@@ -23,7 +23,7 @@ on:
         type: string
         default: ""
       only:
-        description: "Fast lane: build only one OS (windows-latest | ubuntu-latest | macos-latest). Blank = all three."
+        description: "Build one OS (windows-latest | ubuntu-latest | macos-latest). Blank = Windows only, same as a tag push."
         type: string
         default: ""
       offline_installer:
@@ -131,15 +131,16 @@ jobs:
       # filtered-out OS would add that OS back.
       #
       #   workflow_dispatch with `only`  -> exactly that OS
-      #   tag push                      -> WINDOWS FIRST
-      #   workflow_dispatch, no `only`  -> all three (the full backfill)
+      #   tag push                      -> Windows only
+      #   workflow_dispatch, no `only`  -> Windows only (never all three by
+      #                                    accident: a backfill must name its OS)
       #
       # Windows-first is deliberate: Windows is where the installed user base
       # is, and a fix's draft release is ready in ~15 minutes instead of waiting
       # for the slowest runner. macOS and Linux attach to the same release from a
-      # manual run (see docs/UPDATES.md, "Windows-first tags").
+      # manual run that passes `only` (see docs/UPDATES.md, "Windows-first tags").
       matrix:
-        os: ${{ fromJSON(inputs.only != '' && format('["{0}"]', inputs.only) || (github.event_name == 'push' && '["windows-latest"]') || '["windows-latest","ubuntu-latest","macos-latest"]') }}
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.only != '') && format('["{0}"]', inputs.only) || '["windows-latest"]') }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -439,10 +440,8 @@ jobs:
             the SHA-256 recorded in its build; you never download a pack by hand.
             The `-full` installer already contains every pack.
 
-            **First open.** None of the builds are code-signed, so the OS asks once:
-            Windows SmartScreen → **More info → Run anyway**; macOS → right-click
-            the app → **Open** (or `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`);
-            Linux → `sudo apt install ./BlackEclipse-linux-amd64.deb`.
+            **First open.** The build is not code-signed, so Windows asks once:
+            SmartScreen → **More info → Run anyway**.
 
             Your data lives in the platform data directory and survives uninstall.
             MT5 and computer-control are Windows-only.
