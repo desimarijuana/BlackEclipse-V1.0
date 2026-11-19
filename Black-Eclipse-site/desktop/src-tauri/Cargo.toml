@@ -24,9 +24,15 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 window-vibrancy = "0.6"
 
+# The shell is a thin Tauri wrapper, so its build time matters far more than a
+# few megabytes: `lto = true` + `codegen-units = 1` is the slowest configuration
+# Rust offers (the final binary is emitted and linked single-threaded), and it
+# was rebuilt on every release. Thin LTO with the default parallel codegen units
+# keeps the stripped binary the same order of size while letting 12 cores do the
+# work — a rebuild drops from tens of minutes to a couple.
 [profile.release]
 opt-level = "s"
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 panic = "abort"
 strip = true

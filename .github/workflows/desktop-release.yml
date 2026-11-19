@@ -18,12 +18,24 @@ on:
         description: "Upload to a GitHub Release (otherwise artifacts only)"
         type: boolean
         default: false
+      tag:
+        description: "Release tag to build and publish, e.g. v0.4.16. Required when upload_release is true (a dispatch otherwise builds the branch)."
+        type: string
+        default: ""
       only:
         description: "Fast lane: build only one OS (windows-latest | ubuntu-latest | macos-latest). Blank = all three."
         type: string
         default: ""
       offline_installer:
         description: "Also build the offline (-full) Windows installer. Tag pushes always build it."
+        type: boolean
+        default: false
+      smoke_tests:
+        description: "Run the post-build smoke test. Tag pushes always run it."
+        type: boolean
+        default: true
+      publish:
+        description: "Publish the release immediately instead of creating a draft. Upload stable.json right after."
         type: boolean
         default: false
 
@@ -44,6 +56,10 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # A dispatch builds the branch unless a tag is named. A release must be
+          # built from exactly the commit the signed update manifest points at.
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -110,15 +126,27 @@ jobs:
       BE_SMOKE_HARNESS_MS: "420000"
     strategy:
       fail-fast: false
-      # The `only` fast lane has to filter HERE, before the matrix expands: a
-      # job-level `if` cannot see `matrix` (see the note above), and an `include`
-      # entry for a filtered-out OS would add that OS back. One OS takes ~20
-      # minutes; all three take as long as the slowest (~40-60).
+      # The matrix has to be filtered HERE, before it expands: a job-level `if`
+      # cannot see `matrix` (see the note above), and an `include` entry for a
+      # filtered-out OS would add that OS back.
+      #
+      #   workflow_dispatch with `only`  -> exactly that OS
+      #   tag push                      -> WINDOWS FIRST
+      #   workflow_dispatch, no `only`  -> all three (the full backfill)
+      #
+      # Windows-first is deliberate: Windows is where the installed user base
+      # is, and a fix's draft release is ready in ~15 minutes instead of waiting
+      # for the slowest runner. macOS and Linux attach to the same release from a
+      # manual run (see docs/UPDATES.md, "Windows-first tags").
       matrix:
-        os: ${{ fromJSON(inputs.only == '' && '["windows-latest","ubuntu-latest","macos-latest"]' || format('["{0}"]', inputs.only)) }}
+        os: ${{ fromJSON(inputs.only != '' && format('["{0}"]', inputs.only) || (github.event_name == 'push' && '["windows-latest"]') || '["windows-latest","ubuntu-latest","macos-latest"]') }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # A dispatch builds the branch unless a tag is named. A release must be
+          # built from exactly the commit the signed update manifest points at.
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -126,7 +154,13 @@ jobs:
           cache: npm
           cache-dependency-path: Black-Eclipse-site/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      # Pinned, not floating `stable`: a toolchain bump silently invalidates
+      # every Rust fingerprint in the cached target dir, so a release with no
+      # Rust change pays for a cold rebuild. Bump deliberately (Cargo.toml's
+      # rust-version is the floor).
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # pinned
+        with:
+          toolchain: "1.99.0"
 
       - name: Cache Cargo
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -280,14 +314,14 @@ jobs:
 
       # --- runtime smoke: a binary that compiles is not an app that runs ------
       - name: Smoke test (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && (github.event_name == 'push' || inputs.smoke_tests)
         working-directory: Black-Eclipse-site
         shell: bash
         timeout-minutes: 15
         run: node scripts/desktop-smoke.js
 
       - name: Smoke test (Linux, install the deb on Xvfb)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && (github.event_name == 'push' || inputs.smoke_tests)
         working-directory: Black-Eclipse-site
         shell: bash
         timeout-minutes: 15
@@ -301,7 +335,7 @@ jobs:
       # failure (and the smoke now prints the runtime's own log lines), but the
       # release can ship the platforms that built and passed.
       - name: Smoke test (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest' && (github.event_name == 'push' || inputs.smoke_tests)
         working-directory: Black-Eclipse-site
         shell: bash
         timeout-minutes: 15
@@ -370,7 +404,14 @@ jobs:
       - name: Publish the GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          draft: true
+          # On a dispatch `github.ref_name` is the BRANCH, so the release must be
+          # told which tag it belongs to. A tag push resolves to itself.
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          # A tag push still creates a DRAFT (the signed manifest is deliberately
+          # produced offline, never in CI). A dispatch that sets `publish` ships
+          # the platforms it built right away, so a Windows-only fast lane can go
+          # live in ~15 minutes and the other platforms are attached later.
+          draft: ${{ !inputs.publish }}
           generate_release_notes: true
           body: |
             ## Download

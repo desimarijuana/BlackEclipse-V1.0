@@ -6,6 +6,65 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **feat(release): tag builds are Windows-first, and macOS/Linux attach
+  later.** A tag push now builds only `windows-latest`, so the draft release
+  exists in ~15 minutes instead of waiting for the slowest runner — Windows is
+  where the installed user base is, and a packaged install can only receive a
+  fix by installing a new build (the in-app updater needs a git checkout and
+  `node_modules`, which a packaged payload does not ship). The other platforms
+  attach to the same release from a manual run (`tag: vX.Y.Z`,
+  `only: macos-latest|ubuntu-latest`, `upload_release: true`); that run preserves
+  the release's existing draft/published state, because `action-gh-release`
+  updates with `draft: existingRelease.draft`. The workflow also gains `tag`
+  (a dispatch otherwise builds the branch ref) and `publish` (promote a draft)
+  inputs, and a blank `only` still builds all three on demand.
+  Docs updated: `docs/UPDATES.md` (Windows-first tags, backfill, and why packaged
+  installs need an installer).
+
+- **perf(chat): opening the app no longer serializes the entire chat archive.**
+  `GET /api/chat/transcript` returned every message body of every conversation;
+  on the reference host that was 16 MB / 177 conversations, parsed, stringified,
+  gzipped and parsed again in the WebView on every boot — a multi-second block
+  on the single Node thread that queued the page's other API calls behind it
+  (measured 5–10 s boot requests). The boot path now asks for `?summary=1`
+  (metadata + `messageCount`, `messages: []`) and hydrates one conversation with
+  `?chatId=…` when it is opened; the full list remains the default for
+  migrations/external callers. Files: `src/app/api/chat/transcript/route.ts`,
+  `src/lib/chat/session-store.ts` (`summarizeTranscript`),
+  `src/lib/chat/chat-organization.ts` (`messageCount` survives merges),
+  `src/lib/chat/transcript-client.ts`, `src/lib/chat/use-conversation-persistence.ts`
+  (`hydrateConversation`), `src/components/screens/stock-chat.tsx`.
+  Docs updated: `docs/ARCHITECTURE.md` (conversation persistence).
+
+- **perf(desktop): the Tauri shell no longer builds with the slowest Rust
+  settings available.** `desktop/src-tauri/Cargo.toml` had `lto = true` with
+  `codegen-units = 1`, so the final binary was code-generated and linked
+  single-threaded on every release — tens of minutes for a thin WebView wrapper
+  whose Next payload is two orders of magnitude larger than the few MB those
+  settings saved. It is now `lto = "thin"` with the default parallel codegen
+  units, still stripped. The release workflow also pins the Rust toolchain
+  (`1.99.0`) instead of floating `stable`, because a toolchain bump invalidates
+  every fingerprint in the cached `target` dir and quietly turns a warm build
+  cold, and adds a `smoke_tests` dispatch input (a tag push always runs the
+  smoke test).
+  Docs updated: `docs/UPDATES.md` (iterating on a release build).
+
+- **fix(updates): the in-app updater compares against the window that is
+  actually running, not the checkout on disk.** The runner read
+  `package.json` from the working tree to decide "already up to date". On a
+  bridged/pinned install the checkout can be ahead of the served build (here:
+  running **0.4.12**, checkout **0.4.15**, signed release **0.4.14**), so every
+  click on *Update now* exited with "already up to date (v0.4.15)" without
+  building anything. Worse, the job recorded `fromVersion: 0.4.15`, which
+  `readUpdateJob` correctly treated as a spent receipt for an app running
+  0.4.12 and hid — the panel silently returned to "Update available", a loop
+  with no error. The running version now travels with the request
+  (`be-update {currentVersion}` → `--running-version`; the HTTP fallback passes
+  `BE_UPDATE_RUNNING_VERSION`) into `update.js` and `update-apply.js`; the
+  no-op branch records the running version as `toVersion` so a finished job can
+  never claim a build that was not made. `black update` is unchanged (no flag →
+  disk version). Docs updated: `docs/UPDATES.md`.
+
 - **perf(release): a tag build stops paying for work it already did.** The
   `only` fast-lane input was dead — it is accepted by `workflow_dispatch` and
   never read, so the "one OS, ~20 minutes" lane silently built all three. It now

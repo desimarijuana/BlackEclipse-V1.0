@@ -206,26 +206,6 @@ gh release upload v0.4.0 release/stable.json --clobber
 `scripts/update-sign.js` self-verifies against the committed public key before
 writing the file: a manifest users cannot verify is worse than no manifest.
 
-### Iterating on a release build
-
-A tag push builds all three platforms. While iterating, run the workflow by
-hand (`workflow_dispatch`) instead:
-
-- `only: windows-latest` (or `ubuntu-latest` / `macos-latest`) builds a single
-  platform. This now actually filters the matrix — it used to be accepted and
-  ignored, so the "fast lane" still built all three.
-- `offline_installer: false` (the default for a manual run) skips the `-full`
-  Windows installer, whose pack compression is the slowest step in that job. A
-  tag push always builds it.
-- `upload_release: true` creates the draft release as well; leave it off for
-  artifacts only.
-
-The workflow also caches the vendored Python runtime (keyed on the requirement
-files) and the pip downloads per OS, restores the Rust `target` directory even
-when `Cargo.lock` changes, and no longer installs the Python stack twice on
-macOS/Linux: `scripts/setup-python.js` now targets the vendored interpreter on
-every platform, not only Windows.
-
 No `gh` CLI? The same two steps work in the browser: publish the GitHub release
 from the tag, then **Edit release → Attach binaries** and upload
 `release/stable.json`. The asset **must** be named exactly `stable.json`, because
@@ -235,6 +215,66 @@ The app reads `stable.json` from the release's stable asset URL
 (`releases/latest/download/stable.json`). For the **beta** channel, publish the
 manifest on a `beta` release/tag and use the `beta` URL in
 `config/updates.json`; the wire format is identical.
+
+### Windows-first tags
+
+A tag push builds **Windows only**, so the draft release is ready in ~15 minutes
+instead of waiting for the slowest runner. Sign and publish it as usual, then
+attach the other platforms by running the workflow again:
+
+| Run | Inputs | Result |
+|---|---|---|
+| Tag push | — | Windows installer + `SHA256SUMS.txt`, as a draft |
+| Backfill | `tag: v0.4.16`, `only: macos-latest`, `upload_release: true` | `.dmg` attached to the same release |
+| Backfill | `tag: v0.4.16`, `only: ubuntu-latest`, `upload_release: true` | `.deb` attached |
+| Full rebuild | `tag: v0.4.16`, `upload_release: true` (blank `only`) | all three |
+
+A backfill preserves the release's existing state — `action-gh-release` updates
+with `draft: existingRelease.draft`, so it never re-drafts or unpublishes what
+you already shipped. Until it runs, the macOS and Linux links in the release body
+are 404; `npm run check:downloads` reports exactly that.
+
+### Iterating on a release build
+
+A tag push builds Windows only; a manual run can build any subset. While
+iterating, run the workflow by hand (`workflow_dispatch`) instead:
+
+- `tag: v0.4.16` names the release and checks out exactly that commit. A
+  dispatch otherwise builds the branch, and a release built from a branch is not
+  the commit the signed manifest points at — so set it whenever
+  `upload_release` is on.
+- `only: windows-latest` (or `ubuntu-latest` / `macos-latest`) builds a single
+  platform. This now actually filters the matrix — it used to be accepted and
+  ignored, so the "fast lane" still built all three.
+- `offline_installer: false` (the default for a manual run) skips the `-full`
+  Windows installer, whose pack compression is the slowest step in that job. A
+  tag push always builds it.
+- `upload_release: true` creates the draft release as well; leave it off for
+  artifacts only.
+- `smoke_tests: false` skips the post-build smoke test. A tag push always runs
+  it; use it only to measure a build you are still iterating on.
+- `publish: true` publishes the release instead of leaving it a draft. Use it to
+  promote a finished draft.
+- Upload `stable.json` right after publishing — the update check polls
+  `releases/latest/download/stable.json`, and a published release without it
+  answers 404.
+
+The Tauri shell's release profile is tuned for build time (`lto = "thin"`,
+parallel codegen units) because the shell is a thin WebView wrapper and is
+rebuilt on every release. The Rust toolchain is pinned in the workflow for the
+same reason: a floating `stable` silently invalidates the cached `target` dir.
+
+**Why a new installer is still the update path for packaged users.** The in-app
+updater checks out the signed tag and rebuilds it, which needs a git checkout
+and `node_modules`. A packaged install ships only a compiled payload, so it has
+neither: an installed user receives a fix by installing the new build. That is
+why a Windows-first tag is the fast path, not the manifest alone.
+
+The workflow also caches the vendored Python runtime (keyed on the requirement
+files) and the pip downloads per OS, restores the Rust `target` directory even
+when `Cargo.lock` changes, and no longer installs the Python stack twice on
+macOS/Linux: `scripts/setup-python.js` now targets the vendored interpreter on
+every platform, not only Windows.
 
 ## How users are notified
 
@@ -323,6 +363,18 @@ never ends (`src/lib/updates/job.ts`). A **finished** job is read against the
 installed version: once the app is running a different version, the file is a
 spent receipt and is not returned. Without that, a CLI update left the old
 failure on screen forever.
+
+**The version that decides "is this newer?" is the running build, not the
+checkout on disk.** The window serves an immutable pinned build, so the working
+tree can be ahead of (or behind) what the user is looking at. The title-bar
+request therefore carries `currentVersion` (`be-update` →
+`--running-version`; the HTTP fallback sets `BE_UPDATE_RUNNING_VERSION`), and
+`update.js` / `update-apply.js` use that for the comparison and for the job's
+`fromVersion`. A no-op job records that same version as `toVersion`. Without
+this, a checkout newer than the signed release made every click exit
+"already up to date" and the job was hidden as a spent receipt — the panel
+went back to "Update available" with no error, forever. `black update` without
+the flag still uses `package.json`.
 
 Deliberate limits:
 
