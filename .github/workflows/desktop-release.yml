@@ -419,12 +419,13 @@ jobs:
             | Platform | File |
             |---|---|
             | **Windows 10/11** | [BlackEclipse-Setup.exe](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) |
-            | **macOS (Apple Silicon)** | [BlackEclipse-mac-arm64.dmg](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) |
-            | **Linux (amd64)** | [BlackEclipse-linux-amd64.deb](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) |
 
-            These are the same files the README buttons serve. The versioned
-            `BlackEclipse-Setup-<version>*.exe`, `BlackEclipse-<version>-<arch>.dmg`
-            and `blackeclipse_<version>_<arch>.deb` are identical copies.
+            This is the same file the README button serves. The versioned
+            `BlackEclipse-Setup-<version>*.exe` is an identical copy.
+
+            macOS and Linux builds are not published yet. When one is built on
+            request it is attached here as `BlackEclipse-mac-arm64.dmg` /
+            `BlackEclipse-linux-amd64.deb`.
 
             - `BlackEclipse-Setup-<version>-full.exe` — offline Windows edition,
               for a machine with no network.

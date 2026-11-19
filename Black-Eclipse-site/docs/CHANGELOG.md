@@ -6,6 +6,18 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **chore(marketing): Windows is the only advertised platform.** Removed the
+  macOS and Linux download buttons from the README and the macOS/Linux rows from
+  the release body and the install/requirements tables. Nothing links to an
+  artifact that is not published yet. The builds are not gone: the workflow
+  still produces `.dmg`/`.deb` on request (`only: macos-latest` /
+  `ubuntu-latest`). `check:downloads` now checks the Windows button by default
+  and takes `--all` to include the backfilled ones. `docs/install.md` records how
+  to turn macOS on later (Apple Developer membership + notarisation secrets,
+  backfill run, restore the button) and the shorter Linux path.
+  Docs: `README.md`, `docs/install.md`, `docs/public-readme.md`,
+  `docs/UPDATES.md`.
+
 - **feat(release): tag builds are Windows-first, and macOS/Linux attach
   later.** A tag push now builds only `windows-latest`, so the draft release
   exists in ~15 minutes instead of waiting for the slowest runner — Windows is

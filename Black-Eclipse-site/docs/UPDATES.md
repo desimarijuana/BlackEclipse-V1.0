@@ -231,8 +231,9 @@ attach the other platforms by running the workflow again:
 
 A backfill preserves the release's existing state — `action-gh-release` updates
 with `draft: existingRelease.draft`, so it never re-drafts or unpublishes what
-you already shipped. Until it runs, the macOS and Linux links in the release body
-are 404; `npm run check:downloads` reports exactly that.
+you already shipped. macOS and Linux are not advertised (no README button and no
+link in the release body) until you decide to publish them; verify a backfill
+with `npm run check:downloads -- --all`.
 
 ### Iterating on a release build
 

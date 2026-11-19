@@ -4,9 +4,9 @@
 
 **Research. Analyze. Build. Automate. Trade.**
 
-[![Download for Windows](.github/assets/download-windows.svg)](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe)&nbsp;&nbsp;&nbsp;&nbsp;[![Download for Linux](.github/assets/download-linux.svg)](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb)&nbsp;&nbsp;&nbsp;&nbsp;[![Download for macOS](.github/assets/download-macos.svg)](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg)
+[![Download for Windows](.github/assets/download-windows.svg)](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe)
 
-<sub>All installers are unsigned — [verify the SHA-256](#install) before running. Linux and macOS builds are not notarised yet, so expect a Gatekeeper warning. [All releases](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases).</sub>
+<sub>The Windows installer is unsigned — [verify the SHA-256](#install) before running. macOS and Linux builds are not published yet. [All releases](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases).</sub>
 
 ![Core license: MIT](https://img.shields.io/badge/core%20license-MIT-green)
 ![Pine engine: AGPL-3.0-only](https://img.shields.io/badge/pine%20engine-AGPL--3.0--only-orange)
@@ -201,11 +201,13 @@ The six steps below are the reason the pieces exist in one place.
 
 ## Install
 
-**The desktop app** — take the installer for your platform:
-[Windows](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) ·
-[Linux](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-linux-amd64.deb) ·
-[macOS](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-mac-arm64.dmg) ·
+**The desktop app** — Windows 10/11 (x64):
+[Download for Windows](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases/latest/download/BlackEclipse-Setup.exe) ·
 [all releases](https://github.com/dumbpabloo/BlackEclipse-V1.0/releases).
+
+macOS and Linux builds are not published yet. The build pipeline keeps producing
+them on request; there is no download button until one has been built,
+notarised and tested.
 
 Or from a terminal — the same artifact, verified and installed:
 
@@ -215,15 +217,9 @@ irm https://raw.githubusercontent.com/dumbpabloo/BlackEclipse-V1.0/main/Black-Ec
 ./install-release.ps1
 ```
 
-```bash
-# Linux (amd64) and macOS (Apple silicon)
-curl -fsSLO https://raw.githubusercontent.com/dumbpabloo/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.sh
-bash install-release.sh
-```
-
-Both scripts resolve `releases/latest`, compare the download against the
-release's SHA-256, and can pin an exact version (`-Version` / `--version`) or
-digest (`-Sha256` / `--sha256`). Details: [docs/install.md](Black-Eclipse-site/docs/install.md).
+The script resolves `releases/latest`, compares the download against the
+release's SHA-256, and can pin an exact version (`-Version`) or digest
+(`-Sha256`). Details: [docs/install.md](Black-Eclipse-site/docs/install.md).
 
 **From source** — for contributors, and it needs the installed shell (or Rust):
 
@@ -242,7 +238,7 @@ window opens.
 
 | Requirement | Detail |
 |---|---|
-| **Operating system** | Windows 10/11 (x64) · Debian/Ubuntu amd64 (`.deb`) · macOS on Apple silicon (`.dmg`) |
+| **Operating system** | Windows 10/11 (x64). macOS and Linux builds exist but are not published yet |
 | **Administrator rights** | **None.** Per-user install to `%LOCALAPPDATA%\Programs\BlackEclipse`; the NSIS manifest is `RequestExecutionLevel user` |
 | **Node.js, Python, SQLite** | **Not required** — all three ship inside the payload |
 | **Account, sign-in, telemetry** | None. The app runs entirely on your machine |
@@ -267,22 +263,15 @@ supported hosted provider or configure a local Ollama provider in
 | Platform | Artifact | Signing |
 |---|---|---|
 | Windows 10/11 (x64) | `BlackEclipse-Setup.exe` (NSIS) | unsigned |
-| Linux (amd64) | `BlackEclipse-linux-amd64.deb` | unsigned |
-| macOS (Apple silicon) | `BlackEclipse-mac-arm64.dmg` | unsigned — no Apple Developer certificate is configured, so Gatekeeper will warn |
 
-**Verify before you run it.** The installers are unsigned. Windows releases
-publish `SHA256SUMS.txt` next to the binary; the one-command scripts check it for
-you and print the digest in every case. To check by hand:
+**Verify before you run it.** The installer is unsigned. Windows releases publish
+`SHA256SUMS.txt` next to the binary; the one-command script checks it for you and
+prints the digest in every case. To check by hand:
 
 ```powershell
 # Windows PowerShell
 Get-FileHash .\BlackEclipse-Setup.exe -Algorithm SHA256
 # compare the output with the line for that file in SHA256SUMS.txt
-```
-
-```bash
-# macOS / Linux (Linux and macOS releases publish no checksum file yet)
-shasum -a 256 BlackEclipse-mac-arm64.dmg   # or: sha256sum BlackEclipse-linux-amd64.deb
 ```
 
 A mismatch means the download is not the artifact we published — delete it.

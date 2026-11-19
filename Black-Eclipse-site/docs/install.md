@@ -1,7 +1,7 @@
 ---
 title: Install
 status: Current
-last-verified: 2026-11-17
+last-verified: 2026-11-19
 ---
 
 # Install
@@ -33,14 +33,11 @@ irm https://raw.githubusercontent.com/dumbpabloo/BlackEclipse-V1.0/main/Black-Ec
 ./install-release.ps1
 ```
 
-```bash
-# Linux (amd64) and macOS (Apple silicon)
-curl -fsSLO https://raw.githubusercontent.com/dumbpabloo/BlackEclipse-V1.0/main/Black-Eclipse-site/scripts/install-release.sh
-bash install-release.sh
-```
-
 Files: [`scripts/install-release.ps1`](../scripts/install-release.ps1),
-[`scripts/install-release.sh`](../scripts/install-release.sh).
+[`scripts/install-release.sh`](../scripts/install-release.sh). The `.sh` script
+still handles Linux/macOS, but **those builds are not published yet**, so there is
+no advertised one-command install for them — see
+[macOS and Linux](#macos-and-linux-not-published-yet).
 
 | Flag (`.ps1` / `.sh`) | Effect |
 |---|---|
@@ -52,8 +49,9 @@ Files: [`scripts/install-release.ps1`](../scripts/install-release.ps1),
 | `-Repo <owner/name>` / `--repo <owner/name>` | Override the release repository |
 
 Windows installs per-user to `%LOCALAPPDATA%\Programs\BlackEclipse` (no
-administrator prompt). Linux installs the `.deb` through `apt-get`/`dpkg`.
-macOS copies `Black Eclipse.app` to `/Applications`.
+administrator prompt). Linux installs the `.deb` through `apt-get`/`dpkg`, and
+macOS copies `Black Eclipse.app` to `/Applications` — both paths work in the
+scripts but are dormant until those artifacts are published.
 
 ## What the scripts verify - and what they do not
 
@@ -110,6 +108,38 @@ installer, which already contains every pack.
 
 Removing the app does not delete your data directory; delete it yourself if you
 want a truly clean slate.
+
+## macOS and Linux (not published yet)
+
+The release workflow still produces both — a `.dmg` (Apple silicon) and a `.deb`
+(amd64) — but neither is published or advertised: only Windows has a download
+button and a release asset. That is a scope decision, not a missing build.
+
+**Turning macOS on later:**
+
+1. Join the Apple Developer Program and add `APPLE_ID`, `APPLE_TEAM_ID` and
+   `APPLE_APP_PASSWORD` as repository secrets. The workflow's notarisation step
+   (C5) is already written and stays skipped until they exist. An unsigned
+   `.dmg` still installs, but Gatekeeper blocks the first launch until the user
+   right-clicks → **Open** (or runs
+   `xattr -dr com.apple.quarantine "/Applications/Black Eclipse.app"`) — a poor
+   first impression for a fund or a home user.
+2. Run the workflow by hand: `tag: vX.Y.Z`, `only: macos-latest`,
+   `upload_release: true`. It attaches the `.dmg` to the same release, without
+   re-drafting or unpublishing it.
+3. Restore the macOS button in `README.md`
+   (`releases/latest/download/BlackEclipse-mac-arm64.dmg`), and re-add its row to
+   the signing/checksum table.
+
+Linux is the same minus notarisation: run `only: ubuntu-latest` and restore the
+button.
+
+**How those users update later.** Exactly like Windows today: a packaged install
+has no git checkout, so the in-app updater cannot rebuild it — they install the
+new `.dmg`/`.deb`. The release page is the download page; re-running the backfill
+is what publishes the new build. True in-app updates for packaged installs on
+every platform would mean adopting Tauri's updater plugin — a separate, larger
+change.
 
 ## Changing the delivery path
 

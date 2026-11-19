@@ -175,18 +175,22 @@ cd Black-Eclipse-site
 node -e "require('sharp')('../.github/assets/social-card.svg',{density:144}).resize(1280,640).png().toFile('../.github/assets/social-card.png')"
 ```
 
-`.github/assets/download-windows.svg`, `download-linux.svg` and
-`download-macos.svg` are the README's three download buttons. They sit on **one
-line** at GitHub's default README width (249 + 220 + 231 px plus gaps = 716 px
-inside an ~880 px column), with the download glyph on the **left** of the label.
-If a fourth platform is ever added, shrink the existing three rather than letting
-the row wrap — a wrapped row reads as one big button and two strays.
+`.github/assets/download-windows.svg` is the README's only download button.
+`download-linux.svg` and `download-macos.svg` still exist, but they are **not
+linked**: macOS and Linux builds are produced on request and not published yet,
+and a button that 404s is worse than no button. When one ships, restore its
+button on the same line (the row is measured: 249 + 220 + 231 px plus gaps = 716
+px inside an ~880 px column), with the download glyph on the **left** of the
+label. Shrink the existing buttons rather than letting the row wrap — a wrapped
+row reads as one big button and two strays.
 
-The buttons carry **a glyph and a label, nothing else**: no size, no "no admin", no
-architecture. That detail lives in the Install table, where someone who cares about
-signing and SDK requirements will look. The primary button (Windows) is a filled
-lime surface with no border; the secondaries carry a **1px** border (`#2b2f33`) so
-they hold an edge on a dark page without out-shouting the primary.
+If macOS and Linux are restored, they are secondaries and carry a **1px** border
+(`#2b2f33`) so they hold an edge on a dark page without out-shouting the primary.
+
+The button carries **a glyph and a label, nothing else**: no size, no "no admin",
+no architecture. That detail lives in the Install table, where someone who cares
+about signing and SDK requirements will look. It is a filled lime surface with no
+border.
 
 Widths are **measured, not estimated**: render the label with `sharp`, `trim()` it,
 and add `PAD_L + ICON_W + GAP + textW + PAD_R`. Two earlier attempts were rejected on
@@ -197,11 +201,11 @@ Each is pinned to a **version-independent** release alias,
 because `releases/latest/download/<name>` is the only link that survives a version
 bump:
 
-| Button | Stable name | Produced by |
-|---|---|---|
-| Windows | `BlackEclipse-Setup.exe` | `scripts/desktop-installer.js` |
-| Linux (amd64) | `BlackEclipse-linux-amd64.deb` | `scripts/desktop-bundle.js` (`buildDeb`) |
-| macOS (Apple silicon) | `BlackEclipse-mac-arm64.dmg` | `scripts/desktop-bundle.js` (`buildMac`) |
+| Platform | Stable name | Produced by | Published |
+|---|---|---|---|
+| Windows | `BlackEclipse-Setup.exe` | `scripts/desktop-installer.js` | yes |
+| Linux (amd64) | `BlackEclipse-linux-amd64.deb` | `scripts/desktop-bundle.js` (`buildDeb`) | no — built on request |
+| macOS (Apple silicon) | `BlackEclipse-mac-arm64.dmg` | `scripts/desktop-bundle.js` (`buildMac`) | no — built on request |
 
 Never point a button at a versioned filename. macOS keeps the architecture in the
 name because only one arch is produced per runner and an Intel Mac cannot launch an

@@ -18,16 +18,20 @@
 //
 //   npm run check:downloads
 //   npm run check:downloads -- --version 0.4.0 --repo owner/name
+//   npm run check:downloads -- --all          # include macOS/Linux (backfill)
 //
-// Exit 0 = every button serves a file. Exit 1 = at least one does not.
+// Exit 0 = every checked button serves a file. Exit 1 = at least one does not.
 
 const DEFAULT_REPO = process.env.BLACK_ECLIPSE_REPO || "dumbpabloo/BlackEclipse-V1.0";
 
-// The aliases the README buttons point at. The release workflow asserts each of
-// these exists before it publishes, so a name here that 404s on a public repo
-// is a publication problem, not a naming one.
-const ASSETS = [
-  "BlackEclipse-Setup.exe",
+// The alias the README button points at. The release workflow asserts it exists
+// before it publishes, so a name here that 404s on a public repo is a
+// publication problem, not a naming one.
+const ASSETS = ["BlackEclipse-Setup.exe"];
+
+// Built on request, not published and not advertised (docs/install.md). Check
+// them with `--all` after a backfill; a missing one is not a broken button.
+const UNPUBLISHED_ASSETS = [
   "BlackEclipse-linux-amd64.deb",
   "BlackEclipse-mac-arm64.dmg",
 ];
@@ -47,9 +51,12 @@ function arg(name, fallback) {
 
 const repo = arg("repo", DEFAULT_REPO);
 const version = arg("version", "latest");
-const assets = arg("assets", "")
-  ? arg("assets", "").split(",").map((a) => a.trim()).filter(Boolean)
-  : ASSETS;
+const explicitAssets = arg("assets", "");
+const assets = explicitAssets
+  ? explicitAssets.split(",").map((a) => a.trim()).filter(Boolean)
+  : process.argv.includes("--all")
+    ? [...ASSETS, ...UNPUBLISHED_ASSETS]
+    : ASSETS;
 
 if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
   console.error(`[downloads] --repo must look like owner/name (got "${repo}").`);
