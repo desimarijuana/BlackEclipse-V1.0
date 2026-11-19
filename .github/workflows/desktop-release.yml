@@ -74,6 +74,10 @@ jobs:
           name: next-payload
           # webpack's build cache is an input, not product: shipping it would
           # add hundreds of MB to every download for no benefit.
+          # .next-desktop starts with a dot: upload-artifact v4 skips hidden
+          # paths by default, so without this the payload silently uploads
+          # NOTHING and the job dies with "No files were found".
+          include-hidden-files: true
           path: |
             Black-Eclipse-site/.next-desktop
             !Black-Eclipse-site/.next-desktop/cache
