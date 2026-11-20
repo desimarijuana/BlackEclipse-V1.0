@@ -279,8 +279,24 @@ function verifyEnvelope(envelopeJson, publicKeyPem, expectedChannel) {
   return payload;
 }
 
+/**
+ * GitHub's `releases/latest/download/...` URL is CDN-cached: a manifest
+ * published minutes ago can still serve the PREVIOUS release from an edge.
+ * The manifest is a public static file, so a per-request cache-buster is
+ * harmless and makes a revalidation mean "now", not "whatever the edge has".
+ */
+function cacheBusted(url) {
+  try {
+    const next = new URL(url);
+    next.searchParams.set("ts", String(Date.now()));
+    return next.toString();
+  } catch {
+    return url;
+  }
+}
+
 async function fetchManifest(channel, cfg) {
-  const url = resolveManifestUrl(channel, cfg);
+  const url = cacheBusted(resolveManifestUrl(channel, cfg));
   let res;
   try {
     res = await fetch(url, {

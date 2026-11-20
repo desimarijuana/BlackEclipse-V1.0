@@ -301,6 +301,9 @@ every platform, not only Windows.
   published just after a check must not stay invisible for hours). `?refresh=1`
   (Settings › Check now, and the panel's refresh) bypasses the cache; the client
   interval plus focus checks make a short TTL timely without hammering GitHub.
+  Each fetch carries a per-request `ts` query: GitHub's `latest/download` URL is
+  CDN-cached, and without it a just-published manifest can serve the previous
+  release from an edge (seen after v0.4.17 went live).
 - The banner appears only when the manifest verifies and the version is newer.
   It offers **How to update** (copy `black update`), **What's new**, **Skip this
   version**, and dismiss.
