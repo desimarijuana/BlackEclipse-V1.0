@@ -70,6 +70,8 @@ export interface NotificationRequest {
   alertId?: string;
   /** Test raises a toast but is never recorded in the center. */
   test?: boolean;
+  /** Transient app notice (e.g. an update): toast only, no ledger item/badge. */
+  transient?: boolean;
 }
 
 export const NOTIFICATIONS_STORAGE_KEY = 'be_notifications_v1';

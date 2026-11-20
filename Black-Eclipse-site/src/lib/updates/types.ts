@@ -31,6 +31,12 @@ export interface UpdateStatus {
   mandatory: boolean;
   notesUrl: string | null;
   downloadUrl: string | null;
+  /**
+   * The signed installer for THIS host's platform, from the verified manifest.
+   * The UI links it directly; the runner downloads and SHA-256-verifies the
+   * same bytes before it runs them. Null when the manifest has none.
+   */
+  installer: UpdateInstallerAsset | null;
   publishedAt: string | null;
   /** Human-readable, safe to show. No stack traces or raw upstream bodies. */
   error: string | null;

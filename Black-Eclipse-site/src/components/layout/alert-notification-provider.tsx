@@ -70,7 +70,7 @@ export function AlertNotificationProvider() {
       // runtime input, not a compile-time SoundName.
       if (req.sound && isSoundName(req.sound)) sound.play(req.sound);
       // A test raise is a settings probe, not an event — never badge.
-      if (!req.test) {
+      if (!req.test && !req.transient) {
         useNotificationsStore.getState().push({
           id: req.id,
           tab: req.tab ?? 'alerts',

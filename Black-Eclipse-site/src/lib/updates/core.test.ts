@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   assertSafeUrl,
   compareVersions,
+  installerForPlatform,
   isNewerVersion,
   isSourceCheckout,
   parseVersion,
@@ -69,6 +70,20 @@ describe("version comparison", () => {
     expect(isNewerVersion("0.4.0", "0.3.0")).toBe(true);
     expect(isNewerVersion("0.3.0", "0.4.0")).toBe(false);
     expect(isNewerVersion("0.4.0", "0.4.0")).toBe(false);
+  });
+});
+
+describe("installer asset selection", () => {
+  const asset = {
+    url: "https://github.com/o/r/releases/download/v1/Setup.exe",
+    sha256: "a".repeat(64),
+    size: 10,
+  };
+
+  it("picks the exact platform's signed installer, never another platform's", () => {
+    expect(installerForPlatform({ "win32-x64": asset }, "win32-x64")).toEqual(asset);
+    expect(installerForPlatform({ "win32-x64": asset }, "darwin-arm64")).toBeNull();
+    expect(installerForPlatform(undefined, "win32-x64")).toBeNull();
   });
 });
 

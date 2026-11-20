@@ -20,6 +20,7 @@ import path from "node:path";
 import {
   isUpdateChannel,
   type UpdateChannel,
+  type UpdateInstallerAsset,
   type UpdateManifestPayload,
   type UpdateStatus,
 } from "./types";
@@ -29,7 +30,12 @@ const CONFIG_PATH = path.join(ROOT, "config", "updates.json");
 const PUBLIC_KEY_PATH = path.join(ROOT, "config", "update-signing-key.pub");
 
 const ENVELOPE_SCHEMA = 1;
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+// How long a verified manifest answer may be reused WITHOUT revalidating.
+// It used to be 6 h, which meant a release published just after a check was
+// invisible for most of a day. The manifest is a sub-1 KB static asset on
+// GitHub's CDN, so a five-minute window is both safe and cheap; the UI polls
+// on a matching cadence and revalidates on focus/resume.
+const CACHE_TTL_MS = 5 * 60 * 1000;
 // GitHub answers through a redirect to release-assets, and a cold connection
 // has been measured at 6.4 s. 8 s turned a slow check into "could not reach".
 const FETCH_TIMEOUT_MS = 20_000;
@@ -298,6 +304,22 @@ export function resolveManifestUrl(channel: UpdateChannel, config: UpdateConfig)
 
 const cache = new Map<string, { at: number; status: UpdateStatus }>();
 
+/**
+ * The signed installer for one platform (`<platform>-<arch>`, e.g. `win32-x64`).
+ *
+ * The local server runs on the same machine as the window, so it picks the
+ * asset once — the UI never has to guess the OS from a user agent, and the
+ * download link it renders is the exact URL the runner will verify.
+ */
+export function installerForPlatform(
+  installers: Record<string, UpdateInstallerAsset> | undefined,
+  platform: string = `${process.platform}-${process.arch}`,
+): UpdateInstallerAsset | null {
+  if (!installers) return null;
+  const asset = installers[platform];
+  return asset && asset.url && asset.sha256 ? asset : null;
+}
+
 async function fetchManifest(channel: UpdateChannel, config: UpdateConfig): Promise<UpdateManifestPayload> {
   const url = resolveManifestUrl(channel, config);
   let response: Response;
@@ -345,6 +367,7 @@ function baseStatus(currentVersion: string, channel: UpdateChannel, repository: 
     mandatory: false,
     notesUrl: null,
     downloadUrl: null,
+    installer: null,
     publishedAt: null,
     error: null,
   };
@@ -403,6 +426,7 @@ export async function getUpdateStatus(options: {
       mandatory,
       notesUrl: manifest.notesUrl ?? null,
       downloadUrl: manifest.downloadUrl ?? null,
+      installer: installerForPlatform(manifest.installers),
       publishedAt: manifest.publishedAt ?? null,
       error: null,
     };

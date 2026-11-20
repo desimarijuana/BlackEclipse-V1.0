@@ -84,8 +84,12 @@ export function UpdateButton() {
   const available = Boolean(
     status?.ok && status.available && latest && latest !== prefs.skippedVersion,
   );
-  // A packaged install has no checkout to update; it installs the new release.
-  const manual = Boolean(available && status && !status.canSelfUpdate);
+  // A packaged install has no checkout, but it can still update in place: the
+  // desktop shell runs the verified installer runner (download + SHA-256
+  // check). Only a window with no shell bridge is limited to a download link.
+  const inAppUpdate = Boolean(available && status && (status.canSelfUpdate || shell));
+  const downloadOnly = Boolean(available && status && !inAppUpdate);
+  const downloadHref = status?.installer?.url ?? status?.notesUrl ?? status?.downloadUrl ?? null;
   const running = job?.status === 'running';
   // A finished stage is only worth showing while it is still the *next* version.
   // After the restart, the running build already equals it and the job is spent.
@@ -295,9 +299,11 @@ export function UpdateButton() {
                     : failed
                       ? job?.error || 'The updater stopped.'
                       : available
-                        ? manual
-                          ? `You're on v${status?.currentVersion}. This installed build updates by downloading the release and running its installer.`
-                          : `You're on v${status?.currentVersion}. The release manifest was signature-checked.`
+                        ? downloadOnly
+                          ? `You're on v${status?.currentVersion}. This window cannot apply updates itself — download the signed installer below.`
+                          : status?.canSelfUpdate
+                            ? `You're on v${status?.currentVersion}. The release manifest was signature-checked.`
+                            : `You're on v${status?.currentVersion}. Update now downloads the signed installer and verifies its SHA-256 before it runs.`
                         : checking
                           ? 'Checking for a newer signed release…'
                           : status?.error
@@ -381,9 +387,9 @@ export function UpdateButton() {
                 </pre>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                {manual && (status?.notesUrl || status?.downloadUrl) && (
+                {downloadOnly && downloadHref && (
                   <a
-                    href={status?.notesUrl ?? status?.downloadUrl ?? undefined}
+                    href={downloadHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 rounded-xl bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -392,7 +398,7 @@ export function UpdateButton() {
                     Download v{latest}
                   </a>
                 )}
-                {available && !manual && (
+                {available && inAppUpdate && (
                   <Button
                     size="sm"
                     className="cursor-pointer rounded-xl"

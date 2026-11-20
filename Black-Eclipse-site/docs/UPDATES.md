@@ -291,11 +291,16 @@ every platform, not only Windows.
 
 ## How users are notified
 
-- `UpdateBanner` waits ~6 s after boot, then calls `GET /api/updates`.
+- `UpdateBanner` checks ~2 s after boot, then every 10 minutes, and revalidates
+  when the window regains focus or the network returns (throttled). A new signed
+  release also raises a one-time toast per version, so it is not hidden behind
+  the title-bar dot.
 - The local server fetches the public manifest (20 s timeout — GitHub answers
   through a redirect and a cold connection has measured 6.4 s), verifies it, and
-  compares versions. The result is cached in-process for 6 hours; `?refresh=1`
-  (used by Settings › Check now) bypasses the cache.
+  compares versions. The result is cached in-process for **5 minutes** (a release
+  published just after a check must not stay invisible for hours). `?refresh=1`
+  (Settings › Check now, and the panel's refresh) bypasses the cache; the client
+  interval plus focus checks make a short TTL timely without hammering GitHub.
 - The banner appears only when the manifest verifies and the version is newer.
   It offers **How to update** (copy `black update`), **What's new**, **Skip this
   version**, and dismiss.
@@ -318,13 +323,17 @@ It opens a glass panel that reports the check honestly and can act.
 true only when the running app has a git checkout (`<root>/.git`). A **packaged
 install** — the normal user's app — ships a frozen payload under
 `<install>\app` and has no repository, so the git-based updater cannot run
-there. The panel and the banner therefore offer **Download vX** (the
-signature-checked `notesUrl`, where the installers are attached) instead of
-*Update now*; the user downloads the release and runs its installer. Both
-`POST /api/updates/apply` and `scripts/update-apply.js` refuse a packaged
-install with 409 / an explicit message, so an older UI cannot spawn a runner
-that can only fail. In-app staging below applies to **checkouts only**:
-
+there. It updates with the **signed installer** instead: the verified manifest
+carries `installers["<platform>-<arch>"]` (`url`, `sha256`, optional `size`), the
+server exposes this host's entry as `installer` on `/api/updates`, and *Update
+now* asks the desktop shell to run `scripts/update-apply.js` in installer mode —
+download to the data directory, verify the SHA-256 and size, then open the
+installer. The panel offers the same verified URL as a **Download vX** link when
+the window has no shell bridge. `POST /api/updates/apply` still refuses a
+packaged install (409): a runner spawned by the server would die with the server
+during the installer handoff, so the shell path is the one that works. In-app
+staging below applies to **checkouts**; a packaged install takes the installer
+branch:
 
 1. **Stage.** *Update now* asks the shell (Tauri event `be-update`,
    `{action:"apply"}`) to spawn `scripts/update-apply.js`; the shell runs it as

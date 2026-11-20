@@ -4,6 +4,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 — one file per month. This file keeps the newest seven dated sections;
 `npm run rotate:changelog -- --write` performs the move.
 
+## 2026-11-20
+
+- **fix(updates): a freshly published release is detected within minutes, announced, and installable from the window.** The verified manifest was cached for 6 hours and the client polled every 6 hours, so v0.4.16 stayed invisible to a window whose last check was 44 minutes before the publish. The server TTL is now **5 minutes**, and the client checks after 2 s, every **10 minutes**, and on focus / visibility / `online` (throttled) — a release published while the window is open surfaces within minutes. A newer version raises a **one-time toast** through the shared `be:alert-notify` channel (transient: no ledger badge) alongside the title-bar dot. Packaged installs can now update in place: the verified manifest's `installers[<platform>-<arch>]` is exposed as `installer` on `/api/updates`; *Update now* runs the shell's installer runner (download → SHA-256 + size verify → open), and the fallback download button points at that signed installer instead of the release page. Tests: `src/lib/updates/core.test.ts` (platform installer selection); `tsc` clean, updates/notifications suites pass. docs updated: `docs/UPDATES.md` (cadence + packaged installer path).
+
 ## 2026-11-19
 
 - **fix(build): the standalone payload build imported a `buildEnv` that was never defined.** `scripts/desktop-payload.js` gained `const { buildEnv } = require("./lib/server")` with the 6cfe77e7 changes, but `scripts/lib/server.js` never exported it, so `npm run desktop:payload` — and therefore every desktop release after v0.4.15 — died with `TypeError: buildEnv is not a function`. Restored the helper alongside `buildNodeOptions`: it merges the caller's overrides over `process.env` and applies the production heap. Verified locally; the v0.4.16 tag is re-cut onto this commit. no doc change — the bug and its fix are the code.
