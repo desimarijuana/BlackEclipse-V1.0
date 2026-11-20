@@ -1,7 +1,7 @@
 ---
 title: Updates & Release Signing
 status: Current
-last-verified: 2026-11-19
+last-verified: 2026-11-20
 ---
 
 # Updates & Release Signing
@@ -108,17 +108,19 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 
 Updates are **published**: the repository is
 `dumbpabloo/BlackEclipse-V1.0` (public), `config/updates.json` has
-`"published": true`, and a signed `stable.json` for **v0.4.15** is attached to
+`"published": true`, and a signed `stable.json` for **v0.4.16** is attached to
 that release. A live check therefore verifies the signature and reports *up to
-date* for anyone on 0.4.15; it starts offering a release as soon as a newer
+date* for anyone on 0.4.16; it starts offering a release as soon as a newer
 signed manifest exists.
 
-**v0.4.15 is published** (2026-11-19) with its manifest uploaded before the
+**v0.4.16 is published** (2026-11-20) with its manifest uploaded before the
 draft was promoted, and Windows is the only advertised download (macOS/Linux
-artifacts are opt-in backfills, see *Windows-first tags*). Its manifest predates
-the per-platform `installers` map, so packaged 0.4.15 installs still update
-through the git path only if they are a checkout; installer users need the
-release that ships both the manifest field and the downloader. The rule still
+artifacts are opt-in backfills, see *Windows-first tags*). Its manifest carries
+the per-platform `installers` map (`win32-x64`), so packaged installs can take
+the download path as well as checkouts. Verified after publishing:
+`node scripts/update.js --check` reports *latest signed release v0.4.16 / already
+up to date*, and `npm run check:downloads` resolves `BlackEclipse-Setup.exe` and
+`SHA256SUMS.txt`. The rule still
 holds for the next cut: the release workflow builds installers but never holds the
 signing key, so **sign and upload `stable.json` while the release is still a
 draft**. Publishing without it would 404 `releases/latest/download/stable.json`
