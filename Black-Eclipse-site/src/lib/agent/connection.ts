@@ -207,12 +207,15 @@ export function parseModelList(payload: unknown): string[] {
     if (!node) return;
     if (Array.isArray(node)) {
       for (const entry of node) {
-        if (typeof entry === "string") push(entry);
-        else if (entry && typeof entry === "object") {
+        if (typeof entry === "string") {
+          push(entry);
+        } else if (entry && typeof entry === "object") {
           const record = entry as Record<string, unknown>;
-          push(record.id);
-          push(record.name);
-          push(record.model);
+          // Prefer the wire id. A display `name` (e.g. "DeepSeek V4.1 Flash 1017")
+          // is NOT a valid model id and must not double the list.
+          if (typeof record.id === "string") push(record.id);
+          else if (typeof record.name === "string") push(record.name);
+          else push(record.model);
         }
       }
       return;

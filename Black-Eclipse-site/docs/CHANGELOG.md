@@ -6,6 +6,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(ai): provider tests use the selected endpoint.** A test for a provider
+  other than the saved one now uses THAT provider's default endpoint/model instead
+  of the saved base URL (which could be local Ollama). Model lists that carry a
+  wire id plus a display name keep only the id, so OpenCode's 31 models are not
+  doubled to 62. no doc change - probe/test bugfix.
+
 - **fix(ai): OpenCode Go now sends the required session header (v0.4.20).**
   OpenCode Go rejects any request without a stable `x-opencode-session` id
   (HTTP 400 `MissingSessionID`), which is why a valid key failed to connect.

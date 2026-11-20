@@ -61,6 +61,10 @@ function jsonResponse(body: unknown, status = 200) {
 describe("parseModelList", () => {
   it("reads the common response shapes and strips Google's models/ prefix", () => {
     expect(parseModelList({ data: [{ id: "a" }, { id: "b" }] })).toEqual(["a", "b"]);
+    // OpenCode returns both a wire id and a human label; only the id is a model.
+    expect(
+      parseModelList({ data: [{ id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash 1017" }] }),
+    ).toEqual(["deepseek-v4.1-flash"]);
     expect(parseModelList({ models: [{ name: "models/gemini-2.0-flash" }] })).toEqual([
       "gemini-2.0-flash",
     ]);

@@ -39,9 +39,23 @@ export async function POST(request: Request) {
       : explicitConnectionId
         ? "custom"
         : saved.provider;
+  const provider = getProvider(providerId);
+  // Testing a DIFFERENT provider than the saved one must use THAT provider's
+  // default endpoint/model. Falling back to saved.baseUrl silently probed
+  // whatever was active (e.g. local Ollama) while reporting the new provider's
+  // error.
   const baseUrl =
-    typeof body.baseUrl === "string" && body.baseUrl ? body.baseUrl : saved.baseUrl;
-  const model = typeof body.model === "string" && body.model ? body.model : saved.model;
+    typeof body.baseUrl === "string" && body.baseUrl
+      ? body.baseUrl
+      : saved.provider === providerId && saved.baseUrl
+        ? saved.baseUrl
+        : provider?.baseUrl ?? saved.baseUrl;
+  const model =
+    typeof body.model === "string" && body.model
+      ? body.model
+      : saved.provider === providerId && saved.model
+        ? saved.model
+        : provider?.model ?? saved.model;
   const connectionId =
     explicitConnectionId ?? (providerId === "custom" ? saved.connectionId : undefined);
 
