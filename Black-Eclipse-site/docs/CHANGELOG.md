@@ -6,6 +6,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **release: v0.4.16.** Ships the AI-provider batch below (Ollama roots, auto model detection, custom-endpoint keys, OpenCode Go) plus the desktop data-dir/stop fixes. Version bumped in `package.json`, `pyproject.toml` and `python/harness/__init__.py`; the `v0.4.16` tag drives `desktop-release.yml` for the Windows installer and `publish-harness.yml` for the Python package. The signed `stable.json` is produced offline and uploaded to the draft before publishing. docs updated: `docs/UPDATES.md` (release state, after publish).
+
 - **chore(git): ignore the packaging artifacts that were dirtying the worktree.**
   `scripts/desktop-package.js` writes `config/packs.json` at package time (it
   landed with a stale `version: 0.4.6` and was never tracked), and a packaging
