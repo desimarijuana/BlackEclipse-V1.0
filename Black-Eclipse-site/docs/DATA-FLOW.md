@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-11-09
+last-verified: 2026-11-19
 ---
 
 # Data Flow
@@ -187,6 +187,15 @@ seeds the seen set without backfilling history, then announces new
 `critical`/`high` stories and imminent releases into the header ledger on the
 `news` tab).
 `/api/news/alerts/policy` stores the background push policy.
+
+The client delivery half is configured in Settings › News › Pop-ups &
+notifications (`src/lib/news/notification-prefs.ts`, `be_news_notify_v1`):
+background watch, pop-up card, desktop notification, alert sound, upcoming
+releases, watchlist-only and minimum score. The watcher honours them through
+`NotificationRequest.toast`/`desktop`/`sound`; the ledger entry is still
+written while the watch is on. The same Settings section edits the News tab's
+card layout (`src/lib/news/card-settings.ts`, `be_news_card_settings`), and an
+emitted `be:news-card-settings` event keeps a mounted News tab in sync.
 
 After each ingest, `src/lib/news/alert-scan.ts` scores recent rows and pushes
 `high`/`critical` stories through the existing alert channels. It is disabled by

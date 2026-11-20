@@ -1,13 +1,13 @@
 ---
 title: First-Run Onboarding — Implementation Plan
 status: Implemented (v1)
-last-verified: 2026-11-18
+last-verified: 2026-11-20
 ---
 
 # First-Run Onboarding — Implementation Plan
 
 > **Implemented 2026-11-09.** The catalog/capabilities/bundles/state layer, the
-> `/api/setup` routes, the boot-style gate and five splash-style steps, the source-preference
+> `/api/setup` routes, the boot-style gate and six splash-style steps, the source-preference
 > enforcement in the scraper/crypto/economics paths, the Settings entries, and
 > the three reset scopes (`black onboarding`, `black reset --onboarding|--setup|
 > --factory`) are in the tree. See ADR-072. `/api/setup/check` now runs a real,
@@ -77,12 +77,13 @@ connected, and can fix anything later.**
 
 ```
 Boot loader (existing, z-40)
-  └─ Onboarding (z-200) ─ 5 splash-style steps + handoff
+  └─ Onboarding (z-200) ─ 6 splash-style steps + handoff
        1. Welcome & mode          (one choice + bundle)
-       2. AI & Chat               (one choice + test)
-       3. Included data           (open sources, flat toggles, no accordions)
-       4. Connect providers       (live prices choice + provider cards)
-       5. Review & readiness      (status table + Run check + Finish)
+       2. Look & feel             (theme presets + saved themes, applied live)
+       3. AI & Chat               (one choice + test)
+       4. Included data           (open sources, flat toggles, no accordions)
+       5. Connect providers       (live prices choice + provider cards)
+       6. Review & readiness      (status table + Run check + Finish)
   └─ App (loader finishes behind the overlay)
 ```
 
@@ -122,7 +123,24 @@ question in legal language.
 **Why this order:** the mode changes every default that follows. Asking it once
 avoids re-asking inside each capability.
 
-### Step 2 — AI & Chat
+### Step 2 — Look & feel (theme)
+
+**Purpose:** let the user choose the app's appearance before they ever see the
+shell, so the first screenshot of Eclipse is theirs, not the shipped default.
+
+- Shows `THEME_PRESETS` (all shipped dark and light looks) as preview tiles, plus
+  any themes the user already saved on this install.
+- Selecting a tile applies the theme **immediately** — the wizard itself
+  recolors — and persists it app-wide through the theme store
+  (`applyPreset` / `applyUserPreset`), the same path Settings › Customization
+  uses. The preset's ChatBot backdrop and Aurora glow are applied with it.
+- A line states the current scheme, and points to Settings › Customization for
+  fine-tuning. The choice is persistent even if the user later picks `Skip for
+  now` on step 1's footer.
+- Nothing is required here: the current theme stays active if the user does not
+  touch a tile, so the step cannot dead-end.
+
+### Step 3 — AI & Chat
 
 **Purpose:** make the first chat message work, or say honestly that it won't.
 
@@ -140,7 +158,7 @@ avoids re-asking inside each capability.
 - `Set this up later` is allowed; the app then runs `mock` and the final review
   says so. Never claim a provider is connected without a real test or saved key.
 
-### Step 3 — Included data (flat, no accordions)
+### Step 4 — Included data (flat, no accordions)
 
 **Purpose:** show exactly what ships with Eclipse and let the user turn any
 included source off. There are no expand/collapse rows and no dropdowns.
@@ -162,7 +180,7 @@ included source off. There are no expand/collapse rows and no dropdowns.
 | **World events** | GDELT, USGS, NASA FIRMS (verify) | ON |
 | **News headlines** | Official regulator/central-bank RSS | ON |
 
-### Step 4 — Connect providers (flat, sectioned)
+### Step 5 — Connect providers (flat, sectioned)
 
 **Purpose:** make the one legally-sensitive decision — live prices — explicit,
 then offer optional providers in plain sections. No accordions.
@@ -185,7 +203,7 @@ then offer optional providers in plain sections. No accordions.
 Acknowledgements are **local to their section** (prices, crypto, search), never
 a hidden cross-step flag.
 
-### Step 5 — Review & readiness
+### Step 6 — Review & readiness
 
 **Purpose:** prove the app will work before the user lands in it.
 
@@ -213,7 +231,7 @@ a hidden cross-step flag.
   block the user; they are recorded and shown again in Settings.
 - `Back` returns to the relevant step.
 
-### Step 5 — Handoff
+### Step 7 — Handoff
 
 - POST the choices, write `onboarding_v1` + `data_source_prefs_v1`, invalidate
   the settings cache, then fade out. A short `Saved. Warming up…` state uses the
@@ -402,6 +420,7 @@ src/components/setup/
   onboarding-gate.tsx    # mount point; fetches state, renders overlay or null
   onboarding-shell.tsx   # full-screen frame, step machine, footer, focus trap
   steps/welcome-step.tsx  # mode + bundle
+  steps/theme-step.tsx    # shipped + saved theme presets, applied live
   steps/ai-step.tsx       # local / own key / custom / later
   steps/included-step.tsx # flat open-data cards + switches (no accordions)
   steps/providers-step.tsx# live-prices choice + section-local provider cards
@@ -677,9 +696,9 @@ POST round-trips; check reports real statuses.
 fetcher runs, with no fabricated data.
 
 ### Phase 3 — Onboarding UI
-9. Build `OnboardingGate` + `OnboardingShell` + the five splash-style steps:
-   welcome/mode, AI, data/capabilities (with the three-way live-prices decision
-   and the collapsed Advanced section), review/readiness.
+9. Build `OnboardingGate` + `OnboardingShell` + the six splash-style steps:
+   welcome/mode, look & feel (theme), AI, data/capabilities (with the three-way
+   live-prices decision and the collapsed Advanced section), review/readiness.
 10. Build the capability-row and readiness-table components; reuse
     `ProviderKeyEditor`, `ModelPicker`, and the key-status logic (extract a
     shared hook if needed).
@@ -802,7 +821,7 @@ matches what Run check reports; existing install never sees the gate.
 |---|---|---|
 | 1 | Catalog, capabilities, bundles, state, routes, check, migration, tests | 1–1.5 days |
 | 2 | Enforcement across scraper/connectors/econ/investor-eye + tests | 1–1.5 days |
-| 3 | Gate, splash shell, 5 flat steps, provider/key reuse, mounting | 2-2.5 days |
+| 3 | Gate, splash shell, 6 flat steps, provider/key reuse, mounting | 2-2.5 days |
 | 4 | Polish, error states, accessibility, full test pass | 0.5–1 day |
 
 Total: ~4.5–6.5 engineering days. Phase 1+2 must land before the UI so the

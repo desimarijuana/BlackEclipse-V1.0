@@ -50,6 +50,26 @@ export const DEFAULT_CARD_SETTINGS: CardSettings = {
 export const CARD_SETTINGS_KEY = 'be_news_card_settings';
 const FEED_ORDER_MIGRATION_KEY = 'be_news_feed_order_v2';
 
+/**
+ * Same-document change signal. The Settings modal and the News tab can be
+ * mounted at once (the tab stays alive behind the modal), and `storage` events
+ * only fire in OTHER documents — so saving from Settings dispatches this and
+ * the News tab re-reads its card settings live.
+ */
+export const NEWS_CARD_SETTINGS_EVENT = 'be:news-card-settings';
+
+function emitCardSettingsChange(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(NEWS_CARD_SETTINGS_EVENT));
+}
+
+/** Subscribe to card-settings changes; returns the unsubscribe function. */
+export function onCardSettingsChange(handler: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener(NEWS_CARD_SETTINGS_EVENT, handler);
+  return () => window.removeEventListener(NEWS_CARD_SETTINGS_EVENT, handler);
+}
+
 export function loadCardSettings(): CardSettings {
   if (typeof window === 'undefined') return DEFAULT_CARD_SETTINGS;
   try {
@@ -84,6 +104,7 @@ export function saveCardSettings(settings: CardSettings): void {
   } catch {
     /* quota / private mode — in-memory only */
   }
+  emitCardSettingsChange();
 }
 
 export function clearCardSettings(): void {
@@ -93,4 +114,5 @@ export function clearCardSettings(): void {
   } catch {
     /* ignore */
   }
+  emitCardSettingsChange();
 }

@@ -21,6 +21,7 @@ import {
   DEFAULT_CARD_SETTINGS,
   loadCardSettings,
   saveCardSettings,
+  onCardSettingsChange,
   clampPerPage,
   MAX_PER_PAGE,
   type CardSettings,
@@ -210,6 +211,10 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     // Portfolio holdings are best-effort (Python engine may be unavailable).
     // When present they raise relevance for stories touching a real position.
     void loadPortfolioSymbols().then((syms) => { if (syms.length > 0) setPortfolioTickers(syms); });
+
+    // Card settings may be edited from Settings › News while this tab stays
+    // mounted behind the modal; re-read them live.
+    return onCardSettingsChange(() => setCards(loadCardSettings()));
   }, []);
 
   const updateCards = (patch: Partial<CardSettings>) => {

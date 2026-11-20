@@ -9,6 +9,7 @@ import {
   Database,
   ListChecks,
   Loader2,
+  Palette,
   Rocket,
   SlidersHorizontal,
 } from "@/lib/icons";
@@ -22,6 +23,7 @@ import { RISK_DISCLOSURE_VERSION } from "@/lib/legal/disclosure";
 import type { SetupDraft, SetupKeyStatuses, SetupState } from "./types";
 import { draftAiChoice } from "./types";
 import { WelcomeStep } from "./steps/welcome-step";
+import { ThemeStep } from "./steps/theme-step";
 import { AiStep } from "./steps/ai-step";
 import { IncludedStep } from "./steps/included-step";
 import { ProvidersStep } from "./steps/providers-step";
@@ -34,6 +36,13 @@ const STEPS = [
     short: "How you'll use Eclipse",
     description: "Pick a starting point. Everything here can be changed later.",
     icon: Rocket,
+  },
+  {
+    id: "theme",
+    title: "Look & feel",
+    short: "Make it yours",
+    description: "Pick the theme Eclipse opens with. It applies app-wide and can be changed anytime.",
+    icon: Palette,
   },
   {
     id: "ai",
@@ -652,13 +661,14 @@ export function OnboardingShell({
                   {draft.step === 0 && (
                     <WelcomeStep state={state} draft={draft} setDraft={updateDraft} />
                   )}
-                  {draft.step === 1 && (
+                  {draft.step === 1 && <ThemeStep />}
+                  {draft.step === 2 && (
                     <AiStep state={state} draft={draft} setDraft={updateDraft} />
                   )}
-                  {draft.step === 2 && (
+                  {draft.step === 3 && (
                     <IncludedStep state={state} draft={draft} setDraft={updateDraft} />
                   )}
-                  {draft.step === 3 && (
+                  {draft.step === 4 && (
                     <ProvidersStep
                       state={state}
                       draft={draft}
@@ -667,7 +677,7 @@ export function OnboardingShell({
                       onSaveKey={saveKey}
                     />
                   )}
-                  {draft.step === 4 && (
+                  {draft.step === 5 && (
                     <ReviewStep
                       state={state}
                       draft={draft}

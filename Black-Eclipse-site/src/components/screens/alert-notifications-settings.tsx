@@ -381,6 +381,7 @@ export function AlertNotificationsPanel() {
             Scores fresh headlines deterministically (tier, corroboration, recency, category, relevance) and pushes
             only high/critical stories through the channels above. The News tab&apos;s High Alert band also surfaces
             upcoming high-impact economic releases. Turning it on starts from now — old headlines are never replayed.
+            In-app pop-up, desktop-notification and alert-sound controls for news live in Settings › News.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">

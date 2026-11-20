@@ -46,6 +46,7 @@ import { AIProviderSettings } from "./ai-provider-settings";
 import { AgentsSettingsPanel } from "@/components/settings/agents-settings";
 import { PersonaSettingsPanel } from "@/components/settings/personas-settings";
 import { NewsFeedsPanel } from "./news-feeds-panel";
+import { NewsSettingsPanel } from "./news-settings-panel";
 import { SearchRetrievalSettings } from "./search-retrieval-settings";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
 import { getUserMarket, setUserMarket } from "@/lib/user-market";
@@ -492,7 +493,7 @@ export function Settings({
     { id: "investor-eye", label: "Investor Eye", desc: "World-state sources", icon: EyeIcon, group: "Intelligence", terms: ["investor eye", "world state", "gdelt", "usgs", "firms", "events", "geopolitics", "map", "sources"] },
     { id: "economics", label: "Economics", desc: "Macro & calendar providers", icon: Activity, group: "Intelligence", terms: ["economics", "macro", "fred", "bea", "bls", "calendar", "indicators", "yield", "inflation"] },
     { id: "market", label: "Market Data", desc: "Discover, charts & markets", icon: Globe2, group: "Intelligence", terms: ["market", "screener", "stocks", "crypto", "prices", "fundamentals", "polygon", "finnhub", "alpha vantage", "coin"] },
-    { id: "news", label: "News", desc: "Feeds & providers", icon: Newspaper, group: "Intelligence", terms: ["news", "rss", "feeds", "headlines", "sentiment", "finnhub"] },
+    { id: "news", label: "News", desc: "Cards, alerts, feeds & providers", icon: Newspaper, group: "Intelligence", terms: ["news", "rss", "feeds", "headlines", "sentiment", "finnhub", "cards", "layout", "columns", "density", "summary", "popup", "pop-up", "toast", "notification", "desktop", "sound", "alert", "watchlist", "breaking", "high impact", "releases", "customize"] },
     { id: "analytics", label: "Analytics", desc: "Token usage & runs", icon: BarChart3, group: "Intelligence", terms: ["analytics", "usage", "tokens", "token", "consumption", "cost", "spend", "runs", "steps", "agent", "llm", "metrics", "stats"] },
     { id: "mcp", label: "MCP Servers", desc: "External tool connections", icon: Plug, group: "Intelligence", terms: ["mcp", "model context protocol", "servers", "tools", "external", "stdio", "integration", "plugins"] },
     { id: "connections", label: "Connections", desc: "Remote control over Telegram, email & more", icon: ChatsCircle, group: "Intelligence", terms: ["connections", "channels", "remote", "telegram", "discord", "email", "slack", "whatsapp", "webhook", "link", "binding", "gateway", "control"] },
@@ -954,16 +955,19 @@ export function Settings({
                 <SectionHeader
                   icon={Newspaper}
                   title="News"
-                  description="Providers that power the Market News bulletin and sentiment—RSS feeds and news APIs. No other section lists news providers."
+                  description="How news looks and reaches you — card layout on the News tab, pop-ups, desktop notifications and sound for high-impact stories — plus the RSS feeds and news APIs that power the bulletin and sentiment."
                 />
-                <NewsFeedsPanel
-                  feeds={feeds}
-                  saving={saving}
-                  onSave={(next) => {
-                    setFeeds(next);
-                    void persist({ newsFeeds: next });
-                  }}
-                />
+                <NewsSettingsPanel />
+                <div className="mt-4">
+                  <NewsFeedsPanel
+                    feeds={feeds}
+                    saving={saving}
+                    onSave={(next) => {
+                      setFeeds(next);
+                      void persist({ newsFeeds: next });
+                    }}
+                  />
+                </div>
 
                 <div className="mt-4">
                   <ProviderRegistry home="news" title="News providers" />

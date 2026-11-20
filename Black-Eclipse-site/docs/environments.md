@@ -110,7 +110,9 @@ concurrent build and used to be mistaken for a dead runtime.
 `lib/tls.js` and the proxy/TLS/splash helpers are gone. `black` (the CLI) no
 longer defaults to a website: it opens the native app, and `black eclipse`,
 `black start` and `black proxy` print where the functionality went and exit 1.
-There is no flag to bring the browser server back. Validation is `npm test`,
+There is no flag to bring the browser server back. Validation is `npm test`
+(`npm run test:fast` while iterating: `tsc` plus only the tests reachable from
+your working-tree changes - never a substitute for the full gate),
 `npx tsc --noEmit` and a desktop build — no server.
 
 **Nothing advertises a browser address.** `bin/black.js`, `setup:desktop` and

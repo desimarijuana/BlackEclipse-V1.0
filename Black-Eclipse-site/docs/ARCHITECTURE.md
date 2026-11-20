@@ -897,6 +897,18 @@ ranked into the main feed with `sort=importance`, most-critical first. The
 header panel always shows every kind filter (count 0 included) so all producer
 lanes are discoverable.
 
+Delivery is user-controlled in Settings › News › Pop-ups & notifications
+(`src/lib/news/notification-prefs.ts`, `be_news_notify_v1`): background watch
+(off stops polling and clears the seen set), in-app pop-up, desktop
+notification, alert sound, upcoming releases, watchlist-only stories and the
+minimum importance score (55/65/75). The ledger entry is still recorded while
+the watch is on, so silencing the visual lanes never hides a story from the
+bell. Each lane maps onto `NotificationRequest.toast`/`desktop`/`sound`, which
+the one provider honours — every other producer keeps both visual lanes on by
+default. Card layout on the News tab is the same `be_news_card_settings`
+surface, editable both inline and in Settings › News; `saveCardSettings`
+emits `be:news-card-settings` so a mounted News tab updates live.
+
 ## The two workspace systems (read this twice)
 
 | | Widget workspace | Market workspace |

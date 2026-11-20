@@ -64,8 +64,12 @@ export function AlertNotificationProvider() {
     (req: NotificationRequest) => {
       const title = req.title || 'BlackEclipse';
       const body = req.body || 'Alert';
-      pushToast(req.test ? `Test — ${title}` : title, body);
-      if (isEnabled()) showAlertNotification({ alertName: title, msg: body, alertId: req.alertId, test: req.test });
+      // Producers may suppress either visual lane independently (news prefs);
+      // both default to on for price alerts, tasks and agent events.
+      if (req.toast !== false) pushToast(req.test ? `Test — ${title}` : title, body);
+      if (req.desktop !== false && isEnabled()) {
+        showAlertNotification({ alertName: title, msg: body, alertId: req.alertId, test: req.test });
+      }
       // Validated: the detail arrives via a window event, so the cue name is
       // runtime input, not a compile-time SoundName.
       if (req.sound && isSoundName(req.sound)) sound.play(req.sound);

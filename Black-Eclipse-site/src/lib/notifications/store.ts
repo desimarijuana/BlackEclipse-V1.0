@@ -64,6 +64,10 @@ export interface NotificationRequest {
   tab?: AppTab;
   kind?: NotificationKind;
   sound?: SoundName;
+  /** In-app pop-up card. Defaults to on; `false` keeps the ledger entry only. */
+  toast?: boolean;
+  /** Native OS notification. Defaults to on (still gated by the global opt-in). */
+  desktop?: boolean;
   /** Original source link — makes the ledger item open the real story. */
   url?: string;
   /** Alert id, so a re-fire replaces the previous desktop notification. */
