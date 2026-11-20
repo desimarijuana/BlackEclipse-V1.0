@@ -12,15 +12,33 @@ async function json<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-/** Every conversation persisted on the server, normalized and newest-first. */
+/**
+ * Every conversation persisted on the server, normalized and newest-first.
+ *
+ * `?summary=1` returns metadata only (no message bodies): the full history is
+ * tens of MB on a long-lived install, and fetching it on every app boot made
+ * the single Node thread serialize + gzip the whole transcript before the rest
+ * of the page could load. Bodies come from `getServerConversation` when a chat
+ * is opened.
+ */
 export async function listServerConversations(): Promise<Conversation[]> {
-  const res = await fetch("/api/chat/transcript", { cache: "no-store" });
+  const res = await fetch("/api/chat/transcript?summary=1", { cache: "no-store" });
   const body = await json<{ conversations: unknown[] }>(res);
   const raw = Array.isArray(body.conversations) ? body.conversations : [];
   return raw
     .map(normalizeConversation)
     .filter((c): c is Conversation => c !== null)
     .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+/** One conversation WITH its message bodies (lazy hydration on open). */
+export async function getServerConversation(chatId: string): Promise<Conversation | null> {
+  const res = await fetch(
+    `/api/chat/transcript?chatId=${encodeURIComponent(chatId)}`,
+    { cache: "no-store" },
+  );
+  const body = await json<{ transcript: unknown }>(res);
+  return normalizeConversation(body.transcript);
 }
 
 /** Upsert one conversation on the server. */

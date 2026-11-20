@@ -643,7 +643,7 @@ function StockChatContent() {
   const loadChatOrganization = chatOrganization.load;
   // Local cache + server-transcript durability (hydration, merge, mirror) is
   // owned by the persistence hook; the shell only supplies its store + refs.
-  useConversationPersistence({
+  const { activateConversation } = useConversationPersistence({
     mounted,
     conversations,
     conversationsRef,
@@ -669,17 +669,8 @@ function StockChatContent() {
   const { pendingQuote, clearQuote, acceptQuote, forkConversation: handleForkConversation, forkFromMessage: handleForkMessage } = conversationActions;
 
   const handleSelectConversation = (id: string) => {
-    activeConversationIdRef.current = id;
-    setActiveConversationId(id);
     clearQuote();
-    const chat = conversationsRef.current.find(c => c.id === id);
-    if (chat) {
-      setMessages(chat.messages);
-      void restoreWorkspaceForChat(chat.messages, id);
-    } else {
-      setMessages([]);
-      useWorkspaceStore.getState().clear();
-    }
+    activateConversation(id);
   };
   const handleNewChat = () => {
     activeConversationIdRef.current = null;
@@ -700,10 +691,7 @@ function StockChatContent() {
     if (activeConversationIdRef.current === id) {
       const next = mostRecentConversation(updated);
       if (next) {
-        activeConversationIdRef.current = next.id;
-        setActiveConversationId(next.id);
-        setMessages(next.messages);
-        void restoreWorkspaceForChat(next.messages, next.id);
+        activateConversation(next.id);
       } else {
         activeConversationIdRef.current = null;
         setActiveConversationId(null);

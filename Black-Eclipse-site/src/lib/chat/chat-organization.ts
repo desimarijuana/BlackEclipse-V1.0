@@ -48,6 +48,12 @@ export interface Conversation {
   archivedAt?: number | null;
   /** When set, the chat lives in Trash and is hidden from every other view. */
   deletedAt?: number | null;
+  /**
+   * How many messages the server holds for this conversation. The boot list
+   * carries metadata only (`messages: []`), so a non-zero count with an empty
+   * `messages` array means the body still has to be fetched on open.
+   */
+  messageCount?: number;
 }
 
 /** A user-created chat folder (nestable, orderable). */
@@ -210,6 +216,7 @@ export function normalizeConversation(raw: unknown): Conversation | null {
   if (typeof raw.id !== 'string' || !raw.id) return null;
   const messages = Array.isArray(raw.messages) ? raw.messages.filter(isMessage) : [];
   const timestamp = finiteOrNull(raw.timestamp) ?? Date.now();
+  const messageCount = finiteOrNull(raw.messageCount);
   const forkedFrom = normalizeFork(raw.forkedFrom);
   return {
     id: raw.id,
@@ -224,6 +231,7 @@ export function normalizeConversation(raw: unknown): Conversation | null {
     tags: normalizeTags(raw.tags),
     archivedAt: finiteOrNull(raw.archivedAt),
     deletedAt: finiteOrNull(raw.deletedAt),
+    ...(messageCount !== null ? { messageCount } : {}),
   };
 }
 
@@ -286,6 +294,12 @@ export function mergeConversations(
       ...newer,
       messages: mergeMessages(older.messages, newer.messages),
       timestamp: Math.max(mine.timestamp ?? 0, other.timestamp ?? 0),
+      // A summary row has no bodies but still knows how many exist; keep the
+      // larger count so "needs hydration" survives a metadata-only merge.
+      messageCount: Math.max(
+        mine.messageCount ?? mine.messages.length,
+        other.messageCount ?? other.messages.length,
+      ),
     });
   }
   return [...byId.values()].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));

@@ -9,6 +9,7 @@ import {
   loadContextDocuments,
   readSessionFile,
   readTranscript,
+  summarizeTranscript,
   writeSessionFile,
   writeTranscript,
 } from './session-store';
@@ -187,5 +188,24 @@ describe('transcript durability across concurrent writers', () => {
     expect(stored?.messages.map((m) => m.id)).toEqual(['u1', 'a1', 'u2']);
     expect(stored?.messages[1].content).toBe('complete');
     expect(stored?.messages[1].status).toBe('completed');
+  });
+
+  it('summarizes a transcript without its message bodies', async () => {
+    const stored = await writeTranscript('chat_summary', {
+      id: 'chat_summary',
+      title: 'Long chat',
+      timestamp: 100,
+      createdAt: 100,
+      messages: [
+        { id: 'u1', role: 'user', content: 'first' },
+        { id: 'a1', role: 'assistant', content: 'answer' },
+      ],
+    });
+    const summary = summarizeTranscript(stored);
+    // Metadata survives; the boot list never carries the bodies.
+    expect(summary.title).toBe('Long chat');
+    expect(summary.messages).toEqual([]);
+    expect(summary.messageCount).toBe(2);
+    expect(summary.updatedAt).toBe(stored.updatedAt);
   });
 });

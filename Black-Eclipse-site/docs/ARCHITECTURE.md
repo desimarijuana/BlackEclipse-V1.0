@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-11-04
+last-verified: 2026-11-19
 ---
 
 # Architecture
@@ -762,6 +762,14 @@ wizard. Deferring it moved the cold start to the first chat after setup
 release smoke test. Everything else starts as soon as the wizard writes the
 completion flag (the reloaded app benefits within a couple of seconds).
 
+**A page request never joins that cold start for long.** `ensurePythonRuntime()`
+coalesces callers onto one background spawn, but a request waits at most
+`DEFAULT_REQUEST_WAIT_MS` (3 s) before returning its honest 503. The old 45 s
+budget was effectively a multi-minute boot: a browser allows six concurrent
+HTTP/1.1 connections, so six requests parked on the runtime held every socket
+and queued even Python-free routes (the chat transcript) behind them for
+45–55 s. `HARNESS_PY_REQUEST_WAIT_MS` overrides the budget per host.
+
 ### Alert delivery
 
 A fired price alert is dispatched from `src/lib/alerts/notifier.ts`
@@ -1180,6 +1188,14 @@ attaches as context and the answers the agent produces:
   survives a server restart, a different origin, or cleared storage. Sync is
   debounced; conversation deletions remove the server copy. This is what fixes
   the "chat is deleted when the server restarts / the URL changes" class of bug.
+- **Boot reads metadata, not every message body.** `GET /api/chat/transcript`
+  with no query is the full archive (every message of every conversation — 16 MB
+  on the reference host); the boot path uses `?summary=1`, which returns the same
+  rows with `messages: []` plus `messageCount`. The client hydrates the open
+  conversation (and any conversation opened from the sidebar) with
+  `?chatId=…`, so opening the app no longer serializes, gzips and parses the
+  whole archive on the single Node thread. Keep both modes: the full list is
+  still what backups/migrations and any external caller expect.
 
 - **The front door owns the filesystem; the Python runtime stays read-only.**
   Every harness tool is `permission="read"` and `tools.py` hard-rejects writes,

@@ -94,7 +94,11 @@ function buildChannel() {
   // shared with every other build, so snapshot and restore it.
   const before = fs.existsSync(TSCONFIG) ? fs.readFileSync(TSCONFIG) : null;
   try {
-    const result = spawnSync(process.execPath, [nextBin(), "build"], {
+    // Turbopack for the same reason as the stable path (scripts/lib/server.js):
+    // the webpack production compile exceeds the host's heap. Escape hatch:
+    // BE_BUILD_WEBPACK=1.
+    const bundler = process.env.BE_BUILD_WEBPACK === "1" ? [] : ["--turbopack"];
+    const result = spawnSync(process.execPath, [nextBin(), "build", ...bundler], {
       cwd: ROOT,
       stdio: "inherit",
       windowsHide: true,

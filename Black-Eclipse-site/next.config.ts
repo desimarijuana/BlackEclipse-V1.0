@@ -51,6 +51,12 @@ const nextConfig: NextConfig = {
     // The icon surface re-exports ~250 icons from a 9k-icon barrel. Without
     // this, the full icon definition set (~1.5 MB) lands in the boot chunk.
     optimizePackageImports: ["@phosphor-icons/react"],
+    // The supported production build now runs on Turbopack (see
+    // scripts/lib/server.js), which matters because the WEBPACK compile of this
+    // graph exceeded a 15 GB live heap and OOM'd on a 16 GB host. This flag stays
+    // for the `BE_BUILD_WEBPACK=1` fallback, where it lowers the peak somewhat
+    // but was not enough on its own.
+    webpackMemoryOptimizations: true,
   },
   // Dev and production builds get separate output directories. `next dev`
   // deletes `BUILD_ID`, which invalidated the cached production build and made

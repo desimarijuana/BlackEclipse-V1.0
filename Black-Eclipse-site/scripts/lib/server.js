@@ -178,7 +178,15 @@ function build(options = {}) {
     // and a stale chunk was promoted (the release whose Stop control was
     // missing). Recording the start hash means such a build is honestly stale.
     const startedHash = sourceHash();
-    execSync("npx next build", {
+    // Turbopack, not webpack. The production webpack compile of this graph grew
+    // past a 15 GB live heap and OOM'd the updater/desktop refresh on a 16 GB
+    // host (measured 2026-11-19: "Ineffective mark-compacts near heap limit" at
+    // 12 GB and again at 15 GB), while Turbopack built the same tree in ~3 min.
+    // The only webpack-specific config is a dev chunk-load timeout, so a
+    // production Turbopack build loses nothing; `BE_BUILD_WEBPACK=1` keeps the
+    // old path available if a bundle ever needs it.
+    const bundler = process.env.BE_BUILD_WEBPACK === "1" ? "" : " --turbopack";
+    execSync(`npx next build${bundler}`, {
       cwd: root,
       stdio: "inherit",
       env: { ...process.env, NODE_OPTIONS: buildNodeOptions() },

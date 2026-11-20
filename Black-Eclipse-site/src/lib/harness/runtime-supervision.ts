@@ -59,8 +59,16 @@ export function resolveStartTimeoutMs(raw: string | undefined): number {
  * waits silently for five minutes with no reason shown. Past this window the
  * request fails fast with a 503 and the spawn keeps going, so the next attempt
  * succeeds without a restart. `HARNESS_PY_REQUEST_WAIT_MS` overrides it.
+ *
+ * 45 s was still a multi-minute boot in disguise: a browser allows SIX
+ * concurrent HTTP/1.1 connections per origin, so six boot requests parked on
+ * this timeout held every socket and every later request (including the chat
+ * transcript, which does not even call Python) queued behind them — measured
+ * 45–55 s on a cold start. Three seconds is enough to ride out a normal warm
+ * runtime and short enough that a cold one frees the sockets immediately; the
+ * UI shows its honest "runtime starting" state and the next poll succeeds.
  */
-export const DEFAULT_REQUEST_WAIT_MS = 45_000;
+export const DEFAULT_REQUEST_WAIT_MS = 3_000;
 
 export function resolveRequestWaitMs(raw: string | undefined): number {
   const n = Number(raw);

@@ -7,7 +7,7 @@
 // is mirrored back to the server (debounced). Extracted behavior-preserving from
 // `stock-chat.tsx`; the shell keeps only the refs and setters it already owns.
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   CONVERSATIONS_STORAGE_KEY,
   mergeConversations,
@@ -18,6 +18,7 @@ import {
 } from './chat-organization';
 import {
   deleteServerConversation,
+  getServerConversation,
   listServerConversations,
   saveServerConversation,
 } from './transcript-client';
@@ -41,7 +42,25 @@ export interface ConversationPersistenceOptions {
   loadOrganization: () => void;
 }
 
-export function useConversationPersistence(opts: ConversationPersistenceOptions): void {
+/**
+ * True when the server holds more turns than the local copy has. The boot list
+ * carries metadata only (`messages: []`), so this is usually how an unopened
+ * conversation announces that its bodies must be fetched; it also catches a
+ * localStorage cache that went stale on an older build or was truncated at the
+ * quota boundary.
+ */
+export function needsHydration(conv: Conversation | null | undefined): boolean {
+  return Boolean(conv && (conv.messageCount ?? 0) > conv.messages.length);
+}
+
+export interface ConversationPersistence {
+  /** Fetch and attach one conversation's message bodies, on open. */
+  hydrateConversation: (chatId: string) => Promise<Message[]>;
+  /** Make a conversation active and show it, hydrating its bodies if needed. */
+  activateConversation: (chatId: string) => void;
+}
+
+export function useConversationPersistence(opts: ConversationPersistenceOptions): ConversationPersistence {
   const {
     mounted,
     conversations,
@@ -84,6 +103,61 @@ export function useConversationPersistence(opts: ConversationPersistenceOptions)
   // `syncedRef` remembers the last serialized form we pushed per conversation id.
   const serverHydratedRef = useRef(false);
   const syncedRef = useRef<Map<string, string>>(new Map());
+
+  /**
+   * Replace a summary row with the server's full transcript. Idempotent: a row
+   * whose bodies are already loaded returns them without a request, so opening
+   * a chat twice costs nothing. A failed load leaves the summary in place (the
+   * server copy is still safe; the next open retries).
+   */
+  const hydrateConversation = useCallback(async (chatId: string): Promise<Message[]> => {
+    const found = conversationsRef.current.find((c) => c.id === chatId);
+    if (!found || !needsHydration(found)) return found?.messages ?? [];
+    try {
+      const full = await getServerConversation(chatId);
+      if (!full || full.messages.length === 0) return found.messages;
+      // Union, not replace: a turn appended in this tab since the last mirror
+      // must survive the server copy arriving.
+      const combined = mergeConversations([found], [full])[0] ?? found;
+      const messages = combined.messages;
+      const next = conversationsRef.current.map((c) =>
+        c.id === chatId
+          ? { ...c, ...combined, messages, messageCount: Math.max(messages.length, full.messageCount ?? 0) }
+          : c,
+      );
+      conversationsRef.current = next;
+      setConversations(next);
+      if (activeConversationIdRef.current === chatId) setMessages(messages);
+      return messages;
+    } catch {
+      return found.messages;
+    }
+  }, [conversationsRef, activeConversationIdRef, setConversations, setMessages]);
+
+  const activateConversation = useCallback((chatId: string) => {
+    activeConversationIdRef.current = chatId;
+    setActiveConversationId(chatId);
+    const found = conversationsRef.current.find((c) => c.id === chatId);
+    if (!found) {
+      setMessages([]);
+      useWorkspaceStore.getState().clear();
+      return;
+    }
+    if (needsHydration(found)) {
+      // The boot list carries metadata only; show the shell immediately and
+      // fill the thread when the bodies arrive.
+      setMessages([]);
+      useWorkspaceStore.getState().clear();
+      void hydrateConversation(chatId).then((messages) => {
+        if (activeConversationIdRef.current !== chatId) return;
+        setMessages(messages);
+        void restoreWorkspaceForChat(messages, chatId);
+      });
+      return;
+    }
+    setMessages(found.messages);
+    void restoreWorkspaceForChat(found.messages, chatId);
+  }, [conversationsRef, activeConversationIdRef, setActiveConversationId, setMessages, hydrateConversation]);
 
   // Load conversations + folders from local storage.
   useEffect(() => {
@@ -147,6 +221,31 @@ export function useConversationPersistence(opts: ConversationPersistenceOptions)
           if (!prev || (c.timestamp ?? 0) > (prev.timestamp ?? 0)) byId.set(c.id, c);
         }
         const merged = [...byId.values()].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+
+        // The boot list is metadata-only. Fetch the OPEN conversation's bodies
+        // now (one request) instead of every conversation's; the local cache
+        // above usually already has them, so this is the fallback for a chat
+        // that outlived localStorage (a new origin, or quota eviction).
+        const initial = activeConversationIdRef.current
+          ? merged.find((c) => c.id === activeConversationIdRef.current)
+          : mostRecentConversation(merged);
+        if (initial && needsHydration(initial)) {
+          const full = await getServerConversation(initial.id).catch(() => null);
+          if (cancelled) return;
+          if (full && full.messages.length > 0) {
+            const at = merged.findIndex((c) => c.id === initial.id);
+            if (at !== -1) {
+              const combined = mergeConversations([merged[at]], [full])[0] ?? merged[at];
+              merged[at] = {
+                ...merged[at],
+                ...combined,
+                messages: combined.messages,
+                messageCount: Math.max(combined.messages.length, full.messageCount ?? 0),
+              };
+            }
+          }
+        }
+
         conversationsRef.current = merged;
         setConversations(merged);
         // Seed the sync ledger with what the server already holds, then push the
@@ -220,4 +319,6 @@ export function useConversationPersistence(opts: ConversationPersistenceOptions)
     }, 700);
     return () => clearTimeout(timer);
   }, [conversations, mounted]);
+
+  return { hydrateConversation, activateConversation };
 }

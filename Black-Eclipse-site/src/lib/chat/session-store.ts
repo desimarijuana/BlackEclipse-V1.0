@@ -549,6 +549,25 @@ export async function writeTranscript(
   return stored;
 }
 
+/**
+ * A conversation WITHOUT its message bodies, for the boot-time list.
+ *
+ * The full list is the entire chat history (measured 16 MB / 177
+ * conversations on the reference host) and used to be fetched, parsed and
+ * re-serialized on every app open — a multi-second block on the single Node
+ * thread that delayed every other boot request. The sidebar only needs the
+ * metadata; a message body is loaded on demand by `readTranscript`.
+ */
+export interface StoredTranscriptSummary extends Omit<StoredTranscript, "messages"> {
+  messages: [];
+  messageCount: number;
+}
+
+export function summarizeTranscript(entry: StoredTranscript): StoredTranscriptSummary {
+  const { messages, ...rest } = entry;
+  return { ...rest, messages: [], messageCount: messages.length };
+}
+
 /** Every persisted conversation, most recently updated first. */
 export async function listTranscripts(): Promise<StoredTranscript[]> {
   if (transcriptListCache && Date.now() - transcriptListCache.at < TRANSCRIPT_LIST_TTL_MS) {

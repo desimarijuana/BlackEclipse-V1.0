@@ -86,6 +86,10 @@ describe('normalizeConversation', () => {
     expect(normalizeConversations([{ id: 'a' }, {}, null, { id: 'b' }])).toHaveLength(2);
     expect(normalizeConversations('nope')).toEqual([]);
   });
+
+  it('keeps the server message count of a metadata-only row', () => {
+    expect(normalizeConversation({ id: 'a', messages: [], messageCount: 12 })?.messageCount).toBe(12);
+  });
 });
 
 describe('scope & tags', () => {
@@ -420,5 +424,12 @@ describe('cross-tab conversation merge', () => {
     const merged = mergeConversations([local], [incoming]);
     expect(merged[0].messages[0].content).toBe('final');
     expect(merged[0].messages[0].status).toBe('completed');
+  });
+
+  it('keeps the server message count when a summary merges over the local cache', () => {
+    const local = conv({ id: 'chat', messages: [], timestamp: 10 });
+    const summary = conv({ id: 'chat', messages: [], timestamp: 20, messageCount: 7 });
+    const merged = mergeConversations([local], [summary]);
+    expect(merged[0].messageCount).toBe(7);
   });
 });

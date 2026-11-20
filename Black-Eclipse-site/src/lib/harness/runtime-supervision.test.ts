@@ -87,6 +87,9 @@ describe("resolveRequestWaitMs", () => {
     // A page must not inherit the 5-minute start budget: that is what made a
     // stuck runtime look like a broken app with no reason shown.
     expect(DEFAULT_REQUEST_WAIT_MS).toBeLessThan(DEFAULT_START_TIMEOUT_MS / 2);
+    // A boot page has six sockets, so a long wait parks every other request
+    // behind the cold start. Keep it in seconds, not tens of seconds.
+    expect(DEFAULT_REQUEST_WAIT_MS).toBeLessThanOrEqual(5_000);
     expect(resolveRequestWaitMs(undefined)).toBe(DEFAULT_REQUEST_WAIT_MS);
   });
 

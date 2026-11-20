@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
-import { gzip } from "node:zlib";
-import { promisify } from "node:util";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import {
   SessionError,
   deleteTranscript,
   listTranscripts,
   readTranscript,
+  summarizeTranscript,
   writeTranscript,
 } from "@/lib/chat/session-store";
 import { reconcileStuckTranscripts } from "@/lib/chat/transcript-reconcile";
-
-const gzipAsync = promisify(gzip);
 
 export const dynamic = "force-dynamic";
 
@@ -35,48 +32,57 @@ function statusFor(err: unknown): { status: number; body: { error: string; code?
 }
 
 /**
- * JSON response, gzipped when the client accepts it and the body is large.
- * `next start` applies its built-in compression to pages/static assets but NOT
- * to route-handler responses, and a full transcript list is several MB (every
- * conversation's whole message history), fetched on every app boot. Compressing
- * it here cuts the transfer ~10x; small bodies stay plain. Compression is
- * ASYNC so it never blocks the single-threaded server while other requests wait.
+ * JSON response. This used to gzip large bodies by hand, but the Turbopack
+ * production build (and therefore the shipped app) served those bytes with the
+ * `content-encoding` header dropped — the browser then tried to parse raw gzip
+ * as JSON and the whole transcript hydration failed silently. The boot payload
+ * is now metadata-only (~50 KB plain), so let the transport handle any
+ * compression and keep the body parseable by definition.
  */
-async function jsonResponse(request: Request, data: unknown): Promise<NextResponse> {
-  const payload = JSON.stringify(data);
-  const accept = request.headers.get("accept-encoding") ?? "";
-  if (payload.length > 1024 && /\bgzip\b/.test(accept)) {
-    const gz = await gzipAsync(Buffer.from(payload));
-    return new NextResponse(new Uint8Array(gz), {
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "content-encoding": "gzip",
-        vary: "Accept-Encoding",
-      },
-    });
-  }
-  return new NextResponse(payload, {
+function jsonResponse(data: unknown): NextResponse {
+  return new NextResponse(JSON.stringify(data), {
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
 
 export async function GET(request: Request) {
-  const chatId = new URL(request.url).searchParams.get("chatId") ?? "";
+  const params = new URL(request.url).searchParams;
+  const chatId = params.get("chatId") ?? "";
+  // `?summary=1` is the boot-time list: metadata for every conversation, no
+  // message bodies. The full list is the whole chat history (16 MB measured),
+  // so fetching it on every open blocked the server and the UI. A message body
+  // is fetched per conversation with `?chatId=…` when it is actually opened.
+  const summary = params.get("summary") === "1";
   try {
     if (chatId) {
-      return await jsonResponse(request, { success: true, transcript: await readTranscript(chatId) });
+      return jsonResponse({ success: true, transcript: await readTranscript(chatId) });
     }
     const conversations = await listTranscripts();
     // Self-heal: a conversation left with an empty "queued" placeholder (tab
     // reload / app restart mid-run) is filled from its completed run's stored
     // output. Bounded and throttled; a failure returns the list untouched.
+    //
+    // The BOOT list must not wait for it: when the runtime is down the heal
+    // call sits on the runtime timeout (measured 48 s) and the whole app sat
+    // behind it. The summary carries no message bodies anyway, so heal after
+    // responding and let the next read (or the hydrated conversation) see the
+    // repaired file.
+    if (summary) {
+      void reconcileStuckTranscripts(conversations).catch((err) =>
+        console.error("[api/chat/transcript] reconcile skipped:", err),
+      );
+      return jsonResponse({
+        success: true,
+        conversations: conversations.map(summarizeTranscript),
+      });
+    }
     let healed = conversations;
     try {
       healed = await reconcileStuckTranscripts(conversations);
     } catch (err) {
       console.error("[api/chat/transcript] reconcile skipped:", err);
     }
-    return await jsonResponse(request, { success: true, conversations: healed });
+    return jsonResponse({ success: true, conversations: healed });
   } catch (err) {
     const { status, body } = statusFor(err);
     return NextResponse.json(body, { status });
