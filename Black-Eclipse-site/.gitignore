@@ -75,6 +75,10 @@ jdds.db-*
 agent-memory.db
 agent-memory.db-*
 
+# Per-install signing secret written beside the databases. Runtime state and a
+# credential: never commit it.
+operator-secret
+
 # Eclipse-Memory database (dedicated memory/skills/learning; runtime state)
 eclipse-memory.db
 eclipse-memory.db-*

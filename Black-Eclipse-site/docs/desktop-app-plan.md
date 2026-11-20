@@ -1,7 +1,7 @@
 ---
 title: Native Desktop App — Tauri Shell Plan (hardened)
 status: Accepted
-last-verified: 2026-11-18
+last-verified: 2026-11-19
 ---
 
 # Native desktop app (Tauri shell)
@@ -165,6 +165,18 @@ produce a **second empty `jdds.db`** and look exactly like data loss.
 4. Never write a database that already exists elsewhere; never "repair" by
    creating a new one at a different path.
 5. No schema migrations. `prisma db push` is not a desktop-shell responsibility.
+
+**Resolved (2026-11-19).** `scripts/lib/channels.js` owns the per-channel data
+directories and `scripts/desktop-server.js:resolveDataDir()` makes the packaged
+default `%LOCALAPPDATA%\BlackEclipse\data` (item 3 is superseded: only an
+unpackaged checkout keeps the repository root). The launcher
+(`scripts/lib/desktop-process.js:channelLaunchEnv`) therefore sets `BE_DATA_DIR`
+only for the Dev channel — forcing it for Stable pointed the real window at a
+checkout `jdds.db` with no schema, and every screen died with "table does not
+exist". A checkout's own `jdds.db` is schema-free until `prisma db push` runs.
+`channelDataDir()` now also resolves that same directory for the owner marker, and
+`black stop` clears the channel's app port: a packaged install pins no build, so
+it writes no owner marker and a stopped window used to leave its server behind.
 
 **WAL correctness.** `jdds.db-wal` and `jdds.db-shm` are part of the database. A
 snapshot must not copy the `.db` alone while the server is live — that loses the

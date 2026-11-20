@@ -40,8 +40,24 @@ function shellPathFor(channel) {
   return channel.id === "dev" ? devShellPath() : installedShellPath();
 }
 
+/**
+ * The data dir the channel's window ACTUALLY uses.
+ *
+ * A packaged Stable install defaults to `%LOCALAPPDATA%\BlackEclipse\data`
+ * (scripts/desktop-server.js `resolveDataDir`), so its owner marker is written
+ * there. Reading it from the checkout root instead left `black stop` unable to
+ * stop the app's server — every next launch hit "port 3100 is in use".
+ */
+function channelDataDir(channel) {
+  if (channel.id !== "stable") return channel.dataDir;
+  if (process.env.BE_DATA_DIR) return path.resolve(process.env.BE_DATA_DIR);
+  const packaged = fs.existsSync(path.join(INSTALL, "app", "server.js"));
+  const local = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  return packaged ? path.join(local, "BlackEclipse", "data") : channel.dataDir;
+}
+
 function ownerFile(channel) {
-  return path.join(channel.dataDir, ".runtime", "desktop-owned.json");
+  return path.join(channelDataDir(channel), ".runtime", "desktop-owned.json");
 }
 
 function pidAlive(pid) {
@@ -140,12 +156,18 @@ function stopShell(channel) {
 }
 
 function channelLaunchEnv(channel) {
-  return {
+  const env = {
     ...process.env,
     BE_DESKTOP_CHANNEL: channel.id,
     BE_DESKTOP_PORT: String(channel.appPort),
-    BE_DATA_DIR: channel.dataDir,
   };
+  // Only Dev is pointed at a checkout data dir (it is isolated by design). A
+  // packaged Stable install owns `%LOCALAPPDATA%\BlackEclipse\data`; forcing the
+  // checkout root made `black app` / `desktop:refresh` open the real window
+  // against a checkout `jdds.db` that has no schema, so every screen failed with
+  // "table does not exist" (and the server later died of OOM).
+  if (channel.id === "dev") env.BE_DATA_DIR = channel.dataDir;
+  return env;
 }
 
 /** Block the CLI briefly without spinning the CPU. */

@@ -26,7 +26,7 @@
 const { execSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const { root, build, nextBin, isUp } = require("../scripts/lib/server");
+const { root, build, nextBin, isUp, killPort } = require("../scripts/lib/server");
 const { STABLE, DEV } = require("../scripts/lib/channels");
 const {
   launchShell,
@@ -102,6 +102,12 @@ function stop({ all = false } = {}) {
     // Only the server tree this install started — never another process that
     // happens to hold the port.
     if (stopOwnedServer(channel)) {
+      log(`${channel.label} server stopped (port ${channel.appPort})`);
+      stopped = true;
+    } else if (killPort(channel.appPort)) {
+      // A packaged install pins nothing, so it writes no owner marker: stopping
+      // the window left its server on the channel's dedicated port and the next
+      // launch showed the "port 3100 is in use" conflict screen.
       log(`${channel.label} server stopped (port ${channel.appPort})`);
       stopped = true;
     }
