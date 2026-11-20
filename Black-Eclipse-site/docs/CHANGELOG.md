@@ -6,7 +6,7 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
-- **release: v0.4.18.** Version bump for the two update-pipeline fixes above (minutes-level detection/announcement and the CDN cache-buster); the tag builds the Windows installer and the offline-signed `stable.json` is uploaded to the draft before publishing.
+- **release: v0.4.18.** Published 2026-11-20: `BlackEclipse-Setup.exe` (188,482,315 bytes, sha256 `3c517b23…`), the offline `-full` edition and the feature packs; the offline-signed `stable.json` was uploaded to the draft and then promoted to latest. Ships the minutes-level detection/announcement and the CDN cache-buster above. Verified: `node scripts/update.js --check` reports *latest signed release v0.4.18 / already up to date*, `npm run check:downloads` resolves both buttons. Docs updated: `docs/UPDATES.md` (release state).
 
 - **fix(updates): bypass the GitHub CDN cache when revalidating the manifest.** `releases/latest/download/stable.json` is edge-cached, so a just-published manifest kept serving the previous release even after the draft was promoted — `update.js --check` reported v0.4.16 while the same URL with a cache-buster returned v0.4.17. Both `scripts/lib/update-verify.js` and the Next `fetchManifest` now append a per-request `ts` query (a public static file; harmless) so a revalidation means "now". Verified: `node scripts/update.js --check` reports v0.4.17. tests: `tsc`, updates suite. docs updated: `docs/UPDATES.md` (manifest revalidation).
 
