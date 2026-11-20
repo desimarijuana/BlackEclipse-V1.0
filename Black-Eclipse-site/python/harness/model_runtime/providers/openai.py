@@ -54,6 +54,29 @@ class OpenAIAdapter(ProviderAdapter):
         return model
 
 
+def model_list_urls(base_url: str) -> list[str]:
+    """Candidate model-list URLs for an OpenAI-protocol endpoint.
+
+    `{base}/models` is the protocol default, so it is always tried first. But
+    operators paste the native server root (`http://localhost:11434`,
+    `https://ollama.com`) rather than the OpenAI `/v1` surface, and Ollama's
+    native list is `/api/tags`. Both name the SAME server, so probing only
+    `{root}/models` 404s and leaves the model picker empty. The alternates are
+    only reached when the primary fails — a provider that speaks the protocol
+    is never second-guessed.
+    """
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        root = base[: -len("/v1")]
+    elif base.endswith("/api"):
+        root = base[: -len("/api")]
+    else:
+        root = base
+    urls = [f"{base}/models", f"{root}/v1/models", f"{root}/api/tags"]
+    # Preserve order (the primary must stay first) while dropping duplicates.
+    return list(dict.fromkeys(urls))
+
+
 async def probe_openai_models(settings: Any) -> list[str]:
     """Probe `{base_url}/models` for any OpenAI-protocol provider.
 
@@ -66,18 +89,31 @@ async def probe_openai_models(settings: Any) -> list[str]:
         return []
     try:
         import httpx  # noqa: PLC0415 - optional at import time
-
-        headers = {}
-        api_key = getattr(settings, "api_key", None)
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
-            response.raise_for_status()
-            payload = response.json()
-    except Exception as exc:  # noqa: BLE001 - re-raised as a clear failure
+    except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"could not reach {base_url}/models: {exc}") from exc
-    return _parse_openai_models(payload)
+
+    headers = {}
+    api_key = getattr(settings, "api_key", None)
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    first_error: Optional[str] = None
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        for url in model_list_urls(base_url):
+            try:
+                response = await client.get(url, headers=headers)
+                if response.status_code >= 400:
+                    # A 404 means "not this path"; any other status is more
+                    # informative and is what a failure should report.
+                    if first_error is None and response.status_code != 404:
+                        first_error = f"HTTP {response.status_code} from {url}"
+                    continue
+                # A 200 that is not JSON (a website at /models) is not a model
+                # list — fall through to the next candidate rather than fail.
+                return _parse_openai_models(response.json())
+            except Exception as exc:  # noqa: BLE001 - try the next candidate
+                if first_error is None:
+                    first_error = f"could not reach {url}: {exc}"
+    raise RuntimeError(first_error or f"could not reach {base_url}/models")
 
 
 def _parse_openai_models(payload: Any) -> list[str]:
@@ -185,6 +221,7 @@ __all__ = [
     "OpenAIAdapter",
     "OpenAICompatibleAdapter",
     "OpenCodeAdapter",
+    "model_list_urls",
     "opencode_models_url",
     "probe_openai_models",
 ]

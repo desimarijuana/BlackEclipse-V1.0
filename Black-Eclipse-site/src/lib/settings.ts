@@ -12,13 +12,21 @@ import { assertModelAllowed } from "@/lib/privacy";
 import { storedProviderKey } from "@/lib/provider-keys";
 
 /**
- * The env var that holds the key for a given LLM base URL, when it matches a
- * known preset. Used so a key pasted in the provider-key vault is honoured by
- * the LLM runtime without re-entering it in the LLM config.
+ * The env var that holds the key for a given LLM base URL. A known preset owns
+ * its own var; any OTHER hosted URL is a custom endpoint, so the key saved for
+ * it must still reach the runtime (a hand-typed base URL used to find no var,
+ * and the runtime then ran with an empty key even though the vault had one).
+ * Used so a key pasted in the provider-key vault is honoured by the LLM runtime
+ * without re-entering it in the LLM config.
  */
-function llmKeyEnvVar(baseUrl: string, provider?: string): string | undefined {
-  return presetForBaseUrl(baseUrl)?.envVar ??
-    (provider === "custom" ? "CUSTOM_LLM_API_KEY" : undefined);
+export function llmKeyEnvVar(baseUrl: string, provider?: string): string | undefined {
+  const preset = presetForBaseUrl(baseUrl);
+  // `envVar` on a keyless preset is a base URL (OLLAMA_BASE_URL), never a key.
+  if (preset?.envVar && !preset.keyless) return preset.envVar;
+  if (provider === "custom" || (baseUrl && !isLocalBaseUrl(baseUrl))) {
+    return "CUSTOM_LLM_API_KEY";
+  }
+  return undefined;
 }
 
 // ─── Low-level key/value helpers ───────────────────────────────────────

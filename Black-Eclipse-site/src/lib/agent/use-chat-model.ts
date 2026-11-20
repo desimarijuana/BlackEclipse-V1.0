@@ -354,6 +354,22 @@ export function useChatModel(): ChatModelState {
     [selectedProvider, activeProvider, providers, selectedModel],
   );
 
+  // Auto-detect the selected provider's live models once per provider + endpoint,
+  // so the composer never sits on a stale declared list. A failure is silent —
+  // the manual Discover action remains the explicit retry.
+  const autoDiscoveredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    const pid = selectedProvider;
+    if (!pid || pid === "auto" || pid === "mock") return;
+    const p = providers.find((x) => x.id === pid);
+    if (!p) return;
+    const key = `${pid}|${p.baseUrl}`;
+    if (autoDiscoveredRef.current === key) return;
+    autoDiscoveredRef.current = key;
+    void discoverProvider(pid);
+  }, [loading, selectedProvider, providers, discoverProvider]);
+
   const providerLabel = useMemo(() => {
     if (selectedProvider === "auto") return activeProvider?.label ?? "Auto";
     return activeProvider?.label ?? selectedProvider;

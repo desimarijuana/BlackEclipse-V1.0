@@ -15,6 +15,42 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   deleted. No source or release behaviour changed.
   No doc change - the ignore rules are the artifact.
 
+- **feat(ai): model detection is automatic, and any API's key now reaches its probe.** The picker probes on mount and whenever the endpoint or the provider's key state changes (debounced, once per provider+endpoint), instead of requiring a manual Discover click and locking a provider out for six hours; the chat composer does the same for the selected provider. Two gaps made "connect any API" fail: a hand-typed endpoint's probe resolved no vault key (it now falls back to `CUSTOM_LLM_API_KEY` exactly as the LLM config does), and `llmKeyEnvVar` treated Ollama's `OLLAMA_BASE_URL` (a base URL, not a key) as a credential for keyless presets. OpenCode Go is now also offered in the setup wizard and its shared Console key is labelled "OpenCode Zen / Go" — the provider itself already existed in Settings, the runtime catalog and the model probe (`https://opencode.ai/inference/go/v1/models`, verified live); the running window was simply an older install. Tests: `src/lib/settings.test.ts`, `src/lib/agent/presets.test.ts`. no doc change — no data shape, setup step or architecture changed.
+
+- **fix(ai): an Ollama endpoint pasted as its documented root (`http://localhost:11434`) now lists and selects models.** Two gaps combined to leave the picker empty with no Discover action: the model probe requested `{root}/models` (404 — the OpenAI surface is `/v1/models`, the native list is `/api/tags`), and no preset matched a base URL without a `/v1` suffix, so the settings panel resolved no provider id at all. Discovery now tries `{base}/models` first, then `{root}/v1/models`, then Ollama's native `{root}/api/tags` (a 404 or non-JSON reply falls through; the first real error is still reported), and a keyless local preset also matches its `/v1`-less root. Works for local Ollama, `ollama.com` (with or without `/v1`) and LM Studio. Tests: `python/tests/test_model_discovery.py`, `src/lib/agent/presets.test.ts`; verified against the running local Ollama (`kimi-k3:cloud`) and `ollama.com`. no doc change — discovery is an implementation detail of the model-runtime contract; no data shape, setup or architecture changed.
+
+- **fix(ai): a hand-typed endpoint now gets its key, its model list and its
+  Discover action.** A custom API entered as a base URL matched no preset, so
+  `llmKeyEnvVar` resolved no vault entry — saving refused with "API key is
+  required", and the runtime ran with an empty key even when the vault held one.
+  The active-setup panel also showed no key field and no model catalog because
+  the provider id stayed `auto`. Any hosted URL that is not a preset now resolves
+  to `CUSTOM_LLM_API_KEY`, and the panel treats it as the generic `custom`
+  provider (key editor, declared catalog, Discover). Verified end to end against
+  a stub OpenAI-compatible server (discovery + chat + Bearer key) and by building
+  a model for all 17 catalog providers; the local runtime was missing
+  `langchain-openai` and the sibling SDKs, now installed from
+  `python/requirements.txt`.
+  No doc change — provider contract and data shapes are unchanged.
+
+- **fix(desktop): `black app` / `desktop:refresh` no longer open the window
+  against an empty checkout database.** `channelLaunchEnv` forced
+  `BE_DATA_DIR` to the repository root for the Stable channel too, overriding the
+  packaged install's own `%LOCALAPPDATA%\BlackEclipse\data`. The checkout's
+  `jdds.db` has no schema until `prisma db push`, so every DB-backed screen
+  failed with `P2021: table ... does not exist` and the Node server eventually
+  died of OOM. `BE_DATA_DIR` is now set only for the isolated Dev channel; Stable
+  keeps its packaged data directory (verified: window boots, `/api/setup`,
+  `/api/alerts/live`, `/api/settings` all 200 against the 11 MB database).
+  Two consequences handled in the same pass: the owner marker is now read from
+  the same directory it is written to, and `black stop` clears the channel's app
+  port, because a packaged install pins no build and therefore writes no owner
+  marker — stopping the window used to leave its server behind and the next
+  launch showed "port 3100 is in use by another application".
+  docs updated: `docs/desktop-app-plan.md` (§4 data-directory resolution).
+  `operator-secret` (a per-install signing secret that the broken launches wrote
+  into the checkout) is now gitignored.
+
 - **release: v0.4.15 is published, with its signed manifest.** Signed
   `stable.json` offline with key `3e5f4f12096f06ac` for commit `b18e7e7b`, uploaded
   it to the draft, rewrote the release body to the Windows-only template (the

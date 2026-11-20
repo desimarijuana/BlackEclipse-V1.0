@@ -3,6 +3,7 @@ import { discoverRuntimeModels, HarnessRuntimeUnavailable } from "@/lib/harness"
 import { recordDiscoveredModels } from "@/lib/agent/discovered-models";
 import { getLLMPreset } from "@/lib/agent/presets";
 import { resolveProviderKey } from "@/lib/provider-keys";
+import { llmKeyEnvVar } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +25,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
     const preset = getLLMPreset(id);
-    let apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : undefined;
-    if (!apiKey && preset?.envVar) {
-      try {
-        apiKey = (await resolveProviderKey(preset.envVar)) ?? undefined;
-      } catch {
-        // Vault unavailable — the probe proceeds keyless (works for local/public).
-      }
-    }
     const baseUrl =
       typeof body.baseUrl === "string" && body.baseUrl ? body.baseUrl : preset?.baseUrl || undefined;
+    let apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : undefined;
+    if (!apiKey) {
+      // A preset owns its key; any other hosted endpoint (including the
+      // `custom` preset) reads the shared CUSTOM_LLM_API_KEY. Without this a
+      // hand-typed API was probed keylessly and always 401'd, even though its
+      // key was saved.
+      const envVar = preset?.envVar ?? llmKeyEnvVar(baseUrl ?? "", id);
+      if (envVar) {
+        try {
+          apiKey = (await resolveProviderKey(envVar)) ?? undefined;
+        } catch {
+          // Vault unavailable — the probe proceeds keyless (works for local/public).
+        }
+      }
+    }
 
     const result = await discoverRuntimeModels(id, {
       baseUrl,

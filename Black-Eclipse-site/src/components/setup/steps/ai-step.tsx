@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { LLM_PRESETS, getLLMPreset } from "@/lib/agent/presets";
 import type { SetupDraft, SetupState } from "../types";
 
-const POPULAR = ["openai", "anthropic", "google", "deepseek", "groq", "mistral", "openrouter", "xai", "opencode", "together", "perplexity", "fireworks"];
+const POPULAR = ["openai", "anthropic", "google", "deepseek", "groq", "mistral", "openrouter", "xai", "opencode", "opencode-go", "together", "perplexity", "fireworks"];
 
 function ChoiceCard({
   active,

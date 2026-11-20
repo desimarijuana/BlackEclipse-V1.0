@@ -208,10 +208,22 @@ export function isLocalBaseUrl(baseUrl: string): boolean {
   }
 }
 
-/** Match a saved base URL back to a preset, so the UI can show "current". */
+/**
+ * Match a saved base URL back to a preset, so the UI can show "current".
+ *
+ * Local servers are routinely pasted without the OpenAI `/v1` suffix
+ * (`http://localhost:11434`, Ollama's documented root, instead of
+ * `…/v1`). Both name the same server, so a keyless preset also matches its
+ * root form — otherwise no provider resolves and the model picker renders
+ * an empty list with no Discover action.
+ */
 export function presetForBaseUrl(baseUrl: string): LLMPreset | undefined {
   const normalized = baseUrl.replace(/\/+$/, "");
-  return LLM_PRESETS.find((p) => p.baseUrl.replace(/\/+$/, "") === normalized);
+  return LLM_PRESETS.find((p) => {
+    const presetUrl = p.baseUrl.replace(/\/+$/, "");
+    if (presetUrl === normalized) return true;
+    return Boolean(p.keyless && p.id !== "custom" && presetUrl.replace(/\/v1$/, "") === normalized);
+  });
 }
 
 /**

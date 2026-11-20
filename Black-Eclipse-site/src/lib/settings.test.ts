@@ -27,6 +27,7 @@ vi.mock("@/lib/provider-keys", () => ({
 import {
   getLLMConfig,
   setLLMConfig,
+  llmKeyEnvVar,
   LOCAL_KEY_SENTINEL,
   DEFAULT_LLM_CONFIG,
 } from "@/lib/settings";
@@ -53,6 +54,24 @@ describe("setLLMConfig / getLLMConfig", () => {
     expect(effective.provider).toBe("openai");
     // The sentinel must NOT shadow the real vault key.
     expect(effective.apiKey).toBe("sk-vault-real-key");
+  });
+
+  it("uses the custom-endpoint vault key for a hand-typed base URL", async () => {
+    // A base URL the preset list does not own is a custom API. Its key lives in
+    // the same vault entry the "Custom provider" preset uses, so saving and the
+    // runtime both resolve it instead of failing with "API key is required".
+    storedProviderKey.mockImplementation(async (envVar: string) =>
+      envVar === "CUSTOM_LLM_API_KEY" ? "sk-acme-real-key" : null,
+    );
+    await setLLMConfig({
+      provider: "openai",
+      baseUrl: "https://api.acme.example/v1",
+      model: "acme-1",
+    });
+    expect(storedProviderKey).toHaveBeenCalledWith("CUSTOM_LLM_API_KEY");
+    const effective = await getLLMConfig();
+    expect(effective.apiKey).toBe("sk-acme-real-key");
+    expect(effective.baseUrl).toBe("https://api.acme.example/v1");
   });
 
   it("refuses a remote provider only when neither the vault nor env holds a key", async () => {
@@ -131,5 +150,19 @@ describe("setLLMConfig / getLLMConfig", () => {
     const cfg = await getLLMConfig();
     expect(cfg.temperature).toBeUndefined();
     expect(cfg.maxTokens).toBeUndefined();
+  });
+});
+
+describe("llmKeyEnvVar", () => {
+  it("finds the key for a preset, any custom hosted endpoint, and no key for a local server", () => {
+    // Presets own their env var — including the two OpenCode plans, which
+    // share one Console key.
+    expect(llmKeyEnvVar("https://opencode.ai/inference/openai/v1")).toBe("OPENCODE_API_KEY");
+    expect(llmKeyEnvVar("https://opencode.ai/inference/go/openai/v1")).toBe("OPENCODE_API_KEY");
+    // Anything else hosted is a custom API: its key is what discovery probes with.
+    expect(llmKeyEnvVar("https://opencode.ai/inference/go/v1")).toBe("CUSTOM_LLM_API_KEY");
+    expect(llmKeyEnvVar("https://api.acme.example/v1", "custom")).toBe("CUSTOM_LLM_API_KEY");
+    // A local server needs none.
+    expect(llmKeyEnvVar("http://localhost:11434/v1")).toBeUndefined();
   });
 });

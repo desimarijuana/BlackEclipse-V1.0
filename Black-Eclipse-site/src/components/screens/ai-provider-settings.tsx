@@ -297,34 +297,46 @@ function ActiveSetup({
   llm,
   updateLlm,
   modelCatalog,
+  keys,
+  onKeysChanged,
 }: {
   llm: LLMConfig;
   updateLlm: (patch: Partial<LLMConfig>, debounce?: number) => void;
   modelCatalog: ModelCatalog;
+  keys: Record<string, KeyStatus>;
+  onKeysChanged: () => void;
 }) {
   const t = useT();
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
 
   const activePreset = presetForBaseUrl(llm.baseUrl);
-  // A custom endpoint never matches a preset base URL, so fall back to the saved
-  // provider id — the same rule the server applies in `llmKeyEnvVar` (settings.ts).
-  // Without it the key field vanished exactly when a custom provider needed one.
+  // A hand-typed endpoint has no preset row. Fall back to the saved provider id,
+  // then to the generic custom kind for a hosted URL — otherwise the key field
+  // and the Discover action vanish exactly when a custom API is being connected.
+  const activeProviderId =
+    activePreset?.id ??
+    (llm.provider !== "auto" && llm.provider !== "mock"
+      ? llm.provider
+      : llm.baseUrl
+        ? isLocalBaseUrl(llm.baseUrl)
+          ? "ollama"
+          : "custom"
+        : undefined);
+  // Custom endpoints share one vault entry (`CUSTOM_LLM_API_KEY`), whether the
+  // preset was clicked or the base URL was typed by hand.
   const activeKeyEnvVar =
-    activePreset?.envVar ?? (llm.provider === "custom" ? "CUSTOM_LLM_API_KEY" : undefined);
-  const catalogProvider =
-    (llm.provider !== "auto" && llm.provider !== "mock" ? modelCatalog[llm.provider] : undefined) ??
-    modelCatalog[activePreset?.id ?? ""];
-  // The id the picker probes. Also used to decide whether "Discover models" is
-  // offered: the runtime — not this cached catalog — decides what a provider
-  // serves, so a missing catalog row must never remove the only way to load the
-  // list (it used to, leaving an empty dropdown and no action).
-  const pickerProviderId =
-    activePreset?.id ?? (llm.provider !== "auto" && llm.provider !== "mock" ? llm.provider : undefined);
-  const canDiscoverModels = catalogProvider
-    ? Boolean(catalogProvider.dynamicDiscovery)
-    : Boolean(pickerProviderId);
+    activePreset?.envVar ?? (activeProviderId === "custom" ? "CUSTOM_LLM_API_KEY" : undefined);
+  const catalogProvider = activeProviderId ? modelCatalog[activeProviderId] : undefined;
+  // The id the picker probes. The runtime — not this cached catalog — decides
+  // what a provider serves, so a missing catalog row never removes the live
+  // list (it used to, leaving an empty dropdown and no Discover action).
+  const pickerProviderId = activeProviderId;
   const modelOptions = catalogProvider?.models ?? [];
+  // Re-detect models when the key for this provider is added or cleared: the
+  // picker probes on mount, but a key saved while it stays mounted would
+  // otherwise not raise the provider's real catalog until a reload.
+  const keyState = activeKeyEnvVar ? (keys[activeKeyEnvVar]?.configured ? "key" : "no-key") : "keyless";
   const window_ =
     catalogProvider?.modelWindows?.[llm.model] ?? catalogProvider?.contextWindow ?? null;
   const windowKnown = window_ != null;
@@ -379,8 +391,8 @@ function ActiveSetup({
             providerId={pickerProviderId}
             baseUrl={llm.baseUrl}
             apiKey={llm.apiKey}
-            canDiscover={canDiscoverModels}
             onDiscovered={() => void loadModelCatalog(true)}
+            discoverSignal={keyState}
           />
         </div>
         <div className="flex flex-col gap-1.5">
@@ -454,7 +466,7 @@ function ActiveSetup({
           No API key needed — local endpoints ignore it.
         </p>
       ) : activeKeyEnvVar ? (
-        <ProviderKeyEditor envVar={activeKeyEnvVar} label={activePreset?.name ?? "Custom endpoint"} />
+        <ProviderKeyEditor envVar={activeKeyEnvVar} label={activePreset?.name ?? "Custom endpoint"} onChanged={onKeysChanged} />
       ) : (
         <p className="text-[10px] text-muted-foreground">
           Custom endpoint — connect a preset above to manage its key in the vault.
@@ -672,7 +684,7 @@ export function AIProviderSettings({
 
   return (
     <div className="space-y-6">
-      <ActiveSetup llm={llm} updateLlm={updateLlm} modelCatalog={modelCatalog} />
+      <ActiveSetup llm={llm} updateLlm={updateLlm} modelCatalog={modelCatalog} keys={keys} onKeysChanged={reload} />
 
       {connected.length > 0 && (
         <section>

@@ -41,9 +41,24 @@ describe("LLM presets", () => {
 
   it("looks up by id and matches a saved base URL", () => {
     expect(getLLMPreset("groq")?.name).toBe("Groq");
+    expect(getLLMPreset("opencode-go")?.name).toBe("OpenCode Go");
+    expect(getLLMPreset("opencode-go")?.envVar).toBe("OPENCODE_API_KEY");
+    expect(presetForBaseUrl("https://opencode.ai/inference/go/openai/v1")?.id).toBe("opencode-go");
     expect(getLLMPreset("nope")).toBeUndefined();
     expect(presetForBaseUrl("https://api.groq.com/openai/v1/")?.id).toBe("groq");
     expect(presetForBaseUrl("https://unknown.example.com/v1")).toBeUndefined();
+  });
+
+  it("matches a local server pasted without its OpenAI /v1 suffix", () => {
+    // Ollama is documented as `http://localhost:11434`; without this match no
+    // provider resolves and the model picker offers no Discover action.
+    expect(presetForBaseUrl("http://localhost:11434")?.id).toBe("ollama");
+    expect(presetForBaseUrl("http://localhost:11434/")?.id).toBe("ollama");
+    expect(presetForBaseUrl("http://localhost:1234")?.id).toBe("lmstudio");
+    // Remote presets and custom endpoints are unchanged: a bare host is not a
+    // preset, so it must not silently borrow another provider's key.
+    expect(presetForBaseUrl("https://api.openai.com")).toBeUndefined();
+    expect(presetForBaseUrl("https://unknown.example.com")).toBeUndefined();
   });
 
   it("covers a useful spread of providers", () => {

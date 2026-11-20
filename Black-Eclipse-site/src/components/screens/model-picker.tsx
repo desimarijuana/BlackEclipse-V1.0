@@ -2,12 +2,13 @@
 
 // ── Model picker ─────────────────────────────────────────────────────────────
 // The runtime's declared models as a real dropdown, PLUS a free-text field so a
-// custom id is always typeable (never an allowlist). For a provider the runtime
-// can only enumerate at RUNTIME (Ollama, LM Studio, a router), a "Discover" action
-// probes the live endpoint and merges the models it actually serves — so the
-// operator sees their installed models, not a static sample.
+// custom id is always typeable (never an allowlist). The picker AUTO-detects the
+// live list on mount and whenever the endpoint or key changes (debounced), so a
+// provider's real catalog — Ollama's installed models, a router's hundreds, a
+// hand-typed API's models — appears without clicking anything. "Discover models"
+// remains the explicit re-probe and opens the curate dialog.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layers, RefreshCw } from "@/lib/icons";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,40 +21,11 @@ import {
 } from "@/lib/agent/enabled-models";
 import { ManageModelsDialog } from "./manage-models-dialog";
 
-/** How often the picker silently re-probes a provider that answered successfully. */
-const AUTO_DISCOVER_TTL_MS = 6 * 60 * 60 * 1000;
-/** A probe that FAILED (cold runtime, server down) is retried soon, not in 6 h. */
-const AUTO_DISCOVER_RETRY_MS = 60 * 1000;
-// v2 stores the earliest time the NEXT attempt may run (attempts used to be
-// stamped optimistically before the probe, so one failure locked the provider
-// out for six hours). The new key also releases anyone still held by the old one.
-const AUTO_DISCOVER_KEY = "be_model_autodiscover_v2";
-
-function readNextAttempts(): Record<string, number> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(AUTO_DISCOVER_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    const out: Record<string, number> = {};
-    for (const [id, ts] of Object.entries(parsed)) {
-      if (typeof ts === "number" && Number.isFinite(ts)) out[id] = ts;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function scheduleNextAttempt(providerId: string, delayMs: number) {
-  if (typeof window === "undefined") return;
-  try {
-    const attempts = readNextAttempts();
-    attempts[providerId] = Date.now() + delayMs;
-    window.localStorage.setItem(AUTO_DISCOVER_KEY, JSON.stringify(attempts));
-  } catch {
-    // Private mode / quota — auto-discovery simply runs again next mount.
-  }
-}
+/**
+ * How long to wait after the provider/endpoint changes before probing, so
+ * typing a base URL does not fire one request per keystroke.
+ */
+const AUTO_DISCOVER_DEBOUNCE_MS = 600;
 
 interface Props {
   value: string;
@@ -65,10 +37,14 @@ interface Props {
   providerId?: string;
   baseUrl: string;
   apiKey?: string;
-  /** Whether this provider can enumerate its models at runtime. */
-  canDiscover?: boolean;
   /** Called with the full, merged option list after a successful discovery. */
   onDiscovered?: (models: string[]) => void;
+  /**
+   * Changes when the provider's key/connection state changes (e.g. a key was
+   * just saved). Included in the probe key so the picker re-detects models
+   * without a manual click.
+   */
+  discoverSignal?: string | number;
 }
 
 export function ModelPicker({
@@ -80,8 +56,8 @@ export function ModelPicker({
   providerId,
   baseUrl,
   apiKey,
-  canDiscover,
   onDiscovered,
+  discoverSignal,
 }: Props) {
   useHydrateEnabledModels();
   const [extra, setExtra] = useState<string[]>([]);
@@ -97,7 +73,6 @@ export function ModelPicker({
   }, [providerId, baseUrl]);
 
   const enabled = useEnabledModelsStore((s) => (providerId ? s.providers[providerId] : undefined));
-  const enable = useEnabledModelsStore((s) => s.enable);
 
   // The FULL list (declared + discovered), NEWEST FIRST — what the Manage
   // dialog curates. Discovered ids lead, so a fresh probe never hides behind a
@@ -182,25 +157,32 @@ export function ModelPicker({
     }
   };
 
-  // Silently refresh the live list when the last attempt is stale, so a model
-  // released since the operator last looked appears without a manual click. The
-  // next attempt is scheduled by its OUTCOME: success waits the full TTL, failure
-  // retries in a minute, so a cold runtime never locks the list out for hours.
+  // Silently detect the live list on mount and whenever the operator points the
+  // picker at a different server or connects a key. One probe per
+  // (provider, endpoint, key-state) — the result is held durably server-side, so
+  // a failed probe costs a single request rather than locking the provider out.
+  const probedKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!providerId || !canDiscover || discovering) return;
-    const nextAt = readNextAttempts()[providerId] ?? 0;
-    if (Date.now() < nextAt) return;
-    void discover(true).then((ok) => {
-      scheduleNextAttempt(providerId, ok ? AUTO_DISCOVER_TTL_MS : AUTO_DISCOVER_RETRY_MS);
-    });
+    if (!providerId) return;
+    // A half-typed base URL is not an endpoint yet; the declared catalog renders.
+    if (baseUrl && !/^https?:\/\//i.test(baseUrl)) return;
+    const key = `${providerId}|${baseUrl}|${discoverSignal ?? ""}`;
+    if (probedKey.current === key) return;
+    const timer = setTimeout(() => {
+      probedKey.current = key;
+      void discover(true);
+    }, AUTO_DISCOVER_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // `discover` closes over the current provider/base URL; re-running on every
+    // render would loop on its `discovering` flag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerId, baseUrl, canDiscover, discovering]);
+  }, [providerId, baseUrl, discoverSignal]);
 
   // A single "Discover" action that always curates: it probes, then opens the
   // Manage dialog so the operator picks what to surface (never a wall of ids).
   const discoverAndManage = async () => {
     if (!providerId) return;
-    if (canDiscover) await discover();
+    await discover();
     setManageOpen(true);
   };
 
@@ -249,11 +231,11 @@ export function ModelPicker({
                 ? `${compact.models.length} enabled of ${allModels.length}`
                 : `${compact.models.length}${compact.truncated ? ` of ${allModels.length}` : ""} model${compact.models.length === 1 ? "" : "s"}`}
             </span>
-          ) : canDiscover ? (
+          ) : providerId ? (
             <span className="text-muted-foreground/60">· no models loaded yet — use Discover models</span>
           ) : null}
         </p>
-        {providerId && canDiscover && (
+        {providerId && (
           <button
             type="button"
             onClick={() => void discoverAndManage()}
@@ -304,7 +286,7 @@ export function ModelPicker({
           allModels={allModels}
           selected={value}
           onDiscover={discover}
-          canDiscover={Boolean(canDiscover)}
+          canDiscover
           onClose={() => setManageOpen(false)}
         />
       )}
