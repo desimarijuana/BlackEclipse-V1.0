@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
 import { isOperatorRequest } from "@/lib/harness/clients/skills-client";
-import { getLLMConfig } from "@/lib/settings";
+import { getLLMConfig, modelAuthFields } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +40,7 @@ export async function POST(
         provider: llm.provider,
         baseUrl: llm.baseUrl,
         apiKey: llm.apiKey,
+        ...modelAuthFields(llm),
         model: llm.model,
         contextWindow: llm.contextWindow,
       },

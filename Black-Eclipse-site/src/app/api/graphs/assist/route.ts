@@ -9,7 +9,7 @@ import { guardMutation } from "@/lib/api-guard";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { getLLMConfig } from "@/lib/settings";
+import { getLLMConfig, modelAuthFields } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +47,7 @@ export async function POST(request: Request) {
     provider: llm.provider,
     baseUrl: llm.baseUrl,
     apiKey: llm.apiKey,
+    ...modelAuthFields(llm),
     model: llm.model,
     contextWindow: llm.contextWindow,
   };

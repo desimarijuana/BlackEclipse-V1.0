@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-11-19
+last-verified: 2026-11-20
 ---
 
 # Architecture
@@ -1294,6 +1294,48 @@ attaches as context and the answers the agent produces:
   manual click. An uncurated compact list is newest-first *before* it is capped at
   `MODEL_LIST_SOFT_LIMIT`, so truncation keeps the latest models rather than
   cutting them off the bottom.
+### AI provider connections (the one connect path)
+
+An LLM connection is a first-class object with one lifecycle, not a set of
+independent fields. `src/lib/providers/registry.ts` is the single provider table
+(the UI presets in `agent/presets.ts` are derived from it, and a parity test
+checks it against `python/harness/models.py`). It declares each provider's
+protocol, auth style, base URL, default model, vault env var and key prefixes.
+
+- **Paste-first, one action.** Onboarding and Settings both mount
+  `components/providers/provider-connect.tsx`. A pasted key is detected from its
+  prefix; `POST /api/llm/connect` validates → probes with the provider's real
+  auth (`bearer` / `x-api-key` / `x-goog-api-key`) → discovers models → saves the
+  key and active config atomically. A failed probe writes nothing, so a bad key
+  never replaces a working provider.
+- **A config may exist before its key.** `setLLMConfig` no longer rejects a
+  remote provider with no key; the connection is simply reported as
+  `needs-key`, and chat fails with `PROVIDER_NOT_CONFIGURED`. The old rejection
+  was the root cause of "the screen says connected but chat uses the old
+  provider": the UI had already changed but the server refused the write.
+- **Custom gateways are plural and auth-aware.** Named connections live in
+  `llm_custom_connections_v1`; each has its own vault entry
+  (`CUSTOM_LLM_KEY_<ID>`) and an auth style (Bearer / `x-api-key` / `api-key` /
+  custom header+prefix). `llm_config` stores the `connectionId`, and
+  `getLLMConfig` resolves that connection's key + header on every read.
+  `modelAuthFields` adds `apiKeyHeader`/`apiKeyPrefix` to every runtime
+  `modelSettings`, and `python/harness/models.py` maps them to
+  `ChatOpenAI(default_headers=…)` with a placeholder API key so the real key is
+  not also sent as a Bearer token.
+- **Named providers keep their own key.** `llmKeyEnvVar` prefers the named
+  provider over the base URL, so editing the URL to a regional endpoint/proxy
+  still resolves `OPENAI_API_KEY`; only `provider: custom` uses
+  `CUSTOM_LLM_API_KEY`.
+- **The test is a real request.** `/api/llm/test` (and the compatibility
+  `/api/agent/test`) make one tiny chat request and retry without probe-only
+  parameters when a reasoning model rejects them. A 2xx model list alone is never
+  reported as "working".
+- **No fake connected state.** Keyless/local providers are not listed as
+  connected until they are the active configuration or their key is stored; the
+  UI distinguishes `Active` / `Connected` / `Not connected`.
+
+See `docs/model-connections.md` for the contract, routes and test map.
+
 - **Every provider can enumerate its live models — not just local servers.**
   Discovery used to be gated on local servers + routers (`Ollama`/LM Studio/
   OpenRouter); a hosted API (OpenAI, Groq, DeepSeek, Mistral, Anthropic,

@@ -151,9 +151,10 @@ function initialDraft(state: SetupState): SetupDraft {
             ? "licensed"
             : "skip",
     aiKind: state.ai.configured ? "keep" : "skip",
-    aiPreset: "openai",
-    aiBaseUrl: "",
-    aiModel: "",
+    // Show the provider that is actually saved, not a hard-coded default.
+    aiPreset: state.ai.configured ? state.ai.provider : "openai",
+    aiBaseUrl: state.ai.configured ? state.ai.baseUrl : "",
+    aiModel: state.ai.configured ? state.ai.model : "",
     aiApiKey: "",
     extraKeys: {},
     riskAck: state.riskAck?.accepted ?? false,

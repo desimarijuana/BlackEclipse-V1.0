@@ -76,6 +76,8 @@ interface LLMConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Named custom connection the active config uses (non-secret). */
+  connectionId?: string;
   /** Server reports whether a key is stored; the raw key is never sent back. */
   hasApiKey?: boolean;
   /**
@@ -379,7 +381,7 @@ export function Settings({
    * by the callers below to coalesce rapid keystrokes/toggles. It reports the
    * real result via the transient toast and never claims success on failure.
    */
-  const persist = useCallback(async (body: Record<string, unknown>) => {
+  const persist = useCallback(async (body: Record<string, unknown>): Promise<boolean> => {
     setSaving(true);
     setToast(null);
     try {
@@ -392,7 +394,7 @@ export function Settings({
       if (!res.ok) {
         setToast({ kind: "error", text: data.error || "Failed to save" });
         sound.error();
-        return;
+        return false;
       }
       if (data.llm) setLlm({ ...data.llm, apiKey: "" });
       if (Array.isArray(data.newsFeeds)) setFeeds(data.newsFeeds);
@@ -409,9 +411,11 @@ export function Settings({
       });
       setToast({ kind: "ok", text: "Saved" });
       sound.success();
+      return true;
     } catch {
       setToast({ kind: "error", text: "Failed to save" });
       sound.error();
+      return false;
     } finally {
       setSaving(false);
     }
@@ -450,7 +454,16 @@ export function Settings({
     setLlm((p) => {
       const next = { ...p, ...patch };
       if (llmTimer.current) clearTimeout(llmTimer.current);
-      llmTimer.current = setTimeout(() => void persist({ llm: next }), debounce);
+      // A rejected save must not leave the UI describing a configuration the
+      // server does not have. Revert only if this value is still the current
+      // one (a newer keystroke already replaced it).
+      llmTimer.current = setTimeout(() => {
+        void persist({ llm: next }).then((saved) => {
+          if (!saved) {
+            setLlm((current) => (current === next ? p : current));
+          }
+        });
+      }, debounce);
       return next;
     });
   };

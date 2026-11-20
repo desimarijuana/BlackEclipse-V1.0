@@ -31,6 +31,10 @@ export interface RunRequestPayload {
     provider: string;
     baseUrl?: string;
     apiKey?: string;
+    /** Header that carries the key for a named custom connection. */
+    apiKeyHeader?: string;
+    /** Optional prefix for that header value (e.g. "Bearer "). */
+    apiKeyPrefix?: string;
     model: string;
     temperature?: number;
     /** Optional max output tokens for one response; absent = provider default. */

@@ -12,21 +12,184 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 - **release: v0.4.17.** Version bump for the update-pipeline fix above; the tag drives `desktop-release.yml` (Windows installer) and `publish-harness.yml`, and the offline-signed `stable.json` is uploaded to the draft before publishing.
 
-- **fix(updates): a freshly published release is detected within minutes, announced, and installable from the window.** The verified manifest was cached for 6 hours and the client polled every 6 hours, so v0.4.16 stayed invisible to a window whose last check was 44 minutes before the publish. The server TTL is now **5 minutes**, and the client checks after 2 s, every **10 minutes**, and on focus / visibility / `online` (throttled) — a release published while the window is open surfaces within minutes. A newer version raises a **one-time toast** through the shared `be:alert-notify` channel (transient: no ledger badge) alongside the title-bar dot. Packaged installs can now update in place: the verified manifest's `installers[<platform>-<arch>]` is exposed as `installer` on `/api/updates`; *Update now* runs the shell's installer runner (download → SHA-256 + size verify → open), and the fallback download button points at that signed installer instead of the release page. Tests: `src/lib/updates/core.test.ts` (platform installer selection); `tsc` clean, updates/notifications suites pass. docs updated: `docs/UPDATES.md` (cadence + packaged installer path).
+- **feat(team): bundled finance team library with evidence-gated subtasks
+  (Phase 7).** `TeamSubtask.evidence_required` added (default false — existing
+  teams unchanged); enforcement lives in `TeamService.finalize` via the pure
+  `unevidenced_subtasks`: a completed gated subtask with no evidenced finding
+  becomes a BLOCKING finding the reviewer must address (it cannot be approved
+  silently). New `team/preset_library.py` loads
+  validated YAML presets, substitutes declared `{variables}`, and rejects
+  duplicate ids, unknown/cyclic dependencies, an assignee who is not a member,
+  or a non-orchestrator lead who is not a member — at load time, naming the
+  file. Three presets ship: `investment_committee` (bull, bear, risk review,
+  chair verdict), `quant_strategy_desk` (screen, factor evidence, backtest,
+  audit) and `portfolio_risk_review` (concentration, drawdown, correlation,
+  decisions). YAML added to `pyproject` package-data so it ships. Tests:
+  `test_team_presets.py` (11) plus 53 team service/graph/conflict/review/e2e
+  regressions, all passing. Docs updated:
+  `docs/harness/bot-team-orchestration.md`,
+  `docs/harness/vibe-trading-analysis.md` (G9 partial).
+  Not done in this phase: the other ~27 curated desks, broker breadth 4→8 and
+  IM channel breadth 8→19 — those are product decisions, not ports.
+
+- **feat(artifacts): deterministic revision comparison (Phase 6).** Checked the
+  other two Phase 6 items first and they already existed — tool results are
+  paged with `offset`/`nextOffset` in `tool_outputs.py`, and memory has a
+  retention/expiry sweep with preview, maintenance lease and status. So the
+  real gap was the artifact diff: `artifacts/compare.py` adds
+  `compare_versions` / `compare_revisions` / `to_markdown`, reporting checksum
+  and size change, provenance (`created_by`/`agent_id`/`task_id`/`run_id`),
+  `change_note`, `mime_type`, and metadata split into added / removed / changed
+  with bounded values. Bytes are compared by checksum, never line-diffed, and
+  the doc says so. Tests: `test_artifact_compare.py` (9) plus 34 artifacts
+  api/store/tools regressions, all passing. Docs updated:
+  `docs/harness/artifact-center.md`, `docs/harness/vibe-trading-analysis.md`
+  (G10/G11 already existed, G12 done).
+
+- **feat(factors): academic Alpha Zoo (14 factors) + strict bench protocol
+  (Phase 5).** `factors/zoo/academic.py` adds documented price/volume factors
+  (overnight gap, intraday momentum, close-location value, Bollinger position,
+  RSI reversal, price-volume correlation, Amihud illiquidity, volume shock,
+  drawdown proximity, up-day ratio, high-low spread, price-volume trend), each
+  with `zoo`/`source`/`reference` provenance and an expression on the ONE safe
+  formula engine (no `eval`). Merged by name into
+  `factors.library.BUILTIN_FACTORS` (18 → 32) with no shadowing and no
+  duplicates. `factors/strict_bench.py` adds the anti-search-luck protocol:
+  chronological `split_index`, seeded per-date `random_control` (preserves each
+  date's distribution and missingness), and `strict_bench` reporting train IC,
+  held-out test IC, **control IC on the held-out window**, `oosDecay` and
+  `beatsControl`, reusing `factors.engine` so there is one IC implementation.
+  Tests: `test_alpha_zoo_strict_bench.py` (13) + 45 factor-service/engine
+  regression tests, all passing. Also fixed a stale vitest mock
+  (`workflows/generate/route.test.ts` did not provide `modelAuthFields`, which
+  the pre-existing uncommitted `route.ts`/`settings.ts` work imports) — 4/4
+  pass; that was the only vitest failure in the full gate. Docs updated:
+  `docs/quant-engine.md` (Alpha Zoo + strict bench),
+  `docs/harness/vibe-trading-analysis.md` (G7 partial, G8 done).
+
+- **feat(context): zero-cost turn fold + iterative compaction summaries
+  (Phase 4), both opt-in.** `compaction.py` gains `collapse_text/turn/turns`: a
+  turn over `COLLAPSE_MIN_CHARS` is reduced to head+tail plus a marker naming
+  the omitted character count and the **sha256 of the full original** (no model
+  call, idempotent, never a summary), wired into `history._bounded_history`
+  BEFORE the character cap. Measured consequence: folding makes previously
+  dropped turns fit, so 6 existing trimming/overflow tests changed behaviour and
+  failed; rather than rewrite their expectations the fold is **OFF by default**
+  (`BE_HISTORY_COLLAPSE=1` enables it) and the default path is byte-identical.
+  Iterative summaries: `build_compaction_prompt(prior=…)` asks the model to
+  UPDATE the prior briefing (keep true facts, correct wrong ones) instead of
+  writing anew; `CompactionResult.iterated` records it and `compact_history`
+  accepts `prior_summary`. Tests: `test_compaction_collapse.py` (15) plus 50
+  history/compaction/overflow and 65 context-budget/graph regression tests, all
+  passing. Docs updated: `docs/harness/architecture.md`,
+  `docs/harness/vibe-trading-analysis.md` (G2 → done, opt-in).
+
+- **feat(tools): `load_tool_schema` — see a catalogued tool's parameters before
+  invoking it (Phase 3).** The Phase 3 premise was wrong, and checking first
+  mattered: Eclipse already defers tool *binding* through `tool_disclosure.py`
+  (BM25-ranked, tiered catalogue, `tool_search`/`tool_invoke`, absolute schema
+  budget). Vibe-Trading's `load_tools` is a second, weaker copy of that
+  mechanism, so building it would have duplicated an existing subsystem. The
+  real missing step was schema *visibility*: `tool_invoke` executes directly, so
+  a model that only knew a catalogued name had to guess argument names. Added
+  `harness/tool_schema_load.py` (`load_tool_schema`, read-only, `risk="none"`,
+  ≤5 tools/call, 8k-char bound, allowlist-checked — it can never widen
+  authority), registered at boot in `service.py`, added to
+  `tool_disclosure.CORE_TOOLS` so it stays bound exactly when narrowing is
+  active, and added to the `eclipse-agent` / `CODE_NAVIGATOR_TOOLS` allowlists.
+  Tests: `test_tool_schema_load.py` (9) plus 62 disclosure/tools/surface and 41
+  graph/execution regression tests, all passing. Docs updated:
+  `docs/harness/architecture.md`, `docs/harness/vibe-trading-analysis.md`
+  (G1 → already existed).
+
+- **feat(quant): the event engine enforces market mandates (Phase 2).**
+  `BacktestEngine` now resolves `MarketRules` per symbol (from
+  `StrategySpec.market`, overridable by `BacktestConfig.market`) and applies
+  three gates the engine previously only declared: (1) entry quantity is floored
+  to the market lot (`MARKET_LOT_BELOW_ONE` when a sub-lot size becomes no
+  trade); (2) a fill outside the previous-close price band is cancelled
+  (`MARKET_LIMIT_BAND`) with the board from `board_for_code`; (3) sells are
+  clamped to the quantity acquired on an earlier calendar day
+  (`MARKET_T1_UNSETTLED`). FIFO lot bookkeeping in `_apply_fill`;
+  `BacktestConfig.market` added. Tests: `test_market_enforcement.py` (10) plus
+  87 regression tests across engine/orders/realism/vector/costs/market-rules,
+  all passing. The end-of-run forced liquidation intentionally bypasses T+1 and
+  the docs say so. Docs updated: `docs/quant-engine.md`,
+  `docs/harness/vibe-trading-analysis.md` (G6 → Phase 2 done).
+
+- **feat(quant): market execution rules + `StrategySpec.market`; broker
+  capability matrix with a drift gate; charts in exported reports.** Phase 1 of
+  the Vibe-Trading gap plan. `quant/market_rules.py` declares settlement, lot
+  rounding, board price limits, stamp/transfer taxes and short permissions for
+  `us_equity` / `a_share` / `hk_equity` / `crypto` as pure, unit-tested
+  functions; `StrategySpec.market` (default `us_equity`) is serialized with the
+  spec, and `validate_strategy` now rejects an unknown market
+  (`UNKNOWN_MARKET`) and a retail short where the market bans it
+  (`MARKET_SHORT_NOT_PERMITTED`). Per-bar enforcement (T+1, limits) is NOT yet
+  wired and the docs say so. `trade/capability_matrix.py` renders the four
+  declared broker kinds into `docs/trading.md` between markers with
+  `npm run docs:brokers` / `docs:brokers:check` (the check exits 1 on drift).
+  `quant/report_export.py` now embeds the run's `core`+`risk` figures as inline
+  base64 PNGs rendered by the one chart engine (no JS, no external asset;
+  best-effort with a named fallback). Tests: `test_market_rules.py` (22),
+  `test_capability_matrix.py` (9), `test_report_export_figures.py` (3). Docs
+  updated: `docs/quant-engine.md` (market rules + export figures),
+  `docs/trading.md` (generated matrix),
+  `docs/harness/vibe-trading-analysis.md` (charts comparison + status).
+
+- **docs(analysis): external Vibe-Trading implementation analysis + gap
+  register.** Read-only study of `HKUDS/Vibe-Trading` v0.1.19 (`1dbe5d5`) to
+  identify capabilities Eclipse lacks: measured inventory of all 33
+  `agent/src` packages (472,123 LOC; 126-tool AST extraction; 460 alphas; 19
+  broker connectors; 19 IM channels; 45 loaders; 15 venue engines), module-level
+  mechanics, and 13 numbered gaps each mapped to the exact Eclipse file and a
+  before/after contract (deferred tool exposure, zero-cost context collapse,
+  router probe budget, generated capability matrix, endpoint DNS pinning, venue
+  rule matrix, alpha zoo, strict bench, team presets, result paging, memory
+  lifecycle, artifact revision diff, scheduled-prompt capability rule). Three
+  earlier verbal claims were corrected (Vibe does ship a hash-chained ledger and
+  a run manifest; its eval harness is 43 files, not "22 cases"). No production
+  code changed — this is analysis plus a contract proposal. Docs updated:
+  `docs/harness/vibe-trading-analysis.md` (new).
+
+- **perf(test): `npm run verify` gates by domain, and the measured cost of the
+  old gate.** `npm run test` is vitest 158 s + Python 953 s + eval floors 226 s,
+  i.e. ~22 min, and 80% of it is a runtime a UI change cannot touch. `verify`
+  runs the **full** suite for each domain the working tree entered (`src/` →
+  vitest, `python/` → pytest, `python/harness/eclipse_memory/` → eval floors)
+  and always typechecks; `--all` (or no git) runs everything, so it cannot pass
+  by assuming nothing changed. Python collection alone is 607 s of its 953 s.
+  `scripts/lib/pytest-parallel.js` shards the suite across N pytest processes
+  (`BE_TEST_WORKERS`), but it is **opt-in and defaults to 1**: four workers took
+  1333 s against 953 s serial on this 12-core/16 GB box because each worker holds
+  the whole harness import graph. Changed-file detection is shared by `verify`
+  and `test:fast` in `scripts/lib/changed-files.js`.
+  Docs updated: `docs/QUICKSTART.md`, `docs/environments.md`. Measured: 212 s
+  for a `src/`-only change against 22 min for the old gate.
 
 - **chore(test): a `test:fast` lane for the iteration loop.** `npm run test` is
   ~160 s of vitest (554 files) plus the Python suite and eval floors, and the
   measured breakdown is `import 1325 s` vs `tests 67 s` (summed across workers):
   the cost is re-importing the agent tool registry for tests a change cannot
   affect. `scripts/test-fast.js` runs `tsc --noEmit` (16 s) and then
-  `vitest related` on the working-tree's changed `src/` files, runs the Python
-  suite only when `python/` changed, and the eval floors only when
+  `vitest related` on the working-tree's changed `src/` files, and maps a changed
+  Python module to the tests named after it (`harness/market/yahoo.py` →
+  `test_yahoo*.py`); it never runs the whole Python suite, which was measured at
+  26 min when one dirty `.py` triggered it. The eval floors run only when
   `python/harness/eclipse_memory/` changed. Broad changes (>40 files) fall back
   to the full suite. Measured on this repo: 45 s for a 9-file change, with 4
   test files reached. It is explicitly **not** the gate - the full
   `npm run test` + `tsc --noEmit` is still required before a change is reported
   complete.
   Docs updated: `docs/environments.md` (validation commands).
+
+- **fix(updates): a checkout whose repository root is above the app no longer reads as a packaged install.** `isSourceCheckout()` (server) and `isGitCheckout()` (runner) only tested `<app>/.git`, but this app lives in `Black-Eclipse-site/` inside a repo rooted one directory up. Both returned false, so `/api/updates` reported `canSelfUpdate: false` and `POST /api/updates/apply` refused with "This installed build cannot update in place" — i.e. the window could not download an update. Both now walk up to the enclosing work tree (finding a `.git` file or directory) and still treat a payload containing `server.js` as packaged, via the shared helper `scripts/lib/git-root.js` (mirrored in `src/lib/updates/core.ts`). `src/lib/updates/core.test.ts` pins the parent-root, packaged-marker and real-layout cases for **both** implementations, including a canary asserting this repository's actual app directory is classified as a checkout, so the bare-`.git` regression fails the suite rather than shipping. Docs updated: `docs/UPDATES.md` (new "Checkout detection" invariant + file map).
+
+- **chore(release): regenerate the SBOM for v0.4.17.** `npm run sbom` refreshes `sbom.cdx.json` / `THIRD-PARTY-NOTICES.md` to the current lockfiles and version; `src/lib/oss/sbom-artifact.test.ts` was the only failing test in the full suite (`0.4.15` vs `0.4.17`). no doc change — generated artifact.
+
+- **release: v0.4.17.** Version bump for the update-pipeline fix above; the tag drives `desktop-release.yml` (Windows installer) and `publish-harness.yml`, and the offline-signed `stable.json` is uploaded to the draft before publishing.
+
+- **fix(updates): a freshly published release is detected within minutes, announced, and installable from the window.** The verified manifest was cached for 6 hours and the client polled every 6 hours, so v0.4.16 stayed invisible to a window whose last check was 44 minutes before the publish. The server TTL is now **5 minutes**, and the client checks after 2 s, every **10 minutes**, and on focus / visibility / `online` (throttled) — a release published while the window is open surfaces within minutes. A newer version raises a **one-time toast** through the shared `be:alert-notify` channel (transient: no ledger badge) alongside the title-bar dot. Packaged installs can now update in place: the verified manifest's `installers[<platform>-<arch>]` is exposed as `installer` on `/api/updates`; *Update now* runs the shell's installer runner (download → SHA-256 + size verify → open), and the fallback download button points at that signed installer instead of the release page. Tests: `src/lib/updates/core.test.ts` (platform installer selection); `tsc` clean, updates/notifications suites pass. docs updated: `docs/UPDATES.md` (cadence + packaged installer path).
 
 - **feat(news): a real News control surface in Settings.** Settings › News now
   opens with two panels: **News cards** (per-page, sort, columns, density,
@@ -48,6 +211,37 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   tile applies it immediately (the wizard recolors) and persists it app-wide
   through the theme store, so the app opens with the chosen look instead of the
   default. Docs updated: `docs/onboarding-plan.md`, `docs/NAVIGATION.md`.
+
+- **fix(ai): provider connections now test and save correctly, in one step.**
+  Selecting a provider (or editing its base URL) used to POST `/api/settings`
+  while no key existed; `setLLMConfig` rejected the write, but the UI had already
+  changed, so the screen said "Connected" while chat kept the old provider.
+  Saving the key afterwards only wrote the vault — the selection was never
+  re-saved. `setLLMConfig` now persists a configuration before its credential
+  exists (chat then fails honestly with `PROVIDER_NOT_CONFIGURED`), and a failed
+  probe never replaces a working connection. A new atomic
+  `POST /api/llm/connect` validates → probes with the provider's REAL auth →
+  discovers models → saves the key and active config. The probe used to send
+  `Authorization: Bearer` to every provider, so valid Anthropic (`x-api-key`) and
+  Gemini (`x-goog-api-key`) keys were reported as rejected; it is now
+  protocol/auth aware and makes one tiny real chat request (`probeChat` retries
+  without probe-only `max_tokens`/`temperature` when a reasoning model rejects
+  them). One provider registry (`src/lib/providers/registry.ts`) now feeds the
+  UI presets, with a parity test against `python/harness/models.py`; a named
+  provider keeps its own vault key when its base URL is edited. Onboarding and
+  Settings share one paste-first `ProviderConnect` panel (auto-detect the key,
+  one Connect button, plain-language errors, model auto-discovery, advanced
+  fields collapsed). Deleted the old preset grid/key-editor/test dance.
+  Custom gateways are now **multiple named connections**
+  (`llm_custom_connections_v1`), each with its own encrypted vault key
+  (`CUSTOM_LLM_KEY_<ID>`), endpoint, model and auth style — Bearer / `x-api-key`
+  / `api-key` / custom header+prefix. The style is used by the probe AND threaded
+  through `ModelSettings` to `python/harness/models.py`
+  (`ChatOpenAI(default_headers=…)`), so a non-Bearer gateway actually runs, not
+  just tests. Settings lists, edits, switches and deletes them independently;
+  onboarding's custom flow creates one too.
+  Docs updated: `docs/model-connections.md` (new), `docs/NAVIGATION.md`,
+  `docs/ARCHITECTURE.md`.
 
 ## 2026-11-19
 

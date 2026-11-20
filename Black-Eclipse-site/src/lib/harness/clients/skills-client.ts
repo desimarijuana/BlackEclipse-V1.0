@@ -4,7 +4,7 @@
 // cannot (from the vault) and forwards. There is exactly one skill registry, in
 // Python.
 
-import { getLLMConfig } from "@/lib/settings";
+import { getLLMConfig, modelAuthFields } from "@/lib/settings";
 import { resolveLLMProviderId } from "@/lib/agent/presets";
 import { checkMutationAllowed } from "@/lib/api-guard";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "../python-runtime";
@@ -311,7 +311,13 @@ export async function validateSkillInput(
 async function resolveModelSettings() {
   const cfg = await getLLMConfig();
   const provider = resolveLLMProviderId(cfg);
-  return { provider, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model };
+  return {
+    provider,
+    baseUrl: cfg.baseUrl,
+    apiKey: cfg.apiKey,
+    ...modelAuthFields(cfg),
+    model: cfg.model,
+  };
 }
 
 /**

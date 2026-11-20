@@ -64,20 +64,66 @@ describe("setLLMConfig / getLLMConfig", () => {
       envVar === "CUSTOM_LLM_API_KEY" ? "sk-acme-real-key" : null,
     );
     await setLLMConfig({
-      provider: "openai",
+      provider: "custom",
       baseUrl: "https://api.acme.example/v1",
       model: "acme-1",
     });
-    expect(storedProviderKey).toHaveBeenCalledWith("CUSTOM_LLM_API_KEY");
     const effective = await getLLMConfig();
+    // Resolution happens on READ (the persisted row never holds the key), so
+    // the custom vault entry is looked up by getLLMConfig.
+    expect(storedProviderKey).toHaveBeenCalledWith("CUSTOM_LLM_API_KEY");
     expect(effective.apiKey).toBe("sk-acme-real-key");
     expect(effective.baseUrl).toBe("https://api.acme.example/v1");
   });
 
-  it("refuses a remote provider only when neither the vault nor env holds a key", async () => {
-    await expect(
-      setLLMConfig({ provider: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", apiKey: "" }),
-    ).rejects.toThrow(/API key/i);
+  it("resolves a named custom connection's own vault entry", async () => {
+    storedProviderKey.mockImplementation(async (envVar: string) =>
+      envVar === "CUSTOM_LLM_KEY_MY_GATEWAY" ? "conn-key" : null,
+    );
+    await setLLMConfig({
+      provider: "custom",
+      connectionId: "my-gateway",
+      baseUrl: "https://gateway.example/v1",
+      model: "m1",
+    });
+    const effective = await getLLMConfig();
+    expect(effective.connectionId).toBe("my-gateway");
+    expect(effective.apiKey).toBe("conn-key");
+    expect(llmKeyEnvVar("https://gateway.example/v1", "custom", "my-gateway")).toBe(
+      "CUSTOM_LLM_KEY_MY_GATEWAY",
+    );
+  });
+
+  it("keeps a named provider's own key when its base URL is edited", async () => {
+    // A regional endpoint / company proxy is still the same provider. Reading
+    // the base URL first used to resolve to CUSTOM_LLM_API_KEY and strand the
+    // key that the connect flow stored under OPENAI_API_KEY.
+    storedProviderKey.mockImplementation(async (envVar: string) =>
+      envVar === "OPENAI_API_KEY" ? "sk-openai-real" : null,
+    );
+    await setLLMConfig({
+      provider: "openai",
+      baseUrl: "https://openai.internal.example/v1",
+      model: "gpt-4o-mini",
+    });
+    const effective = await getLLMConfig();
+    expect(effective.apiKey).toBe("sk-openai-real");
+  });
+
+  it("persists a remote provider even before a key exists (needs-key, not a save failure)", async () => {
+    // Persisting the provider first is what lets the connect UI save the
+    // selection and then add the key without the server silently rejecting the
+    // edit. Chat still refuses to run until a key resolves.
+    storedProviderKey.mockResolvedValue(null);
+    const saved = await setLLMConfig({
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+      apiKey: "",
+    });
+    expect(saved.provider).toBe("openai");
+    const effective = await getLLMConfig();
+    expect(effective.apiKey).toBe("");
   });
 
   it("accepts a remote provider when the vault holds the key", async () => {

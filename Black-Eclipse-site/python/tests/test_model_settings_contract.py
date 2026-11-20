@@ -43,6 +43,19 @@ def test_camel_case_survives_the_run_request_contract():
     assert req.modelSettings.api_key == "vault-key"
 
 
+def test_camel_case_auth_header_fields_are_accepted():
+    settings = ModelSettings.model_validate({
+        "provider": "custom",
+        "baseUrl": "https://llm.example.com/v1",
+        "apiKey": "k",
+        "apiKeyHeader": "x-api-key",
+        "apiKeyPrefix": "Token ",
+        "model": "m",
+    })
+    assert settings.api_key_header == "x-api-key"
+    assert settings.api_key_prefix == "Token "
+
+
 def test_snake_case_constructor_still_works():
     # Internal callers/tests use snake_case kwargs; populate_by_name keeps them.
     settings = ModelSettings(provider="openai", model="gpt-4o", base_url="http://x", api_key="k")

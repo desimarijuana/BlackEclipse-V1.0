@@ -30,6 +30,9 @@ vi.mock("@/lib/settings", () => ({
     model: "llama3.1",
     contextWindow: 8192,
   }),
+  // The route forwards provider-specific auth fields; this mock models a
+  // provider with none, which is the `getLLMConfig` shape above.
+  modelAuthFields: () => ({}),
 }));
 
 vi.mock("@/lib/graph-studio/server-store", () => ({

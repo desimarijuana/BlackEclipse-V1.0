@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
 import { runWorkflow } from "@/lib/harness/clients/workflows-client";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
-import { getLLMConfig } from "@/lib/settings";
+import { getLLMConfig, modelAuthFields } from "@/lib/settings";
 import { runtimeBaseUrl, runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +40,7 @@ export async function POST(request: Request) {
         provider: llm.provider,
         baseUrl: llm.baseUrl,
         apiKey: llm.apiKey,
+        ...modelAuthFields(llm),
         model: llm.model,
         contextWindow: llm.contextWindow,
       },

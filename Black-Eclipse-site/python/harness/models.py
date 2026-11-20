@@ -394,6 +394,21 @@ def provider_has_credentials(provider_id: str) -> bool:
     return False
 
 
+def auth_header_overrides(settings: ModelSettings, api_key: Optional[str]) -> dict[str, str]:
+    """The extra header a named custom connection needs, or `{}` for Bearer.
+
+    Pure and deterministic. A standard Bearer endpoint returns `{}` so the SDK's
+    normal `Authorization` path is untouched. For x-api-key / api-key / a custom
+    header the key travels in exactly that header. An `authorization` header is
+    always treated as Bearer (the SDK owns that header); a non-Bearer
+    Authorization prefix is not supported by ChatOpenAI's public API.
+    """
+    header_name = (settings.api_key_header or "").strip()
+    if not header_name or not api_key or header_name.lower() == "authorization":
+        return {}
+    return {header_name: f"{settings.api_key_prefix or ''}{api_key}"}
+
+
 def build_chat_model(settings: ModelSettings) -> Any:
     """Construct a LangChain chat model for the requested provider.
 
@@ -425,11 +440,34 @@ def build_chat_model(settings: ModelSettings) -> Any:
         model = settings.model or spec.default_model
         if not base_url:
             raise ValueError(f"Provider '{spec.id}' requires a base URL")
+        # An endpoint typed into settings is an outbound request carrying the
+        # user's key: an IP literal inside the host/private network is refused.
+        # Local servers stay allowed when the URL is loopback or local-only mode
+        # is on; hostname resolution is opt-in (`BE_ENDPOINT_PINNING`).
+        from .model_runtime.endpoint_guard import EndpointBlocked, validate_endpoint  # noqa: PLC0415
+
+        try:
+            base_url = validate_endpoint(
+                base_url,
+                allow_private=privacy_local_models() or _is_loopback_url(base_url),
+            )
+        except EndpointBlocked as exc:
+            raise ValueError(f"ENDPOINT_NOT_ALLOWED: {exc.message}") from exc
         if not model:
             raise ValueError(f"Provider '{spec.id}' requires a model id")
         if not api_key:
             raise ValueError(f"Provider '{spec.id}' is not configured (missing API key)")
         kwargs: dict[str, Any] = {"model": model, "base_url": base_url, "api_key": api_key}
+        # A named custom connection may present its key in x-api-key / api-key /
+        # a custom header rather than Authorization. `default_headers` is the
+        # only public LangChain hook for that. The real key goes in the chosen
+        # header; the SDK's required api_key is a harmless placeholder so the
+        # credential is not ALSO sent as a Bearer token to a gateway that
+        # rejects it.
+        header_overrides = auth_header_overrides(settings, api_key)
+        if header_overrides:
+            kwargs["api_key"] = "not-used"
+            kwargs["default_headers"] = header_overrides
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:

@@ -53,6 +53,12 @@ export function ReviewStep({
 
   const aiLabel = (() => {
     if (draft.aiKind === "keep") {
+      // A connection made during this wizard is persisted immediately, so the
+      // draft (not the stale setup snapshot) is the freshest proof it worked.
+      if (draft.aiModel || draft.aiPreset) {
+        const p = getLLMPreset(draft.aiPreset);
+        return `${p?.name ?? draft.aiPreset} · ${draft.aiModel || p?.model || "auto"}`;
+      }
       return state.ai.configured ? `${state.ai.provider} · ${state.ai.model}` : "Not configured";
     }
     if (draft.aiKind === "skip") return "Not configured — Chat unavailable";

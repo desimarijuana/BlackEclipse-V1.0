@@ -165,6 +165,12 @@ class ModelSettings(BaseModel):
     provider: str
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    # Named custom connections choose where the key travels. For a standard
+    # Bearer endpoint this is absent (ChatOpenAI's normal Authorization path).
+    # For x-api-key / api-key / a custom header the runtime adds a default
+    # header so the gateway receives the credential exactly as it expects.
+    api_key_header: Optional[str] = None
+    api_key_prefix: Optional[str] = None
     model: str
     temperature: Optional[float] = None
     # Optional max output tokens for one response. Absent = the provider's own

@@ -89,3 +89,51 @@ def test_auto_sampling_defaults_are_not_sent(monkeypatch):
     models.build_chat_model(ModelSettings(provider="openai", model="gpt-4o-mini", api_key="k"))
     assert "temperature" not in captured
     assert "max_tokens" not in captured
+
+
+def test_bearer_uses_the_standard_authorization_path():
+    settings = ModelSettings(
+        provider="custom", model="m", api_key="k",
+        api_key_header="authorization", api_key_prefix="Bearer ",
+    )
+    assert models.auth_header_overrides(settings, "k") == {}
+
+
+def test_x_api_key_and_api_key_headers_are_emitted():
+    x = ModelSettings(
+        provider="custom", model="m", api_key="k", api_key_header="x-api-key",
+    )
+    assert models.auth_header_overrides(x, "k") == {"x-api-key": "k"}
+    azure = ModelSettings(
+        provider="custom", model="m", api_key="k", api_key_header="api-key",
+    )
+    assert models.auth_header_overrides(azure, "k") == {"api-key": "k"}
+
+
+def test_custom_header_prefix_is_appended():
+    settings = ModelSettings(
+        provider="custom", model="m", api_key="abc",
+        api_key_header="x-company-token", api_key_prefix="Token ",
+    )
+    assert models.auth_header_overrides(settings, "abc") == {
+        "x-company-token": "Token abc"
+    }
+
+
+def test_custom_header_reaches_chat_openai_without_a_real_bearer(monkeypatch):
+    captured: dict = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import langchain_openai
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChatOpenAI)
+
+    models.build_chat_model(ModelSettings(
+        provider="custom", model="m", api_key="secret",
+        base_url="https://llm.example.com/v1", api_key_header="x-api-key",
+    ))
+    assert captured["default_headers"] == {"x-api-key": "secret"}
+    # The real key is not ALSO sent as a Bearer token.
+    assert captured["api_key"] == "not-used"

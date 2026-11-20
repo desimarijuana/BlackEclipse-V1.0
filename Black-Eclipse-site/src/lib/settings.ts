@@ -7,9 +7,11 @@
 // news feeds, app preferences, and data hygiene.
 
 import { prisma } from "@/lib/db";
-import { isLocalBaseUrl, presetForBaseUrl, CATALOG_ENV_VARS } from "@/lib/agent/presets";
+import { isLocalBaseUrl, getLLMPreset, presetForBaseUrl, CATALOG_ENV_VARS } from "@/lib/agent/presets";
 import { assertModelAllowed } from "@/lib/privacy";
 import { storedProviderKey } from "@/lib/provider-keys";
+import { customConnectionKeyEnvVar } from "@/lib/agent/custom-key";
+import { authForConnection, getCustomConnection } from "@/lib/agent/custom-connections";
 
 /**
  * The env var that holds the key for a given LLM base URL. A known preset owns
@@ -19,10 +21,30 @@ import { storedProviderKey } from "@/lib/provider-keys";
  * Used so a key pasted in the provider-key vault is honoured by the LLM runtime
  * without re-entering it in the LLM config.
  */
-export function llmKeyEnvVar(baseUrl: string, provider?: string): string | undefined {
-  const preset = presetForBaseUrl(baseUrl);
+export function llmKeyEnvVar(
+  baseUrl: string,
+  provider?: string,
+  connectionId?: string,
+): string | undefined {
+  // A named custom connection has its OWN vault entry, so several gateways can
+  // coexist without overwriting each other.
+  if (provider === "custom" && connectionId) {
+    return customConnectionKeyEnvVar(connectionId);
+  }
+  const named =
+    provider && provider !== "custom" && provider !== "auto" && provider !== "mock"
+      ? getLLMPreset(provider)
+      : undefined;
+  // A NAMED provider keeps its own vault entry even when the operator edited the
+  // base URL (a regional endpoint, a company proxy). Reading the base URL first
+  // used to strand the saved key: it was stored under OPENAI_API_KEY but the
+  // edited URL resolved to CUSTOM_LLM_API_KEY, so chat ran with no key.
   // `envVar` on a keyless preset is a base URL (OLLAMA_BASE_URL), never a key.
-  if (preset?.envVar && !preset.keyless) return preset.envVar;
+  if (named?.envVar && !named.keyless) return named.envVar;
+
+  const preset = presetForBaseUrl(baseUrl);
+  if (preset?.envVar && !preset.keyless && provider !== "custom") return preset.envVar;
+
   if (provider === "custom" || (baseUrl && !isLocalBaseUrl(baseUrl))) {
     return "CUSTOM_LLM_API_KEY";
   }
@@ -90,6 +112,19 @@ export interface LLMConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /**
+   * For `provider: "custom"`: the named custom connection whose endpoint, key
+   * and auth style this config uses. Absent falls back to the legacy shared
+   * `CUSTOM_LLM_API_KEY` slot.
+   */
+  connectionId?: string;
+  /**
+   * Non-secret auth routing for a named custom connection (resolved server-side
+   * by `getLLMConfig`). Threaded to the Python runtime so `ChatOpenAI` can send
+   * the key in the header the gateway expects.
+   */
+  apiKeyHeader?: string;
+  apiKeyPrefix?: string;
   /**
    * Optional operator-declared context window (tokens) for the selected model.
    * Used ONLY when the runtime catalog cannot resolve one (a local server, a
@@ -209,10 +244,44 @@ export async function getLLMConfig(): Promise<LLMConfig> {
   const cfg = await readLLMConfigRaw();
   const hasRealKey = Boolean(cfg.apiKey) && cfg.apiKey !== LOCAL_KEY_SENTINEL;
   if (hasRealKey) return cfg;
-  const envVar = llmKeyEnvVar(cfg.baseUrl, cfg.provider);
+  const envVar = llmKeyEnvVar(cfg.baseUrl, cfg.provider, cfg.connectionId);
   if (!envVar) return { ...cfg, apiKey: isLocalBaseUrl(cfg.baseUrl) ? LOCAL_KEY_SENTINEL : cfg.apiKey };
-  const apiKey = process.env[envVar] || (await storedProviderKey(envVar)) || "";
-  return { ...cfg, apiKey };
+  let apiKey = process.env[envVar] || (await storedProviderKey(envVar)) || "";
+  // Upgrade fallback: before the registry preferred the named provider, a
+  // hand-edited base URL stored its key under CUSTOM_LLM_API_KEY. If the named
+  // entry is empty, use that key rather than reporting a working setup as
+  // "needs a key" after an upgrade.
+  if (!apiKey && !cfg.connectionId && envVar !== "CUSTOM_LLM_API_KEY") {
+    apiKey = process.env.CUSTOM_LLM_API_KEY || (await storedProviderKey("CUSTOM_LLM_API_KEY")) || "";
+  }
+  const resolved: LLMConfig = { ...cfg, apiKey };
+  // The named connection is the source of truth for a custom endpoint's auth
+  // routing. Resolve it on every read so a renamed/edited header takes effect
+  // without rewriting the llm_config row.
+  if (cfg.provider === "custom" && cfg.connectionId) {
+    const connection = await getCustomConnection(cfg.connectionId);
+    if (connection) {
+      const auth = authForConnection(connection);
+      resolved.apiKeyHeader = auth.header;
+      resolved.apiKeyPrefix = auth.prefix;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * The non-secret auth-routing fields to include in a runtime `modelSettings`
+ * payload. Every surface that builds one from `getLLMConfig` must spread this,
+ * otherwise a named custom connection would send its key as a Bearer token to a
+ * gateway that expects `x-api-key`/`api-key`/a custom header.
+ */
+export function modelAuthFields(
+  llm: Pick<LLMConfig, "apiKeyHeader" | "apiKeyPrefix">,
+): { apiKeyHeader?: string; apiKeyPrefix?: string } {
+  return {
+    ...(llm.apiKeyHeader ? { apiKeyHeader: llm.apiKeyHeader } : {}),
+    ...(llm.apiKeyPrefix ? { apiKeyPrefix: llm.apiKeyPrefix } : {}),
+  };
 }
 
 export async function setLLMConfig(
@@ -262,6 +331,19 @@ export async function setLLMConfig(
   if ((config as { routingPolicy?: unknown }).routingPolicy === null) delete merged.routingPolicy;
   // An explicit `null` clears the coding model back to the chat model.
   if (config.codingModel === null) delete merged.codingModel;
+  // A named custom connection is the only thing that owns auth routing. Leaving
+  // a stale connectionId/header on a named provider (or a header on the legacy
+  // shared custom slot) would send the wrong header to the wrong gateway.
+  if (merged.provider !== "custom") {
+    delete merged.connectionId;
+    delete merged.apiKeyHeader;
+    delete merged.apiKeyPrefix;
+  } else {
+    // Derived from the connection on every read; never persisted stale.
+    delete merged.apiKeyHeader;
+    delete merged.apiKeyPrefix;
+    if (!merged.connectionId) delete merged.connectionId;
+  }
 
   // A `"local"` sentinel is never a real key; drop it here so it cannot survive
   // a switch to a remote endpoint and be sent as the credential.
@@ -270,15 +352,17 @@ export async function setLLMConfig(
   // Fail closed before persisting a provider that local-only mode forbids.
   assertModelAllowed(merged.baseUrl, merged.provider);
 
-  if (merged.provider !== "mock" && !merged.apiKey && !isLocalBaseUrl(merged.baseUrl)) {
-    // The key may legitimately live in the provider-key vault or the environment
-    // (the single key home for a preset). Only refuse when neither holds one.
-    const envVar = llmKeyEnvVar(merged.baseUrl, merged.provider);
-    const vaultKey = envVar ? process.env[envVar] || (await storedProviderKey(envVar)) : "";
-    if (!vaultKey) {
-      throw new Error("An API key is required for a remote LLM provider");
-    }
-  }
+  // IMPORTANT: a configuration is allowed to exist before its credential does.
+  // The Settings/onboarding UI persists the provider, base URL and model as the
+  // operator edits them; requiring a key here meant the save silently failed and
+  // the UI drifted from the server (the "it looks connected but chat uses the
+  // old provider" bug). A remote provider with no resolvable key is reported
+  // honestly as `needs-key` by the connection status, and chat refuses with a
+  // clear message until one is added.
+  //
+  // We still resolve the vault/env key so callers can see whether one exists,
+  // but the absence of a key is not a persistence error.
+  void llmKeyEnvVar(merged.baseUrl, merged.provider);
   if (merged.provider !== "mock" && !merged.apiKey && isLocalBaseUrl(merged.baseUrl)) {
     // Local servers ignore the key but some clients require a non-empty string.
     merged.apiKey = LOCAL_KEY_SENTINEL;
@@ -475,9 +559,11 @@ export async function getIntegrationsStatus(): Promise<IntegrationStatus> {
     llm: {
       provider: llm.provider,
       model: llm.model,
-      // `auto`/`mock` with a saved local endpoint is a working configuration,
-      // not "unconfigured"; an explicit provider keeps its existing semantics.
-      configured: llm.provider !== "mock" || isLocalBaseUrl(llm.baseUrl),
+      // A persisted provider is not necessarily usable: it may be waiting for a
+      // key. `auto`/`mock` with a saved local endpoint is a working
+      // configuration, so a key or a local endpoint is required.
+      configured:
+        llm.provider !== "mock" && (Boolean(llm.apiKey) || isLocalBaseUrl(llm.baseUrl)),
     },
     yahoo: process.env.YAHOO_FINANCE_ENABLED === "true",
     fred: Boolean(process.env.FRED_API_KEY),

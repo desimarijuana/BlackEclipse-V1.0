@@ -63,6 +63,9 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
     provider: llm.provider,
     baseUrl: llm.baseUrl,
     model: llm.model,
+    // Which named custom connection is active (non-secret identity), so the UI
+    // can show its name instead of a generic "Custom / other".
+    connectionId: llm.connectionId,
     hasApiKey: Boolean(llm.apiKey),
     // The declared context window is not a secret; it round-trips so the UI can
     // show/edit it. Absent = unknown.

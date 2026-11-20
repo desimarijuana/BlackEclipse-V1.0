@@ -303,13 +303,16 @@ export interface AiStatus {
 export async function getAiStatus(): Promise<AiStatus> {
   const llm = await getLLMConfig();
   const hasKey = Boolean(llm.apiKey) && llm.apiKey !== LOCAL_KEY_SENTINEL;
+  const local = isLocalBaseUrl(llm.baseUrl);
   return {
     provider: llm.provider,
     model: llm.model,
     baseUrl: llm.baseUrl,
     hasKey,
-    // `auto`/`mock` are sentinels, not a verdict: a saved local endpoint is a
-    // usable chat configuration and must not read as "unconfigured".
-    configured: llm.provider !== "mock" || isLocalBaseUrl(llm.baseUrl),
+    // A saved configuration is not the same as a WORKING one. Since a provider
+    // may now be persisted before its key exists, "configured" must still
+    // require a resolvable credential — or a local endpoint that needs none.
+    // `auto`/`mock` are sentinels, not a verdict.
+    configured: llm.provider !== "mock" && (hasKey || local),
   };
 }

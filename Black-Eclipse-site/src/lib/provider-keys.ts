@@ -23,6 +23,7 @@
 
 import { prisma } from '@/lib/db';
 import { encryptSecret, decryptSecret, isEncryptedPayload } from '@/lib/connectors/secrets';
+import { isCustomConnectionKeyEnvVar } from '@/lib/agent/custom-key';
 
 /** Where the encrypted key values live in `SystemConfig`. */
 export const PROVIDER_KEYS_CONFIG_KEY = 'provider_keys_v1';
@@ -167,8 +168,21 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
 
 const BY_ENV = new Map(PROVIDER_KEYS.map((d) => [d.envVar, d]));
 
+/** Synthetic definition for a named custom connection's per-connection key. */
+function dynamicKeyDef(envVar: string): ProviderKeyDef {
+  return {
+    envVar,
+    label: 'Custom connection key',
+    provider: 'Custom endpoint',
+    category: 'ai',
+    description:
+      'Key for a named custom LLM connection. Stored encrypted; the connection record only references it.',
+    publicValue: false,
+  };
+}
+
 export function providerKeyDef(envVar: string): ProviderKeyDef | undefined {
-  return BY_ENV.get(envVar);
+  return BY_ENV.get(envVar) ?? (isCustomConnectionKeyEnvVar(envVar) ? dynamicKeyDef(envVar) : undefined);
 }
 
 /**
@@ -215,7 +229,9 @@ async function writeVault(record: VaultRecord): Promise<void> {
 
 /** Persist a key (encrypted). An empty value removes it. */
 export async function saveProviderKey(envVar: string, plaintext: string): Promise<void> {
-  if (!BY_ENV.has(envVar)) throw new Error(`Unknown provider key: ${envVar}`);
+  if (!BY_ENV.has(envVar) && !isCustomConnectionKeyEnvVar(envVar)) {
+    throw new Error(`Unknown provider key: ${envVar}`);
+  }
   const vault = await readVault();
   const trimmed = plaintext.trim();
   if (!trimmed) delete vault.keys[envVar];
@@ -358,6 +374,28 @@ export async function listProviderKeyStatus(): Promise<ProviderKeyStatus[]> {
       stored,
       configured: fromEnv || stored,
       hint,
+    });
+  }
+
+  // Named custom connections own a dynamic vault entry. They are not in the
+  // static PROVIDER_KEYS catalog, so add their (still masked) status here.
+  for (const envVar of Object.keys(vault.keys)) {
+    if (BY_ENV.has(envVar) || !isCustomConnectionKeyEnvVar(envVar)) continue;
+    const def = dynamicKeyDef(envVar);
+    const fromEnv = Boolean(process.env[envVar] && process.env[envVar]!.trim() !== '');
+    const decrypted = await storedProviderKey(envVar);
+    out.push({
+      envVar,
+      label: def.label,
+      provider: def.provider,
+      category: def.category,
+      description: def.description,
+      publicValue: false,
+      testable: false,
+      fromEnv,
+      stored: true,
+      configured: true,
+      hint: decrypted ? maskHint(decrypted) : undefined,
     });
   }
   return out;

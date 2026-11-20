@@ -231,6 +231,11 @@ async function resolveModelSettings(
     provider,
     baseUrl: cfg.baseUrl,
     apiKey: cfg.apiKey,
+    // Named custom connections may want the key in x-api-key / api-key / a
+    // custom header instead of Authorization. The runtime maps these fields to
+    // ChatOpenAI's `default_headers`.
+    ...(cfg.apiKeyHeader ? { apiKeyHeader: cfg.apiKeyHeader } : {}),
+    ...(cfg.apiKeyPrefix ? { apiKeyPrefix: cfg.apiKeyPrefix } : {}),
     // A composer-picked model overrides only the model; provider/key/URL stay
     // the operator's configured ones. Absent = the saved model.
     model: chosen || cfg.model,

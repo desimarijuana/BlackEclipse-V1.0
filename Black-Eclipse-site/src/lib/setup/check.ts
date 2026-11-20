@@ -7,8 +7,8 @@
 // the route, so this module never spins in the background.
 
 import { getLLMConfig, setConfig, LOCAL_KEY_SENTINEL } from "@/lib/settings";
-import { isLocalBaseUrl } from "@/lib/agent/presets";
-import { assertModelAllowed } from "@/lib/privacy";
+import { isLocalBaseUrl, resolveLLMProviderId } from "@/lib/agent/presets";
+import { testConnection } from "@/lib/agent/connection";
 import { providerKeyDef, resolveProviderKey } from "@/lib/provider-keys";
 import { SOURCE_BY_ID } from "./source-catalog";
 import { INCLUDED_PROBES } from "./included-probes";
@@ -74,6 +74,7 @@ async function testIncludedSource(id: SourceId): Promise<CheckItem> {
 }
 
 export interface AiCheckOverride {
+  providerId?: string;
   baseUrl?: string;
   model?: string;
   apiKey?: string;
@@ -84,18 +85,6 @@ async function testAi(override?: AiCheckOverride): Promise<CheckItem> {
   const baseUrl = (override?.baseUrl || saved.baseUrl).replace(/\/$/, "");
   const model = override?.model || saved.model;
   const local = isLocalBaseUrl(baseUrl);
-
-  try {
-    assertModelAllowed(baseUrl, saved.provider);
-  } catch (err) {
-    return {
-      id: "ai",
-      label: "Chat model",
-      kind: "ai",
-      status: "unavailable",
-      message: err instanceof Error ? err.message : String(err),
-    };
-  }
 
   const rawKey = override?.apiKey ?? saved.apiKey;
   const apiKey = rawKey === LOCAL_KEY_SENTINEL ? "" : rawKey;
@@ -116,40 +105,41 @@ async function testAi(override?: AiCheckOverride): Promise<CheckItem> {
     };
   }
 
-  const started = Date.now();
-  try {
-    const res = await fetch(`${baseUrl}/models`, {
-      method: "GET",
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-      signal: timeout(12_000),
-    });
-    const latencyMs = Date.now() - started;
-    if (res.ok) {
-      return {
-        id: "ai", label: "Chat model", kind: "ai", status: "ok",
-        message: `${override ? "Custom endpoint" : saved.provider} · ${model}`, latencyMs,
-      };
-    }
-    if (res.status === 404 || res.status === 405) {
-      return {
-        id: "ai", label: "Chat model", kind: "ai", status: "ok",
-        message: `Endpoint reachable (no model list; HTTP ${res.status})`, latencyMs,
-        httpStatus: res.status,
-      };
-    }
+  const providerId =
+    override?.providerId ??
+    resolveLLMProviderId({ provider: override ? "custom" : saved.provider, baseUrl });
+
+  // Auth-aware and protocol-aware: OpenAI gets Bearer, Anthropic gets
+  // `x-api-key`, Gemini gets `x-goog-api-key`. The old hard-coded Bearer probe
+  // reported valid Claude/Gemini keys as rejected.
+  const result = await testConnection({
+    providerId,
+    baseUrl,
+    model,
+    apiKey,
+    verifyChat: true,
+  });
+
+  if (result.ok) {
     return {
-      id: "ai", label: "Chat model", kind: "ai",
-      status: res.status === 429 ? "rate-limited" : "failed",
-      message: `Endpoint rejected the request (HTTP ${res.status})`,
-      latencyMs, httpStatus: res.status,
-    };
-  } catch (err) {
-    return {
-      id: "ai", label: "Chat model", kind: "ai", status: "failed",
-      message: err instanceof Error ? `Could not reach endpoint: ${err.message}` : "Test failed",
-      latencyMs: Date.now() - started,
+      id: "ai",
+      label: "Chat model",
+      kind: "ai",
+      status: "ok",
+      message: `${override ? "Custom endpoint" : providerId} · ${model}`,
+      latencyMs: result.latencyMs,
+      httpStatus: result.httpStatus,
     };
   }
+  return {
+    id: "ai",
+    label: "Chat model",
+    kind: "ai",
+    status: result.code === "RATE_LIMITED" ? "rate-limited" : "failed",
+    message: result.message,
+    latencyMs: result.latencyMs,
+    httpStatus: result.httpStatus,
+  };
 }
 
 async function testKeyedSource(id: SourceId): Promise<CheckItem> {
