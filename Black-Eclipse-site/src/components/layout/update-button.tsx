@@ -45,6 +45,7 @@ const PHASE_PERCENT: Record<UpdateJobPhase, number> = {
   checkout: 38,
   installing: 52,
   building: 74,
+  downloading: 60,
   promoting: 90,
   stopping: 60,
   ready: 100,
@@ -92,6 +93,7 @@ export function UpdateButton() {
     job?.status === 'ready' && Boolean(job.toVersion) && job.toVersion !== status?.currentVersion;
   const failed = job?.status === 'failed' && !ready;
   const stagedVersion = ready ? job?.toVersion ?? latest : null;
+  const installerMode = job?.mode === 'installer';
 
   const fetchJob = useCallback(async (): Promise<UpdateJob | null> => {
     try {
@@ -173,7 +175,7 @@ export function UpdateButton() {
 
     // Preferred: the shell spawns the runner, keeping it outside the server
     // tree (the app's supervisor kills that tree when it restarts the server).
-    if (requestUpdateApply(channel)) {
+    if (requestUpdateApply(channel, status?.currentVersion)) {
       const staged = await waitForNewJob(16);
       if (staged) {
         setJob(staged);
@@ -287,7 +289,9 @@ export function UpdateButton() {
                 {running
                   ? job?.message
                   : ready
-                    ? 'Built and published. Restart Eclipse — or quit and reopen — to switch.'
+                    ? installerMode
+                      ? 'Downloaded and verified. The installer is opening — follow its steps.'
+                      : 'Built and published. Restart Eclipse — or quit and reopen — to switch.'
                     : failed
                       ? job?.error || 'The updater stopped.'
                       : available
@@ -329,7 +333,9 @@ export function UpdateButton() {
                 </p>
               )}
               <p className="text-[10px] text-muted-foreground/70">
-                Your database was backed up first. Keep the app open.
+                {installerMode
+                  ? 'The signed installer keeps your data directory untouched.'
+                  : 'Your database was backed up first. Keep the app open.'}
               </p>
             </div>
           )}
@@ -337,21 +343,28 @@ export function UpdateButton() {
           {ready && (
             <div className="mt-3 space-y-2">
               {error && <p className="text-[10px] text-red-300">{error}</p>}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" className="cursor-pointer rounded-xl" onClick={restart}>
-                  <RefreshCw size={12} className="mr-1" />
-                  Restart Eclipse
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="cursor-pointer rounded-xl"
-                  onClick={() => window.location.reload()}
-                >
-                  Reload now
-                </Button>
-              </div>
-              {!shell && (
+              {installerMode ? (
+                <p className="text-[10px] leading-relaxed text-muted-foreground/80">
+                  Eclipse closes while the installer runs. It reopens from the installer&apos;s
+                  last page when you are done.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" className="cursor-pointer rounded-xl" onClick={restart}>
+                    <RefreshCw size={12} className="mr-1" />
+                    Restart Eclipse
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="cursor-pointer rounded-xl"
+                    onClick={() => window.location.reload()}
+                  >
+                    Reload now
+                  </Button>
+                </div>
+              )}
+              {!shell && !installerMode && (
                 <p className="text-[10px] text-muted-foreground/80">
                   Closing and reopening Eclipse also picks up the new build.
                 </p>

@@ -13,6 +13,12 @@
 //   --notes-url <url>       "What's new" link (defaults to the release page)
 //   --download-url <url>    archive / source zip link
 //   --min-supported <ver>   oldest version you will keep supporting
+//   --installer-url <url>   the packaged installer for one platform
+//   --installer-file <path> hash + size this local file (sets --installer-sha256)
+//   --installer-sha256 <h>  hex SHA-256 of the exact installer bytes
+//   --installer-size <n>    byte size (optional; enables an extra check)
+//   --installer-platform    key for the asset map (default: this host/arch,
+//                          e.g. win32-x64; use it for cross-platform signing)
 //   --key <path>            private key (default .black-eclipse/update-keys/...)
 //   --out <path>            output file (default release/<channel>.json)
 //   --force                 allow re-signing an existing output file
@@ -75,6 +81,50 @@ const payload = {
 const minSupported = arg("min-supported", "");
 if (minSupported) payload.minSupported = minSupported.replace(/^v/, "");
 
+// A packaged install has no git tree, so it updates by running a signed
+// installer. The signature covers the asset URL and its SHA-256: the runner
+// downloads those bytes and refuses to start anything that does not match.
+const installerFile = arg("installer-file", "");
+let installerSha = arg("installer-sha256", "");
+let installerSize = Number(arg("installer-size", "")) || 0;
+if (installerFile) {
+  if (!fs.existsSync(installerFile)) fail(`installer file not found: ${installerFile}`);
+  // Hash in bounded chunks: an installer is hundreds of MB and this runs on the
+  // same memory-constrained machine that builds it.
+  const hash = crypto.createHash("sha256");
+  const fd = fs.openSync(installerFile, "r");
+  const chunk = Buffer.allocUnsafe(4 * 1024 * 1024);
+  try {
+    for (;;) {
+      const read = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (read <= 0) break;
+      hash.update(chunk.subarray(0, read));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  installerSha = hash.digest("hex");
+  installerSize = fs.statSync(installerFile).size;
+}
+const installerUrl = arg("installer-url", "");
+if (installerUrl || installerSha) {
+  if (!installerUrl) fail("--installer-url is required with --installer-sha256/--installer-file");
+  if (!/^[0-9a-f]{64}$/i.test(installerSha)) {
+    fail("--installer-sha256 must be a 64-character hex SHA-256");
+  }
+  if (installerSize && (!Number.isInteger(installerSize) || installerSize <= 0)) {
+    fail("--installer-size must be a positive byte count");
+  }
+  const platform = arg("installer-platform", `${process.platform}-${process.arch}`);
+  payload.installers = {
+    [platform]: {
+      url: installerUrl,
+      sha256: installerSha.toLowerCase(),
+      ...(installerSize ? { size: installerSize } : {}),
+    },
+  };
+}
+
 const keyPath = arg("key", path.join(ROOT, ".black-eclipse", "update-keys", "update-signing-key.pem"));
 if (!fs.existsSync(keyPath)) fail(`private key not found: ${keyPath}`);
 
@@ -106,4 +156,9 @@ fs.writeFileSync(outPath, envelopeJson, "utf8");
 
 console.log(`[update-sign] signed ${channel} v${normalizedVersion} -> ${outPath}`);
 console.log(`[update-sign] commit ${commit}`);
+if (payload.installers) {
+  for (const [platform, asset] of Object.entries(payload.installers)) {
+    console.log(`[update-sign] installer ${platform} sha256 ${asset.sha256}`);
+  }
+}
 console.log("[update-sign] next: upload this file as a GitHub Release asset");

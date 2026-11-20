@@ -79,6 +79,19 @@ describe("readUpdateJob", () => {
     expect(job?.log).toHaveLength(80);
   });
 
+  it("reads a packaged installer job's download phase and verified artifact", () => {
+    writeJob({
+      ...base,
+      phase: "downloading",
+      mode: "installer",
+      artifact: { path: "C:\\data\\.runtime\\updates\\setup.exe", name: "setup.exe", sha256: "c".repeat(64), bytes: 42 },
+    });
+    const job = readUpdateJob();
+    expect(job?.phase).toBe("downloading");
+    expect(job?.mode).toBe("installer");
+    expect(job?.artifact?.sha256).toBe("c".repeat(64));
+  });
+
   // Regression: after a CLI update, the app kept serving the previous run's
   // failure and the title-bar panel claimed "Update did not finish" forever.
   it("drops a finished job recorded against a version we already left", () => {

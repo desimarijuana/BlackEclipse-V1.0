@@ -50,6 +50,7 @@ const VENDOR_PY = path.join(ROOT, "scripts", "vendor", "python");
 // Packs contain compiled wheels, so they are per target. The manifest records
 // which target an archive belongs to; a downloader requests the matching one.
 const TARGET = `${process.platform}-${process.arch}`;
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 
 const LINK = process.argv.includes("--link");
 
@@ -191,8 +192,12 @@ console.log(
   `  scrub local state: ${scrub.removed.length} path(s), ${(scrub.bytes / 1024 / 1024).toFixed(1)} MB`
 );
 
-// 4. Only the scripts the bootstrap actually needs — not the whole toolchain.
-fs.mkdirSync(path.join(APP, "scripts"), { recursive: true });for (const file of ["desktop-server.js", "db-guard.js"]) {
+// 4. Only the scripts the bootstrap and the updater actually need — not the whole
+// toolchain. `update-apply.js` is what a packaged install runs to fetch and
+// verify a signed installer; without it in `app/scripts`, every in-app update
+// died on ENOENT before it could even open the download.
+fs.mkdirSync(path.join(APP, "scripts"), { recursive: true });
+for (const file of ["desktop-server.js", "db-guard.js", "update-apply.js", "update.js"]) {
   const from = path.join(ROOT, "scripts", file);
   if (fs.existsSync(from)) {
     fs.copyFileSync(from, path.join(APP, "scripts", file));
@@ -200,6 +205,23 @@ fs.mkdirSync(path.join(APP, "scripts"), { recursive: true });for (const file of 
   }
 }
 copyTree(path.join(ROOT, "scripts", "lib"), path.join(APP, "scripts", "lib"), "scripts/lib");
+
+// The updater compares the running build against the signed manifest using
+// `<app>/package.json`. Next's standalone payload may rewrite or omit it, so the
+// installed version must be authoritative here.
+try {
+  const appPkgPath = path.join(APP, "package.json");
+  let appPkg = {};
+  try {
+    appPkg = JSON.parse(fs.readFileSync(appPkgPath, "utf8"));
+  } catch {}
+  appPkg.name = appPkg.name || pkg.name;
+  appPkg.version = pkg.version;
+  fs.writeFileSync(appPkgPath, `${JSON.stringify(appPkg, null, 2)}\n`);
+  console.log(`  app/package.json version ${pkg.version}`);
+} catch (err) {
+  fail(`could not stamp app/package.json: ${err.message}`);
+}
 
 // 5. Prisma's generated client lives outside the traced tree.
 const prismaGenerated = path.join(ROOT, "node_modules", ".prisma");

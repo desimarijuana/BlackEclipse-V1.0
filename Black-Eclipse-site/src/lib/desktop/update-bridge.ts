@@ -43,12 +43,24 @@ export function requestUpdateRestart(channel = 'stable'): boolean {
  * Ask the shell to run the updater itself. Preferred over the HTTP route: the
  * runner then lives outside the server tree, so neither the shell's supervisor
  * restart nor the promote step can kill it mid-build.
+ *
+ * `currentVersion` is the version the window is serving. It travels with the
+ * request because the shell cannot read the pinned build's version, and the
+ * updater must not compare against the checkout on disk.
  */
-export function requestUpdateApply(channel = 'stable'): boolean {
-  return emitUpdate({ action: 'apply', channel });
+export function requestUpdateApply(channel = 'stable', currentVersion?: string | null): boolean {
+  return emitUpdate({
+    action: 'apply',
+    channel,
+    ...(currentVersion ? { currentVersion } : {}),
+  });
 }
 
-function emitUpdate(payload: { action: 'apply' | 'restart'; channel: string }): boolean {
+function emitUpdate(payload: {
+  action: 'apply' | 'restart';
+  channel: string;
+  currentVersion?: string;
+}): boolean {
   if (typeof window === 'undefined') return false;
   const bridge = window as unknown as TauriBridge;
   try {

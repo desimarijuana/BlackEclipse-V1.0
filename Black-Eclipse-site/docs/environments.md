@@ -147,15 +147,27 @@ instead of wiping the same directory underneath it. The lock lives outside
 `.next` because the build deletes that directory; it is advisory, so a raw
 `npx next build` bypasses it.
 
-**The production build needs more than Node's default heap.** The module graph
-exceeds Node 22's ~4 GB ceiling, so the managed entry points
+**The production build needs more than Node's default heap — or Turbopack.**
+The module graph exceeds Node 22's ~4 GB ceiling, so the managed entry points
 (`scripts/lib/server.js` → `build()`, and Dev's `scripts/desktop-build.js`)
 default `NODE_OPTIONS` to `--max-old-space-size=12288` unless the caller already
-set an explicit heap size. (The Ubuntu release job still uses 6144 and passes;
-the Windows host exhausted 4 GB, 6 GB and 8 GB on the same source, matching the
-12 GB ceiling the release workflow used for Windows payload builds through
-v0.4.10.) Override with `BE_BUILD_HEAP_MB` on a tighter or roomier machine. A
-4 GB crash is the signature of that default being bypassed.
+set an explicit heap size. Both paths now pass `--turbopack` in production
+(`BE_BUILD_WEBPACK=1` restores webpack): the webpack compile of this graph grew
+past 15 GB on a 16 GB host, while Turbopack builds the same tree in a few
+minutes. The 12 GB ceiling remains for the webpack fallback and the release
+workflow's Windows payload builds through v0.4.10. Override with
+`BE_BUILD_HEAP_MB` on a tighter or roomier machine. A 4 GB crash is the
+signature of that default being bypassed.
+
+Two builds at once still cannot fit on a 16 GB host — a raw `npx next build`
+bypasses `.next-build.lock`, so it can run beside a managed build and both die
+with `Ineffective mark-compacts near heap limit`. `next.config.ts` also sets
+`experimental.webpackMemoryOptimizations` for the fallback (a little slower,
+less heap). A production build that OOMs is not an update bug: check
+`Get-CimInstance Win32_Process -Filter "Name='node.exe'"` for a second
+`next build` before raising the heap. The in-app source updater inherits this
+same ceiling because it runs `npm run build` on the user's machine; a packaged
+install does not build at all (see `docs/UPDATES.md`).
 
 **A plain `npm run build` refuses while a channel is live.** The window is safe
 (it serves a pinned copy), but a build started under a running app saturates the

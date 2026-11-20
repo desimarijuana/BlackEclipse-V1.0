@@ -1943,6 +1943,14 @@ fn main() {
                     .and_then(|v| v.as_str())
                     .unwrap_or("stable")
                     .to_string();
+                // The version this window is serving. The shell cannot read the
+                // pinned build, so the page sends it; without it the updater
+                // compared against the checkout on disk and could decide
+                // "nothing to install" while the running UI was older.
+                let running_version = value
+                    .get("currentVersion")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
                 let app = update_app.clone();
                 std::thread::spawn(move || {
                     let root = app.state::<AppState>().root.clone();
@@ -1976,6 +1984,11 @@ fn main() {
                         .stderr(Stdio::null());
                     if action == "restart" {
                         command.arg("--no-build");
+                    }
+                    if action == "apply" {
+                        if let Some(version) = running_version.as_deref() {
+                            command.arg("--running-version").arg(version);
+                        }
                     }
                     if let Err(err) = command.spawn() {
                         log_line(&format!("[update] could not start {script}: {err}"));

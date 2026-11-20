@@ -36,6 +36,7 @@ const {
   fetchManifest,
   compareVersions,
   isNewerVersion,
+  parseVersion,
 } = require("./lib/update-verify");
 
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
@@ -52,6 +53,15 @@ const assumeYes = hasFlag("yes") || hasFlag("y");
 const restart = hasFlag("restart");
 const noDesktop = hasFlag("no-desktop");
 const skipBackup = hasFlag("no-backup");
+
+// The version the RUNNING app is serving, when the caller knows it (the in-app
+// updater does). It is not always `package.json` on disk: a checkout can be
+// ahead of the build the window is pinned to (or the other way round), and a
+// self-update is defined by what the user is actually running. Falling back to
+// the on-disk version keeps `black update` unchanged.
+const runningVersionArg = argValue("running-version", process.env.BE_UPDATE_RUNNING_VERSION);
+const runningVersion =
+  runningVersionArg && parseVersion(runningVersionArg) ? runningVersionArg : pkg.version;
 
 function log(message) {
   console.log(`[update] ${message}`);
@@ -193,8 +203,12 @@ async function main() {
   if (!CHANNELS.includes(channel)) fail(`unknown channel "${channel}" (use ${CHANNELS.join(" | ")})`);
   if (process.env.ECLIPSE_UPDATES_DISABLED === "1") fail("update checks are disabled by ECLIPSE_UPDATES_DISABLED=1");
 
-  const current = pkg.version;
-  log(`installed: v${current} (channel: ${channel})`);
+  const current = runningVersion;
+  log(
+    `installed: v${current} (channel: ${channel})${
+      current !== pkg.version ? ` · checkout on v${pkg.version}` : ""
+    }`,
+  );
 
   let config;
   try {

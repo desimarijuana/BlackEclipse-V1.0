@@ -99,8 +99,36 @@ function keyFingerprint(pem) {
   return crypto.createHash("sha256").update(der).digest("hex");
 }
 
-function parseVersion(value) {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+/**
+ * Validate the signed installer map's SHAPE. Hosts are re-checked by
+ * `fetchManifest`, which has the config; this runs inside `verifyEnvelope`
+ * because a malformed map must invalidate the whole manifest.
+ */
+function validateInstallers(value) {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new UpdateVerifyError("installers", "Signed update payload has an invalid installers map.");
+  }
+  for (const [key, raw] of Object.entries(value)) {
+    if (!/^[a-z0-9]+-[a-z0-9_]+$/i.test(key)) {
+      throw new UpdateVerifyError("installers", `Unknown installer platform "${key}".`);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new UpdateVerifyError("installers", `Installer entry "${key}" is not an object.`);
+    }
+    if (typeof raw.url !== "string") {
+      throw new UpdateVerifyError("installers", `Installer "${key}" has no url.`);
+    }
+    if (typeof raw.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(raw.sha256)) {
+      throw new UpdateVerifyError("installers", `Installer "${key}" has an invalid sha256.`);
+    }
+    if (raw.size !== undefined && (!Number.isInteger(raw.size) || raw.size <= 0)) {
+      throw new UpdateVerifyError("installers", `Installer "${key}" has an invalid size.`);
+    }
+  }
+}
+
+function parseVersion(value) {  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
     String(value || "").trim(),
   );
   if (!m) return null;
@@ -247,6 +275,7 @@ function verifyEnvelope(envelopeJson, publicKeyPem, expectedChannel) {
   if (typeof payload.commit !== "string" || !/^[0-9a-f]{40}$/.test(payload.commit)) {
     throw new UpdateVerifyError("commit", "Signed update payload has no valid commit SHA.");
   }
+  validateInstallers(payload.installers);
   return payload;
 }
 
@@ -276,6 +305,13 @@ async function fetchManifest(channel, cfg) {
     if (payload[field]) {
       safe[field] = assertSafeUrl(payload[field], cfg);
     }
+  }
+  if (payload.installers) {
+    const installers = {};
+    for (const [key, asset] of Object.entries(payload.installers)) {
+      installers[key] = { ...asset, url: assertSafeUrl(asset.url, cfg) };
+    }
+    safe.installers = installers;
   }
   return safe;
 }

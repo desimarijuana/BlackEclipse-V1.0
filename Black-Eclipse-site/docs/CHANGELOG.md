@@ -42,6 +42,47 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   and latency line changed.
   No doc change — the benchmark page is the artifact itself.
 
+- **feat(updates): a packaged install can finally update itself.** Every
+  update path was git-only (`fetch` → `checkout` → `npm ci` → build), so the
+  window shipped by `BlackEclipse-Setup.exe` had no way to apply an update: its
+  `app` directory has no `.git`. `scripts/update-apply.js` now branches on that:
+  a source tree keeps the checkout+build path, a packaged tree downloads the
+  platform installer named in the signed manifest, verifies its SHA-256 and size
+  **while streaming** to `<BE_DATA_DIR>/.runtime/updates/`, and only then opens
+  it. A mismatch deletes the file and installs nothing. The handoff runs through
+  a detached PowerShell helper so closing the window/server cannot kill the step
+  that starts the installer. The manifest gains a signed `installers` map
+  (`<platform>-<arch>` → `{url,sha256,size}`), validated by both verifier
+  mirrors and host-checked like every other URL; `update-sign.js` builds it from
+  `--installer-file` (streaming hash, no 200 MB read) + `--installer-url`. Jobs
+  carry `mode` and the verified `artifact`, and installer mode tells the user to
+  follow the installer instead of offering a restart that would do nothing.
+  v0.4.15's manifest predates the field, so packaged 0.4.15 falls back to an
+  honest "open the release page" message; the next signed release can use it.
+  `desktop-package.js` now ships `update-apply.js` and `update.js` in
+  `app/scripts` — it copied only the bootstrap before, so a packaged install had
+  no updater to run at all. Docs updated: `docs/UPDATES.md`.
+
+- **perf(boot): a page request waits 3 s for a cold Python runtime, not 45 s.**
+  The browser allows six concurrent HTTP/1.1 connections per origin; six boot
+  API calls parked on the 45 s runtime budget held every socket, so even
+  Python-free routes (the chat transcript among them) queued for 45–55 s on a
+  cold start. `DEFAULT_REQUEST_WAIT_MS` is now 3 s: the background spawn keeps
+  going, the route answers an honest 503, and the next poll succeeds.
+  `HARNESS_PY_REQUEST_WAIT_MS` still overrides it. Files:
+  `src/lib/harness/runtime-supervision.ts` (+ test). Docs updated:
+  `docs/ARCHITECTURE.md`.
+
+- **fix(build): the production payload builds with Turbopack.** The webpack
+  production compile of the current graph exceeded a 15 GB live heap and died
+  with "Ineffective mark-compacts near heap limit" on this 16 GB host — at both
+  the 12 GB and 15 GB ceilings — so `desktop:refresh` and the in-app updater
+  could never finish their `building` phase (the same tree built in ~2.5 min
+  under Turbopack). `scripts/lib/server.js` (stable / `npm run build`) and
+  `scripts/desktop-build.js` (dev channel) now pass `--turbopack`;
+  `BE_BUILD_WEBPACK=1` is the fallback. Also removed the 3.7 GB stale webpack
+  cache that made rebuilds slower. Docs updated: `docs/UPDATES.md`.
+
 - **chore(marketing): Windows is the only advertised platform.** Removed the
   macOS and Linux download buttons from the README and the macOS/Linux rows from
   the release body and the install/requirements tables. Nothing links to an
@@ -82,6 +123,9 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   `src/lib/chat/chat-organization.ts` (`messageCount` survives merges),
   `src/lib/chat/transcript-client.ts`, `src/lib/chat/use-conversation-persistence.ts`
   (`hydrateConversation`), `src/components/screens/stock-chat.tsx`.
+  The route also stops hand-gzipping: the Turbopack production build dropped the
+  `content-encoding` header, so the browser parsed raw gzip as JSON and the
+  hydration failed silently. Plain JSON now, and the boot payload is ~50 KB.
   Docs updated: `docs/ARCHITECTURE.md` (conversation persistence).
 
 - **perf(desktop): the Tauri shell no longer builds with the slowest Rust
@@ -112,6 +156,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   no-op branch records the running version as `toVersion` so a finished job can
   never claim a build that was not made. `black update` is unchanged (no flag →
   disk version). Docs updated: `docs/UPDATES.md`.
+
+- **fix(build): lower the production build's peak heap so an in-app build fits on
+  a 16 GB machine.** `experimental.webpackMemoryOptimizations` is on (a little
+  slower, less heap). The in-app updater runs `npm run build` on the user's own
+  machine at the 12 GB old-space ceiling, so a build that OOMs is a stalled
+  update, not just a slow one. The observed `Ineffective mark-compacts near heap
+  limit` was also reproducible by two simultaneous builds (a raw `npx next build`
+  skips `.next-build.lock`), so the failure mode and the check for a second
+  `next build` are documented. Docs updated: `docs/environments.md`.
 
 - **perf(release): a tag build stops paying for work it already did.** The
   `only` fast-lane input was dead — it is accepted by `workflow_dispatch` and

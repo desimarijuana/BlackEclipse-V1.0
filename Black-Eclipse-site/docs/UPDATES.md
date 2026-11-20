@@ -43,9 +43,11 @@ Invariants — do not relax these without updating this file:
 2. **Manifest and every URL inside it must be `https:` on an allowlisted host**
    (`config/updates.json` → `allowedHosts`). A signed payload is still remote
    input, so its URLs are re-checked before the UI renders them.
-3. **Nothing fetched is executed.** The check is a read. `black update` moves to
-   a git tag whose commit SHA equals the signed manifest's `commit`; it never
-   runs a downloaded binary.
+3. **Nothing fetched is executed on a check.** The check is a read. `black update`
+   moves to a git tag whose commit SHA equals the signed manifest's `commit`; it
+   never runs a downloaded binary. The packaged updater opens an installer only
+   after the downloaded bytes match the `sha256`/`size` in the signed manifest —
+   a mismatch deletes the file and installs nothing.
 4. **A failed check is explicit.** The API returns `ok: false`. The banner stays
    quiet; Settings says "couldn't check". Never render "up to date" when the
    answer is unknown.
@@ -94,7 +96,7 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 | In-app notice | `src/components/layout/update-banner.tsx` (mounted in `src/app/layout.tsx`) |
 | Title-bar update button + panel | `src/components/layout/update-button.tsx` (mounted by `desktop-tab-bar.tsx`) |
 | Update status hook (shared) | `src/lib/updates/use-update-status.ts` |
-| Stage an update in-app | `scripts/update-apply.js` (spawned by the shell via `be-update`, or by `src/app/api/updates/apply/route.ts` as a fallback) |
+| Stage an update in-app | `scripts/update-apply.js` (git checkout+build for a source tree; signed-installer download for a packaged install) (spawned by the shell via `be-update`, or by `src/app/api/updates/apply/route.ts` as a fallback) |
 | Native-module lock probe (node_modules safety) | `scripts/lib/update-locks.js` |
 | Staged-job reader (spent-job filtering) | `src/lib/updates/job.ts` (tests in `job.test.ts`) |
 | Restart into the staged build | `src/lib/desktop/update-bridge.ts` (Tauri event `be-update`) → `main.rs` listener |
@@ -113,8 +115,11 @@ signed manifest exists.
 
 **v0.4.15 is published** (2026-11-19) with its manifest uploaded before the
 draft was promoted, and Windows is the only advertised download (macOS/Linux
-artifacts are opt-in backfills, see *Windows-first tags*). The rule still holds
-for the next cut: the release workflow builds installers but never holds the
+artifacts are opt-in backfills, see *Windows-first tags*). Its manifest predates
+the per-platform `installers` map, so packaged 0.4.15 installs still update
+through the git path only if they are a checkout; installer users need the
+release that ships both the manifest field and the downloader. The rule still
+holds for the next cut: the release workflow builds installers but never holds the
 signing key, so **sign and upload `stable.json` while the release is still a
 draft**. Publishing without it would 404 `releases/latest/download/stable.json`
 for every user, which is why the order is *sign → upload → publish*.
@@ -200,7 +205,11 @@ node scripts/update-sign.js \
   --version 0.4.0 \
   --channel stable \
   --commit "$(git rev-parse v0.4.0^{commit})" \
-  --min-supported 0.3.0
+  --min-supported 0.3.0 \
+  --installer-file dist/BlackEclipse-Setup.exe \
+  --installer-url https://github.com/<org>/<repo>/releases/download/v0.4.0/BlackEclipse-Setup.exe \
+  --installer-platform win32-x64 \
+  --out release/stable.json --force
 gh release upload v0.4.0 release/stable.json --clobber
 ```
 
@@ -396,6 +405,54 @@ Deliberate limits:
   time the app is opened. The web-side button is served by the pinned build as
   usual.
 
+### Packaged installs (an installer has no git tree)
+
+`scripts/update-apply.js` branches on what it is running inside: a packaged
+`<install>\app` has no `.git`, so it cannot `git checkout` or `npm ci`. That is
+the normal end-user install, not an error. In that mode the signed manifest
+carries a per-platform installer:
+
+```json
+{
+  "installers": {
+    "win32-x64": {
+      "url": "https://github.com/<org>/<repo>/releases/download/v0.4.16/BlackEclipse-Setup.exe",
+      "sha256": "8a77de72…",
+      "size": 188484501
+    }
+  }
+}
+```
+
+The runner fetches the manifest itself (it never trusts the page's answer),
+selects `"<platform>-<arch>"`, streams the download to
+`<BE_DATA_DIR>/.runtime/updates/` (outside `$INSTDIR`), and **refuses to open
+anything** whose SHA-256 or size differs from the signed values. A mismatch
+deletes the file and installs nothing. It then hands the verified file to the
+Windows installer through a detached PowerShell helper — an HTTP-started runner
+lives inside the server tree the installer must close. The helper waits for the
+runner to exit, closes this install's window and its owned server, then opens the
+installer. The installer's own pages take over; the user's data directory is
+outside `$INSTDIR` and is never touched.
+
+Notes:
+
+- The `installers` map is part of the **signed payload**. A manifest without it
+  (every release through 0.4.15) makes the packaged path fail honestly with
+  "open the release page", not a git error the user cannot act on.
+- Only `https:` URLs on `allowedHosts` are accepted; the runner re-checks them
+  even though the payload is signed, because signed content is still remote input.
+- The job grows a `mode` (`git` | `installer`) and, for installer mode, the
+  verified `artifact` (path/name/sha256/bytes). The panel says "downloaded and
+  verified" and does **not** offer "Restart Eclipse" — the installer owns the
+  restart.
+- Windows only today, matching the desktop product. Other platforms fall back to
+  the release page.
+- `scripts/desktop-package.js` must ship `update-apply.js` and `update.js` in
+  `app/scripts` (it copied only the bootstrap before) and stamps
+  `app/package.json` with the install version; without both, a packaged install
+  has no updater to run.
+
 ## Applying an update: `black update`
 
 ```bash
@@ -460,6 +517,8 @@ on a branch, run `git switch main` (and `git pull`).
 - Never host the manifest on a personal server or home network. GitHub Releases
   (or any static CDN) removes that exposure.
 - Never let the client trust a URL from the manifest without the allowlist.
+- Never open a downloaded installer whose SHA-256 does not match the signed
+  manifest; a signed URL without a signed digest is not enough.
 - Never auto-apply an update without a signature check and a DB backup.
 - Never put personal contact details in `README`, `LICENSE`, `package.json`
   `author`, commit emails, or DNS WHOIS. Publish as the org; use

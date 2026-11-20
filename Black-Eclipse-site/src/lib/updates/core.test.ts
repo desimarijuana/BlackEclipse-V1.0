@@ -147,6 +147,47 @@ describe("signed manifest verification", () => {
   });
 });
 
+describe("signed installer assets", () => {
+  const installer = {
+    url: "https://github.com/o/r/releases/download/v0.4.0/BlackEclipse-Setup-0.4.0.exe",
+    sha256: "b".repeat(64),
+    size: 188_484_501,
+  };
+
+  it("accepts a manifest whose installer map is signed", () => {
+    const { publicPem, privateKey } = keypair();
+    const payload = verifyEnvelope(
+      envelope({ ...basePayload, installers: { "win32-x64": installer } }, privateKey),
+      publicPem,
+    );
+    expect(payload.installers?.["win32-x64"]).toEqual(installer);
+  });
+
+  it("rejects an installer with a malformed checksum", () => {
+    const { publicPem, privateKey } = keypair();
+    const installers = { "win32-x64": { ...installer, sha256: "not-a-hash" } };
+    expect(() =>
+      verifyEnvelope(envelope({ ...basePayload, installers }, privateKey), publicPem),
+    ).toThrow(/sha256/i);
+  });
+
+  it("rejects an installer map that is not keyed by platform/arch", () => {
+    const { publicPem, privateKey } = keypair();
+    const installers = { windows: installer };
+    expect(() =>
+      verifyEnvelope(envelope({ ...basePayload, installers }, privateKey), publicPem),
+    ).toThrow(/platform/i);
+  });
+
+  it("rejects a non-positive installer size", () => {
+    const { publicPem, privateKey } = keypair();
+    const installers = { "win32-x64": { ...installer, size: 0 } };
+    expect(() =>
+      verifyEnvelope(envelope({ ...basePayload, installers }, privateKey), publicPem),
+    ).toThrow(/size/i);
+  });
+});
+
 describe("update URL allowlist", () => {
   it("accepts https URLs on allowlisted hosts", () => {
     expect(assertSafeUrl("https://github.com/o/r/releases", config)).toContain("github.com");

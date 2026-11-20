@@ -52,12 +52,29 @@ export type UpdateJobPhase =
   | "installing"
   | "building"
   | "promoting"
+  /** Downloading a signed installer (packaged installs, which have no git tree). */
+  | "downloading"
   /** The runner closed the app so it could replace its native dependencies. */
   | "stopping"
   | "ready"
   | "failed";
 
 export type UpdateJobStatus = "running" | "ready" | "failed";
+
+/** A signed installer asset for one platform (`<platform>-<arch>` key). */
+export interface UpdateInstallerAsset {
+  url: string;
+  /** Hex SHA-256 of the exact bytes the URL serves. */
+  sha256: string;
+  size?: number;
+}
+
+export interface UpdateArtifact {
+  path: string;
+  name: string;
+  sha256: string;
+  bytes: number;
+}
 
 export interface UpdateJob {
   /** Random id per run, so a stale poll cannot be mistaken for the new run. */
@@ -70,6 +87,13 @@ export interface UpdateJob {
   fromVersion: string;
   /** Version that was checked out and built, once known. */
   toVersion: string | null;
+  /**
+   * How the release was applied. `git` = checkout + build (source installs);
+   * `installer` = verified signed installer (packaged installs).
+   */
+  mode?: "git" | "installer";
+  /** The verified installer this run downloaded, when `mode` is `installer`. */
+  artifact?: UpdateArtifact | null;
   startedAt: string;
   /** Heartbeat, written with every phase change. Used to spot a dead job. */
   updatedAt: string;
@@ -91,4 +115,9 @@ export interface UpdateManifestPayload {
   notesUrl?: string;
   downloadUrl?: string;
   minSupported?: string;
+  /**
+   * Signed per-platform installers. The runner verifies the downloaded bytes
+   * against `sha256` before it will start the installer.
+   */
+  installers?: Record<string, UpdateInstallerAsset>;
 }

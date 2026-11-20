@@ -91,7 +91,15 @@ export async function POST(request: NextRequest) {
       detached: true,
       windowsHide: true,
       stdio: "ignore",
-      env: { ...process.env, BE_UPDATE_JOB_FILE: updateJobFile() },
+      env: {
+        ...process.env,
+        BE_UPDATE_JOB_FILE: updateJobFile(),
+        // The route is bundled with the running build, so `packageJson.version`
+        // is the version this window serves — not necessarily the checkout on
+        // disk. The runner must compare against that, or a checkout that is
+        // ahead of the pinned UI makes it report "nothing to install" forever.
+        BE_UPDATE_RUNNING_VERSION: packageJson.version,
+      },
     });
     child.unref();
   } catch (err) {

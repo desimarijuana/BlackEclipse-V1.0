@@ -160,13 +160,41 @@ export function loadPublicKey(input?: string | crypto.KeyObject): crypto.KeyObje
   return key;
 }
 
+/** Validate the signed installer map. Shape only; hosts are checked at fetch. */
+export function validateInstallers(value: unknown): asserts value is UpdateManifestPayload["installers"] {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new UpdateCheckError("installers", "Signed update payload has an invalid installers map.");
+  }
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[a-z0-9]+-[a-z0-9_]+$/i.test(key)) {
+      throw new UpdateCheckError("installers", `Unknown installer platform "${key}".`);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new UpdateCheckError("installers", `Installer entry "${key}" is not an object.`);
+    }
+    const asset = raw as Record<string, unknown>;
+    if (typeof asset.url !== "string") {
+      throw new UpdateCheckError("installers", `Installer "${key}" has no url.`);
+    }
+    if (typeof asset.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(asset.sha256)) {
+      throw new UpdateCheckError("installers", `Installer "${key}" has an invalid sha256.`);
+    }
+    if (
+      asset.size !== undefined &&
+      (!Number.isInteger(asset.size) || (asset.size as number) <= 0)
+    ) {
+      throw new UpdateCheckError("installers", `Installer "${key}" has an invalid size.`);
+    }
+  }
+}
+
 /** Verify an envelope and return its payload. Throws on ANY doubt. */
 export function verifyEnvelope(
   envelopeJson: string,
   publicKeyPem?: string,
   expectedChannel?: UpdateChannel,
-): UpdateManifestPayload {
-  let envelope: unknown;
+): UpdateManifestPayload {  let envelope: unknown;
   try {
     envelope = JSON.parse(envelopeJson);
   } catch {
@@ -223,6 +251,7 @@ export function verifyEnvelope(
       throw new UpdateCheckError("parse", `Signed update payload field "${field}" is invalid.`);
     }
   }
+  validateInstallers(payload.installers);
   return payload as unknown as UpdateManifestPayload;
 }
 
@@ -292,6 +321,13 @@ async function fetchManifest(channel: UpdateChannel, config: UpdateConfig): Prom
   const safe: UpdateManifestPayload = { ...payload };
   for (const field of ["notesUrl", "downloadUrl"] as const) {
     if (payload[field]) safe[field] = assertSafeUrl(payload[field], config);
+  }
+  if (payload.installers) {
+    const installers: NonNullable<UpdateManifestPayload["installers"]> = {};
+    for (const [key, asset] of Object.entries(payload.installers)) {
+      installers[key] = { ...asset, url: assertSafeUrl(asset.url, config) };
+    }
+    safe.installers = installers;
   }
   return safe;
 }
