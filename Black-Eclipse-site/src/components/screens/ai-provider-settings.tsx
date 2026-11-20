@@ -134,6 +134,8 @@ function ActiveConnection({
   keys,
   connectionName,
   busy,
+  modelCatalog,
+  onModelChange,
   onOpenConnect,
   onReplaceKey,
   onRemoveKey,
@@ -142,6 +144,8 @@ function ActiveConnection({
   keys: Record<string, KeyStatus>;
   connectionName?: string;
   busy: boolean;
+  modelCatalog: ModelCatalog;
+  onModelChange: (model: string) => void;
   onOpenConnect: () => void;
   onReplaceKey: () => void;
   onRemoveKey: () => void;
@@ -165,6 +169,14 @@ function ActiveConnection({
   // "Needs a key" when the vault entry is missing.
   const keyless = Boolean(preset && getProvider(preset.id)?.keyless) && !llm.connectionId;
   const configured = llm.provider !== "mock" && (hasKey || local || keyless);
+  // Quick model switch: the live catalog has all served ids (OpenCode Go, for
+  // example, lists 31). Keep the saved id even if the catalog is stale.
+  const catalogProvider = preset ? modelCatalog[preset.id] : modelCatalog[llm.provider];
+  const catalogModels = catalogProvider?.models ?? [];
+  const modelOptions =
+    llm.model && !catalogModels.includes(llm.model)
+      ? [llm.model, ...catalogModels]
+      : catalogModels;
 
   const runTest = async () => {
     setTesting(true);
@@ -225,10 +237,28 @@ function ActiveConnection({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="min-w-0 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
-          <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Model</p>
-          <p className="truncate font-mono text-[12px] font-semibold text-foreground" title={llm.model}>
-            {llm.model || "—"}
+          <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground">
+            Model {modelOptions.length > 0 ? `· ${modelOptions.length} available` : ""}
           </p>
+          {modelOptions.length > 0 ? (
+            <select
+              value={llm.model}
+              onChange={(e) => onModelChange(e.target.value)}
+              disabled={busy}
+              title="Change the active model"
+              className="mt-0.5 w-full cursor-pointer truncate rounded-md border border-white/10 bg-transparent py-1 font-mono text-[12px] font-semibold text-foreground focus:border-primary/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {modelOptions.map((m) => (
+                <option key={m} value={m} className="bg-background text-foreground">
+                  {m}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="truncate font-mono text-[12px] font-semibold text-foreground" title={llm.model}>
+              {llm.model || "—"}
+            </p>
+          )}
         </div>
         <div className="min-w-0 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
           <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Endpoint</p>
@@ -863,6 +893,8 @@ export function AIProviderSettings({
         keys={keys}
         connectionName={activeConnection?.name}
         busy={removingKey}
+        modelCatalog={modelCatalog}
+        onModelChange={(model) => updateLlm({ model }, 0)}
         onOpenConnect={() => {
           // Editing the active custom gateway should edit THAT connection, not
           // create a second one with the same endpoint.

@@ -6,6 +6,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **feat(ai): change the active model from the connection card.** The live
+  catalog (31 OpenCode Go models) is now a dropdown on the active card instead of
+  being hidden inside the collapsed Model & sampling section. no doc change -
+  UI affordance for an existing setting.
+
 - **feat(ai): replace or remove the active provider's key.** The active
   connection card now offers **Replace key** and **Remove key**, and an active
   provider row shows Disconnect. The old UI hid both for the active provider.
