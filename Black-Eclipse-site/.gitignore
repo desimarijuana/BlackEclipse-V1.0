@@ -127,6 +127,9 @@ python/csess_*/
 /desktop/src-tauri/target-dev/
 /desktop/src-tauri/gen/
 /dist/
+/dist-local/
+# Written by scripts/desktop-package.js at package time (generated, never tracked).
+/config/packs.json
 /.next-desktop/
 /.next-desktop-dev/
 /.next-live-*/

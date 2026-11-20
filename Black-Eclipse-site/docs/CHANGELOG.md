@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **chore(git): ignore the packaging artifacts that were dirtying the worktree.**
+  `scripts/desktop-package.js` writes `config/packs.json` at package time (it
+  landed with a stale `version: 0.4.6` and was never tracked), and a packaging
+  run had left a runaway nested build in `dist-local/`
+  (`app/dist/BlackEclipse/app/dist/...`, 38 files). `.gitignore` now covers
+  `/dist-local/` and `/config/packs.json`; the nested build directory was
+  deleted. No source or release behaviour changed.
+  No doc change - the ignore rules are the artifact.
+
 - **release: v0.4.15 is published, with its signed manifest.** Signed
   `stable.json` offline with key `3e5f4f12096f06ac` for commit `b18e7e7b`, uploaded
   it to the draft, rewrote the release body to the Windows-only template (the
