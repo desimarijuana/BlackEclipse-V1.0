@@ -19,6 +19,7 @@ import {
   ChevronDown,
   CircleDashed,
   Cpu,
+  KeyRound,
   Loader2,
   Plug,
   Ruler,
@@ -132,12 +133,18 @@ function ActiveConnection({
   llm,
   keys,
   connectionName,
+  busy,
   onOpenConnect,
+  onReplaceKey,
+  onRemoveKey,
 }: {
   llm: LLMConfig;
   keys: Record<string, KeyStatus>;
   connectionName?: string;
+  busy: boolean;
   onOpenConnect: () => void;
+  onReplaceKey: () => void;
+  onRemoveKey: () => void;
 }) {
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
@@ -248,8 +255,32 @@ function ActiveConnection({
           className="cursor-pointer rounded-lg"
           onClick={onOpenConnect}
         >
-          <Plug size={13} className="mr-1.5" /> Connect a provider
+          <Plug size={13} className="mr-1.5" /> {configured ? "Change provider" : "Connect a provider"}
         </Button>
+        {configured && !local && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="cursor-pointer rounded-lg"
+            onClick={onReplaceKey}
+          >
+            <KeyRound size={13} className="mr-1.5" /> Replace key
+          </Button>
+        )}
+        {configured && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="cursor-pointer rounded-lg text-rose-300 hover:text-rose-200"
+            disabled={busy}
+            onClick={onRemoveKey}
+          >
+            {busy ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Trash2 size={13} className="mr-1.5" />}
+            Remove key
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -329,7 +360,7 @@ function ProviderRow({
             <Plug size={11} className="mr-1" /> Connect
           </Button>
         )}
-        {state !== "active" && state === "connected" && !preset.keyless && (
+        {state !== "needs-key" && !preset.keyless && (
           <Button
             variant="ghost"
             size="sm"
@@ -653,6 +684,7 @@ export function AIProviderSettings({
   const [connectTarget, setConnectTarget] = useState<string | null>(null);
   const [editingConnection, setEditingConnection] = useState<CustomConnectionRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [removingKey, setRemovingKey] = useState(false);
 
   // `mock` means "no provider". Do not infer one from the leftover base URL —
   // that made a disconnected install show Ollama as "Active / In use".
@@ -731,7 +763,7 @@ export function AIProviderSettings({
     reloadConnections();
   };
 
-  const useConnection = async (connection: CustomConnectionRow) => {
+  const activateConnection = async (connection: CustomConnectionRow) => {
     setBusyId(connection.id);
     try {
       const res = await fetch("/api/llm/active", {
@@ -781,6 +813,35 @@ export function AIProviderSettings({
     setConnectTarget(providerId);
   };
 
+  const removeActiveKey = async () => {
+    setRemovingKey(true);
+    try {
+      if (llm.provider === "custom" && llm.connectionId) {
+        await fetch(`/api/llm/connections?id=${encodeURIComponent(llm.connectionId)}`, {
+          method: "DELETE",
+        });
+      } else if (llm.provider !== "mock" && llm.provider !== "auto") {
+        await fetch(`/api/llm/connect?providerId=${encodeURIComponent(llm.provider)}`, {
+          method: "DELETE",
+        });
+      }
+      updateLlm({ provider: "mock", apiKey: "", model: "", connectionId: undefined }, 0);
+      reload();
+      reloadConnections();
+    } finally {
+      setRemovingKey(false);
+    }
+  };
+
+  const replaceActiveKey = () => {
+    if (activeConnection) {
+      setEditingConnection(activeConnection);
+      setConnectTarget("custom");
+      return;
+    }
+    openConnect(activeId ?? "");
+  };
+
   const renderRow = (preset: LLMPreset) => (
     <ProviderRow
       key={preset.id}
@@ -801,6 +862,7 @@ export function AIProviderSettings({
         llm={llm}
         keys={keys}
         connectionName={activeConnection?.name}
+        busy={removingKey}
         onOpenConnect={() => {
           // Editing the active custom gateway should edit THAT connection, not
           // create a second one with the same endpoint.
@@ -811,6 +873,8 @@ export function AIProviderSettings({
             openConnect(activeId ?? "");
           }
         }}
+        onReplaceKey={replaceActiveKey}
+        onRemoveKey={() => void removeActiveKey()}
       />
 
       {connectTarget !== null && (
@@ -861,7 +925,7 @@ export function AIProviderSettings({
                 connection={connection}
                 active={llm.provider === "custom" && llm.connectionId === connection.id}
                 busy={busyId === connection.id}
-                onUse={() => void useConnection(connection)}
+                onUse={() => void activateConnection(connection)}
                 onEdit={() => {
                   setEditingConnection(connection);
                   setConnectTarget("custom");

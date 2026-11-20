@@ -6,6 +6,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **feat(ai): replace or remove the active provider's key.** The active
+  connection card now offers **Replace key** and **Remove key**, and an active
+  provider row shows Disconnect. The old UI hid both for the active provider.
+  no doc change - UI action over the existing key API.
+
 - **fix(ai): provider tests use the selected endpoint.** A test for a provider
   other than the saved one now uses THAT provider's default endpoint/model instead
   of the saved base URL (which could be local Ollama). Model lists that carry a
