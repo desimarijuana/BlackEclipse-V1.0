@@ -36,6 +36,7 @@ export type ConnectionErrorCode =
   | "RATE_LIMITED"
   | "UNREACHABLE"
   | "MODEL_REJECTED"
+  | "REQUEST_REJECTED"
   | "UNKNOWN_PROVIDER";
 
 export interface ProbeResult {
@@ -60,6 +61,18 @@ interface Target {
   model: string;
   /** Overrides the registry's auth style (named custom connections). */
   auth?: { header: string; prefix: string };
+  /** Stable per-probe session id for gateways that require one. */
+  sessionId?: string;
+}
+
+/** A stable-enough opaque id for a single probe/test action. */
+function newSessionId(): string {
+  try {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  } catch {
+    // fall through
+  }
+  return `be-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function resolveTarget(input: {
@@ -90,16 +103,25 @@ function resolveTarget(input: {
     // Empty means "let discovery choose"; never silently pin a stale default.
     model: (input.model ?? "").trim(),
     ...(auth ? { auth } : {}),
+    ...(provider.sessionHeader ? { sessionId: newSessionId() } : {}),
   };
 }
 
 /** The auth headers for a target, honouring a named connection's style. */
 function authHeadersForTarget(target: Target, apiKey: string): Record<string, string> {
-  if (!apiKey) return {};
-  if (target.auth) {
-    return { [target.auth.header.toLowerCase()]: `${target.auth.prefix}${apiKey}` };
+  const headers: Record<string, string> = {
+    // Gateways fingerprint generic SDK clients; identify ourselves honestly.
+    "user-agent": "BlackEclipse/0.4.19 (provider-connect)",
+  };
+  if (target.provider.sessionHeader) {
+    headers[target.provider.sessionHeader] = target.sessionId ?? newSessionId();
   }
-  return authHeadersFor(target.provider, apiKey);
+  if (!apiKey) return headers;
+  if (target.auth) {
+    headers[target.auth.header.toLowerCase()] = `${target.auth.prefix}${apiKey}`;
+    return headers;
+  }
+  return { ...headers, ...authHeadersFor(target.provider, apiKey) };
 }
 
 /**
@@ -123,6 +145,7 @@ export function effectiveModel(
 
 function modelsEndpoint(target: Target): string {
   const { provider, baseUrl } = target;
+  if (provider.modelsUrl) return provider.modelsUrl;
   if (provider.protocol === "anthropic") {
     return `${nativeOrigin(provider, baseUrl)}/v1/models`;
   }
@@ -243,6 +266,12 @@ function friendlyHttpFailure(
     return {
       code: "MODEL_REJECTED",
       message: `${provider.name} answered, but it does not serve that model. Pick a model from the list.`,
+    };
+  }
+  if (status === 400) {
+    return {
+      code: "REQUEST_REJECTED",
+      message: `${provider.name} rejected the request (HTTP 400). The detail below explains why.`,
     };
   }
   return {

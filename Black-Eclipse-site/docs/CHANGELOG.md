@@ -6,6 +6,15 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(ai): OpenCode Go now sends the required session header (v0.4.20).**
+  OpenCode Go rejects any request without a stable `x-opencode-session` id
+  (HTTP 400 `MissingSessionID`), which is why a valid key failed to connect.
+  Probes, model discovery and the runtime now send the header plus a real
+  User-Agent; the runtime uses the run's conversation id with a process-stable
+  fallback, and the gateway's catalog URL is declared explicitly. Verified
+  against a live key: 31 models listed and a 200 chat completion. Bumped to
+  0.4.20.
+
 - **release: v0.4.19.** Version stamp for the one-step provider connection
   system (atomic connect, protocol-aware probes, named custom gateways with
   per-connection keys and auth styles). Docs unchanged; this is the release

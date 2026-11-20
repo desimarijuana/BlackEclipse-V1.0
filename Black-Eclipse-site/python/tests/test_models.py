@@ -120,6 +120,45 @@ def test_custom_header_prefix_is_appended():
     }
 
 
+def test_opencode_session_header_reaches_the_client(monkeypatch):
+    captured: dict = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import langchain_openai
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChatOpenAI)
+
+    models.build_chat_model(ModelSettings(
+        provider="opencode-go", model="kimi-k3", api_key="k",
+        session_id="conversation-123",
+    ))
+    headers = captured["default_headers"]
+    assert headers["x-opencode-session"] == "conversation-123"
+    assert headers["user-agent"].startswith("BlackEclipse")
+    # Bearer auth is preserved; only the extra headers are added.
+    assert captured["api_key"] == "k"
+
+
+def test_opencode_session_fallback_is_stable_across_calls(monkeypatch):
+    seen: list[str] = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            seen.append(kwargs["default_headers"]["x-opencode-session"])
+
+    import langchain_openai
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChatOpenAI)
+
+    for _ in range(2):
+        models.build_chat_model(ModelSettings(
+            provider="opencode-go", model="kimi-k3", api_key="k",
+        ))
+    assert seen[0] == seen[1]
+    assert seen[0]
+
+
 def test_custom_header_reaches_chat_openai_without_a_real_bearer(monkeypatch):
     captured: dict = {}
 

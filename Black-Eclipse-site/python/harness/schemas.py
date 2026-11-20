@@ -171,6 +171,9 @@ class ModelSettings(BaseModel):
     # header so the gateway receives the credential exactly as it expects.
     api_key_header: Optional[str] = None
     api_key_prefix: Optional[str] = None
+    # Stable per-conversation id for gateways that require one (OpenCode Go's
+    # `x-opencode-session`). Absent = a process-stable fallback id.
+    session_id: Optional[str] = None
     model: str
     temperature: Optional[float] = None
     # Optional max output tokens for one response. Absent = the provider's own

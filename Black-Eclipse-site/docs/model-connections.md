@@ -118,6 +118,21 @@ is not also sent as a Bearer token to a gateway that rejects it. An
 `authorization` header is always treated as standard Bearer; a non-Bearer
 Authorization prefix is not supported by ChatOpenAI's public API.
 
+### Provider-required session headers
+
+Some gateways require more than a key. **OpenCode Go** rejects requests without
+a stable `x-opencode-session` id (HTTP 400 `MissingSessionID`) and asks clients to
+identify themselves with a real User-Agent. A descriptor can declare
+`sessionHeader`; the probe sends a fresh opaque id for the probe, and the runtime
+sends the run's `sessionId` (falling back to a process-stable id). OpenCode also
+publishes its model catalog one level above the chat base, so `modelsUrl` is
+declared explicitly. Adding another gateway with the same requirement is one
+descriptor field, not a code path.
+
+Verified against a live OpenCode Go key: without the header the gateway returns
+400; with it, `/models` returns the live catalog and `/chat/completions`
+returns 200.
+
 ## Invariants
 
 1. **A configuration may exist before its credential.** `setLLMConfig` persists

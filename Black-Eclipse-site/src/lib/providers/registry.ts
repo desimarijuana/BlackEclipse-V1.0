@@ -58,6 +58,13 @@ export interface ProviderDescriptor {
   /** Providers that publish a model list at the protocol's standard path.
    * Defaults to true when omitted. */
   supportsModelList?: boolean;
+  /** Explicit model-list URL when it differs from `${baseUrl}/models`. */
+  modelsUrl?: string;
+  /**
+   * Header that must carry a stable, opaque id per conversation. OpenCode Go
+   * rejects requests without `x-opencode-session` (HTTP 400 MissingSessionID).
+   */
+  sessionHeader?: string;
 }
 
 /**
@@ -161,6 +168,9 @@ export const PROVIDERS: ProviderDescriptor[] = [
     model: "glm-5.3",
     envVar: "OPENCODE_API_KEY",
     docsUrl: "https://opencode.ai/console",
+    // The gateway publishes its catalog one level above the chat base.
+    modelsUrl: "https://opencode.ai/inference/v1/models",
+    sessionHeader: "x-opencode-session",
     tier: "paid",
     popular: true,
   },
@@ -174,6 +184,8 @@ export const PROVIDERS: ProviderDescriptor[] = [
     model: "kimi-k3",
     envVar: "OPENCODE_API_KEY",
     docsUrl: "https://opencode.ai/docs/console/go/",
+    modelsUrl: "https://opencode.ai/inference/go/v1/models",
+    sessionHeader: "x-opencode-session",
     tier: "paid",
     popular: true,
   },

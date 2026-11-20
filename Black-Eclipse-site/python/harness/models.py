@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -37,6 +38,12 @@ _LOCAL_PRIVACY_VALUES = {
     "no-cloud", "nocloud",
 }
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"}
+
+# A process-stable fallback for gateways that require a session id when a
+# caller did not supply one (OpenCode Go). Per-conversation ids are better for
+# cache routing and are passed through `ModelSettings.session_id` by the TS
+# front door; this only prevents a hard 400 on a sessionless utility call.
+_SESSION_FALLBACK = str(uuid.uuid4())
 
 
 def privacy_local_models() -> bool:
@@ -79,6 +86,9 @@ class ProviderSpec:
     # current model ids — never only the declared sample. False = the declared
     # list is the whole story.
     dynamic_discovery: bool = False
+    # Header that must carry a stable per-conversation id. OpenCode Go rejects
+    # requests without `x-opencode-session` (HTTP 400 MissingSessionID).
+    session_header: Optional[str] = None
     # The provider's conservative context window (tokens), or None when it is
     # genuinely unknown. This is the FALLBACK when no model-specific value
     # applies. Where a provider's models vary widely this is a conservative
@@ -128,11 +138,11 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     # (`…/inference/openai/v1`); the catalog is published one level up
     # (`…/inference/v1/models`), which the OpenCode adapter probes directly. Its
     # hosted models vary widely, so the window stays unknown.
-    "opencode": ProviderSpec("opencode", "OpenCode Zen", "openai", "https://opencode.ai/inference/openai/v1", "glm-5.3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True),
+    "opencode": ProviderSpec("opencode", "OpenCode Zen", "openai", "https://opencode.ai/inference/openai/v1", "glm-5.3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True, session_header="x-opencode-session"),
     # OpenCode Go is the subscription gateway: same Console key, different base
     # URL. Sending a Go key to the Zen base bills it as pay-as-you-go, which is
     # why Go gets its own row (and its own TS preset).
-    "opencode-go": ProviderSpec("opencode-go", "OpenCode Go", "openai", "https://opencode.ai/inference/go/openai/v1", "kimi-k3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True),
+    "opencode-go": ProviderSpec("opencode-go", "OpenCode Go", "openai", "https://opencode.ai/inference/go/openai/v1", "kimi-k3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True, session_header="x-opencode-session"),
     # Together/Fireworks host many model families of different sizes. Only the
     # known Llama-3.3 entry is declared (below); the row is left unknown.
     "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True, dynamic_discovery=True),
@@ -464,10 +474,20 @@ def build_chat_model(settings: ModelSettings) -> Any:
         # header; the SDK's required api_key is a harmless placeholder so the
         # credential is not ALSO sent as a Bearer token to a gateway that
         # rejects it.
+        request_headers: dict[str, str] = {}
+        if spec.session_header:
+            request_headers[spec.session_header] = (
+                (settings.session_id or "").strip() or _SESSION_FALLBACK
+            )
+            # Gateways fingerprint generic SDK clients; identify ourselves.
+            request_headers["user-agent"] = "BlackEclipse/1.0"
         header_overrides = auth_header_overrides(settings, api_key)
         if header_overrides:
+            # The real key travels in the chosen header, not as a Bearer token.
             kwargs["api_key"] = "not-used"
-            kwargs["default_headers"] = header_overrides
+            request_headers.update(header_overrides)
+        if request_headers:
+            kwargs["default_headers"] = request_headers
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:

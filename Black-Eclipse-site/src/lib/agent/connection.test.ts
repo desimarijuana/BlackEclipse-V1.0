@@ -174,6 +174,37 @@ describe("probeModels auth", () => {
     expect(result.message).toContain("rejected the key");
   });
 
+  it("sends OpenCode's x-opencode-session and a real user agent", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ data: [{ id: "kimi-k3" }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await probeModels({
+      provider: {
+        id: "opencode-go",
+        name: "OpenCode Go",
+        description: "",
+        protocol: "openai",
+        authStyle: "bearer",
+        baseUrl: "https://opencode.ai/inference/go/openai/v1",
+        model: "kimi-k3",
+        modelsUrl: "https://opencode.ai/inference/go/v1/models",
+        sessionHeader: "x-opencode-session",
+        tier: "paid",
+      },
+      baseUrl: "https://opencode.ai/inference/go/openai/v1",
+      apiKey: "oc_sk_test",
+      model: "kimi-k3",
+    });
+    expect(result.ok).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://opencode.ai/inference/go/v1/models");
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers["x-opencode-session"]).toBeTruthy();
+    expect(String(headers["x-opencode-session"]).length).toBeGreaterThan(8);
+    expect(headers["user-agent"]).toContain("BlackEclipse");
+  });
+
   it("requires a key for a remote provider without making a request", async () => {
     const fetchMock = vi.fn(async () => {
       throw new Error("probe must not run without a key");

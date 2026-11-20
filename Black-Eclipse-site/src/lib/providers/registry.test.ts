@@ -83,6 +83,13 @@ describe("provider registry", () => {
     expect(PROVIDERS.length).toBe(uiIds.length);
   });
 
+  it("declares OpenCode's required session header and catalog URL", () => {
+    const go = getProvider("opencode-go");
+    expect(go?.sessionHeader).toBe("x-opencode-session");
+    expect(go?.modelsUrl).toBe("https://opencode.ai/inference/go/v1/models");
+    expect(getProvider("opencode")?.sessionHeader).toBe("x-opencode-session");
+  });
+
   it("has a vault entry for every keyed provider", () => {
     // A Connect for a provider whose envVar is missing from PROVIDER_KEYS would
     // fail with "Unknown provider key" after a successful probe.

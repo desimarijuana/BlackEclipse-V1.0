@@ -215,6 +215,7 @@ async function resolveModelSettings(
   modelOverride?: string,
   role?: "code",
   providerOverride?: string,
+  sessionId?: string,
 ) {
   const cfg = await getLLMConfig();
   // A bot may pin provider + model. Credentials/base URL still come from the
@@ -236,6 +237,9 @@ async function resolveModelSettings(
     // ChatOpenAI's `default_headers`.
     ...(cfg.apiKeyHeader ? { apiKeyHeader: cfg.apiKeyHeader } : {}),
     ...(cfg.apiKeyPrefix ? { apiKeyPrefix: cfg.apiKeyPrefix } : {}),
+    // OpenCode Go needs a stable id per conversation (`x-opencode-session`).
+    // The runtime falls back to a process-stable id when a surface omits it.
+    ...(sessionId ? { sessionId } : {}),
     // A composer-picked model overrides only the model; provider/key/URL stay
     // the operator's configured ones. Absent = the saved model.
     model: chosen || cfg.model,
@@ -400,7 +404,7 @@ export async function startChatRun(
   }
   // Phase 22 / S6: a build turn uses the operator's coding model when set.
   const modelSettings = await resolveModelSettings(
-    model, autonomy ? "code" : undefined, modelProvider,
+    model, autonomy ? "code" : undefined, modelProvider, sessionId || runId,
   );
   if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
     throw new HarnessError(
@@ -474,7 +478,7 @@ export async function startRun(
   const agent = await getAgentPreset(options.agentId);
   const cfg = await getLLMConfig();
   const modelSettings = await resolveModelSettings(
-    options.model, options.autonomy ? "code" : undefined, options.modelProvider,
+    options.model, options.autonomy ? "code" : undefined, options.modelProvider, options.sessionId,
   );
   const policyContext = routingPolicyContext(cfg);
   if (Object.keys(policyContext).length) {

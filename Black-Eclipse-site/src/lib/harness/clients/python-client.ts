@@ -35,6 +35,8 @@ export interface RunRequestPayload {
     apiKeyHeader?: string;
     /** Optional prefix for that header value (e.g. "Bearer "). */
     apiKeyPrefix?: string;
+    /** Stable per-conversation id for gateways that require one. */
+    sessionId?: string;
     model: string;
     temperature?: number;
     /** Optional max output tokens for one response; absent = provider default. */

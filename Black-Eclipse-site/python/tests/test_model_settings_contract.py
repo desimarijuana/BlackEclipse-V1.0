@@ -56,6 +56,17 @@ def test_camel_case_auth_header_fields_are_accepted():
     assert settings.api_key_prefix == "Token "
 
 
+def test_camel_case_session_id_is_accepted():
+    settings = ModelSettings.model_validate({
+        "provider": "opencode-go",
+        "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+        "apiKey": "k",
+        "sessionId": "conversation-123",
+        "model": "kimi-k3",
+    })
+    assert settings.session_id == "conversation-123"
+
+
 def test_snake_case_constructor_still_works():
     # Internal callers/tests use snake_case kwargs; populate_by_name keeps them.
     settings = ModelSettings(provider="openai", model="gpt-4o", base_url="http://x", api_key="k")
