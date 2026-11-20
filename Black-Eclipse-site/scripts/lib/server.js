@@ -39,6 +39,20 @@ function buildNodeOptions(existing = process.env.NODE_OPTIONS) {
   return `${value} --max-old-space-size=${BUILD_HEAP_MB}`.trim();
 }
 
+/**
+ * Environment for a child build: the caller's overrides on top of `process.env`,
+ * with the production heap applied. The standalone payload build passes
+ * `NEXT_DIST_DIR`/`BE_STANDALONE`; without this wrapper it did not inherit the
+ * heap and a 16 GB host OOM'd mid-compile.
+ */
+function buildEnv(overrides = {}) {
+  return {
+    ...process.env,
+    ...overrides,
+    NODE_OPTIONS: buildNodeOptions(overrides.NODE_OPTIONS || process.env.NODE_OPTIONS),
+  };
+}
+
 function pidAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -353,6 +367,7 @@ module.exports = {
   build,
   buildInProgress,
   buildNodeOptions,
+  buildEnv,
   acquireBuildLock,
   nextBin,
   startServer,

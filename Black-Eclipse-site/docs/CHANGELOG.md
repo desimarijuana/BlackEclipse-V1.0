@@ -6,6 +6,8 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **fix(build): the standalone payload build imported a `buildEnv` that was never defined.** `scripts/desktop-payload.js` gained `const { buildEnv } = require("./lib/server")` with the 6cfe77e7 changes, but `scripts/lib/server.js` never exported it, so `npm run desktop:payload` — and therefore every desktop release after v0.4.15 — died with `TypeError: buildEnv is not a function`. Restored the helper alongside `buildNodeOptions`: it merges the caller's overrides over `process.env` and applies the production heap. Verified locally; the v0.4.16 tag is re-cut onto this commit. no doc change — the bug and its fix are the code.
+
 - **release: v0.4.16.** Ships the AI-provider batch below (Ollama roots, auto model detection, custom-endpoint keys, OpenCode Go) plus the desktop data-dir/stop fixes. Version bumped in `package.json`, `pyproject.toml` and `python/harness/__init__.py`; the `v0.4.16` tag drives `desktop-release.yml` for the Windows installer and `publish-harness.yml` for the Python package. The signed `stable.json` is produced offline and uploaded to the draft before publishing. docs updated: `docs/UPDATES.md` (release state, after publish).
 
 - **chore(git): ignore the packaging artifacts that were dirtying the worktree.**
