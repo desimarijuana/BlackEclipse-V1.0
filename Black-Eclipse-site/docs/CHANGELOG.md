@@ -6,6 +6,23 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-19
 
+- **release: v0.4.15 is published, with its signed manifest.** Signed
+  `stable.json` offline with key `3e5f4f12096f06ac` for commit `b18e7e7b`, uploaded
+  it to the draft, rewrote the release body to the Windows-only template (the
+  old body still linked a `.dmg` that was never attached), then promoted the
+  draft. Verified end to end: `node scripts/update.js --check` reports
+  *latest signed release v0.4.15 / already up to date*, and
+  `npm run check:downloads` resolves `BlackEclipse-Setup.exe` and
+  `SHA256SUMS.txt`.
+  Docs updated: `docs/UPDATES.md` (release state).
+
+- **chore(size): re-pin the harness budget for the settled tree.** `check:size`
+  was red on `main` (521969 lines vs a 521545 ceiling) from the chart-engine,
+  bots and provider-spec work that landed after the 2026-11-18 pin. Re-pinned to
+  the measured tree — total 521969, `.` 40246, routers 24145 — per ADR-H288's
+  rule that a ceiling may be raised only by a deliberate edit.
+  No doc change — the budget file is the artifact.
+
 - **fix(release): a blank `only` no longer rebuilds all three OSes, and the
   release body stops describing downloads that do not exist.** `e6c21adc`
   removed the macOS/Linux download links but left two traps: a manual
