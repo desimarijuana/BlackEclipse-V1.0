@@ -29,6 +29,7 @@ import {
 } from '@/lib/harness/clients/autonomy-browser';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
+import { visibleGoalBarGoals } from '@/lib/harness/goal-visibility';
 
 interface GoalBarProps {
   sessionId?: string | null;
@@ -44,7 +45,6 @@ function statusTone(status: string): string {
 
 const button =
   'rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-40';
-const OPEN_STATUSES = ['active', 'paused', 'blocked'];
 
 export function GoalBar({ sessionId, className }: GoalBarProps) {
   const t = useT();
@@ -74,10 +74,7 @@ export function GoalBar({ sessionId, className }: GoalBarProps) {
     }
   }, [sessionId]);
 
-  const activeGoals = useMemo(
-    () => goals.filter((item) => OPEN_STATUSES.includes(item.status)).slice(0, 3),
-    [goals],
-  );
+  const activeGoals = useMemo(() => visibleGoalBarGoals(goals), [goals]);
   const loop = useMemo(
     () => loops.find((item) => item.status === 'active' || item.status === 'paused'),
     [loops],

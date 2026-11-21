@@ -6,6 +6,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(chat): hide idle goals from the chat strip.** Goals with 0 turns, no
+  run, no next wake-up and no verdict were rendered on every chat as if active.
+  The bar now shows only live goals (running, scheduled, blocked or with
+  history); the stale duplicates were cancelled. no doc change - UI filter.
+
 - **fix(ai): OpenCode Go and Zen are separate connections.** They shared
   `OPENCODE_API_KEY`, so connecting Go also marked Zen connected and the
   composer could keep showing Zen models. Go now uses `OPENCODE_GO_API_KEY`;
