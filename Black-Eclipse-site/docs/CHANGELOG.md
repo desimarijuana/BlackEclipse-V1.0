@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **release: v0.4.21 - update-signing key rotation.** The private key for the
+  previous public key was unavailable, so a new Ed25519 keypair is committed
+  (public key fingerprint `47e545f3...`). v0.4.21 is signed with the new key
+  and published as latest. Existing installs on 0.4.18/0.4.20 cannot verify the
+  new manifest and must install v0.4.21 manually once; auto-updates resume from
+  v0.4.21 onward. The private key stays offline and is never committed.
+
 - **fix(chat): hide idle goals from the chat strip.** Goals with 0 turns, no
   run, no next wake-up and no verdict were rendered on every chat as if active.
   The bar now shows only live goals (running, scheduled, blocked or with
