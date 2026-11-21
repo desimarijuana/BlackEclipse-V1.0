@@ -400,8 +400,26 @@ export function buildForPlatform(
   return null;
 }
 
+/**
+ * GitHub's `releases/latest/download/...` URL is CDN-cached: a manifest
+ * published minutes ago can still serve the PREVIOUS release from an edge. The
+ * manifest is a public static file, so a per-request cache-buster is harmless
+ * and makes a revalidation mean "now", not "whatever the edge has". The CLI
+ * (`scripts/lib/update-verify.js`) has always done this; without it the window
+ * kept announcing the previous version for minutes after a release.
+ */
+function cacheBustedManifestUrl(url: string): string {
+  try {
+    const next = new URL(url);
+    next.searchParams.set("ts", String(Date.now()));
+    return next.toString();
+  } catch {
+    return url;
+  }
+}
+
 async function fetchManifest(channel: UpdateChannel, config: UpdateConfig): Promise<UpdateManifestPayload> {
-  const url = resolveManifestUrl(channel, config);
+  const url = cacheBustedManifestUrl(resolveManifestUrl(channel, config));
   let response: Response;
   try {
     response = await fetch(url, {

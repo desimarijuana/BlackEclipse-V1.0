@@ -6,6 +6,72 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-21
 
+- **fix(updates): the server-side manifest fetch busts the CDN cache again.** The
+  window read `releases/latest/download/stable.json` without a per-request `ts`,
+  so right after a release it kept reporting the previous version while the CLI
+  (which does bust) already saw the new one. Restored in
+  `src/lib/updates/core.ts`; the mirror must agree with
+  `scripts/lib/update-verify.js`. no doc change — behaviour restored to the
+  documented 5-minute cache policy.
+
+- **feat(evaluation): the comparative instrument now exists — fixed task set +
+  deterministic rubric — so "best harness" is measurable instead of asserted.**
+  §7.1 of the reference analysis said a superiority claim would need *a task set, a
+  rubric and both systems run against them*. Two of the three are built:
+  - **`docs/harness/comparison-task-set.json`** — eight fixed finance prompts, each
+    declaring what a correct answer **must** carry (`UNAVAILABLE`/`SIMULATED`, a named
+    risk, a cost assumption, a dated source), what it must **never** contain (a
+    guaranteed return, an invented price, a claimed fill), and how many citations it
+    needs. Versioned, so a result can cite the set it was measured on.
+  - **`harness/evaluation/comparison.py`** — deterministic text rules with **no model
+    in the loop**, because a rubric that asks a model to grade its own answer is not a
+    measurement. Four equal-weighted dimensions (provenance, honesty, grounding,
+    coverage). A dimension with no requirement reports **`unmeasured`** and is
+    excluded from the total rather than scored 0, and `compare` labels a one-sided
+    dimension instead of awarding it.
+  The tests use hand-written transcripts: a fabricated price must score **strictly
+  below** a labelled `UNAVAILABLE`, a forbidden claim must zero honesty **while
+  coverage stays full**, partial citations must score fractionally, and disjoint task
+  sets must raise instead of inventing a comparison. Tests:
+  `test_comparative_rubric.py` (15).
+  **The third thing is still missing and is not a code change:** no Vibe-Trading
+  transcript has been run against this set (that needs the other project installed,
+  the same prompts and the same model). So the claim remains unstated — now
+  falsifiably so. Docs updated: `docs/harness/vibe-trading-analysis.md` (§7.2),
+  `docs/NAVIGATION.md` (two trigger rows: governance, and the parity register).
+
+- **feat(governance): the last unported reference module is taken — a tamper-evident
+  ledger and a methodology fingerprint — and module coverage is now
+  **machine-checked** instead of argued.** Two things were still missing, and both
+  were missing because nobody had decided:
+  - **`harness/governance/ledger.py`** — hash-chained, fsync'd, append-only JSONL.
+    Every record hashes `seq + prev_record_hash + canonical(payload)`, so an edit, a
+    deletion or a reordering breaks every later hash. The tests actually *tamper*:
+    editing a payload, dropping a record, swapping two, and rewriting a record with
+    a recomputed own-hash all fail `verify()` with the record **named**. A torn
+    trailing line is **refused on append** rather than buried behind a valid record —
+    discarding audit data is the operator's decision, not the module's.
+  - **`harness/governance/manifest.py`** — prompt hash, skills as
+    `(name, content_hash)`, sorted tool names + hash, curated package versions, with
+    `timestamp`/`runId` recorded but **excluded from `manifestHash`**, so the same
+    methodology hashes identically a month apart (proved). `manifest_diff` names
+    added/removed/edited skills and tools instead of just "changed".
+  - **`docs/harness/parity-register.json`** — one row for each of the reference's
+    **33 modules** plus G1–G14, and `python/tests/test_parity_register.py` fails if a
+    module row disappears, a status is outside the vocabulary, a **cited path no
+    longer exists**, a non-ported row has no stated reason, or a gap loses its
+    evidence path. That path check is what stops "we ported it" from being an
+    unfalsifiable sentence.
+  The register resolves the open "product decision" pile: `channelsui` is
+  **not_applicable** (its purpose is embedding chat in Vibe's WebUI; Eclipse's channel
+  surface is outbound delivery in a desktop app) and `pixel_agents` is
+  **equivalent** (`spawn/board.py` already had board read/write/search). Nothing is
+  left in "deferred" — that would have required a written decision, and there is none.
+  Tests: `test_governance_ledger.py` (13), `test_governance_manifest.py` (10),
+  `test_parity_register.py` (40) — 63 passed, and 75 with the size/public-API gates.
+  Docs updated: `docs/harness/vibe-trading-analysis.md` (§7.0 register + what governs
+  the two non-ported rows; §7.1 now says 33 modules rather than "platform surfaces").
+
 - **release: v0.4.22.** `package.json` and `pyproject.toml` both carry 0.4.22 so
   the desktop tag and the harness publish agree. This is the first release that
   ships a signed prebuilt build; from here an update is a download + verified
@@ -316,6 +382,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   1,227** (3:05). Every slice reported clean on the first attempt this time: the two
   fixes from the previous sweep (the `PORTED` assertion and the regenerated
   `benchmarks.md`) were already in place, so the choreography held.
+
+- **test(gate): the full sweep for the tree where all three zoos are complete.**
+  a-c 2,860 (7:47), d-f 1,293 (4:31), g-i 1,576 (2:27), j-m 1,780 (7:17),
+  n-p 1,023 (4:12), q-s 2,570 (4:55), t-z 1,227 (3:43) -> **12,329 passed,
+  zero failures**, and every slice clean on the first attempt.
 
 - **feat(factors): GTJA191 is COMPLETE — 191 of 191; all three alpha libraries are
   now fully ported (library 497 → 499, zoo 479 → 481).** The two formulas I had

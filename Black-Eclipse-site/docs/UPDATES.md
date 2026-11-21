@@ -135,16 +135,20 @@ Updates are **published**: the repository is
 `"published": true`. A live check verifies the newest signed manifest and offers
 it as soon as it is newer than the running build.
 
-**v0.4.21 is published** (2026-11-21, signed with key id `47e545f302249385`) and
-is the last release built on the checkout path: its manifest carries the
-`installers` map (`win32-x64`) but no `builds` map, so a checkout on 0.4.21
-still updates by checking out the tag. **Every later release must sign a
-`builds` entry** (see *Release builds* and *Publishing a release*) — that is what
-turns the update into a download instead of a compile. The release workflow
-builds and attaches the archive but never holds the signing key, so **sign and
-upload `stable.json` while the release is still a draft**; publish without it
-and `releases/latest/download/stable.json` 404s for every user (order:
-*sign → upload → publish*).
+**v0.4.22 is published** (2026-11-21, signed with key id `47e545f302249385`) and
+is the first release that ships a prebuilt build: its manifest carries both
+`builds` (`any` — `BlackEclipse-Build-0.4.22.zip`, 67 MB, buildId
+`NE_H7u9HfXyRwfs8uP30N`) and `installers` (`win32-x64`), so a checkout updates by
+download + verified promotion and a packaged install by the signed installer.
+Verified end to end after publishing: the public `stable.json` verifies against
+the committed key, and `node scripts/update.js --yes --running-version 0.4.21`
+downloaded the artifact, matched its sha256, validated the buildId, promoted it
+and restarted the window — no checkout and no compile. **Every later release
+must sign `--build-*`** (see *Release builds* and *Publishing a release*); the
+release workflow builds and attaches the archive but never holds the signing
+key, so **sign and upload `stable.json` while the release is still a draft**.
+Publish without it and `releases/latest/download/stable.json` 404s for every
+user (order: *sign → upload → publish*).
 
 **Signing key id `47e545f302249385`.** The previous key
 (`3e5f4f12096f06ac`) was retired on 2026-11-21 because its private half was
