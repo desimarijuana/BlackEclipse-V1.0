@@ -33,6 +33,43 @@ if ROOT not in sys.path:
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Computer Use native demos require Windows")
 
+
+def _ui_automation_available() -> bool:
+    """Can this process actually drive UI Automation?
+
+    The driver talks to `UIAutomationCore.dll` from a worker thread, so it needs
+    COM initialised on that thread. On a host that cannot load the DLL (or has
+    COM blocked in the process) every call returns no elements, which used to
+    fail three demos instead of skipping them — the module's contract is
+    "skipped, not failed, when the platform cannot run them". Probe the same way
+    the driver does: from a thread, not the main one.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def probe() -> bool:
+            import uiautomation as automation  # type: ignore[import-not-found]
+
+            root = automation.GetRootControl()
+            if root is None:
+                return False
+            root.GetChildren()  # raises when UIAutomationCore is unusable
+            return True
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return bool(pool.submit(probe).result(timeout=30))
+    except Exception:  # noqa: BLE001 - any failure means "not runnable here"
+        return False
+
+
+if not _ui_automation_available():
+    pytestmark = [
+        pytest.mark.skipif(sys.platform != "win32", reason="Computer Use native demos require Windows"),
+        pytest.mark.skip(reason="UI Automation is not available in this process (UIAutomationCore/COM)"),
+    ]
+
 TARGET = Path(__file__).parent / "computer_stress_target.py"
 TERMINAL = Path(__file__).parent / "computer_finance_terminal.py"
 

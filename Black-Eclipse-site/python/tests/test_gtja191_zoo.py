@@ -21,7 +21,8 @@ def test_every_ported_alpha_parses():
 def test_the_ported_count_is_stated_and_true():
     assert gtja191.PORTED == len(gtja191.GTJA191_FACTORS)
     assert gtja191.TOTAL == 191
-    assert gtja191.PORTED < gtja191.TOTAL
+    # GTJA is now COMPLETE (191/191).
+    assert gtja191.PORTED == gtja191.TOTAL == 191
     numbers = [f["alphaNumber"] for f in gtja191.GTJA191_FACTORS]
     assert numbers == sorted(set(numbers))
 

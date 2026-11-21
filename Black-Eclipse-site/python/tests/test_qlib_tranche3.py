@@ -48,10 +48,13 @@ def _eval(name: str, **extra):
 # -- the count --------------------------------------------------------------
 
 
-def test_the_count_is_derived_and_leaves_three_unclaimed():
+def test_the_count_is_derived_and_covers_the_whole_reference():
+    # 13 base features, not 10: qlib's kbar block has NINE fields. The three
+    # "unnamed" features this tranche once left unclaimed were resolved by
+    # reading `Alpha158DL.get_feature_config`, so PORTED now equals TOTAL.
     assert qlib158.PORTED == len(qlib158.QLIB158_FACTORS)
-    assert qlib158.PORTED == 10 + 29 * len(HORIZONS) == 155
-    assert qlib158.TOTAL - qlib158.PORTED == 3   # named as unported, not guessed
+    assert qlib158.PORTED == 13 + 29 * len(HORIZONS) == 158
+    assert qlib158.TOTAL - qlib158.PORTED == 0
 
 
 def test_the_vsum_families_exist_for_every_horizon():

@@ -63,14 +63,13 @@ def _panel(rows=120, cols=20, seed=167):
 # -- completeness statement -------------------------------------------------
 
 
-def test_only_two_alphas_remain_unported():
+def test_nothing_remains_unported():
     numbers = {f["alphaNumber"] for f in gtja191.GTJA191_FACTORS}
     assert len(numbers) == len(gtja191.GTJA191_FACTORS), "duplicate alpha number"
-    # 159 carries a published corrected-weight erratum (the weights are not
-    # verifiable); 186 needs #172's whole sub-expression twice, which exceeds the
-    # DSL's expression-length guard. Both reasons are structural, not guesses.
-    assert set(range(1, 192)) - numbers == {159, 186}
-    assert gtja191.PORTED == 189
+    # tranche 14 resolved both: #159's weights are confirmed by a second
+    # implementation, and #186's node cap was raised with a stated bound.
+    assert set(range(1, 192)) - numbers == set()
+    assert gtja191.PORTED == 191
 
 
 def test_the_new_alphas_are_present():

@@ -23,7 +23,7 @@ from harness.factors.zoo import gtja191
 from harness.stats import formula
 
 NEW = (17, 28, 61, 64, 75, 76, 81, 82, 92, 94, 96, 97, 98, 100, 112, 114, 140)
-REMAINING = {69, 91, 137, 159, 172, 186, 190}
+REMAINING = set()   # GTJA is complete as of tranche 14
 
 
 def _by_number() -> dict[int, dict]:
@@ -72,11 +72,11 @@ def _panel(rows=240, cols=20, seed=157):
 # -- completeness statement -------------------------------------------------
 
 
-def test_the_remaining_set_is_exactly_the_documented_seven():
+def test_nothing_remains_unported():
     numbers = {f["alphaNumber"] for f in gtja191.GTJA191_FACTORS}
     assert len(numbers) == len(gtja191.GTJA191_FACTORS), "duplicate alpha number"
     assert set(range(1, 192)) - numbers == REMAINING
-    assert gtja191.PORTED == len(numbers) == 184
+    assert gtja191.PORTED == len(numbers) == 191
 
 
 def test_every_new_alpha_is_present_and_declares_its_inputs():

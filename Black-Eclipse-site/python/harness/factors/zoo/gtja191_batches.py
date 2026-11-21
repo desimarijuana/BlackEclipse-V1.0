@@ -1140,8 +1140,8 @@ def extra_alphas() -> list[dict[str, Any]]:
         172, "gtja_alpha172", "reversal", "negative", 20,
         "GTJA #172: MEAN over 6 days of |up-DI - down-DI| / (up-DI + down-DI) * 100 "
         "on a 14-day true range.",
-        'sma(abs(ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(abs(high - lag(high, 1)), abs(lag(low, 1) - low)), abs(high - lag(low, 1))), 14) - ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(abs(high - lag(high, 1)), abs(lag(low, 1) - low)), abs(high - lag(low, 1))), 14)) / (ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(abs(high - lag(high, 1)), abs(lag(low, 1) - low)), abs(high - lag(low, 1))), 14) + ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(abs(high - lag(high, 1)), abs(lag(low, 1) - low)), abs(high - lag(low, 1))), 14)) * 100, 6)',
-        ["high", "low"],
+        'sma(abs(ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14) - ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14)) / (ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14) + ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14)) * 100, 6)',
+        ["high", "low", "close"],
     ),
     _alpha(
         190, "gtja_alpha190", "reversal", "positive", 20,
@@ -1150,6 +1150,31 @@ def extra_alphas() -> list[dict[str, Any]]:
         "return. The published asymmetric guards are kept.",
         'where(greater_than((((rolling_mean(greater_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), 20) * 20) - 1) * ts_sum(where(less_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), (pct_change(close, 1) - ((close / lag(close, 19)) ^ (1 / 20) - 1)) ^ 2, 0), 20)) / ((rolling_mean(less_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), 20) * 20) * ts_sum(where(greater_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), (pct_change(close, 1) - ((close / lag(close, 19)) ^ (1 / 20) - 1)) ^ 2, 0), 20)), 0), log((((rolling_mean(greater_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), 20) * 20) - 1) * ts_sum(where(less_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), (pct_change(close, 1) - ((close / lag(close, 19)) ^ (1 / 20) - 1)) ^ 2, 0), 20)) / ((rolling_mean(less_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), 20) * 20) * ts_sum(where(greater_than(pct_change(close, 1), ((close / lag(close, 19)) ^ (1 / 20) - 1)), (pct_change(close, 1) - ((close / lag(close, 19)) ^ (1 / 20) - 1)) ^ 2, 0), 20))), 0)',
         ["close"],
+    ),
+    # -- tranche 14: the last two, resolved by a second published implementation
+    # (NeoSPQR404/gtja191-research, `src/Alpha_Set.py`).
+    #
+    # #159's weights agree between that reference and lrb777's port (12*24, 6*24,
+    # 6*24 over the denominator 6*12+6*24+12*24), so the "erratum" I inferred was
+    # wrong: two independent transcriptions match, which IS the verification.
+    #
+    # #172/#186 use the reference's STANDARD Wilder true range
+    # max(max(high-low, |high-prev_close|), |low-prev_close|). lrb777's port uses a
+    # different TR (max(|HD|,|LD|,|high-prev_low|)); the standard definition is used
+    # for both here so the pair stays internally consistent.
+    _alpha(
+        159, "gtja_alpha159", "reversal", "positive", 24,
+        "GTJA #159: the three-horizon (6/12/24) share of the close above "
+        "MIN(LOW, prev_close), weighted 12*24 / 6*24 / 6*24 and normalised by "
+        "6*12+6*24+12*24.",
+        '((close - ts_sum(minimum(low, lag(close, 1)), 6)) / ts_sum((maximum(high, lag(close, 1)) - minimum(low, lag(close, 1))), 6) * 12 * 24 + (close - ts_sum(minimum(low, lag(close, 1)), 12)) / ts_sum((maximum(high, lag(close, 1)) - minimum(low, lag(close, 1))), 12) * 6 * 24 + (close - ts_sum(minimum(low, lag(close, 1)), 24)) / ts_sum((maximum(high, lag(close, 1)) - minimum(low, lag(close, 1))), 24) * 6 * 24) * 100 / (6 * 12 + 6 * 24 + 12 * 24)',
+        ["high", "low", "close"],
+    ),
+    _alpha(
+        186, "gtja_alpha186", "reversal", "negative", 20,
+        "GTJA #186: the #172 DMI expression averaged with its own six-day lag.",
+        '(sma(abs(ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14) - ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14)) / (ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14) + ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14)) * 100, 6) + lag(sma(abs(ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14) - ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14)) / (ts_sum(where(greater_than(lag(low, 1) - low, 0) * greater_than(lag(low, 1) - low, high - lag(high, 1)), lag(low, 1) - low, 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14) + ts_sum(where(greater_than(high - lag(high, 1), 0) * greater_than(high - lag(high, 1), lag(low, 1) - low), high - lag(high, 1), 0), 14) * 100 / ts_sum(maximum(maximum(high - low, abs(high - lag(close, 1))), abs(low - lag(close, 1))), 14)) * 100, 6), 6)) / 2',
+        ["high", "low", "close"],
     ),
     ]
 

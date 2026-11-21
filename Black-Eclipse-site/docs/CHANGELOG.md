@@ -317,6 +317,36 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
   fixes from the previous sweep (the `PORTED` assertion and the regenerated
   `benchmarks.md`) were already in place, so the choreography held.
 
+- **feat(factors): GTJA191 is COMPLETE — 191 of 191; all three alpha libraries are
+  now fully ported (library 497 → 499, zoo 479 → 481).** The two formulas I had
+  called blocked were blocked by **me**, not by the sources:
+  - **#159**: the "corrected-weight erratum" I inferred does not exist. A second
+    published implementation (`NeoSPQR404/gtja191-research`, `src/Alpha_Set.py`)
+    uses the **same** weights as lrb777's port — `12*24`, `6*24`, `6*24` over
+    `6*12+6*24+12*24`. **Two independent transcriptions agreeing is the
+    verification**, so it is ported and checked against a hand-computed value.
+  - **#186**: blocked only by this repo's `MAX_NODES = 256`; the published form
+    duplicates the #172 DMI block and needs **421 nodes at 1,949 characters**. The
+    bound was raised to **512 with a stated reason**, and `test_formula_guards.py`
+    proves the guard still refuses runaway input (600 nodes → `TOO_COMPLEX`,
+    4,000+ characters → `TOO_LONG`). Its error message was also corrected: it said
+    "too deeply nested" while measuring node count.
+  **#172/#186 were realigned** to the reference's **standard Wilder true range**
+  (`max(max(high−low, |high−prev_close|), |low−prev_close|)`); lrb777's port uses a
+  different TR, and the pair now ships on one documented definition.
+  Tests: `test_gtja191_complete.py` (9) proves the whole series is present with no
+  duplicates or gaps, every expression parses, #159 matches a hand-computed
+  three-horizon share, and #186 equals #172 averaged with its own six-day lag;
+  `test_formula_guards.py` (4) pins both bounds as data.
+  **Honest note on the objective:** with Alpha101 101/101, Qlib 158/158 and GTJA
+  191/191, capability coverage is complete — but `docs/harness/vibe-trading-analysis.md`
+  now carries a **new section stating that "best in the world" is *not* evidenced**:
+  no side-by-side benchmark against any other harness exists, and internal gates
+  measure this repository only. That claim is not made.
+  Docs: `docs/quant-engine.md` (191/191, library 499, the two resolutions kept as
+  history), `docs/harness/vibe-trading-analysis.md` (G7 → **Done**, plus §7.1 on
+  what is not evidenced).
+
 - **feat(factors): research resolved the "unverifiable" remainder — Qlib is
   COMPLETE (158/158), GTJA reaches 189/191 (library 489 → 497, zoo 471 → 479).**
   The step I had claimed was blocked turned out to be **two fetchable sources**:

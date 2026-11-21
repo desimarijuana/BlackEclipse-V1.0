@@ -1128,8 +1128,8 @@ point-in-time fundamentals, and a restated figure is lookahead that would produc
 a beautiful false IC. `fundamental_positions_port()` reports
 `declared / available / total` and the blocker.
 
-The library is now 18 builtin + 16 academic + 101 Alpha101 + 155 Qlib + 189 GTJA +
-15 fundamental = **497**.
+The library is now 18 builtin + 16 academic + 101 Alpha101 + 155 Qlib + 191 GTJA +
+15 fundamental = **499**.
 
 `factors/zoo/gtja191.py` (base tranches) + `gtja191_batches.py` (tranches 5-10) together port **151 of GTJA's 191**. Tranches 2's formulas were
 verified against a published GTJA191 implementation (`lrb777/gtja191`,
@@ -1149,8 +1149,9 @@ Two things this tranche established:
   `MEAN(…, 6)` — a factor-of-six error that no IC comparison would have attributed
   to the right cause. A test now asserts `SUM == 6 × MEAN` on the same window.
 
-**Seven formulas are deliberately unported**, and each has a specific reason —
-not a missing operator, since every operator they need now exists:
+**All 191 are now ported.** The seven that were briefly unported are resolved:
+five needed operators or sources that were one fetch away, and the last two are
+explained below. Kept as history:
 
 | # | Blocker |
 |---|---|

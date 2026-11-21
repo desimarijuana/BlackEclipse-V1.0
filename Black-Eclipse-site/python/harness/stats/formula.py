@@ -27,8 +27,12 @@ from typing import Any, Callable
 import numpy as np
 
 MAX_EXPRESSION_LEN = 2000
+# `MAX_NODES` was 256 until GTJA #186 was transcribed: its published form
+# duplicates a whole sub-expression (a DMI block) and needs 421 nodes at 1,949
+# characters. The bound is doubled rather than removed, and a test still proves
+# that a runaway expression is refused.
 MAX_TOKENS = 512
-MAX_NODES = 256
+MAX_NODES = 512
 MAX_SERIES_LEN = 2_000_000
 
 
@@ -104,7 +108,7 @@ class _Parser:
     def _count(self) -> None:
         self.nodes += 1
         if self.nodes > MAX_NODES:
-            raise FormulaError("TOO_COMPLEX", "formula is too deeply nested")
+            raise FormulaError("TOO_COMPLEX", "formula has too many nodes")
 
     def parse(self) -> tuple:
         node = self.expr()

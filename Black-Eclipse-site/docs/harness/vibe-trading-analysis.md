@@ -590,7 +590,7 @@ matrix are not in Eclipse's figure catalog; the browser run page has no
 | G3 router probe budget | **Done** — `attempt_order` + `ProbeBudget` (scope-keyed, one probe per cooldown, cross-scope evidence) | `harness/market/router.py` |
 | G5 endpoint DNS pinning | **Done (validation)** — IP-literal private/loopback refusal always; hostname resolution opt-in via `BE_ENDPOINT_PINNING`; connect-time pinning not implemented (stated) | `harness/model_runtime/endpoint_guard.py`, `harness/models.py` |
 | G6 market execution rules | **Done** — market rules + `StrategySpec.market` + validation + engine enforcement (lots, limit bands, T+1) | `harness/quant/market_rules.py`, `harness/quant/strategy.py`, `harness/quant/engine.py` |
-| G7 alpha zoo | **Partial** — **479 zoo entries** (16 academic + 101 Alpha101 + 158 Qlib + 189 GTJA191 + 15 fundamental declared-but-blocked) `factors/panel.py` provides cross-sectional rank/scale; the rest need `vwap`/`adv`, a regression (`BETA`/`RSQR`/`RESI`), or a primary-source reconciliation of GTJA's operator definitions (stated, not approximated) | `harness/factors/zoo/`, `harness/factors/panel.py`, `harness/stats/formula.py` |
+| G7 alpha zoo | **Done** — **481 zoo entries** (16 academic + 101 Alpha101 + 158 Qlib + 191 GTJA191 + 15 fundamental declared-but-blocked) `factors/panel.py` provides cross-sectional rank/scale; the rest need `vwap`/`adv`, a regression (`BETA`/`RSQR`/`RESI`), or a primary-source reconciliation of GTJA's operator definitions (stated, not approximated) | `harness/factors/zoo/`, `harness/factors/panel.py`, `harness/stats/formula.py` |
 | G8 strict bench | **Done** — random control + train/test OOS, `oosDecay`, `beatsControl` | `harness/factors/strict_bench.py` |
 | G9 team preset library | **Done** — 30 bundled finance teams (`investment_committee`, `quant_strategy_desk`, `portfolio_risk_review`, `earnings_review_desk`, `macro_rates_fx_desk`, `equity_research_team`, `risk_committee`, `technical_analysis_panel`) with `evidence_required` + a validating YAML loader; the bundle matches the 30-desk reference count | `harness/team/preset_library.py`, `harness/team/presets/` |
 | Broker breadth | **Done** — 19 read-only kinds (`alpaca`, `ibkr`, `mt4_bridge`, `mt5`, `trading212`, `zerodha`, `tradier`, `okx`, `binance`, `kraken`, `coinbase`, `bybit`, `deribit`, `oanda`, `bitget`, `gateio`, `bitstamp`, `coincheck`, `bitfinex`); a connector is now a two-file change (adapter + `register_kind`) and the matrix is generated | `harness/trade/adapters/trading212.py`, `harness/trade/registry.py` |
@@ -606,6 +606,22 @@ matrix are not in Eclipse's figure catalog; the browser run page has no
 | G14 B3 download | **Done (injectable transport)** - `download_archive` (atomic .part→rename, zip proof, size cap, named HTTP/transport errors), `sync_from_url` | `harness/br_data/download.py` |
 | G14 OpenBB bridge | **Done (protocol, offline)** - tolerant QueryRequest models, no-invented-identity history replay, fenced context injection, key-name-only handling, event→SSE mapping with secret whitelisting | `harness/openbb_bridge/`, `docs/harness/openbb-bridge.md` |
 | G14 other BR datasets (CVM/BCB/Tesouro) + OpenBB HTTP route | **Done** - `csvtext` (decimal comma, both date orders, Latin-1/UTF-8), `cvm` (fund quota/net assets/flows, derived `netFlow` labelled), `bcb` (SGS series; unknown codes stay unnamed, gaps counted), `tesouro` (yields kept as published %, `Mania` typo tolerated), one `datasets` registry; OpenBB `GET /openbb/agents.json` + streaming `POST /openbb/v1/query` with no invented `modelSettings` | `harness/br_data/`, `harness/routers/openbb.py`, `harness/openbb_bridge/stream.py`; `dataset_store` tables (`cvm_funds`, `bcb_series`, `tesouro_bonds`) with idempotent upserts + `sync_dataset`; **scheduled registration** (`br_data/schedule.py`: due logic, per-dataset fetch, opt-in hourly loop) |
+
+## 7.1 What is *not* evidenced: "best in the world"
+
+This register tracks **capability parity** with the reference. It says nothing about
+being the best harness in the world, and no head-to-head benchmark exists here:
+
+- **No side-by-side evaluation.** Neither project has been run on the same tasks
+  with the same models and scored by the same rubric, so any superiority claim
+  would be assertion.
+- **No public benchmark result.** Eclipse has internal gates (size budgets, zoo
+  completeness, invariant tests) and published-benchmark generation, but those
+  measure *this repository's* behaviour, not a comparison.
+- **The honest position:** capability coverage is now complete for the three alpha
+  libraries and the platform surfaces; quality is evidenced only by internal
+  invariants. A comparative claim would need a task set, a rubric and both systems
+  run against them — which is a project, not a turn.
 
 ## 8. Non-goals
 
