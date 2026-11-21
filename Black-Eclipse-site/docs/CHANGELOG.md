@@ -6,6 +6,11 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-21
 
+- **release: v0.4.22.** `package.json` and `pyproject.toml` both carry 0.4.22 so
+  the desktop tag and the harness publish agree. This is the first release that
+  ships a signed prebuilt build; from here an update is a download + verified
+  swap, not a local rebuild. Docs updated: `docs/UPDATES.md`.
+
 - **feat(updates): an update promotes a signed prebuilt build, never a local
   rebuild (ADR-082).** This is the durable fix for "I tried to update and it did
   nothing": the signed manifest can now advertise `builds` — the release's
