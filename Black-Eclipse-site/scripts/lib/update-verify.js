@@ -194,18 +194,34 @@ function assertSafeUrl(value, cfg) {
   return url.href;
 }
 
+/**
+ * GitHub's `releases/latest/download/...` URL is CDN-cached: a manifest
+ * published minutes ago can still serve the PREVIOUS release from an edge.
+ * The manifest is a public static file, so a per-request cache-buster is
+ * harmless and makes a revalidation mean "now", not "whatever the edge has".
+ */
+function cacheBustedUrl(href) {
+  try {
+    const url = new URL(href);
+    url.searchParams.set("ts", String(Date.now()));
+    return url.href;
+  } catch {
+    return href;
+  }
+}
+
 function resolveManifestUrl(channel, cfg) {
   if (!CHANNELS.includes(channel)) {
     throw new UpdateVerifyError("channel", `Unknown update channel: ${channel}`);
   }
   const override = process.env.ECLIPSE_UPDATE_MANIFEST;
-  if (override) return assertSafeUrl(override, cfg);
+  if (override) return assertSafeUrl(cacheBustedUrl(override), cfg);
   const repo = process.env.ECLIPSE_UPDATE_REPO || cfg.repository;
   const template = cfg.manifestUrls[channel];
   if (!template) {
     throw new UpdateVerifyError("config", `No manifest URL configured for "${channel}".`);
   }
-  return assertSafeUrl(template.replace("{repository}", repo), cfg);
+  return assertSafeUrl(cacheBustedUrl(template.replace("{repository}", repo)), cfg);
 }
 
 const PAYLOAD_STRING_FIELDS = [
@@ -279,24 +295,8 @@ function verifyEnvelope(envelopeJson, publicKeyPem, expectedChannel) {
   return payload;
 }
 
-/**
- * GitHub's `releases/latest/download/...` URL is CDN-cached: a manifest
- * published minutes ago can still serve the PREVIOUS release from an edge.
- * The manifest is a public static file, so a per-request cache-buster is
- * harmless and makes a revalidation mean "now", not "whatever the edge has".
- */
-function cacheBusted(url) {
-  try {
-    const next = new URL(url);
-    next.searchParams.set("ts", String(Date.now()));
-    return next.toString();
-  } catch {
-    return url;
-  }
-}
-
 async function fetchManifest(channel, cfg) {
-  const url = cacheBusted(resolveManifestUrl(channel, cfg));
+  const url = resolveManifestUrl(channel, cfg);
   let res;
   try {
     res = await fetch(url, {

@@ -6,6 +6,10 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(updates): the CLI manifest fetch bypasses the CDN edge cache.** Same
+  per-request `ts` cache-buster the Next updater already uses, so `black update``r
+  sees a just-published release instead of the previous one. no doc change.
+
 - **release: v0.4.21 - update-signing key rotation.** The private key for the
   previous public key was unavailable, so a new Ed25519 keypair is committed
   (public key fingerprint `47e545f3...`). v0.4.21 is signed with the new key
