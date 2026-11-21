@@ -161,7 +161,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
   {
     id: "opencode",
     name: "OpenCode Zen",
-    description: "Curated coding models through the OpenCode Console gateway.",
+    description: "Zen pay-as-you-go gateway. Uses a Zen key — separate from Go.",
     protocol: "openai",
     authStyle: "bearer",
     baseUrl: "https://opencode.ai/inference/openai/v1",
@@ -177,12 +177,12 @@ export const PROVIDERS: ProviderDescriptor[] = [
   {
     id: "opencode-go",
     name: "OpenCode Go",
-    description: "The OpenCode Go subscription gateway. Uses the same Console key.",
+    description: "Go subscription gateway. Uses a Go key — separate from Zen.",
     protocol: "openai",
     authStyle: "bearer",
     baseUrl: "https://opencode.ai/inference/go/openai/v1",
     model: "kimi-k3",
-    envVar: "OPENCODE_API_KEY",
+    envVar: "OPENCODE_GO_API_KEY",
     docsUrl: "https://opencode.ai/docs/console/go/",
     modelsUrl: "https://opencode.ai/inference/go/v1/models",
     sessionHeader: "x-opencode-session",

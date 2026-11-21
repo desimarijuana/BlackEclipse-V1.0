@@ -142,7 +142,7 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     # OpenCode Go is the subscription gateway: same Console key, different base
     # URL. Sending a Go key to the Zen base bills it as pay-as-you-go, which is
     # why Go gets its own row (and its own TS preset).
-    "opencode-go": ProviderSpec("opencode-go", "OpenCode Go", "openai", "https://opencode.ai/inference/go/openai/v1", "kimi-k3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True, session_header="x-opencode-session"),
+    "opencode-go": ProviderSpec("opencode-go", "OpenCode Go", "openai", "https://opencode.ai/inference/go/openai/v1", "kimi-k3", "OPENCODE_GO_API_KEY", openai_compatible=True, dynamic_discovery=True, session_header="x-opencode-session"),
     # Together/Fireworks host many model families of different sizes. Only the
     # known Llama-3.3 entry is declared (below); the row is left unknown.
     "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True, dynamic_discovery=True),

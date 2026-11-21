@@ -34,6 +34,11 @@ describe('provider key registry', () => {
     }
   });
 
+  it('keeps OpenCode Go and Zen keys separate', () => {
+    expect(providerKeyDef('OPENCODE_API_KEY')?.label).toBe('OpenCode Zen');
+    expect(providerKeyDef('OPENCODE_GO_API_KEY')?.label).toBe('OpenCode Go');
+  });
+
   it('does not use a public model list as a key test', () => {
     // OpenRouter's /models is public; only /auth/key proves the credential.
     expect(providerKeyDef('OPENROUTER_API_KEY')?.test?.url).toContain('/auth/key');

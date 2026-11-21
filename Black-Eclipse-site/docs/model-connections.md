@@ -118,6 +118,14 @@ is not also sent as a Bearer token to a gateway that rejects it. An
 `authorization` header is always treated as standard Bearer; a non-Bearer
 Authorization prefix is not supported by ChatOpenAI's public API.
 
+### OpenCode Go and Zen are separate connections
+
+They are different gateways with different catalogs and limits. Go uses
+`OPENCODE_GO_API_KEY`; Zen uses `OPENCODE_API_KEY`. Connecting one never marks
+the other connected. A stored per-chat composer choice is dropped when its
+provider has no key, so the composer follows the provider you actually
+connected instead of showing the other gateway's models.
+
 ### Provider-required session headers
 
 Some gateways require more than a key. **OpenCode Go** rejects requests without

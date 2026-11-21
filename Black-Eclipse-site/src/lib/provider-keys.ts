@@ -90,7 +90,8 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     // `/models` is PUBLIC on OpenRouter, so it cannot prove a key. The key-info
     // endpoint requires the credential and returns 401 for an invalid one.
     test: { url: 'https://openrouter.ai/api/v1/auth/key', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
-  { envVar: 'OPENCODE_API_KEY', label: 'OpenCode Zen / Go', provider: 'OpenCode', category: 'ai', description: 'OpenCode Console key — one key for Zen (pay-as-you-go) and Go (subscription).', docsUrl: 'https://opencode.ai/console' },
+  { envVar: 'OPENCODE_API_KEY', label: 'OpenCode Zen', provider: 'OpenCode', category: 'ai', description: 'Zen pay-as-you-go gateway key (separate from the Go subscription key).', docsUrl: 'https://opencode.ai/console' },
+  { envVar: 'OPENCODE_GO_API_KEY', label: 'OpenCode Go', provider: 'OpenCode', category: 'ai', description: 'Go subscription gateway key (separate from the Zen pay-as-you-go key).', docsUrl: 'https://opencode.ai/console' },
   { envVar: 'TOGETHER_API_KEY', label: 'Together AI', provider: 'Together', category: 'ai', description: 'Open-model inference.', docsUrl: 'https://api.together.xyz/settings/api-keys',
     test: { url: 'https://api.together.xyz/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'PERPLEXITY_API_KEY', label: 'Perplexity', provider: 'Perplexity', category: 'ai', description: 'Search-augmented models.', docsUrl: 'https://www.perplexity.ai/settings/api',

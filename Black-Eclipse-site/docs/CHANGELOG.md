@@ -6,6 +6,13 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(ai): OpenCode Go and Zen are separate connections.** They shared
+  `OPENCODE_API_KEY`, so connecting Go also marked Zen connected and the
+  composer could keep showing Zen models. Go now uses `OPENCODE_GO_API_KEY`;
+  Zen keeps `OPENCODE_API_KEY`. A stored per-chat choice is dropped when its
+  provider has no key, so the composer follows the provider you actually
+  connected. Docs updated: `docs/model-connections.md`.
+
 - **fix(ai): the vault key test no longer uses a public endpoint.** OpenRouter
   serves `/models` without auth, so the vault Test reported success for any
   string; it now calls the authenticated `/auth/key` endpoint. OpenCode's

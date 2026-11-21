@@ -78,6 +78,22 @@ export function pickServableModel(served: string[], current: string): string | n
   return available[0];
 }
 
+/**
+ * A stored per-chat choice is only valid while its provider still has a
+ * credential. Connecting a different provider (e.g. OpenCode Go after Zen) must
+ * not leave the composer pointing at the old, keyless provider and showing its
+ * models. Keyless local servers stay valid without a key.
+ */
+export function shouldDropStoredChoice(
+  choice: Choice | null,
+  providers: ChatModelProvider[],
+): boolean {
+  if (!choice) return false;
+  const provider = providers.find((p) => p.id === choice.provider);
+  if (!provider) return false; // catalog not loaded yet — keep it
+  return !provider.available && !provider.keyless;
+}
+
 function readStored(): Choice | null {
   if (typeof window === "undefined") return null;
   try {
@@ -193,6 +209,16 @@ export function useChatModel(): ChatModelState {
     },
     [],
   );
+
+  // Drop a stale per-chat choice whose provider lost its key (e.g. the composer
+  // was left on OpenCode Zen, then the operator connected only OpenCode Go).
+  // The saved provider/model then becomes the effective choice.
+  useEffect(() => {
+    if (loading || providers.length === 0 || !choice) return;
+    if (!shouldDropStoredChoice(choice, providers)) return;
+    setChoice(null);
+    writeStored(null);
+  }, [loading, providers, choice]);
 
   // ── Default-model reconciliation ─────────────────────────────────────────
   // A keyless local provider's declared default can be a placeholder the server

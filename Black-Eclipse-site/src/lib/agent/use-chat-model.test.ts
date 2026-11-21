@@ -1,5 +1,57 @@
 import { describe, expect, it } from "vitest";
-import { pickServableModel } from "./use-chat-model";
+import { pickServableModel, shouldDropStoredChoice } from "./use-chat-model";
+import type { ChatModelProvider } from "./use-chat-model";
+
+function provider(overrides: Partial<ChatModelProvider>): ChatModelProvider {
+  return {
+    id: "opencode",
+    label: "OpenCode Zen",
+    baseUrl: "https://opencode.ai/inference/openai/v1",
+    keyless: false,
+    envVar: "OPENCODE_API_KEY",
+    dynamicDiscovery: true,
+    available: true,
+    models: [],
+    ...overrides,
+  };
+}
+
+describe("shouldDropStoredChoice", () => {
+  it("drops a Zen choice when Zen has no key and Go is the connected provider", () => {
+    expect(
+      shouldDropStoredChoice(
+        { provider: "opencode", model: "deepseek-v4.1-flash-free" },
+        [
+          provider({ id: "opencode", available: false }),
+          provider({
+            id: "opencode-go",
+            label: "OpenCode Go",
+            available: true,
+            envVar: "OPENCODE_GO_API_KEY",
+          }),
+        ],
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a deliberately selected provider that still has a key", () => {
+    expect(
+      shouldDropStoredChoice(
+        { provider: "opencode", model: "glm-5.3" },
+        [provider({ id: "opencode", available: true })],
+      ),
+    ).toBe(false);
+  });
+
+  it("never drops a keyless local provider", () => {
+    expect(
+      shouldDropStoredChoice(
+        { provider: "ollama", model: "llama3.1" },
+        [provider({ id: "ollama", keyless: true, available: false })],
+      ),
+    ).toBe(false);
+  });
+});
 
 // The default-model reconciliation: a keyless local provider's declared default
 // can be a placeholder the server does not serve (`llama3.1` on a box with only

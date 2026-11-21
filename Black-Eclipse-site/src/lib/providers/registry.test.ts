@@ -90,6 +90,11 @@ describe("provider registry", () => {
     expect(getProvider("opencode")?.sessionHeader).toBe("x-opencode-session");
   });
 
+  it("keeps OpenCode Go and Zen credentials separate", () => {
+    expect(getProvider("opencode-go")?.envVar).toBe("OPENCODE_GO_API_KEY");
+    expect(getProvider("opencode")?.envVar).toBe("OPENCODE_API_KEY");
+  });
+
   it("has a vault entry for every keyed provider", () => {
     // A Connect for a provider whose envVar is missing from PROVIDER_KEYS would
     // fail with "Unknown provider key" after a successful probe.
