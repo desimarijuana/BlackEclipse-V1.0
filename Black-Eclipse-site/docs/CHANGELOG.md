@@ -6,6 +6,12 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(ai): the vault key test no longer uses a public endpoint.** OpenRouter
+  serves `/models` without auth, so the vault Test reported success for any
+  string; it now calls the authenticated `/auth/key` endpoint. OpenCode's
+  public catalog advertises no GET test at all (the AI connect flow does a real
+  chat probe instead). no doc change - test-endpoint correctness.
+
 - **fix(ai): a public model list can no longer look like a connected provider.**
   OpenRouter serves /models without auth; an empty key passed the models probe,
   then the chat probe returned `Missing Authentication header` and the UI said

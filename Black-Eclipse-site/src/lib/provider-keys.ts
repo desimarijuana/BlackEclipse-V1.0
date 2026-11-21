@@ -87,9 +87,10 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
   { envVar: 'XAI_API_KEY', label: 'xAI Grok', provider: 'xAI', category: 'ai', description: 'Grok models.', docsUrl: 'https://console.x.ai/',
     test: { url: 'https://api.x.ai/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'OPENROUTER_API_KEY', label: 'OpenRouter', provider: 'OpenRouter', category: 'ai', description: 'Router across many models.', docsUrl: 'https://openrouter.ai/keys',
-    test: { url: 'https://openrouter.ai/api/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
-  { envVar: 'OPENCODE_API_KEY', label: 'OpenCode Zen / Go', provider: 'OpenCode', category: 'ai', description: 'OpenCode Console key — one key for Zen (pay-as-you-go) and Go (subscription).', docsUrl: 'https://opencode.ai/console',
-    test: { url: 'https://opencode.ai/inference/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
+    // `/models` is PUBLIC on OpenRouter, so it cannot prove a key. The key-info
+    // endpoint requires the credential and returns 401 for an invalid one.
+    test: { url: 'https://openrouter.ai/api/v1/auth/key', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
+  { envVar: 'OPENCODE_API_KEY', label: 'OpenCode Zen / Go', provider: 'OpenCode', category: 'ai', description: 'OpenCode Console key — one key for Zen (pay-as-you-go) and Go (subscription).', docsUrl: 'https://opencode.ai/console' },
   { envVar: 'TOGETHER_API_KEY', label: 'Together AI', provider: 'Together', category: 'ai', description: 'Open-model inference.', docsUrl: 'https://api.together.xyz/settings/api-keys',
     test: { url: 'https://api.together.xyz/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'PERPLEXITY_API_KEY', label: 'Perplexity', provider: 'Perplexity', category: 'ai', description: 'Search-augmented models.', docsUrl: 'https://www.perplexity.ai/settings/api',

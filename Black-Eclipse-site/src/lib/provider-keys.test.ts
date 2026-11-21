@@ -34,6 +34,14 @@ describe('provider key registry', () => {
     }
   });
 
+  it('does not use a public model list as a key test', () => {
+    // OpenRouter's /models is public; only /auth/key proves the credential.
+    expect(providerKeyDef('OPENROUTER_API_KEY')?.test?.url).toContain('/auth/key');
+    // OpenCode's catalog is public too; the AI connect flow does a real chat
+    // probe, so the vault advertises no safe GET test rather than a false pass.
+    expect(providerKeyDef('OPENCODE_API_KEY')?.test).toBeUndefined();
+  });
+
   it('never exposes a plaintext value through the registry itself', () => {
     // The definitions carry metadata only — no `value` field anywhere.
     for (const def of PROVIDER_KEYS) {
