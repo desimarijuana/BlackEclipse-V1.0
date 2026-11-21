@@ -1,0 +1,68 @@
+id: liquidity_execution_desk
+name: Liquidity & Execution Desk
+description: >-
+  A liquidity analyst, a microstructure analyst and a cost analyst examine how a
+  trade would actually be executed; an execution lead decides venue, algorithm
+  and size.
+objective: >-
+  Plan the execution of {order_size} in {instrument} and state the realistic cost,
+  the venue choice and when not to trade.
+variables: [order_size, instrument]
+members:
+  - agent_id: le-liquidity
+    label: Liquidity Analyst
+    role: researcher
+    capabilities: [liquidity, market_data]
+    instructions: |
+      Measure the liquidity available for {instrument}: ADV, spread, depth, and how
+      many days {order_size} represents. Say where liquidity disappears (open,
+      close, news).
+  - agent_id: le-micro
+    label: Microstructure Analyst
+    role: researcher
+    capabilities: [microstructure, execution]
+    instructions: |
+      Read the microstructure: spread stability, queue dynamics, and the likely
+      participation rate before the price moves. Name the impact model that fits
+      this instrument.
+  - agent_id: le-cost
+    label: Cost Analyst
+    role: researcher
+    capabilities: [costs, execution]
+    instructions: |
+      Estimate the all-in cost of {order_size}: spread, impact, fees, and the
+      opportunity cost of waiting. Give a range, and say which component dominates.
+  - agent_id: le-lead
+    label: Execution Lead
+    role: chair
+    capabilities: [execution, risk]
+    instructions: |
+      Decide venue, algorithm, size per slice and the schedule. State when NOT to
+      trade, and the cost of being wrong about the liquidity estimate.
+subtasks:
+  - id: liquidity
+    objective: "Measure available liquidity for {order_size} in {instrument}."
+    assigned_agent_id: le-liquidity
+    capability: liquidity
+    evidence_required: true
+  - id: microstructure
+    objective: "Characterise the microstructure and impact for {instrument}."
+    assigned_agent_id: le-micro
+    capability: microstructure
+    evidence_required: true
+  - id: cost
+    objective: "Estimate the all-in execution cost of {order_size}."
+    assigned_agent_id: le-cost
+    capability: costs
+    evidence_required: true
+  - id: plan
+    objective: "Decide venue, algorithm, slice size and schedule; say when not to trade."
+    assigned_agent_id: le-lead
+    depends_on: [liquidity, microstructure, cost]
+    capability: execution
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

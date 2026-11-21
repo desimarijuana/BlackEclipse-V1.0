@@ -26,6 +26,110 @@ _SPECS: tuple[ProviderSpec, ...] = (
         ),
     ),
     ProviderSpec(
+        kind="wecom",
+        label="WeCom (WeChat Work)",
+        description="Group-robot alerts over the webhook API. Outbound only.",
+        inbound_mode="none",
+        config_fields=(
+            ConfigField("webhookKey", "Robot key", secret=True, required=True,
+                        hint="From the group chat's robot settings"),
+        ),
+    ),
+    ProviderSpec(
+        kind="viber",
+        label="Viber",
+        description="Signed webhook inbound (hex body HMAC) and send_message outbound.",
+        inbound_mode="push",
+        capabilities=frozenset({"media", "stickers"}),
+        config_fields=(
+            ConfigField("authToken", "Auth token", secret=True, required=True,
+                        hint="Signs inbound bodies and authenticates sends"),
+            ConfigField("senderName", "Sender name", placeholder="Eclipse"),
+        ),
+    ),
+    ProviderSpec(
+        kind="line",
+        label="LINE",
+        description="Signed webhook inbound (body HMAC) and Messaging API push outbound.",
+        inbound_mode="push",
+        capabilities=frozenset({"stickers", "media", "groups"}),
+        config_fields=(
+            ConfigField("channelAccessToken", "Channel access token", secret=True, required=True),
+            ConfigField("channelSecret", "Channel secret", secret=True, required=True,
+                        hint="Signs inbound bodies (X-Line-Signature)"),
+        ),
+    ),
+    ProviderSpec(
+        kind="twilio",
+        label="Twilio (SMS)",
+        description="Signed webhook inbound and REST outbound for SMS.",
+        inbound_mode="push",
+        capabilities=frozenset({"sms", "media"}),
+        config_fields=(
+            ConfigField("accountSid", "Account SID", required=True, placeholder="AC..."),
+            ConfigField("authToken", "Auth token", secret=True, required=True,
+                        hint="Signs inbound webhooks and authenticates outbound"),
+            ConfigField("fromNumber", "From number", required=True, placeholder="+15550001111"),
+            ConfigField("publicUrl", "Public webhook URL", required=True,
+                        hint="The exact URL Twilio signs, e.g. https://app.example.com/api/channels/webhook/twilio"),
+        ),
+    ),
+    ProviderSpec(
+        kind="signal",
+        label="Signal",
+        description="Send-only alerts through a self-hosted signal-cli bridge. No inbound.",
+        inbound_mode="none",
+        config_fields=(
+            ConfigField("baseUrl", "signal-cli REST URL", required=True, placeholder="http://127.0.0.1:8080"),
+            ConfigField("number", "Bot Signal number", required=True, placeholder="+15550001111"),
+            ConfigField("apiToken", "Bridge API token", secret=True, hint="Only when the bridge sits behind an authenticating proxy"),
+        ),
+    ),
+    ProviderSpec(
+        kind="rocketchat",
+        label="Rocket.Chat",
+        description="Channel-history poll inbound and chat.postMessage sends. No public URL required.",
+        inbound_mode="poll",
+        capabilities=frozenset({"threads", "files", "reactions"}),
+        config_fields=(
+            ConfigField("baseUrl", "Rocket.Chat URL", required=True, placeholder="https://chat.example.com"),
+            ConfigField("authToken", "Personal access token", secret=True, required=True),
+            ConfigField("userId", "Bot user ID", required=True, hint="Sent as X-User-Id and used to ignore its own posts"),
+            ConfigField("roomId", "Room ID", hint="Required for inbound: the room to watch"),
+            ConfigField("pollSeconds", "Poll interval (seconds)", placeholder="5"),
+        ),
+    ),
+    ProviderSpec(
+        kind="zulip",
+        label="Zulip",
+        description="Event-queue long-poll inbound and stream sends. No public URL required.",
+        inbound_mode="poll",
+        capabilities=frozenset({"streams", "topics", "files"}),
+        config_fields=(
+            ConfigField("site", "Zulip site URL", required=True, placeholder="https://chat.example.com"),
+            ConfigField("botEmail", "Bot email", required=True, placeholder="eclipse-bot@example.com"),
+            ConfigField("apiKey", "Bot API key", secret=True, required=True),
+            ConfigField("defaultStream", "Default stream"),
+            ConfigField("topic", "Reply topic", placeholder="eclipse"),
+            ConfigField("pollSeconds", "Event poll window (seconds)", placeholder="30"),
+        ),
+    ),
+    ProviderSpec(
+        kind="matrix",
+        label="Matrix",
+        description="/sync long-poll inbound and room sends. No public URL required.",
+        inbound_mode="poll",
+        capabilities=frozenset({"threads", "files", "e2ee_rooms"}),
+        config_fields=(
+            ConfigField("homeserverUrl", "Homeserver URL", required=True, placeholder="https://matrix.example.org"),
+            ConfigField("accessToken", "Access token", secret=True, required=True),
+            ConfigField("userId", "Bot user ID", required=True, placeholder="@eclipse:example.org",
+                        hint="Required so the bot ignores its own messages"),
+            ConfigField("defaultRoomId", "Default room ID", placeholder="!abc:example.org"),
+            ConfigField("pollTimeoutMs", "Sync timeout (ms)", placeholder="30000"),
+        ),
+    ),
+    ProviderSpec(
         kind="discord",
         label="Discord",
         description="Gateway WebSocket inbound and REST outbound. No public URL required.",
@@ -136,6 +240,37 @@ _SPECS: tuple[ProviderSpec, ...] = (
             ConfigField("webhookSecret", "Inbound signing secret", secret=True),
         ),
     ),
+    ProviderSpec(
+        kind="dingtalk",
+        label="DingTalk",
+        description=(
+            "Outbound-only DingTalk custom-robot webhook with HMAC signing "
+            "(alerts and scheduled briefs; no inbound)."
+        ),
+        inbound_mode="none",
+        capabilities=frozenset({"send"}),
+        config_fields=(
+            ConfigField("webhookUrl", "Robot webhook URL", secret=True, required=True),
+            ConfigField("signSecret", "Sign secret", secret=True,
+                        hint="Optional; without it the robot accepts unsigned posts"),
+        ),
+    ),
+    ProviderSpec(
+        kind="mattermost",
+        label="Mattermost",
+        description=(
+            "Outbound-only posts to a self-hosted Mattermost server over its REST "
+            "API (alerts and scheduled briefs; no inbound)."
+        ),
+        inbound_mode="none",
+        capabilities=frozenset({"send"}),
+        config_fields=(
+            ConfigField("baseUrl", "Server URL", required=True,
+                        placeholder="https://chat.example.com"),
+            ConfigField("botToken", "Bot access token", secret=True, required=True),
+            ConfigField("channelId", "Default channel id", required=True),
+        ),
+    ),
 )
 
 PROVIDERS: dict[str, ProviderSpec] = {spec.kind: spec for spec in _SPECS}
@@ -145,6 +280,11 @@ PUSH_KINDS: frozenset[str] = frozenset(
 )
 POLL_KINDS: frozenset[str] = frozenset(
     k for k, s in PROVIDERS.items() if s.inbound_mode in ("poll", "both")
+)
+#: Providers that only SEND (an alerts/notification surface). The three sets
+#: partition KINDS: every provider is push, poll, or outbound-only.
+OUTBOUND_KINDS: frozenset[str] = frozenset(
+    k for k, s in PROVIDERS.items() if s.inbound_mode == "none"
 )
 
 
@@ -178,6 +318,107 @@ def build_provider(ctx: ProviderContext) -> Any:
         from .providers.telegram import TelegramProvider  # noqa: PLC0415
 
         return TelegramProvider(bot_token=token)
+
+    if kind == "matrix":
+        base, token, user = _s("homeserverUrl"), _s("accessToken"), _s("userId")
+        if not base or not token or not user:
+            log.info("matrix channel enabled but homeserverUrl/accessToken/userId is missing")
+            return None
+        from .providers.matrix import MatrixProvider  # noqa: PLC0415
+
+        return MatrixProvider(
+            homeserver_url=base,
+            access_token=token,
+            user_id=user,
+            default_room_id=_s("defaultRoomId"),
+            poll_timeout_ms=int(cfg.get("pollTimeoutMs") or 30000),
+        )
+
+    if kind == "zulip":
+        site, email, key = _s("site"), _s("botEmail"), _s("apiKey")
+        if not site or not email or not key:
+            log.info("zulip channel enabled but site/botEmail/apiKey is missing")
+            return None
+        from .providers.zulip import ZulipProvider  # noqa: PLC0415
+
+        return ZulipProvider(
+            site=site,
+            bot_email=email,
+            api_key=key,
+            default_stream=_s("defaultStream"),
+            topic=str(cfg.get("topic") or "eclipse"),
+            poll_seconds=int(cfg.get("pollSeconds") or 30),
+        )
+
+    if kind == "rocketchat":
+        base, token, user = _s("baseUrl"), _s("authToken"), _s("userId")
+        if not base or not token or not user:
+            log.info("rocketchat channel enabled but baseUrl/authToken/userId is missing")
+            return None
+        from .providers.rocketchat import RocketChatProvider  # noqa: PLC0415
+
+        return RocketChatProvider(
+            base_url=base,
+            auth_token=token,
+            user_id=user,
+            room_id=_s("roomId"),
+            poll_seconds=int(cfg.get("pollSeconds") or 5),
+        )
+
+    if kind == "wecom":
+        key = _s("webhookKey")
+        if not key:
+            log.info("wecom channel enabled but no robot key configured")
+            return None
+        from .providers.wecom import WecomProvider  # noqa: PLC0415
+
+        return WecomProvider(webhook_key=key)
+
+    if kind == "viber":
+        token = _s("authToken")
+        if not token:
+            log.info("viber channel enabled but no auth token configured")
+            return None
+        from .providers.viber import ViberProvider  # noqa: PLC0415
+
+        return ViberProvider(auth_token=token,
+                            sender_name=str(cfg.get("senderName") or "Eclipse"))
+
+    if kind == "line":
+        token, secret = _s("channelAccessToken"), _s("channelSecret")
+        if not token or not secret:
+            log.info("line channel enabled but channelAccessToken/channelSecret is missing")
+            return None
+        from .providers.line import LineProvider  # noqa: PLC0415
+
+        return LineProvider(channel_access_token=token, channel_secret=secret)
+
+    if kind == "twilio":
+        sid, token, sender = _s("accountSid"), _s("authToken"), _s("fromNumber")
+        if not sid or not token or not sender:
+            log.info("twilio channel enabled but accountSid/authToken/fromNumber is missing")
+            return None
+        from .providers.twilio import TwilioProvider  # noqa: PLC0415
+
+        return TwilioProvider(
+            account_sid=sid,
+            auth_token=token,
+            from_number=sender,
+            public_url=_s("publicUrl"),
+        )
+
+    if kind == "signal":
+        base, number = _s("baseUrl"), _s("number")
+        if not base or not number:
+            log.info("signal channel enabled but baseUrl/number is missing")
+            return None
+        from .providers.signal import SignalProvider  # noqa: PLC0415
+
+        return SignalProvider(
+            base_url=base,
+            number=number,
+            api_token=_s("apiToken"),
+        )
 
     if kind == "discord":
         token = _s("botToken")
@@ -289,11 +530,30 @@ def build_provider(ctx: ProviderContext) -> Any:
 
         return WebhookProvider(reply_url=url, token=_s("replyToken"))
 
+    if kind == "dingtalk":
+        url = _s("webhookUrl")
+        if not url:
+            log.info("dingtalk channel enabled but no webhook URL configured")
+            return None
+        from .providers.dingtalk import DingTalkProvider  # noqa: PLC0415
+
+        return DingTalkProvider(webhook_url=url, sign_secret=_s("signSecret"))
+
+    if kind == "mattermost":
+        base, token, channel = _s("baseUrl"), _s("botToken"), _s("channelId")
+        if not base or not token or not channel:
+            log.info("mattermost channel enabled but baseUrl/botToken/channelId is missing")
+            return None
+        from .providers.mattermost import MattermostProvider  # noqa: PLC0415
+
+        return MattermostProvider(base_url=base, bot_token=token, channel_id=channel)
+
     return None
 
 
 __all__ = [
     "KINDS",
+    "OUTBOUND_KINDS",
     "POLL_KINDS",
     "PROVIDERS",
     "PUSH_KINDS",

@@ -1,0 +1,67 @@
+id: dividend_income_desk
+name: Dividend Income Desk
+description: >-
+  A yield analyst, a sustainability analyst and a tax/withholding analyst examine
+  an income portfolio; a manager decides what to own for income and at what risk.
+objective: >-
+  Review {portfolio} for income over {horizon} and decide which holdings earn
+  their place, with sustainability and withholding stated.
+variables: [portfolio, horizon]
+members:
+  - agent_id: di-yield
+    label: Yield Analyst
+    role: researcher
+    capabilities: [dividends, valuation]
+    instructions: |
+      Measure the income of {portfolio}: trailing and forward yield, yield on
+      cost, and how much of the yield comes from specials. Compare with the
+      alternatives the same risk budget could buy.
+  - agent_id: di-sustainability
+    label: Payout Sustainability Analyst
+    role: researcher
+    capabilities: [fundamentals, cashflow]
+    instructions: |
+      Test whether each dividend is covered: free cash flow cover, payout ratio,
+      leverage, and the history of cuts in the sector. Flag any yield that exists
+      because the price fell.
+  - agent_id: di-tax
+    label: Tax & Withholding Analyst
+    role: researcher
+    capabilities: [tax, portfolio]
+    instructions: |
+      Account for withholding and account type for {portfolio}: what the investor
+      actually receives, and where the same exposure is taxed better.
+  - agent_id: di-manager
+    label: Income Manager
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Decide what stays and what goes, and why. State the income you expect, the
+      risk to it, and the trigger that would force a cut in exposure.
+subtasks:
+  - id: yield
+    objective: "Measure the income and forward yield of {portfolio} over {horizon}."
+    assigned_agent_id: di-yield
+    capability: dividends
+    evidence_required: true
+  - id: sustainability
+    objective: "Test dividend coverage and cut risk across {portfolio}."
+    assigned_agent_id: di-sustainability
+    capability: fundamentals
+    evidence_required: true
+  - id: tax
+    objective: "Quantify withholding and account-type effects for {portfolio}."
+    assigned_agent_id: di-tax
+    capability: tax
+    evidence_required: true
+  - id: decisions
+    objective: "Decide holdings, expected income and cut triggers for {portfolio}."
+    assigned_agent_id: di-manager
+    depends_on: [yield, sustainability, tax]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

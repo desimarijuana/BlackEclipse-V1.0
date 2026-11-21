@@ -41,6 +41,42 @@ def _metric_rows(metrics: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def _figures_html(artifact: dict[str, Any], *, figures: tuple[str, ...] = ("core", "risk")) -> str:
+    """Render the artifact's charts as inline PNGs, best-effort.
+
+    The report is a *record*: each figure is built from the same stored artifact
+    the metrics came from, by the same `quant.visuals` builders the app's figure
+    panel uses. Nothing is recomputed and no new data is read.
+
+    Failure is never fatal. If matplotlib or the figure builders are unavailable,
+    the section says so and the report still renders its numbers — a chart is an
+    aid, not a source of truth.
+    """
+    try:
+        import base64  # noqa: PLC0415 - only needed when figures render
+
+        from ..charts.render import render_chart  # noqa: PLC0415
+        from ..charts.spec import ChartSpec  # noqa: PLC0415
+        from .visuals import build_figures  # noqa: PLC0415
+
+        rendered: list[str] = []
+        for figure in build_figures(artifact, figures=figures, theme="eclipse-dark"):
+            if not figure.available or not figure.spec:
+                continue
+            png = render_chart(ChartSpec.model_validate(figure.spec))
+            encoded = base64.b64encode(png).decode("ascii")
+            rendered.append(
+                f'<figure class="chart"><img alt="{html.escape(figure.title)}" '
+                f'src="data:image/png;base64,{encoded}">'
+                f"<figcaption>{html.escape(figure.title)}</figcaption></figure>"
+            )
+        if not rendered:
+            return '<p class="note">No figures were available for this run.</p>'
+        return "\n".join(rendered)
+    except Exception as exc:  # noqa: BLE001 - a report must render without charts
+        return f'<p class="note">Figures unavailable: {html.escape(str(exc))}</p>'
+
+
 def render_experiment_html(experiment: dict[str, Any], artifact: dict[str, Any],
                            manifest: Optional[dict[str, Any]] = None) -> str:
     exp_id = experiment.get("id", "experiment")
@@ -79,6 +115,10 @@ def render_experiment_html(experiment: dict[str, Any], artifact: dict[str, Any],
   code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }}
   ul {{ margin:6px 0 0 18px; padding:0; }}
   .note {{ color:#9a9aa3; font-size:12px; }}
+  figure.chart {{ margin:18px 0 0; }}
+  figure.chart img {{ width:100%; height:auto; border-radius:10px;
+                     border:1px solid rgba(255,255,255,.06); display:block; }}
+  figcaption {{ color:#9a9aa3; font-size:12px; margin-top:6px; }}
 </style></head><body><div class="wrap">
   <h1>Eclipse research report</h1>
   <p class="sub">Experiment <code>{html.escape(exp_id)}</code> · {html.escape(str(experiment.get('kind')))} ·
@@ -98,6 +138,13 @@ def render_experiment_html(experiment: dict[str, Any], artifact: dict[str, Any],
     <table>{_metric_rows(metrics)}</table>
     <p class="note">Every value was computed by the deterministic Eclipse engine and
        read from the stored artifact.</p>
+  </div>
+
+  <div class="card">
+    <h2>Figures</h2>
+    <p class="note">Built from the same stored artifact as the metrics above; the
+       report does not recompute anything.</p>
+    {_figures_html(artifact)}
   </div>
 
   <div class="card">

@@ -44,6 +44,7 @@ from .data import BarSeries, MarketDataset, align_higher_to_primary
 from .errors import CorruptDataset, InsufficientHistory, MissingData, QuantError
 from .execution import BarContext, ExecutionSimulator
 from .manifest import build_run_manifest
+from .market_rules import MarketRules, board_for_code, rules_for
 from .metrics import MetricInputs, MetricsEngine
 from .models import EquityPoint, Fill, Order, TradeRecord, Warning_
 from .orders import OrderEngine
@@ -79,6 +80,9 @@ class BacktestConfig:
     corporate_actions: list[Any] = field(default_factory=list)
     # Optional label for the code/build that produced the run (run manifest).
     code_version: Optional[str] = None
+    # Explicit market override. When None, each binding's `strategy.market`
+    # decides, so a portfolio run keeps per-strategy mandates.
+    market: Optional[str] = None
 
 
 @dataclass
@@ -235,6 +239,17 @@ class BacktestEngine:
             key = binding.strategy.id
             self._sims[key] = ExecutionSimulator(binding.strategy.execution, seed=config.random_seed)
             self._risks[key] = RiskEngine(binding.strategy.risk)
+
+        # Market execution mandates, per symbol. `config.market` is an explicit
+        # override; otherwise the binding's own `strategy.market` applies.
+        self._market: dict[str, MarketRules] = {}
+        for binding in bindings:
+            rules = rules_for(config.market or getattr(binding.strategy, "market", None))
+            for symbol in binding.symbols:
+                self._market[symbol] = rules
+        # symbol -> [(acquired date, quantity)] for T+N settlement. Only long
+        # lots a sell would have to settle are tracked; a buy-to-cover is not.
+        self._lots: dict[str, list[tuple[str, float]]] = {}
 
         self.warnings: list[Warning_] = []
         self.errors: list[dict[str, Any]] = []
@@ -554,8 +569,23 @@ class BacktestEngine:
                     {"symbol": symbol, "reason": reason},
                 ))
                 return
+        # Market lot mandate: a size that is not a tradeable increment cannot
+        # fill. Flooring (never rounding up) means a sub-lot size becomes no
+        # trade, exactly as the venue would refuse it.
+        quantity = decision.quantity
+        rules = self._market.get(symbol)
+        if rules is not None:
+            quantity = rules.round_size(quantity)
+            if quantity <= 0:
+                self.warnings.append(Warning_(
+                    "MARKET_LOT_BELOW_ONE",
+                    f"{symbol} entry size {decision.quantity:.4f} is below one "
+                    f"{rules.lot_size:g}-unit lot for {rules.id}",
+                    {"symbol": symbol, "market": rules.id, "lotSize": rules.lot_size},
+                ))
+                return
         order = self.orders.create(
-            symbol, side, "market", decision.quantity, index=i,
+            symbol, side, "market", quantity, index=i,
             ts=s.timestamps[i], tag="entry", reason=f"{side} entry",
         )
         self.orders.submit(order, i)
@@ -569,15 +599,81 @@ class BacktestEngine:
         if pos.is_flat:
             return
         side = "sell" if pos.quantity > 0 else "buy"
+        quantity = abs(pos.quantity)
+        rules = self._market.get(symbol)
+        # T+N settlement: shares bought today are not sellable today. Clamp to
+        # the settled quantity; a fully-unsettled position means no exit order
+        # (the engine does not invent a fill the venue would refuse).
+        if rules is not None and side == "sell" and rules.settle_buy_days > 0:
+            ts = self._series[symbol].timestamps[i]
+            settled = self._settled_quantity(symbol, ts)
+            quantity = min(quantity, settled)
+            if quantity <= 0:
+                self.warnings.append(Warning_(
+                    "MARKET_T1_UNSETTLED",
+                    f"{symbol} exit deferred: position bought today is not "
+                    f"sellable until T+{rules.settle_buy_days} ({rules.id})",
+                    {"symbol": symbol, "market": rules.id, "reason": reason},
+                ))
+                return
         self._cancel_protective(symbol, i)
         order = self.orders.create(
-            symbol, side, "market", abs(pos.quantity), index=i,
+            symbol, side, "market", quantity, index=i,
             ts=self._series[symbol].timestamps[i], tag="exit", reason=reason,
         )
         self.orders.submit(order, i)
         self.orders.accept(order, i)
         self._observability["ordersCreated"] += 1
         self._observability["signals"] += 1
+
+    def _settled_quantity(self, symbol: str, ts: Any) -> float:
+        """Long quantity acquired before the calendar day of `ts`."""
+        day = str(ts)[:10]
+        return sum(qty for (acquired, qty) in self._lots.get(symbol, []) if acquired < day)
+
+    def _record_lot(self, symbol: str, ts: Any, quantity: float) -> None:
+        if quantity <= 0:
+            return
+        self._lots.setdefault(symbol, []).append((str(ts)[:10], quantity))
+
+    def _consume_lots(self, symbol: str, quantity: float) -> None:
+        lots = self._lots.get(symbol, [])
+        remaining = quantity
+        while remaining > 1e-9 and lots:
+            acquired, held = lots[0]
+            take = min(held, remaining)
+            remaining -= take
+            if held - take <= 1e-9:
+                lots.pop(0)
+            else:
+                lots[0] = (acquired, held - take)
+
+    def _market_rejection(self, order: Order, fill: Fill, i: int) -> Optional[tuple[str, str]]:
+        """Why the market would refuse this fill, or None when it is allowed.
+
+        Only markets with declared price limits are gated. The band is computed
+        from the previous session's close (the published base), and the board
+        comes from the code prefix — a best-effort mapping whose limits are
+        stated in `market_rules.board_for_code`.
+        """
+        rules = self._market.get(order.symbol)
+        if rules is None or not rules.price_limits or i <= 0:
+            return None
+        series = self._series.get(order.symbol)
+        if series is None:
+            return None
+        prev_close = float(series.close[i - 1])
+        band = rules.band(prev_close, board_for_code(order.symbol))
+        if band is None:
+            return None
+        low, high = band
+        if fill.price < low - 1e-9 or fill.price > high + 1e-9:
+            return (
+                "MARKET_LIMIT_BAND",
+                f"{order.symbol} fill {fill.price:.4f} is outside the "
+                f"{rules.id} band {low:.4f}-{high:.4f} set from the previous close",
+            )
+        return None
 
     # ── bar processing ───────────────────────────────────────────────────────
     def _fill_ready_orders(self, symbol: str, bar: BarContext, i: int) -> None:
@@ -591,6 +687,16 @@ class BacktestEngine:
             fill = sim.try_fill(order, bar, current_index=i, allow_same_bar=False)
             if fill is None:
                 continue
+            rejection = self._market_rejection(order, fill, i)
+            if rejection is not None:
+                code, message = rejection
+                self.orders.cancel(order, i, reason=code)
+                self._observability["ordersCancelled"] += 1
+                self.warnings.append(Warning_(
+                    code, message,
+                    {"symbol": order.symbol, "orderId": order.id, "fillPrice": fill.price},
+                ))
+                continue
             self._apply_fill(order, fill, i)
         for warning in sim.consume_warnings():
             self.warnings.append(Warning_(
@@ -603,6 +709,12 @@ class BacktestEngine:
         self.orders.apply_fill(order, fill.quantity, fill.price, fill.commission)
         trade = self.portfolio.apply_fill(fill)
         self.fills.append(fill)
+        # Settlement bookkeeping: a long entry creates a dated lot; a sell
+        # consumes the oldest settled lots first (FIFO).
+        if order.tag == "entry" and fill.side == "buy":
+            self._record_lot(order.symbol, fill.ts, fill.quantity)
+        elif fill.side == "sell":
+            self._consume_lots(order.symbol, fill.quantity)
         self._observability["fills"] += 1
         if fill.fill_ratio < 1.0 - 1e-9:
             self._observability["partialFills"] += 1

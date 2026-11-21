@@ -1,0 +1,68 @@
+id: event_driven_task_force
+name: Event-Driven Task Force
+description: >-
+  A scout finds the event, an analyst prices the impact, an execution planner maps
+  the trade, and a lead decides whether the edge survives costs and timing.
+objective: >-
+  Evaluate the {event_type} event affecting {target} and decide whether there is a
+  tradeable edge after costs and timing.
+variables: [event_type, target]
+members:
+  - agent_id: ed-scout
+    label: Event Scout
+    role: researcher
+    capabilities: [events, news]
+    instructions: |
+      Identify and verify the {event_type} event for {target}: what happened, when
+      it was disclosed, and whether it is confirmed or rumoured. Cite the primary
+      disclosure if one exists.
+  - agent_id: ed-analyst
+    label: Impact Analyst
+    role: researcher
+    capabilities: [valuation, fundamentals]
+    instructions: |
+      Price the impact on {target}: the mechanism, the magnitude under a base and a
+      severe case, and how much is already in the price.
+  - agent_id: ed-planner
+    label: Execution Planner
+    role: researcher
+    capabilities: [execution, risk]
+    instructions: |
+      Map the trade: instrument, size, entry and exit logic, liquidity constraints,
+      and the cost of being wrong. Say when the window closes.
+  - agent_id: ed-lead
+    label: Task Force Lead
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Decide: trade, wait, or pass. Weigh the edge against costs and timing, state
+      the invalidation, and explicitly say what would make this a pass.
+subtasks:
+  - id: event
+    objective: "Verify the {event_type} event for {target} and its disclosure timing."
+    assigned_agent_id: ed-scout
+    capability: events
+    evidence_required: true
+  - id: impact
+    objective: "Price the event impact on {target} under base and severe cases."
+    assigned_agent_id: ed-analyst
+    depends_on: [event]
+    capability: valuation
+    evidence_required: true
+  - id: execution
+    objective: "Map the trade for {target}: size, levels, liquidity, cost of error."
+    assigned_agent_id: ed-planner
+    depends_on: [event]
+    capability: execution
+    evidence_required: true
+  - id: decision
+    objective: "Decide trade / wait / pass for {target} with invalidation and pass criteria."
+    assigned_agent_id: ed-lead
+    depends_on: [event, impact, execution]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

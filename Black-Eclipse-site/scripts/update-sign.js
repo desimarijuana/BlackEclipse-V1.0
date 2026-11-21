@@ -19,6 +19,13 @@
 //   --installer-size <n>    byte size (optional; enables an extra check)
 //   --installer-platform    key for the asset map (default: this host/arch,
 //                          e.g. win32-x64; use it for cross-platform signing)
+//   --build-url <url>       the release's prebuilt build archive (zip of .next)
+//   --build-file <path>     hash + size this local archive (sets --build-sha256)
+//   --build-sha256 <h>      hex SHA-256 of the exact archive bytes
+//   --build-size <n>        byte size (optional; enables an extra check)
+//   --build-id <id>         BUILD_ID inside the archive (checked before promoting)
+//   --build-lock-hash <h>   sha256 of the release's package-lock.json
+//   --build-platform        `any` (default) or `<platform>-<arch>`
 //   --key <path>            private key (default .black-eclipse/update-keys/...)
 //   --out <path>            output file (default release/<channel>.json)
 //   --force                 allow re-signing an existing output file
@@ -84,15 +91,12 @@ if (minSupported) payload.minSupported = minSupported.replace(/^v/, "");
 // A packaged install has no git tree, so it updates by running a signed
 // installer. The signature covers the asset URL and its SHA-256: the runner
 // downloads those bytes and refuses to start anything that does not match.
-const installerFile = arg("installer-file", "");
-let installerSha = arg("installer-sha256", "");
-let installerSize = Number(arg("installer-size", "")) || 0;
-if (installerFile) {
-  if (!fs.existsSync(installerFile)) fail(`installer file not found: ${installerFile}`);
-  // Hash in bounded chunks: an installer is hundreds of MB and this runs on the
-  // same memory-constrained machine that builds it.
+function fileDigest(file) {
+  if (!fs.existsSync(file)) fail(`file not found: ${file}`);
+  // Hash in bounded chunks: these assets are hundreds of MB and this runs on the
+  // same memory-constrained machine that builds them.
   const hash = crypto.createHash("sha256");
-  const fd = fs.openSync(installerFile, "r");
+  const fd = fs.openSync(file, "r");
   const chunk = Buffer.allocUnsafe(4 * 1024 * 1024);
   try {
     for (;;) {
@@ -103,8 +107,16 @@ if (installerFile) {
   } finally {
     fs.closeSync(fd);
   }
-  installerSha = hash.digest("hex");
-  installerSize = fs.statSync(installerFile).size;
+  return { sha256: hash.digest("hex"), size: fs.statSync(file).size };
+}
+
+const installerFile = arg("installer-file", "");
+let installerSha = arg("installer-sha256", "");
+let installerSize = Number(arg("installer-size", "")) || 0;
+if (installerFile) {
+  const digest = fileDigest(installerFile);
+  installerSha = digest.sha256;
+  installerSize = digest.size;
 }
 const installerUrl = arg("installer-url", "");
 if (installerUrl || installerSha) {
@@ -121,6 +133,47 @@ if (installerUrl || installerSha) {
       url: installerUrl,
       sha256: installerSha.toLowerCase(),
       ...(installerSize ? { size: installerSize } : {}),
+    },
+  };
+}
+
+// The prebuilt build. This is the normal update path for a checkout: the runner
+// downloads these bytes, verifies the signed size + sha256, and promotes the
+// compiled `.next` — no git checkout, no `npm ci`, no local compile. Signing the
+// digest is what makes "the release is the artifact" trustworthy.
+const buildFile = arg("build-file", "");
+let buildSha = arg("build-sha256", "");
+let buildSize = Number(arg("build-size", "")) || 0;
+if (buildFile) {
+  const digest = fileDigest(buildFile);
+  buildSha = digest.sha256;
+  buildSize = digest.size;
+}
+const buildUrl = arg("build-url", "");
+if (buildUrl || buildSha) {
+  if (!buildUrl) fail("--build-url is required with --build-sha256/--build-file");
+  if (!/^[0-9a-f]{64}$/i.test(buildSha)) {
+    fail("--build-sha256 must be a 64-character hex SHA-256");
+  }
+  if (buildSize && (!Number.isInteger(buildSize) || buildSize <= 0)) {
+    fail("--build-size must be a positive byte count");
+  }
+  const platform = arg("build-platform", "any");
+  if (platform !== "any" && !/^[a-z0-9]+-[a-z0-9_]+$/i.test(platform)) {
+    fail(`--build-platform must be "any" or "<platform>-<arch>" (got "${platform}")`);
+  }
+  const buildId = arg("build-id", "");
+  const buildLockHash = arg("build-lock-hash", "");
+  if (buildLockHash && !/^[0-9a-f]{64}$/i.test(buildLockHash)) {
+    fail("--build-lock-hash must be a 64-character hex SHA-256");
+  }
+  payload.builds = {
+    [platform]: {
+      url: buildUrl,
+      sha256: buildSha.toLowerCase(),
+      ...(buildSize ? { size: buildSize } : {}),
+      ...(buildId ? { buildId } : {}),
+      ...(buildLockHash ? { lockHash: buildLockHash.toLowerCase() } : {}),
     },
   };
 }
@@ -159,6 +212,14 @@ console.log(`[update-sign] commit ${commit}`);
 if (payload.installers) {
   for (const [platform, asset] of Object.entries(payload.installers)) {
     console.log(`[update-sign] installer ${platform} sha256 ${asset.sha256}`);
+  }
+}
+if (payload.builds) {
+  for (const [platform, asset] of Object.entries(payload.builds)) {
+    console.log(
+      `[update-sign] build ${platform} sha256 ${asset.sha256}` +
+        `${asset.buildId ? ` buildId ${asset.buildId}` : ""}`,
+    );
   }
 }
 console.log("[update-sign] next: upload this file as a GitHub Release asset");

@@ -15,10 +15,7 @@ The service never trusts the caller: pydantic validates every body.
 """
 
 from __future__ import annotations
-import asyncio
-import logging
-import os
-import time
+import asyncio, logging, os, time  # one line: this module is line-ratcheted
 from typing import Any, Optional
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -79,6 +76,7 @@ from .routers.grants import router as grants_router
 from .routers.jobs import router as jobs_router
 from .routers.learning import router as learning_router
 from .routers.mcp import router as mcp_router
+from .routers.openbb import router as openbb_router
 from .routers.market import router as market_router
 from .routers.memory import router as memory_router
 from .routers.ml import router as ml_router
@@ -163,6 +161,7 @@ app.include_router(graphs_router)
 app.include_router(jobs_router)
 app.include_router(learning_router)
 app.include_router(mcp_router)
+app.include_router(openbb_router)
 app.include_router(market_router)
 app.include_router(memory_router)
 app.include_router(ml_router)

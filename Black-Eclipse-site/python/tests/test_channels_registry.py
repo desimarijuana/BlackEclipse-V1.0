@@ -39,7 +39,10 @@ def _service(tmp_path) -> tuple[AgentMemoryStore, ChannelService]:
 
 def test_kinds_are_derived_and_partitioned():
     assert CHANNEL_KINDS == registry.KINDS
-    assert registry.PUSH_KINDS | registry.POLL_KINDS == frozenset(registry.KINDS)
+    # Every provider is push, poll, or outbound-only; the three sets partition.
+    assert (registry.PUSH_KINDS | registry.POLL_KINDS
+            | registry.OUTBOUND_KINDS) == frozenset(registry.KINDS)
+    assert not (registry.OUTBOUND_KINDS & (registry.PUSH_KINDS | registry.POLL_KINDS))
     # A hybrid provider (Slack: Socket Mode + Events webhook) may appear in both.
     assert registry.PUSH_KINDS <= frozenset(registry.KINDS)
     assert registry.POLL_KINDS <= frozenset(registry.KINDS)

@@ -172,6 +172,22 @@ be woken, because the event launch requires `active`.
 - An agent action with `config.tasks` runs through the Orchestration layer
   (`parallel_execute`) — the existing parallel primitive.
 
+## Prompts name capabilities, not tools
+
+A scheduled job's prompt is persisted once and re-sent on every fire, so a tool
+name baked into it breaks the job the day that tool is renamed or replaced — and
+does so silently until a delivery is missing. The rule: **state the capability**
+("new regulatory filings", "overnight news", "last price and volume"), and let the
+agent route to whatever tool currently provides it.
+
+`jobs/prompt_policy.py` is the executable rule: `lint_prompt(text, tool_names)`
+returns every tool mention with its index and a rewrite hint, `lint_templates`
+checks a template's `objective`/`prompt`, and `is_clean` is the boolean form.
+`test_job_prompt_policy.py` runs it over every bundled job template against the
+agent's real tool names, so a template cannot ship with a tool id in its prompt.
+It is a lint, not a rewriter: editing user text silently would be worse than the
+problem it fixes.
+
 ## Reliability
 
 - **Durability** — the source of truth is the database, not an in-memory timer.

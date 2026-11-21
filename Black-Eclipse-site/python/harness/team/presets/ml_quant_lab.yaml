@@ -1,0 +1,69 @@
+id: ml_quant_lab
+name: ML Quant Lab
+description: >-
+  A feature engineer designs leak-free features, a modeller fits and validates, a
+  backtest engineer enforces out-of-sample discipline, and a lead decides whether
+  the model is real.
+objective: >-
+  Build and validate an ML model for {target_variable} in {market}, with strict
+  out-of-sample discipline, and decide whether it is deployable.
+variables: [target_variable, market]
+members:
+  - agent_id: ml-features
+    label: Feature Engineer
+    role: researcher
+    capabilities: [features, statistics]
+    instructions: |
+      Design leak-free features for {target_variable}: point-in-time inputs only,
+      no future information, explicit handling of missing data. State the leakage
+      checks you ran.
+  - agent_id: ml-model
+    label: Modelling Analyst
+    role: researcher
+    capabilities: [ml, validation]
+    instructions: |
+      Fit and validate the model: the split strategy (purged/embargoed where labels
+      overlap), the baseline it must beat, and the metric that decides.
+  - agent_id: ml-backtest
+    label: Backtest Engineer
+    role: researcher
+    capabilities: [quant, backtest]
+    instructions: |
+      Turn predictions into positions and measure honestly: costs, turnover,
+      capacity. Report the out-of-sample result separately from the in-sample one.
+  - agent_id: ml-lead
+    label: Lab Lead
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Decide deployable or not. Name the one assumption the result rests on, the
+      multiple-testing risk, and the evidence that would kill it.
+subtasks:
+  - id: features
+    objective: "Design leak-free features for {target_variable} in {market}."
+    assigned_agent_id: ml-features
+    capability: features
+    evidence_required: true
+  - id: model
+    objective: "Fit and validate the model against a stated baseline."
+    assigned_agent_id: ml-model
+    depends_on: [features]
+    capability: ml
+    evidence_required: true
+  - id: backtest
+    objective: "Measure the model out of sample, after costs."
+    assigned_agent_id: ml-backtest
+    depends_on: [model]
+    capability: quant
+    evidence_required: true
+  - id: verdict
+    objective: "Decide deployable or not, with the assumption and kill criteria."
+    assigned_agent_id: ml-lead
+    depends_on: [features, model, backtest]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

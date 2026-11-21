@@ -368,6 +368,64 @@ async def webhook_inbound(
         accepted = _enqueue(svc, message, background) if message is not None else False
         return {"ok": True, "duplicate": message is not None and not accepted}
 
+    # Viber signs the RAW BODY with a HEX HMAC (LINE's sibling, different digest).
+    if kind == "viber":
+        from ..channels.providers import viber as channel_viber  # noqa: PLC0415
+
+        token = svc.secret_value("viber", "authToken")
+        if not channel_viber.verify(token, body=body,
+                                    signature=headers.get("x-viber-content-signature")):
+            raise HTTPException(status_code=403, detail="invalid viber signature")
+        message = channel_viber.parse_webhook(_safe_json(body))
+        accepted = _enqueue(svc, message, background) if message is not None else False
+        # Viber expects a bare 200 with no body; it treats anything else as a retry.
+        return {"ok": True, "duplicate": message is not None and not accepted}
+
+    # LINE signs the RAW BODY only (no timestamp, no URL): body HMAC, one check.
+    if kind == "line":
+        from ..channels.providers import line as channel_line  # noqa: PLC0415
+
+        secret = svc.secret_value("line", "channelSecret")
+        if not channel_line.verify(secret, body=body,
+                                   signature=headers.get("x-line-signature")):
+            raise HTTPException(status_code=403, detail="invalid line signature")
+        messages = channel_line.parse_webhook(_safe_json(body))
+        accepted = 0
+        for message in messages:
+            if _enqueue(svc, message, background):
+                accepted += 1
+        return {"ok": True, "accepted": accepted,
+                "duplicate": bool(messages) and accepted == 0}
+
+    # Twilio posts a FORM, not JSON, and signs the public URL + sorted params.
+    if kind == "twilio":
+        import urllib.parse  # noqa: PLC0415 - only this branch needs it
+
+        from ..channels.providers import twilio as channel_twilio  # noqa: PLC0415
+
+        token = svc.secret_value("twilio", "authToken")
+        public_url = svc.secret_value("twilio", "publicUrl")
+        if not public_url:
+            raise HTTPException(
+                status_code=503,
+                detail="twilio inbound requires `publicUrl` (the exact URL Twilio signs)",
+            )
+        form = {
+            key: values[0]
+            for key, values in urllib.parse.parse_qs(
+                body.decode("utf-8", errors="replace"), keep_blank_values=True
+            ).items()
+        }
+        if not channel_twilio.verify(
+            token, url=public_url, params=form,
+            signature=headers.get("x-twilio-signature"),
+        ):
+            raise HTTPException(status_code=403, detail="invalid twilio signature")
+        message = channel_twilio.parse_inbound(
+            form, bot_number=svc.secret_value("twilio", "fromNumber"))
+        accepted = _enqueue(svc, message, background) if message is not None else False
+        return {"ok": True, "duplicate": message is not None and not accepted}
+
     # generic webhook
     secret = svc.secret_value("webhook", "webhookSecret")
     if not channel_verify.verify_generic(

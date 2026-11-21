@@ -61,7 +61,12 @@ def test_a_pending_order_is_the_first_line_and_names_the_window():
 
 def test_a_short_window_is_reported_in_seconds():
     report = render_run_report(_definition(), "completed", None, pending_approvals=[_pending(45)])
-    assert "good for 45 seconds" in report.splitlines()[0]
+    # The window is recomputed from the live clock, so crossing a second boundary
+    # between building the fixture and rendering legitimately shaves one: this is
+    # the same floor the minutes case above allows for.
+    match = re.search(r"good for (\d+) seconds", report.splitlines()[0])
+    assert match, report.splitlines()[0]
+    assert 43 <= int(match.group(1)) <= 45
 
 
 def test_an_expired_window_says_so_instead_of_implying_it_still_works():

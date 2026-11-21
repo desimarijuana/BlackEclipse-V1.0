@@ -1,7 +1,7 @@
 {
-  "digest": "9fcfacba26636ecf",
+  "digest": "40ab20751e9e1b3c",
   "manifestVersion": "1",
-  "toolCount": 1106,
+  "toolCount": 1107,
   "tools": [
     {
       "deprecated": false,
@@ -20241,6 +20241,32 @@
       "permission": "read",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Return the full parameter schema for one or more tools listed in the tool catalogue but not bound as a callable schema. Use it before `tool_invoke` when you need exact argument names. Read-only; up to 5 names per call.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "names": {
+            "description": "Exact tool names from the catalogue.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "type": "object"
+      },
+      "name": "load_tool_schema",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {

@@ -1,0 +1,70 @@
+id: quant_strategy_desk
+name: Quant Strategy Desk
+description: >-
+  A screener proposes a universe, a factor researcher tests whether the signal
+  survives a strict bench, a backtest engineer measures it honestly, and a risk
+  auditor decides whether the result is tradeable.
+objective: >-
+  Design, test and audit a {signal} strategy on {universe} over {period}, and
+  report whether it is tradeable after costs.
+variables: [signal, universe, period]
+members:
+  - agent_id: qs-screener
+    label: Screener
+    role: researcher
+    capabilities: [screening, market_data]
+    instructions: |
+      Propose a candidate universe on {universe} for a {signal} strategy. State
+      every filter and its threshold, and the funnel counts at each step.
+  - agent_id: qs-factor
+    label: Factor Researcher
+    role: researcher
+    capabilities: [factors, statistics]
+    instructions: |
+      Test the {signal} signal honestly: report train and out-of-sample IC, the
+      random control, and the decay. If the signal does not beat its control,
+      say so plainly.
+  - agent_id: qs-backtest
+    label: Backtest Engineer
+    role: engineer
+    capabilities: [quant, backtest]
+    instructions: |
+      Run the backtest on the proposed universe over {period}. Report costs,
+      turnover, drawdown and the number of independent bets. Do not present an
+      in-sample result as evidence of future return.
+  - agent_id: qs-risk
+    label: Risk Auditor
+    role: risk
+    capabilities: [risk, portfolio]
+    instructions: |
+      Audit the result: concentration, tail risk, capacity, and whether the edge
+      survives a doubled cost assumption. Give a tradeable / not-tradeable call.
+subtasks:
+  - id: screen
+    objective: "Propose a candidate universe on {universe} for {signal}."
+    assigned_agent_id: qs-screener
+    capability: screening
+    evidence_required: true
+  - id: factor_evidence
+    objective: "Test whether {signal} survives a strict bench (train, OOS, control) on {universe}."
+    assigned_agent_id: qs-factor
+    depends_on: [screen]
+    capability: factors
+    evidence_required: true
+  - id: backtest
+    objective: "Backtest {signal} on the screened universe over {period}, with costs."
+    assigned_agent_id: qs-backtest
+    depends_on: [screen, factor_evidence]
+    capability: quant
+    evidence_required: true
+  - id: audit
+    objective: "Audit the backtest and give a tradeable / not-tradeable verdict."
+    assigned_agent_id: qs-risk
+    depends_on: [backtest]
+    capability: risk
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

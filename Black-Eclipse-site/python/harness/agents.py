@@ -359,6 +359,8 @@ ECLIPSE_AGENT = AgentConfig(
         # Round 5 / C3: discovery + safe read-only dispatch, and the pager for a
         # truncated tool result's full text.
         "tool_search",
+        # Schema-on-demand for a catalogue-only tool, before `tool_invoke`.
+        "load_tool_schema",
         "tool_invoke",
         "read_tool_output",
         "tool_code",
@@ -965,6 +967,8 @@ CODE_AGENT_TOOLS = [
     # Round 5 / C3: discovery, safe read-only dispatch, full-output pager,
     # confined read-only code over the catalog.
     "tool_search",
+    # Schema-on-demand for a catalogue-only tool, before `tool_invoke`.
+    "load_tool_schema",
     "tool_invoke",
     "read_tool_output",
     "tool_code",

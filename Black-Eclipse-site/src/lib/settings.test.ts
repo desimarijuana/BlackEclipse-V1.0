@@ -201,10 +201,11 @@ describe("setLLMConfig / getLLMConfig", () => {
 
 describe("llmKeyEnvVar", () => {
   it("finds the key for a preset, any custom hosted endpoint, and no key for a local server", () => {
-    // Presets own their env var — including the two OpenCode plans, which
-    // share one Console key.
+    // Presets own their env var. The two OpenCode plans are separate
+    // connections since v0.4.21 (Go → OPENCODE_GO_API_KEY, Zen → OPENCODE_API_KEY);
+    // sharing one key made connecting Go mark Zen connected.
     expect(llmKeyEnvVar("https://opencode.ai/inference/openai/v1")).toBe("OPENCODE_API_KEY");
-    expect(llmKeyEnvVar("https://opencode.ai/inference/go/openai/v1")).toBe("OPENCODE_API_KEY");
+    expect(llmKeyEnvVar("https://opencode.ai/inference/go/openai/v1")).toBe("OPENCODE_GO_API_KEY");
     // Anything else hosted is a custom API: its key is what discovery probes with.
     expect(llmKeyEnvVar("https://opencode.ai/inference/go/v1")).toBe("CUSTOM_LLM_API_KEY");
     expect(llmKeyEnvVar("https://api.acme.example/v1", "custom")).toBe("CUSTOM_LLM_API_KEY");

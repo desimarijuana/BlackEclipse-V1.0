@@ -21,6 +21,7 @@ import {
   isUpdateChannel,
   type UpdateChannel,
   type UpdateInstallerAsset,
+  type UpdateBuildAsset,
   type UpdateManifestPayload,
   type UpdateStatus,
 } from "./types";
@@ -62,14 +63,32 @@ export class UpdateCheckError extends Error {
 
 /**
  * Only a git checkout can stage a release in place. An installed build ships
- * its own frozen payload under `<install>/app` and has no `.git`, so the
- * git-based updater cannot run there.
+ * its own frozen payload under `<install>/app` (marked by `server.js`) and has
+ * no work tree, so the git-based updater cannot run there.
+ *
+ * The repo root is not always `ROOT`: this app lives in `Black-Eclipse-site/`
+ * inside a repository whose `.git` is its PARENT. Look for the nearest
+ * enclosing `.git` rather than only `ROOT/.git` — otherwise every update is
+ * refused as "this installed build cannot update in place".
  */
 export function isSourceCheckout(root: string = ROOT): boolean {
   try {
-    return fs.existsSync(path.join(root, ".git"));
+    // The standalone payload marker means "packaged", even inside a repo.
+    if (fs.existsSync(path.join(root, "server.js"))) return false;
   } catch {
     return false;
+  }
+  let dir = path.resolve(root);
+  for (;;) {
+    try {
+      // Worktrees use a `.git` file, so this must not require a directory.
+      if (fs.existsSync(path.join(dir, ".git"))) return true;
+    } catch {
+      return false;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
   }
 }
 
@@ -167,8 +186,7 @@ export function loadPublicKey(input?: string | crypto.KeyObject): crypto.KeyObje
 }
 
 /** Validate the signed installer map. Shape only; hosts are checked at fetch. */
-export function validateInstallers(value: unknown): asserts value is UpdateManifestPayload["installers"] {
-  if (value === undefined) return;
+export function validateInstallers(value: unknown): asserts value is UpdateManifestPayload["installers"] {  if (value === undefined) return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new UpdateCheckError("installers", "Signed update payload has an invalid installers map.");
   }
@@ -191,6 +209,50 @@ export function validateInstallers(value: unknown): asserts value is UpdateManif
       (!Number.isInteger(asset.size) || (asset.size as number) <= 0)
     ) {
       throw new UpdateCheckError("installers", `Installer "${key}" has an invalid size.`);
+    }
+  }
+}
+
+/**
+ * Validate the signed prebuilt-build map (`builds`). Mirrors
+ * `validateBuilds` in `scripts/lib/update-verify.js`; a malformed map must
+ * invalidate the whole manifest. Keys are `any` (a Next build is
+ * platform-independent JS) or `<platform>-<arch>`.
+ */
+export function validateBuilds(
+  value: unknown,
+): asserts value is UpdateManifestPayload["builds"] {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new UpdateCheckError("builds", "Signed update payload has an invalid builds map.");
+  }
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (key !== "any" && !/^[a-z0-9]+-[a-z0-9_]+$/i.test(key)) {
+      throw new UpdateCheckError("builds", `Unknown build platform "${key}".`);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new UpdateCheckError("builds", `Build entry "${key}" is not an object.`);
+    }
+    const asset = raw as Record<string, unknown>;
+    if (typeof asset.url !== "string") {
+      throw new UpdateCheckError("builds", `Build "${key}" has no url.`);
+    }
+    if (typeof asset.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(asset.sha256)) {
+      throw new UpdateCheckError("builds", `Build "${key}" has an invalid sha256.`);
+    }
+    if (
+      asset.size !== undefined &&
+      (!Number.isInteger(asset.size) || (asset.size as number) <= 0)
+    ) {
+      throw new UpdateCheckError("builds", `Build "${key}" has an invalid size.`);
+    }
+    for (const field of ["buildId", "version"]) {
+      if (asset[field] !== undefined && (typeof asset[field] !== "string" || !asset[field])) {
+        throw new UpdateCheckError("builds", `Build "${key}" has an invalid ${field}.`);
+      }
+    }
+    if (asset.lockHash !== undefined && !/^[0-9a-f]{64}$/i.test(String(asset.lockHash))) {
+      throw new UpdateCheckError("builds", `Build "${key}" has an invalid lockHash.`);
     }
   }
 }
@@ -258,6 +320,7 @@ export function verifyEnvelope(
     }
   }
   validateInstallers(payload.installers);
+  validateBuilds(payload.builds);
   return payload as unknown as UpdateManifestPayload;
 }
 
@@ -321,23 +384,24 @@ export function installerForPlatform(
 }
 
 /**
- * GitHub's `releases/latest/download/...` URL is CDN-cached: a manifest
- * published minutes ago can still serve the PREVIOUS release from an edge.
- * The manifest is a public static file, so a per-request cache-buster is
- * harmless and makes a revalidation mean "now", not "whatever the edge has".
+ * The signed prebuilt build for this host. An exact `<platform>-<arch>` entry
+ * wins, otherwise the platform-independent `any` entry (a Next build is JS).
+ * Mirrors `assetForPlatform` in `scripts/lib/build-artifact.js`.
  */
-function cacheBustedManifestUrl(url: string): string {
-  try {
-    const next = new URL(url);
-    next.searchParams.set("ts", String(Date.now()));
-    return next.toString();
-  } catch {
-    return url;
+export function buildForPlatform(
+  builds: Record<string, UpdateBuildAsset> | undefined,
+  platform: string = `${process.platform}-${process.arch}`,
+): UpdateBuildAsset | null {
+  if (!builds) return null;
+  for (const key of [platform, "any"]) {
+    const asset = builds[key];
+    if (asset && asset.url && asset.sha256) return asset;
   }
+  return null;
 }
 
 async function fetchManifest(channel: UpdateChannel, config: UpdateConfig): Promise<UpdateManifestPayload> {
-  const url = cacheBustedManifestUrl(resolveManifestUrl(channel, config));
+  const url = resolveManifestUrl(channel, config);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -366,6 +430,13 @@ async function fetchManifest(channel: UpdateChannel, config: UpdateConfig): Prom
       installers[key] = { ...asset, url: assertSafeUrl(asset.url, config) };
     }
     safe.installers = installers;
+  }
+  if (payload.builds) {
+    const builds: NonNullable<UpdateManifestPayload["builds"]> = {};
+    for (const [key, asset] of Object.entries(payload.builds)) {
+      builds[key] = { ...asset, url: assertSafeUrl(asset.url, config) };
+    }
+    safe.builds = builds;
   }
   return safe;
 }

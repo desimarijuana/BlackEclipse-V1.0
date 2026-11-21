@@ -184,6 +184,10 @@ class TeamSubtask(BaseModel):
     budget: dict[str, Any] = Field(default_factory=dict)
     review: bool = False
     priority: str = Field("NORMAL", max_length=16)
+    #: When true, a COMPLETED subtask with no evidence reference is not
+    #: acceptable: the team service's evidence check refuses it. Default false so
+    #: existing teams are unchanged.
+    evidence_required: bool = False
 
     @field_validator("id")
     @classmethod

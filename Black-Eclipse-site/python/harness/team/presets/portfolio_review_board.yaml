@@ -1,0 +1,66 @@
+id: portfolio_review_board
+name: Portfolio Review Board
+description: >-
+  Attribution, risk and execution quality are reviewed in parallel; a CIO turns
+  them into rebalance decisions with the trade-offs stated.
+objective: >-
+  Review {portfolio} over {review_period} and produce rebalance decisions with
+  what each one costs and what it gives up.
+variables: [portfolio, review_period]
+members:
+  - agent_id: pb-attribution
+    label: Attribution Analyst
+    role: researcher
+    capabilities: [attribution, performance]
+    instructions: |
+      Decompose {portfolio}'s return over {review_period}: allocation vs selection
+      vs interaction, and which positions actually contributed. Do not hand-wave;
+      use the computed attribution.
+  - agent_id: pb-risk
+    label: Risk Reviewer
+    role: researcher
+    capabilities: [risk, portfolio]
+    instructions: |
+      Review the risk the portfolio is carrying now: concentration, factor tilts,
+      tail exposure, and whether the risk budget is being spent where intended.
+  - agent_id: pb-execution
+    label: Execution Reviewer
+    role: researcher
+    capabilities: [execution, costs]
+    instructions: |
+      Judge execution quality: slippage vs assumptions, turnover, and whether the
+      strategy is paying more in costs than it earns in edge.
+  - agent_id: pb-cio
+    label: CIO
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Decide the rebalance: what to change, why, the expected effect, and the cost.
+      "No change" is acceptable if you say why the alternatives are worse.
+subtasks:
+  - id: attribution
+    objective: "Attribute {portfolio}'s return over {review_period}."
+    assigned_agent_id: pb-attribution
+    capability: attribution
+    evidence_required: true
+  - id: risk
+    objective: "Review the current risk budget of {portfolio}."
+    assigned_agent_id: pb-risk
+    capability: risk
+    evidence_required: true
+  - id: execution
+    objective: "Review execution quality and cost drag over {review_period}."
+    assigned_agent_id: pb-execution
+    capability: execution
+    evidence_required: true
+  - id: decisions
+    objective: "Produce rebalance decisions for {portfolio} with costs and trade-offs."
+    assigned_agent_id: pb-cio
+    depends_on: [attribution, risk, execution]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

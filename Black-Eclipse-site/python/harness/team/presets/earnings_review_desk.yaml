@@ -1,0 +1,67 @@
+id: earnings_review_desk
+name: Earnings Review Desk
+description: >-
+  A fundamental analyst reads the statements, an estimate tracker checks the
+  revisions, an event analyst prices the reaction, and a strategist decides
+  whether to act before or after the print.
+objective: >-
+  Review {target}'s upcoming earnings for {horizon} and decide whether to act
+  before or after the print, with the evidence and the invalidation stated.
+variables: [target, horizon]
+members:
+  - agent_id: er-fundamental
+    label: Fundamental Analyst
+    role: researcher
+    capabilities: [fundamentals, filings]
+    instructions: |
+      Read {target}'s latest filings and statements: revenue quality, margin
+      trend, accruals, guidance history. Name the one line item that decides the
+      quarter, and say what a bad print looks like.
+  - agent_id: er-estimates
+    label: Estimate Tracker
+    role: researcher
+    capabilities: [estimates, market_data]
+    instructions: |
+      Track consensus revisions for {target} over {horizon}: direction, breadth
+      of revisions, and whether the bar has moved into beatable territory.
+  - agent_id: er-event
+    label: Event Analyst
+    role: researcher
+    capabilities: [options, volatility]
+    instructions: |
+      Price the event: implied move, historical post-earnings drift, and the
+      asymmetry of the reaction. State the cost of being wrong either way.
+  - agent_id: er-strategist
+    label: Earnings Strategist
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Decide before-or-after, size, and invalidation. Cite the three subtask
+      findings you relied on and name the evidence that would reverse the call.
+subtasks:
+  - id: fundamentals
+    objective: "Analyse {target}'s latest statements and name the deciding line item."
+    assigned_agent_id: er-fundamental
+    capability: fundamentals
+    evidence_required: true
+  - id: estimates
+    objective: "Track consensus revisions for {target} over {horizon}."
+    assigned_agent_id: er-estimates
+    capability: estimates
+    evidence_required: true
+  - id: event_pricing
+    objective: "Price the earnings event for {target}: implied move and asymmetry."
+    assigned_agent_id: er-event
+    capability: options
+    evidence_required: true
+  - id: decision
+    objective: "Decide before-or-after for {target}, with size and invalidation."
+    assigned_agent_id: er-strategist
+    depends_on: [fundamentals, estimates, event_pricing]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

@@ -22,6 +22,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from . import indicators as ind
+from . import market_rules
 from .data import INTERVAL_SECONDS
 
 # ── Rule DSL ─────────────────────────────────────────────────────────────────
@@ -306,6 +307,10 @@ class StrategySpec(BaseModel):
     description: str = ""
     version: str = "1.0.0"
     asset_class: Optional[str] = None
+    #: The market whose execution mandates apply (see `market_rules`). Recorded
+    #: on the run manifest; a non-`us_equity` value makes the market explicit
+    #: rather than assumed.
+    market: str = "us_equity"
     universe: Universe
     timeframes: Timeframes = Field(default_factory=Timeframes)
     indicators: list[IndicatorDecl] = Field(default_factory=list)
@@ -532,6 +537,23 @@ def validate_strategy(spec: StrategySpec) -> list[ValidationIssue]:
             f"asset_class {spec.asset_class!r} is not supported",
             "asset_class",
         ))
+    # The market decides settlement, lots, price limits and shorting. An unknown
+    # market is an ERROR (the result would be silently US-shaped), and a retail
+    # short in a market that bans it is an ERROR before any bar is processed.
+    if not market_rules.is_known(spec.market):
+        issues.append(ValidationIssue(
+            "UNKNOWN_MARKET",
+            f"market {spec.market!r} is not known; known: {', '.join(market_rules.MARKETS)}",
+            "market",
+        ))
+    else:
+        allowed, reason = market_rules.rules_for(spec.market).can_short()
+        if not allowed and spec.risk.allow_short:
+            issues.append(ValidationIssue(
+                "MARKET_SHORT_NOT_PERMITTED",
+                f"{reason}; set risk.allow_short=false or choose a different market",
+                "risk.allow_short",
+            ))
     if not spec.universe.symbols:
         issues.append(ValidationIssue("EMPTY_UNIVERSE", "at least one symbol is required",
                                       "universe.symbols"))

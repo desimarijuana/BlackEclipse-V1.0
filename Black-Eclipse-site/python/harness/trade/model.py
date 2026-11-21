@@ -22,6 +22,21 @@ KIND_MT5 = "mt5"
 KIND_MT4_BRIDGE = "mt4_bridge"
 KIND_ALPACA = "alpaca"
 KIND_IBKR = "ibkr"
+KIND_TRADING212 = "trading212"
+KIND_ZERODHA = "zerodha"
+KIND_TRADIER = "tradier"
+KIND_OKX = "okx"
+KIND_BINANCE = "binance"
+KIND_KRAKEN = "kraken"
+KIND_COINBASE = "coinbase"
+KIND_BYBIT = "bybit"
+KIND_DERIBIT = "deribit"
+KIND_OANDA = "oanda"
+KIND_BITGET = "bitget"
+KIND_GATEIO = "gateio"
+KIND_BITSTAMP = "bitstamp"
+KIND_COINCHECK = "coincheck"
+KIND_BITFINEX = "bitfinex"
 
 
 class ConnectionMode(str, Enum):
@@ -367,6 +382,21 @@ __all__ = [
     "KIND_IBKR",
     "KIND_MT4_BRIDGE",
     "KIND_MT5",
+    "KIND_TRADING212",
+    "KIND_ZERODHA",
+    "KIND_TRADIER",
+    "KIND_OKX",
+    "KIND_BINANCE",
+    "KIND_KRAKEN",
+    "KIND_COINBASE",
+    "KIND_BYBIT",
+    "KIND_DERIBIT",
+    "KIND_OANDA",
+    "KIND_BITGET",
+    "KIND_GATEIO",
+    "KIND_BITSTAMP",
+    "KIND_COINCHECK",
+    "KIND_BITFINEX",
     "MAX_COMMENT",
     "ORDER_SIDES",
     "ORDER_TIFS",

@@ -1,0 +1,67 @@
+id: fund_selection_panel
+name: Fund Selection Panel
+description: >-
+  A screener, a performance-attribution analyst and a due-diligence reviewer
+  examine a fund universe; a chair selects and sizes the funds that earn a place.
+objective: >-
+  Select funds for {mandate} from {universe} and justify each with evidence,
+  including the ones rejected.
+variables: [mandate, universe]
+members:
+  - agent_id: fs-screen
+    label: Fund Screener
+    role: researcher
+    capabilities: [funds, screening]
+    instructions: |
+      Screen {universe} for {mandate}: size, liquidity, fees, track record and
+      style consistency. State every filter and the funnel counts.
+  - agent_id: fs-attribution
+    label: Performance Analyst
+    role: researcher
+    capabilities: [attribution, performance]
+    instructions: |
+      Separate skill from beta for the survivors: factor exposure, style drift,
+      and whether the alpha survives the fee. Say which result is luck.
+  - agent_id: fs-dd
+    label: Due Diligence Reviewer
+    role: researcher
+    capabilities: [risk, governance]
+    instructions: |
+      Review the manager: process repeatability, team stability, capacity, and
+      alignment. Flag anything that would fail an operational review.
+  - agent_id: fs-chair
+    label: Panel Chair
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Select and weight the funds. Name the rejected candidates and why, and the
+      condition under which a selection would be reversed.
+subtasks:
+  - id: screen
+    objective: "Screen {universe} for {mandate} with explicit filters."
+    assigned_agent_id: fs-screen
+    capability: screening
+    evidence_required: true
+  - id: attribution
+    objective: "Separate skill from beta for the surviving funds."
+    assigned_agent_id: fs-attribution
+    depends_on: [screen]
+    capability: attribution
+    evidence_required: true
+  - id: diligence
+    objective: "Run due diligence on the managers of the surviving funds."
+    assigned_agent_id: fs-dd
+    depends_on: [screen]
+    capability: risk
+    evidence_required: true
+  - id: selection
+    objective: "Select and weight funds for {mandate}, naming rejections and reversals."
+    assigned_agent_id: fs-chair
+    depends_on: [screen, attribution, diligence]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

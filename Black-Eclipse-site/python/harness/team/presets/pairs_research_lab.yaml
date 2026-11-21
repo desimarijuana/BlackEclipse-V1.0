@@ -1,0 +1,69 @@
+id: pairs_research_lab
+name: Pairs Research Lab
+description: >-
+  A correlation scanner proposes pairs, a cointegration tester rejects the
+  spurious ones, a spread analyst designs the trade, and a reviewer checks
+  execution reality.
+objective: >-
+  Find and validate tradeable pairs in {market} over {period} and design the
+  spread trade with its invalidation.
+variables: [market, period]
+members:
+  - agent_id: pl-scan
+    label: Correlation Scanner
+    role: researcher
+    capabilities: [statistics, screening]
+    instructions: |
+      Scan {market} for candidate pairs over {period}: rolling correlation,
+      same-sector preference, and a liquidity pre-screen. Return a ranked list,
+      not a single pick.
+  - agent_id: pl-cointegration
+    label: Cointegration Tester
+    role: researcher
+    capabilities: [statistics, timeseries]
+    instructions: |
+      Test each candidate: stationarity of the spread, half-life, stability across
+      sub-periods. Reject pairs whose relationship only holds in-sample.
+  - agent_id: pl-spread
+    label: Spread Strategist
+    role: researcher
+    capabilities: [execution, risk]
+    instructions: |
+      Design the trade for the surviving pairs: entry z-score, exit, stop, sizing,
+      and the cost of convergence failing to arrive.
+  - agent_id: pl-reviewer
+    label: Execution Reviewer
+    role: chair
+    capabilities: [risk, execution]
+    instructions: |
+      Check reality: borrow availability, both-leg liquidity, and whether the
+      half-life survives costs. Approve or reject each pair, and say why.
+subtasks:
+  - id: scan
+    objective: "Rank candidate pairs in {market} over {period}."
+    assigned_agent_id: pl-scan
+    capability: screening
+    evidence_required: true
+  - id: cointegration
+    objective: "Test the candidates for a stable, tradeable spread."
+    assigned_agent_id: pl-cointegration
+    depends_on: [scan]
+    capability: statistics
+    evidence_required: true
+  - id: design
+    objective: "Design the spread trade for the surviving pairs."
+    assigned_agent_id: pl-spread
+    depends_on: [cointegration]
+    capability: execution
+    evidence_required: true
+  - id: review
+    objective: "Approve or reject each pair after execution reality checks."
+    assigned_agent_id: pl-reviewer
+    depends_on: [scan, cointegration, design]
+    capability: risk
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

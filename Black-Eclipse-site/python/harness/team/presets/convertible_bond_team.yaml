@@ -1,0 +1,65 @@
+id: convertible_bond_team
+name: Convertible Bond Team
+description: >-
+  A bond-floor analyst, an equity-optionality analyst and a credit analyst examine
+  one convertible in parallel; a strategist decides whether the asymmetry pays.
+objective: >-
+  Assess the {instrument} convertible for {horizon} across bond floor, equity
+  optionality and credit, and decide whether the asymmetry is worth owning.
+variables: [instrument, horizon]
+members:
+  - agent_id: cb-floor
+    label: Bond Floor Analyst
+    role: researcher
+    capabilities: [fixed_income, credit]
+    instructions: |
+      Value {instrument}'s bond floor: YTM, spread over comparable straight debt,
+      put provisions and the downside protection they actually give.
+  - agent_id: cb-optionality
+    label: Equity Optionality Analyst
+    role: researcher
+    capabilities: [options, volatility]
+    instructions: |
+      Value the embedded option in {instrument}: delta, implied vol vs realised,
+      conversion premium, and how the payoff behaves near the strike.
+  - agent_id: cb-credit
+    label: Credit Analyst
+    role: researcher
+    capabilities: [credit, fundamentals]
+    instructions: |
+      Assess the issuer behind {instrument}: leverage, coverage, refinancing wall
+      and rating trajectory. The bond floor is only as good as the credit.
+  - agent_id: cb-strategist
+    label: Convertible Strategist
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Decide: own it or not, at what price, and with which hedge. State the
+      asymmetry explicitly (downside vs upside) and what breaks it.
+subtasks:
+  - id: floor
+    objective: "Value the {instrument} bond floor and its downside protection."
+    assigned_agent_id: cb-floor
+    capability: fixed_income
+    evidence_required: true
+  - id: optionality
+    objective: "Value the {instrument} embedded option and conversion premium."
+    assigned_agent_id: cb-optionality
+    capability: options
+    evidence_required: true
+  - id: credit
+    objective: "Assess the {instrument} issuer's credit quality."
+    assigned_agent_id: cb-credit
+    capability: credit
+    evidence_required: true
+  - id: verdict
+    objective: "Decide whether {instrument} pays for its asymmetry, with the breaking condition."
+    assigned_agent_id: cb-strategist
+    depends_on: [floor, optionality, credit]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

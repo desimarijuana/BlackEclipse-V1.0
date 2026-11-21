@@ -239,6 +239,356 @@ def _rolling_quantile(x, w, q):
     return _rolling(x, w, lambda c: float(np.quantile(c, float(q))))
 
 
+def _ts_rank(x, w):
+    """Rank (0..1) of the LATEST value inside its rolling window.
+
+    Ties get half credit, so a constant window ranks 0.5 rather than 0 or 1.
+    This is Alpha101's `ts_rank` (a time-series rank) — not a cross-sectional
+    rank over a universe.
+    """
+    w = int(w)
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        last = chunk[-1]
+        less = float(np.sum(chunk < last))
+        equal = float(np.sum(chunk == last))
+        if w > 1:
+            out[i] = (less + 0.5 * (equal - 1)) / (w - 1)
+        else:
+            out[i] = 1.0
+    return out
+
+
+def _wilder(x, n, m):
+    """GTJA/Wilder recursive mean: `Y_t = (m*X_t + (n-m)*Y_{t-1}) / n`.
+
+    This is **not** a rolling mean: it is an exponentially weighted recursion with
+    memory of every prior observation, seeded with the first valid value. GTJA191
+    is full of `SMA(X,N,M)` and means this operator, so calling it `sma` (a rolling
+    mean here) would silently change the alpha.
+
+    A NaN input **resets** the recursion for that series and the next finite value
+    reseeds it — the convention the published GTJA implementation documents
+    ("missing input resets this stock; the next valid input reseeds it"). Resuming
+    from a stale value across a gap would smooth across an unknown.
+    """
+    n = int(n)
+    m = float(m)
+    if n <= 0 or m <= 0 or m > n:
+        raise FormulaError("BAD_ARGUMENT", "wilder(x, n, m) needs 0 < m <= n")
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    previous = float("nan")
+    for index, value in enumerate(a):
+        if not np.isfinite(value):
+            previous = float("nan")   # a gap resets; the next value reseeds
+            continue
+        previous = float(value) if not np.isfinite(previous) else (
+            (m * float(value) + (n - m) * previous) / n
+        )
+        out[index] = previous
+    return out
+
+
+def _wma(x, n):
+    """GTJA/TDX `WMA(X,N)`: weights `N, N-1, ..., 1`, i.e. **oldest heaviest**.
+
+    This is the mirror image of `decay_linear`, whose newest observation carries
+    the largest weight. The published GTJA implementation documents exactly this
+    convention ("oldest-to-newest weights n, ..., 1"), so implementing it as
+    `decay_linear` would silently invert the smoothing.
+    """
+    n = int(n)
+    if n <= 0:
+        raise FormulaError("BAD_ARGUMENT", "wma(x, n) needs n > 0")
+    weights = np.arange(n, 0, -1, dtype=float)
+    weights = weights / weights.sum()
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(n - 1, a.size):
+        chunk = a[i - n + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        out[i] = float(np.dot(chunk, weights))
+    return out
+
+
+def _pair_window(x, y, w):
+    """Align two series into a rolling (y, x) window, refusing bad arguments."""
+    w = int(w)
+    if w < 2:
+        raise FormulaError("BAD_ARGUMENT", "a paired regression needs a window >= 2")
+    return _as_arr(x), _as_arr(y), w
+
+
+def _regbeta(y, x, w):
+    """Rolling OLS slope of `y` on `x` (GTJA's `REGBETA(y, x, n)`).
+
+    This is **not** `slope`, which regresses against time. GTJA's downside-beta
+    (`#149`) and factor-neutralisation formulas regress one series on another, and
+    substituting a time slope there would measure a different quantity.
+    """
+    yv, xv, w = _pair_window(y, x, w)
+    out = np.full(yv.size, np.nan)
+    for i in range(w - 1, yv.size):
+        cy = yv[i - w + 1: i + 1]
+        cx = xv[i - w + 1: i + 1]
+        if not (np.isfinite(cy).all() and np.isfinite(cx).all()):
+            continue
+        x_mean = float(cx.mean())
+        sxx = float(((cx - x_mean) ** 2).sum())
+        if sxx == 0:
+            continue
+        out[i] = float(((cx - x_mean) * (cy - float(cy.mean()))).sum()) / sxx
+    return out
+
+
+def _regresi(y, x, w):
+    """Rolling OLS residual of the LAST `y` from its regression on `x`."""
+    yv, xv, w = _pair_window(y, x, w)
+    out = np.full(yv.size, np.nan)
+    for i in range(w - 1, yv.size):
+        cy = yv[i - w + 1: i + 1]
+        cx = xv[i - w + 1: i + 1]
+        if not (np.isfinite(cy).all() and np.isfinite(cx).all()):
+            continue
+        x_mean, y_mean = float(cx.mean()), float(cy.mean())
+        sxx = float(((cx - x_mean) ** 2).sum())
+        if sxx == 0:
+            continue
+        beta = float(((cx - x_mean) * (cy - y_mean)).sum()) / sxx
+        out[i] = float(cy[-1] - (y_mean + beta * (cx[-1] - x_mean)))
+    return out
+
+
+def _regbeta_where(y, x, cond, w):
+    """`REGBETA` restricted to the observations where `cond` is truthy.
+
+    GTJA #149 is a **downside** beta: it regresses stock returns on benchmark
+    returns using only the days the benchmark fell. A mask cannot be expressed by
+    dropping rows (that would change the window's meaning), so the mask is carried
+    into the regression explicitly and a window with fewer than two selected
+    observations is NaN rather than a slope from one point.
+    """
+    yv, xv, w = _pair_window(y, x, w)
+    mask = _as_arr(cond)
+    out = np.full(yv.size, np.nan)
+    for i in range(w - 1, yv.size):
+        cy = yv[i - w + 1: i + 1]
+        cx = xv[i - w + 1: i + 1]
+        cm = mask[i - w + 1: i + 1]
+        selected = np.isfinite(cy) & np.isfinite(cx) & np.isfinite(cm) & (cm != 0)
+        if int(selected.sum()) < 2:
+            continue
+        sy, sx = cy[selected], cx[selected]
+        x_mean = float(sx.mean())
+        sxx = float(((sx - x_mean) ** 2).sum())
+        if sxx == 0:
+            continue
+        out[i] = float(((sx - x_mean) * (sy - float(sy.mean()))).sum()) / sxx
+    return out
+
+
+def _cumprod(x):
+    """Expanding product from the first finite value (GTJA #143's `SELF` state).
+
+    A missing value carries the running product forward; it does not reset it,
+    because the published formula multiplies only on the days its condition holds.
+    """
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    running = float("nan")
+    for i, value in enumerate(a):
+        if not np.isfinite(value):
+            out[i] = running
+            continue
+        running = float(value) if not np.isfinite(running) else running * float(value)
+        out[i] = running
+    return out
+
+
+def _regresi_multi(y, x1, x2, x3, w):
+    """Rolling residual of `y` on a THREE-factor model (GTJA's `REGRESI` with
+    MKT/SMB/HML).
+
+    The factors are declared inputs, never invented: GTJA #30 regresses a stock's
+    returns on the market, size and value factors it does not itself supply, so the
+    caller must provide them. An ill-conditioned window (singular normal equations)
+    is NaN rather than a pseudo-solution — a fitted residual from a rank-deficient
+    system would look like signal.
+    """
+    w = int(w)
+    if w < 4:
+        raise FormulaError("BAD_ARGUMENT", "a three-factor regression needs a window >= 4")
+    yv = _as_arr(y)
+    xs = [_as_arr(x) for x in (x1, x2, x3)]
+    out = np.full(yv.size, np.nan)
+    for i in range(w - 1, yv.size):
+        cy = yv[i - w + 1: i + 1]
+        columns = [cx[i - w + 1: i + 1] for cx in xs]
+        if not np.isfinite(cy).all() or not all(np.isfinite(c).all() for c in columns):
+            continue
+        design = np.column_stack([np.ones(w)] + columns)
+        # `lstsq` happily returns a minimum-norm solution for a rank-deficient
+        # design, which is NOT an identifiable fit. A collinear factor set would
+        # then produce a residual that looks like signal, so the rank is checked
+        # explicitly and a deficient window stays NaN.
+        if np.linalg.matrix_rank(design) < design.shape[1]:
+            continue
+        try:
+            coefficients, *_ = np.linalg.lstsq(design, cy, rcond=None)
+        except np.linalg.LinAlgError:
+            continue
+        if not np.isfinite(coefficients).all():
+            continue
+        out[i] = float(cy[-1] - float(design[-1] @ coefficients))
+    return out
+
+
+def _signed_power(x, p):
+    """`sign(x) * |x| ** p` — the published `SignedPower`.
+
+    Unlike `x ^ p`, this is defined for a negative base: `(-2)^0.5` is NaN in IEEE
+    arithmetic but `signed_power(-2, 0.5)` is `-1.414`, which is what the paper
+    means (it is a signed magnitude, not a complex number).
+    """
+    a = _as_arr(x)
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        return np.sign(a) * np.abs(a) ** np.asarray(p, dtype=float)
+
+
+def _maximum(a, b):
+    """Elementwise maximum of two series (GTJA's `MAX(x, y)`)."""
+    return np.fmax(_as_arr(a), _as_arr(b))
+
+
+def _minimum(a, b):
+    """Elementwise minimum of two series (GTJA's `MIN(x, y)`)."""
+    return np.fmin(_as_arr(a), _as_arr(b))
+
+
+def _ts_argmax(x, w):
+    """0-based position of the window maximum; earliest wins on ties."""
+    w = int(w)
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        out[i] = float(np.argmax(chunk))
+    return out
+
+
+def _ts_argmin(x, w):
+    """0-based position of the window minimum; earliest wins on ties."""
+    w = int(w)
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        out[i] = float(np.argmin(chunk))
+    return out
+
+
+def _decay_linear(x, w):
+    """Linearly weighted mean, most recent observation weighted highest."""
+    w = int(w)
+    weights = np.arange(1, w + 1, dtype=float)
+    weights = weights / weights.sum()
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        out[i] = float(np.dot(chunk, weights))
+    return out
+
+
+def _regression(chunk: np.ndarray) -> tuple[float, float, float] | None:
+    """OLS of the window against t = 0..w-1: (slope, r2, last residual)."""
+    n = chunk.size
+    t = np.arange(n, dtype=float)
+    t_mean, y_mean = float(t.mean()), float(chunk.mean())
+    sxx = float(((t - t_mean) ** 2).sum())
+    if sxx == 0:
+        return None
+    sxy = float(((t - t_mean) * (chunk - y_mean)).sum())
+    slope = sxy / sxx
+    intercept = y_mean - slope * t_mean
+    fitted = intercept + slope * t
+    ss_res = float(((chunk - fitted) ** 2).sum())
+    ss_tot = float(((chunk - y_mean) ** 2).sum())
+    r2 = 1.0 if ss_tot == 0 else 1.0 - ss_res / ss_tot
+    return slope, r2, float(chunk[-1] - fitted[-1])
+
+
+def _slope(x, w):
+    """OLS slope of the window against time (Alpha158 `Slope`)."""
+    w = int(w)
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        fit = _regression(chunk)
+        if fit is not None:
+            out[i] = fit[0]
+    return out
+
+
+def _r2(x, w):
+    """Coefficient of determination of the window against time (`Rsquare`)."""
+    w = int(w)
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        fit = _regression(chunk)
+        if fit is not None:
+            out[i] = fit[1]
+    return out
+
+
+def _resi(x, w):
+    """Residual of the LAST point from its window regression (`Resi`)."""
+    w = int(w)
+    a = _as_arr(x)
+    out = np.full(a.size, np.nan)
+    for i in range(w - 1, a.size):
+        chunk = a[i - w + 1: i + 1]
+        if not np.isfinite(chunk).all():
+            continue
+        fit = _regression(chunk)
+        if fit is not None:
+            out[i] = fit[2]
+    return out
+
+
+def _scale_series(x, k=1.0):
+    """Scale a SERIES by the sum of its absolute values.
+
+    Deliberately named `scale_series`: Alpha101's `scale(x, k)` divides by the
+    cross-sectional sum over the universe at each date, which this per-series
+    evaluator cannot reproduce. The name says which one this is.
+    """
+    a = _as_arr(x)
+    total = float(np.nansum(np.abs(a)))
+    if total == 0:
+        return np.full(a.size, np.nan)
+    return a * (float(k) / total)
+
+
 def _sma(x, w):
     return _rolling(x, w, lambda c: float(np.mean(c)))
 
@@ -436,6 +786,26 @@ FUNCTIONS: dict[str, Callable[..., Any]] = {
     "rolling_std": lambda x, w: _rolling(x, w, lambda c: float(np.std(c, ddof=1))),
     "rolling_min": lambda x, w: _rolling(x, w, lambda c: float(np.min(c))),
     "rolling_max": lambda x, w: _rolling(x, w, lambda c: float(np.max(c))),
+    # `ts_sum` is Alpha101's `sum(x, d)`: a plain rolling sum, not a
+    # weighted one. `rolling_sum` is the same function under the house name.
+    "rolling_sum": lambda x, w: _rolling(x, w, lambda c: float(np.sum(c))),
+    "ts_sum": lambda x, w: _rolling(x, w, lambda c: float(np.sum(c))),
+    # GTJA names the plain rolling sum SUMAC; it is not a cumulative total.
+    "sumac": lambda x, w: _rolling(x, w, lambda c: float(np.sum(c))),
+    "prod": lambda x, w: _rolling(x, w, lambda c: float(np.prod(c))),
+    "ts_prod": lambda x, w: _rolling(x, w, lambda c: float(np.prod(c))),
+    # GTJA/Wilder recursion and elementwise pair ops (see `_wilder`).
+    "wilder": _wilder,
+    "sma_cn": _wilder,
+    "wma": _wma,
+    "maximum": _maximum,
+    "regbeta": _regbeta,
+    "regresi": _regresi,
+    "regbeta_where": _regbeta_where,
+    "regresi_multi": _regresi_multi,
+    "cumprod": _cumprod,
+    "signed_power": _signed_power,
+    "minimum": _minimum,
     "rolling_quantile": _rolling_quantile,
     "zscore": _zscore,
     "rank": _rank,
@@ -462,6 +832,23 @@ FUNCTIONS: dict[str, Callable[..., Any]] = {
     "clip": _clip,
 }
 
+# `delta` is the name published factor libraries use for a first difference;
+# `sign` is required by formulas such as Alpha101 #12. Both are aliases over the
+# same array helpers, so there is one implementation, not two.
+FUNCTIONS["delta"] = _diff
+FUNCTIONS["sign"] = lambda x: np.sign(_as_arr(x))
+# Time-series operators published factor libraries rely on. Their names say
+# "ts_" because they rank/weight WITHIN one instrument's window; they are not
+# cross-sectional operators.
+FUNCTIONS["ts_rank"] = _ts_rank
+FUNCTIONS["ts_argmax"] = _ts_argmax
+FUNCTIONS["ts_argmin"] = _ts_argmin
+FUNCTIONS["slope"] = _slope
+FUNCTIONS["r2"] = _r2
+FUNCTIONS["resi"] = _resi
+FUNCTIONS["decay_linear"] = _decay_linear
+FUNCTIONS["scale_series"] = _scale_series
+
 
 @dataclass
 class ParsedFormula:
@@ -485,14 +872,17 @@ def _collect(node: tuple, variables: set, functions: set) -> None:
         _collect(node[2], variables, functions)
 
 
-def parse(text: str) -> ParsedFormula:
+def parse(text: str, *, allow: Iterable[str] = ()) -> ParsedFormula:
+    """Parse `text`. `allow` names extra functions a specialised evaluator
+    supports (e.g. a panel-only `scale`) without registering them for the
+    per-series evaluator, which would silently give them the wrong semantics."""
     if not isinstance(text, str) or not text.strip():
         raise FormulaError("EMPTY", "formula is empty")
     ast = _Parser(_tokenize(text)).parse()
     variables: set[str] = set()
     functions: set[str] = set()
     _collect(ast, variables, functions)
-    unknown = functions - set(FUNCTIONS)
+    unknown = functions - set(FUNCTIONS) - set(allow)
     if unknown:
         raise FormulaError("UNKNOWN_FUNCTION", f"unknown function(s): {sorted(unknown)}")
     return ParsedFormula(ast=ast, variables=sorted(variables), functions=sorted(functions))

@@ -1,0 +1,65 @@
+id: crypto_trading_desk
+name: Crypto Trading Desk
+description: >-
+  A funding/basis analyst, a liquidation and microstructure analyst, an on-chain
+  flow analyst and a risk manager run a crypto position desk.
+objective: >-
+  Trade {asset} over {horizon}: funding and basis, liquidation risk, on-chain
+  flows, and the risk gate that decides size.
+variables: [asset, horizon]
+members:
+  - agent_id: ct-funding
+    label: Funding & Basis Analyst
+    role: researcher
+    capabilities: [crypto, derivatives]
+    instructions: |
+      Read {asset} funding and basis over {horizon}: the regime, whether carry is
+      paying longs or shorts, and where positioning is stretched.
+  - agent_id: ct-liquidation
+    label: Liquidation Analyst
+    role: researcher
+    capabilities: [crypto, microstructure]
+    instructions: |
+      Map liquidation clusters and market depth for {asset}: where stops sit, how
+      thin the book is, and the level that would cascade.
+  - agent_id: ct-onchain
+    label: On-Chain Flow Analyst
+    role: researcher
+    capabilities: [onchain, flows]
+    instructions: |
+      Read {asset}'s flows: exchange netflows, stablecoin supply, large-holder
+      behaviour. Say whether the flow supports or contradicts the price.
+  - agent_id: ct-risk
+    label: Risk Manager
+    role: chair
+    capabilities: [risk, portfolio]
+    instructions: |
+      Gate the trade: size, leverage, invalidation and the loss you accept. Veto
+      the trade if the liquidation map says the exit is not there.
+subtasks:
+  - id: funding
+    objective: "Read {asset} funding and basis over {horizon}."
+    assigned_agent_id: ct-funding
+    capability: derivatives
+    evidence_required: true
+  - id: liquidation
+    objective: "Map {asset} liquidation clusters and depth."
+    assigned_agent_id: ct-liquidation
+    capability: microstructure
+    evidence_required: true
+  - id: onchain
+    objective: "Read {asset} on-chain flows and their signal."
+    assigned_agent_id: ct-onchain
+    capability: onchain
+    evidence_required: true
+  - id: gate
+    objective: "Gate the {asset} trade: size, leverage, invalidation, accepted loss."
+    assigned_agent_id: ct-risk
+    depends_on: [funding, liquidation, onchain]
+    capability: risk
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

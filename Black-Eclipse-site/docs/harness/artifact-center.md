@@ -48,6 +48,10 @@ python/harness/artifacts/
                  never a fabricated poster)
   service.py     ArtifactService — register/version/preview/tag/collect/archive/
                  restore/delete/purge/reconcile; owner scope + idempotency
+  compare.py     compare_versions / compare_revisions / to_markdown — a
+                 deterministic diff of two stored revisions: checksum + size,
+                 provenance, change note and metadata (added/removed/changed).
+                 Bytes are compared by checksum, never line-diffed
   producers.py   the hook other subsystems call (analysis, task scheduler)
   tools.py       the `artifact_*` agent tools
   bootstrap.py   install_artifact_layer + the bounded reconciler singleton

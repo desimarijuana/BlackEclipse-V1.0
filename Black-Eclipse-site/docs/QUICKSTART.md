@@ -127,7 +127,10 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 - The **Market Screener** tab shows rows with prices, not a `DEMO` banner.
 - `curl http://127.0.0.1:3100/api/news` returns JSON with a `source` field.
 - `npx tsc --noEmit` and `npm test` pass (this is also the required
-  after-every-change check).
+  after-every-change check). While iterating use `npm run test:fast`; before
+  reporting done use `npm run verify`, which runs the **full** suite for each
+  domain you touched (`src/` → vitest, `python/` → pytest, the memory
+  subsystem → eval floors) instead of all three every time.
 
 ## Useful scripts
 
@@ -143,7 +146,9 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 | `npm run build` | Build Stable's `.next` (the source promotion stages) |
 | `npm run dev` / `npm run up` / `npm start` / `npm run proxy` | **Deleted** with the browser lane; no such scripts exist |
 | `npm run app` / `black` | Open the installed Stable desktop app |
-| `npm test` | Vitest unit tests |
+| `npm test` | Everything: vitest + Python suite + eval floors (~22 min on a loaded machine) |
+| `npm run verify` | The gate: full suite for each domain you changed (no `python/` change → no 16-min Python run) |
+| `npm run test:fast` | Iteration loop: `tsc` + only the tests reachable from your changed `src/` files (~45 s) |
 | `npm run lint` | ESLint |
 
 > **Build times on a loaded machine.** `desktop:dev` runs Next on Turbopack

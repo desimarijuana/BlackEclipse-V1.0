@@ -206,6 +206,15 @@ async def _boot() -> None:
     # recommendations turned out. It never issues advice and never touches an
     # approval gate. Disabled with HARNESS_ADVISORY_AUTO_EVALUATE=0.
     await service.start_advisory_cadence()
+    # Brazilian official datasets: OFF unless BE_BR_SYNC=1. When on, an hourly
+    # pass syncs whatever is due (COTAHIST / CVM / BCB series / Tesouro) through
+    # the same `sync_dataset` the manual path uses. Never runs at boot time.
+    try:
+        from .br_data.schedule import start_br_sync
+
+        start_br_sync(service)
+    except Exception:  # noqa: BLE001 - never block boot
+        log.warning("brazilian dataset sync did not start", exc_info=True)
     # Class-authorized self-modification: auto-accept contract-clean candidates
     # and auto-enable only read-only learned skills (TTL + cap + audit). Effectful
     # and financial actions remain operator-only.

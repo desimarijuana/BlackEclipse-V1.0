@@ -5,11 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import {
   assertSafeUrl,
+  buildForPlatform,
   compareVersions,
   installerForPlatform,
   isNewerVersion,
   isSourceCheckout,
   parseVersion,
+  validateBuilds,
   verifyEnvelope,
 } from "./core";
 
@@ -87,8 +89,39 @@ describe("installer asset selection", () => {
   });
 });
 
-describe("in-app update capability", () => {
-  it("is true only for a git checkout", () => {
+describe("prebuilt build assets", () => {
+  const asset = {
+    url: "https://github.com/o/r/releases/download/v1/BlackEclipse-Build-1.zip",
+    sha256: "b".repeat(64),
+    size: 100,
+    buildId: "abc123",
+    lockHash: "c".repeat(64),
+  };
+
+  it("prefers an exact platform build and falls back to the platform-independent one", () => {
+    expect(buildForPlatform({ any: asset }, "win32-x64")).toEqual(asset);
+    expect(buildForPlatform({ "win32-x64": { ...asset, buildId: "x64" }, any: asset }, "win32-x64")).toEqual({
+      ...asset,
+      buildId: "x64",
+    });
+    expect(buildForPlatform({ "win32-x64": asset }, "darwin-arm64")).toBeNull();
+    expect(buildForPlatform(undefined, "win32-x64")).toBeNull();
+  });
+
+  it("rejects a malformed builds map instead of half-trusting it", () => {
+    expect(() => validateBuilds(undefined)).not.toThrow();
+    expect(() => validateBuilds({ any: asset })).not.toThrow();
+    expect(() => validateBuilds({ "win32-x64": asset })).not.toThrow();
+
+    expect(() => validateBuilds({ windows: asset })).toThrow(/Unknown build platform/);
+    expect(() => validateBuilds({ any: { ...asset, sha256: "nope" } })).toThrow(/invalid sha256/);
+    expect(() => validateBuilds({ any: { ...asset, url: undefined } })).toThrow(/has no url/);
+    expect(() => validateBuilds({ any: { ...asset, size: -1 } })).toThrow(/invalid size/);
+    expect(() => validateBuilds({ any: { ...asset, lockHash: "short" } })).toThrow(/lockHash/);
+  });
+});
+
+describe("in-app update capability", () => {  it("is true only for a git checkout", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "be-update-"));
     try {
       expect(isSourceCheckout(dir)).toBe(false);
@@ -98,6 +131,71 @@ describe("in-app update capability", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("finds a repository root above the app directory", () => {
+    // This app lives in `Black-Eclipse-site/` inside its repo: `ROOT/.git`
+    // does not exist, but the parent's does. That must still count.
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "be-repo-"));
+    const app = path.join(repo, "Black-Eclipse-site");
+    try {
+      fs.mkdirSync(app);
+      expect(isSourceCheckout(app)).toBe(false);
+      fs.mkdirSync(path.join(repo, ".git"));
+      expect(isSourceCheckout(app)).toBe(true);
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("never treats a packaged payload as a checkout", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "be-repo-"));
+    const app = path.join(repo, "app");
+    try {
+      fs.mkdirSync(app);
+      fs.mkdirSync(path.join(repo, ".git"));
+      // `<install>/app` is a frozen standalone payload even when an unrelated
+      // repo happens to be above it.
+      fs.writeFileSync(path.join(app, "server.js"), "// standalone payload\n");
+      expect(isSourceCheckout(app)).toBe(false);
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  // The runner (`scripts/update-apply.js`) and the HTTP route classify the same
+  // directory with separate implementations. If they ever disagree, the window
+  // offers an update that the runner then refuses — the exact failure this suite
+  // exists to prevent. Guard both, not just the TypeScript mirror.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const runner = require(path.resolve(process.cwd(), "scripts/lib/git-root.js")) as {
+    isSourceCheckout: (root: string) => boolean;
+  };
+
+  it("runner and route agree on every layout", () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "be-both-"));
+    const app = path.join(repo, "Black-Eclipse-site");
+    try {
+      fs.mkdirSync(app);
+      for (const state of ["no-git", "parent-git", "packaged"] as const) {
+        if (state === "parent-git" || state === "packaged") fs.mkdirSync(path.join(repo, ".git"));
+        if (state === "packaged") fs.writeFileSync(path.join(app, "server.js"), "// standalone\n");
+        expect(runner.isSourceCheckout(app)).toBe(isSourceCheckout(app));
+        // Reset for the next state.
+        fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
+        fs.rmSync(path.join(app, "server.js"), { force: true });
+      }
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  // Canary for the real deployment shape: the app directory is NOT the repo
+  // root here, and this is the layout every clone and CI checkout has. If this
+  // ever flips to false, in-app updates break for everyone again — loudly.
+  it("treats this repository's real app directory as a checkout", () => {
+    expect(isSourceCheckout(process.cwd())).toBe(true);
+    expect(runner.isSourceCheckout(process.cwd())).toBe(true);
   });
 });
 

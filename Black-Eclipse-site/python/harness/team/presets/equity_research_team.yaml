@@ -1,0 +1,70 @@
+id: equity_research_team
+name: Equity Research Team
+description: >-
+  Macro context, sector positioning and company fundamentals are researched in
+  parallel and consolidated by a research editor into one report with an explicit
+  recommendation and its evidence.
+objective: >-
+  Produce an equity research note on {target} for {horizon}, covering the macro
+  backdrop, the sector, the company, and a recommendation with evidence.
+variables: [target, horizon]
+members:
+  - agent_id: er-macro
+    label: Macro Analyst
+    role: researcher
+    capabilities: [macro, rates]
+    instructions: |
+      Set the macro backdrop for {target} over {horizon}: growth, inflation, the
+      policy path and the cross-asset regime. Name the macro fact that would most
+      change the company's outlook.
+  - agent_id: er-sector
+    label: Sector Analyst
+    role: researcher
+    capabilities: [sector, relative_strength]
+    instructions: |
+      Place {target}'s sector: relative strength, capital flows, competitive
+      structure and where we are in the cycle. Compare the company with its peers
+      on the metrics that actually differ.
+  - agent_id: er-company
+    label: Company Analyst
+    role: researcher
+    capabilities: [fundamentals, valuation]
+    instructions: |
+      Analyse {target} itself: revenue and margin trend, balance sheet, cash
+      conversion, and the valuation implied by the current price. State the key
+      assumption the valuation rests on.
+  - agent_id: er-editor
+    label: Research Editor
+    role: chair
+    capabilities: [synthesis]
+    instructions: |
+      Consolidate the three analyses into one note. Keep the disagreements
+      visible instead of averaging them away, and end with a recommendation and
+      the evidence it rests on.
+subtasks:
+  - id: macro
+    objective: "Set the macro backdrop for {target} over {horizon}."
+    assigned_agent_id: er-macro
+    capability: macro
+    evidence_required: true
+  - id: sector
+    objective: "Position {target}'s sector competitively."
+    assigned_agent_id: er-sector
+    capability: sector
+    evidence_required: true
+  - id: company
+    objective: "Analyse {target}'s fundamentals and valuation."
+    assigned_agent_id: er-company
+    capability: fundamentals
+    evidence_required: true
+  - id: note
+    objective: "Write the research note for {target} with a recommendation and its evidence."
+    assigned_agent_id: er-editor
+    depends_on: [macro, sector, company]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

@@ -1,0 +1,70 @@
+id: factor_research_committee
+name: Factor Research Committee
+description: >-
+  A factor miner proposes signals, a validator tests them strictly, a combination
+  analyst builds the model, and a review chair decides what is real.
+objective: >-
+  Research {factor_type} factors on {universe} over {period} and report which
+  survive a strict bench and which are search luck.
+variables: [factor_type, universe, period]
+members:
+  - agent_id: fr-miner
+    label: Factor Miner
+    role: researcher
+    capabilities: [factors, statistics]
+    instructions: |
+      Propose candidate {factor_type} factors for {universe}, each with its
+      economic rationale and exact definition. No factor without a reason it
+      should work.
+  - agent_id: fr-validator
+    label: Factor Validator
+    role: researcher
+    capabilities: [factors, statistics]
+    instructions: |
+      Test every candidate honestly: train and out-of-sample IC, the random
+      control, decay. A factor that does not beat its control is rejected, not
+      tuned.
+  - agent_id: fr-combiner
+    label: Combination Analyst
+    role: researcher
+    capabilities: [factors, portfolio]
+    instructions: |
+      Combine only the survivors. Report correlation between them, the weight
+      scheme, and whether the combination beats the best single factor.
+  - agent_id: fr-chair
+    label: Review Chair
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Decide what is real: which factors pass, which were rejected and why, and
+      what the committee would need to see before deploying. Name the leakage or
+      multiple-testing risk you checked.
+subtasks:
+  - id: mine
+    objective: "Propose {factor_type} factors for {universe} with rationales."
+    assigned_agent_id: fr-miner
+    capability: factors
+    evidence_required: true
+  - id: validate
+    objective: "Strict-bench each candidate over {period} (train, OOS, control)."
+    assigned_agent_id: fr-validator
+    depends_on: [mine]
+    capability: factors
+    evidence_required: true
+  - id: combine
+    objective: "Combine the surviving factors and measure the combination."
+    assigned_agent_id: fr-combiner
+    depends_on: [validate]
+    capability: portfolio
+    evidence_required: true
+  - id: verdict
+    objective: "Rule on which factors are real and what deployment would require."
+    assigned_agent_id: fr-chair
+    depends_on: [mine, validate, combine]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

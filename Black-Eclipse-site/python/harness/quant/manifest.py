@@ -116,6 +116,9 @@ def build_run_manifest(
             "version": getattr(spec, "version", None),
             "contentHash": content_hash,
             "assetClass": getattr(spec, "asset_class", None),
+            # The market whose mandates shaped execution. Named explicitly so a
+            # reader does not have to infer it from the content hash.
+            "market": getattr(spec, "market", None),
         })
     manifest = {
         "schemaVersion": MANIFEST_SCHEMA_VERSION,

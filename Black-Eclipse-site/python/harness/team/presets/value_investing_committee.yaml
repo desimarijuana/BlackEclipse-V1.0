@@ -1,0 +1,70 @@
+id: value_investing_committee
+name: Value Investing Committee
+description: >-
+  Two adversarial value perspectives examine the same company — one on business
+  quality and moat, one on price and downside — and a chair states the verdict
+  and the price at which it changes.
+objective: >-
+  Deliberate on {company} as a long-term value investment and state whether the
+  current price offers a margin of safety, with the dissent recorded.
+variables: [company]
+members:
+  - agent_id: vi-quality
+    label: Business Quality Analyst
+    role: researcher
+    capabilities: [fundamentals, moat]
+    instructions: |
+      Judge {company}'s business, not its chart: unit economics, pricing power,
+      capital intensity, reinvestment runway and management's record. Say what
+      would break the moat.
+  - agent_id: vi-price
+    label: Valuation & Downside
+    role: researcher
+    capabilities: [valuation, risk]
+    instructions: |
+      Value {company} and stress the downside: what the price implies, the
+      assumptions doing the work, and the loss if they are wrong. Give the price
+      at which the margin of safety appears and the price at which it disappears.
+  - agent_id: vi-skeptic
+    label: Skeptic
+    role: researcher
+    capabilities: [risk, accounting]
+    instructions: |
+      Try to kill the thesis. Look for accounting that flatters, cyclical peaks
+      mistaken for quality, and governance risk. State the single fact that would
+      make you right.
+  - agent_id: vi-chair
+    label: Committee Chair
+    role: chair
+    capabilities: [synthesis]
+    instructions: |
+      Decide, do not average. State the verdict, the two facts that decide it,
+      the strongest surviving objection, the entry price, and what would change
+      your mind. Record dissent explicitly.
+subtasks:
+  - id: quality
+    objective: "Judge {company}'s business quality and moat."
+    assigned_agent_id: vi-quality
+    capability: fundamentals
+    evidence_required: true
+  - id: valuation
+    objective: "Value {company} and stress the downside assumptions."
+    assigned_agent_id: vi-price
+    capability: valuation
+    evidence_required: true
+  - id: skeptic
+    objective: "Attack the {company} thesis; name the falsifying fact."
+    assigned_agent_id: vi-skeptic
+    capability: risk
+    evidence_required: true
+  - id: verdict
+    objective: "Rule on {company}: buy price, margin of safety, dissent, and invalidation."
+    assigned_agent_id: vi-chair
+    depends_on: [quality, valuation, skeptic]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

@@ -104,7 +104,7 @@ def test_code_agent_has_no_finance_tool():
         "delegate_cancel", "delegate_steer",
         # Round 5 / C3: shared discovery + full-output pager + confined code,
         # not finance tools.
-        "tool_search", "tool_invoke", "read_tool_output", "tool_code",
+        "tool_search", "load_tool_schema", "tool_invoke", "read_tool_output", "tool_code",
         "spawn", "board_write", "board_read", "board_search",
         "capability_request", "capability_build", "capability_status",
         "capability_external", "capability_adapter",

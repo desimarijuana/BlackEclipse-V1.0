@@ -20,6 +20,7 @@ const JOB_PHASES: readonly string[] = [
   "building",
   "promoting",
   "downloading",
+  "unpacking",
   "stopping",
   "ready",
   "failed",

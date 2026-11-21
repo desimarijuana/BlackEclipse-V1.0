@@ -1,0 +1,68 @@
+id: geopolitical_risk_war_room
+name: Geopolitical Risk War Room
+description: >-
+  A geopolitical analyst, an energy/supply analyst and a market-impact analyst
+  assess a crisis in parallel; a chief strategist delivers the playbook with the
+  escalation path named.
+objective: >-
+  Assess {crisis} and produce an asset-allocation playbook for {market} with the
+  escalation path and the false-positive risk stated.
+variables: [crisis, market]
+members:
+  - agent_id: gp-geo
+    label: Geopolitical Analyst
+    role: researcher
+    capabilities: [geopolitics, macro]
+    instructions: |
+      Map {crisis}: the actors, their constraints, the base and escalation paths,
+      and how each has historically resolved. Separate what is knowable from what
+      is narrative.
+  - agent_id: gp-supply
+    label: Energy & Supply Analyst
+    role: researcher
+    capabilities: [commodities, supply]
+    instructions: |
+      Trace the physical channel: which flows, routes or inputs are at risk, what
+      substitutes exist, and how long a disruption can be absorbed before prices
+      move.
+  - agent_id: gp-market
+    label: Market Impact Analyst
+    role: researcher
+    capabilities: [macro, portfolio]
+    instructions: |
+      Translate the event into market channels for {market}: risk premia, safe
+      havens, currency and liquidity. Say which assets are already priced for it.
+  - agent_id: gp-chief
+    label: Chief Strategist
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Deliver the playbook: positioning by scenario, the trigger that tells you
+      which path is unfolding, and the cost of preparing for the wrong one.
+subtasks:
+  - id: geopolitics
+    objective: "Map {crisis} actors and base/escalation paths."
+    assigned_agent_id: gp-geo
+    capability: geopolitics
+    evidence_required: true
+  - id: physical
+    objective: "Trace the physical supply channel threatened by {crisis}."
+    assigned_agent_id: gp-supply
+    capability: supply
+    evidence_required: true
+  - id: markets
+    objective: "Map the market transmission into {market} and what is already priced."
+    assigned_agent_id: gp-market
+    capability: macro
+    evidence_required: true
+  - id: playbook
+    objective: "Deliver the {market} playbook with scenario triggers and cost of error."
+    assigned_agent_id: gp-chief
+    depends_on: [geopolitics, physical, markets]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

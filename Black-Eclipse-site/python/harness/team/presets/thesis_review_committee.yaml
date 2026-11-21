@@ -1,0 +1,65 @@
+id: thesis_review_committee
+name: Thesis Review Committee
+description: >-
+  A bull-evidence reviewer, a bear-evidence reviewer and an assumption auditor
+  re-examine an existing thesis; a chair decides whether it survives.
+objective: >-
+  Re-examine the {thesis} thesis: what still holds, what broke, and whether the
+  position should continue.
+variables: [thesis]
+members:
+  - agent_id: tr-support
+    label: Supporting Evidence Reviewer
+    role: researcher
+    capabilities: [research, evidence]
+    instructions: |
+      Re-check the evidence FOR {thesis}: which original claims still hold with
+      fresh data, and which relied on assumptions that have since changed.
+  - agent_id: tr-contradict
+    label: Contradicting Evidence Reviewer
+    role: researcher
+    capabilities: [research, risk]
+    instructions: |
+      Find the evidence AGAINST {thesis}: disconfirming data, worsening metrics,
+      and the scenario the original case did not consider.
+  - agent_id: tr-assumptions
+    label: Assumption Auditor
+    role: researcher
+    capabilities: [audit, fundamentals]
+    instructions: |
+      Audit the assumptions themselves: are they still observable, still true, and
+      still the ones that matter? Name the assumption the thesis cannot survive.
+  - agent_id: tr-chair
+    label: Committee Chair
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Decide: continue, reduce, or close. State what changed since the thesis was
+      written, and the trigger that would have made you exit earlier.
+subtasks:
+  - id: supporting
+    objective: "Re-check the evidence supporting {thesis}."
+    assigned_agent_id: tr-support
+    capability: evidence
+    evidence_required: true
+  - id: contradicting
+    objective: "Assemble the evidence against {thesis}."
+    assigned_agent_id: tr-contradict
+    capability: risk
+    evidence_required: true
+  - id: assumptions
+    objective: "Audit {thesis}'s load-bearing assumptions."
+    assigned_agent_id: tr-assumptions
+    capability: audit
+    evidence_required: true
+  - id: verdict
+    objective: "Decide continue/reduce/close for {thesis} and name what changed."
+    assigned_agent_id: tr-chair
+    depends_on: [supporting, contradicting, assumptions]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

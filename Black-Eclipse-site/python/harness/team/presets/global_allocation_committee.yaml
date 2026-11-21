@@ -1,0 +1,65 @@
+id: global_allocation_committee
+name: Global Allocation Committee
+description: >-
+  Regional specialists cover equities, crypto and rates in parallel; an allocator
+  produces one cross-market weighting with the correlation risk named.
+objective: >-
+  Allocate across markets for {horizon} given {objective}, and state the single
+  correlation that would break the allocation.
+variables: [horizon, objective]
+members:
+  - agent_id: ga-equities
+    label: Equity Allocator
+    role: researcher
+    capabilities: [equities, macro]
+    instructions: |
+      Cover equities for {objective} over {horizon}: valuation, earnings trend,
+      regional relative strength, and the risks that hit equity beta.
+  - agent_id: ga-crypto
+    label: Crypto Allocator
+    role: researcher
+    capabilities: [crypto, onchain]
+    instructions: |
+      Cover crypto for {horizon}: liquidity regime, funding and basis, and on-chain
+      flows. Say whether crypto is currently a risk asset or a diversifier.
+  - agent_id: ga-rates
+    label: Rates & Credit Allocator
+    role: researcher
+    capabilities: [rates, credit]
+    instructions: |
+      Cover rates and credit: the policy path, term premium, credit spreads, and
+      what a duration position actually hedges here.
+  - agent_id: ga-allocator
+    label: Cross-Market Allocator
+    role: chair
+    capabilities: [portfolio, risk]
+    instructions: |
+      Produce the weights with a rationale per leg and the correlation assumption
+      that carries the allocation. Name what breaks if that correlation goes to 1.
+subtasks:
+  - id: equities
+    objective: "Assess the equity allocation for {objective} over {horizon}."
+    assigned_agent_id: ga-equities
+    capability: equities
+    evidence_required: true
+  - id: crypto
+    objective: "Assess the crypto allocation over {horizon}."
+    assigned_agent_id: ga-crypto
+    capability: crypto
+    evidence_required: true
+  - id: rates
+    objective: "Assess rates and credit for the allocation over {horizon}."
+    assigned_agent_id: ga-rates
+    capability: rates
+    evidence_required: true
+  - id: weights
+    objective: "Produce cross-market weights for {objective} and name the breaking correlation."
+    assigned_agent_id: ga-allocator
+    depends_on: [equities, crypto, rates]
+    capability: portfolio
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

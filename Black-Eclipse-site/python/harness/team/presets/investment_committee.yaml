@@ -1,0 +1,76 @@
+id: investment_committee
+name: Investment Committee
+description: >-
+  Bull and bear researchers build the two sides independently, a risk reviewer
+  stress-tests both, and a chair synthesises a verdict that must cite evidence
+  and name any unresolved dissent.
+objective: >-
+  Evaluate {target} for a {horizon} horizon and deliver a committee verdict:
+  the strongest bull case, the strongest bear case, the risk review, and the
+  chair's decision with its evidence and its dissent.
+variables: [target, horizon]
+members:
+  - agent_id: ic-bull
+    label: Bull Researcher
+    role: researcher
+    capabilities: [equity_research, fundamentals, valuation]
+    instructions: |
+      You are the bull-side researcher. Build the strongest honest case FOR
+      {target} over {horizon}: growth drivers, moat, valuation support, catalysts.
+      Every claim needs a number, a date or a source you actually retrieved. If
+      the evidence does not support a point, drop it rather than embellish.
+  - agent_id: ic-bear
+    label: Bear Researcher
+    role: researcher
+    capabilities: [equity_research, fundamentals, risk]
+    instructions: |
+      You are the bear-side researcher. Build the strongest honest case AGAINST
+      {target} over {horizon}: competitive threats, balance-sheet risk, cyclical
+      exposure, valuation risk, disconfirming data. Name what would falsify you.
+  - agent_id: ic-risk
+    label: Risk Reviewer
+    role: risk
+    capabilities: [risk, portfolio]
+    instructions: |
+      You are the risk reviewer. Stress both cases: which assumptions are load
+      bearing, what breaks under a 20% drawdown or a rate shock, and what the
+      position's downside actually is. Do not repeat either side's argument -
+      challenge it.
+  - agent_id: ic-chair
+    label: Committee Chair
+    role: chair
+    capabilities: [synthesis]
+    instructions: |
+      You are the chair. Decide, do not average. State the verdict, the two or
+      three facts that decide it, the strongest surviving objection (dissent),
+      and what would change your mind. Reference the subtask evidence you used.
+subtasks:
+  - id: bull_case
+    objective: "Build the bull case for {target} over {horizon}."
+    assigned_agent_id: ic-bull
+    capability: equity_research
+    evidence_required: true
+    expected_output: {format: markdown, sections: [thesis, drivers, catalysts, falsifiers]}
+  - id: bear_case
+    objective: "Build the bear case for {target} over {horizon}."
+    assigned_agent_id: ic-bear
+    capability: equity_research
+    evidence_required: true
+    expected_output: {format: markdown, sections: [thesis, threats, disconfirming_data, falsifiers]}
+  - id: risk_review
+    objective: "Stress-test both cases for {target}; name the load-bearing assumptions."
+    assigned_agent_id: ic-risk
+    depends_on: [bull_case, bear_case]
+    capability: risk
+    evidence_required: true
+  - id: verdict
+    objective: "Synthesize the committee verdict for {target} over {horizon}. Cite evidence; name dissent."
+    assigned_agent_id: ic-chair
+    depends_on: [bull_case, bear_case, risk_review]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

@@ -1,0 +1,65 @@
+id: credit_research_team
+name: Credit Research Team
+description: >-
+  A credit analyst, a rate strategist and a covenant specialist examine one issuer
+  in parallel; a portfolio manager decides whether the spread pays for the risk.
+objective: >-
+  Assess {issuer}'s credit for {horizon} and decide whether the spread compensates
+  for default, duration and liquidity risk.
+variables: [issuer, horizon]
+members:
+  - agent_id: cr-credit
+    label: Credit Analyst
+    role: researcher
+    capabilities: [credit, fundamentals]
+    instructions: |
+      Assess {issuer}: leverage, coverage, cash conversion, and the path to
+      refinancing. State the metric that would trigger a downgrade.
+  - agent_id: cr-rates
+    label: Rate Strategist
+    role: researcher
+    capabilities: [rates, fixed_income]
+    instructions: |
+      Set the rate backdrop for {issuer} over {horizon}: the policy path, term
+      premium, and how much of the spread is duration rather than credit.
+  - agent_id: cr-covenant
+    label: Covenant Specialist
+    role: researcher
+    capabilities: [credit, legal]
+    instructions: |
+      Read the documentation: covenants, guarantees, structural subordination and
+      call features. Say what protects the holder in a default and what does not.
+  - agent_id: cr-pm
+    label: Credit PM
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Decide: own, avoid, or wait. State the spread you require for the risk, the
+      recovery you assume, and the signal that would change the call.
+subtasks:
+  - id: fundamentals
+    objective: "Assess {issuer}'s leverage, coverage and refinancing path."
+    assigned_agent_id: cr-credit
+    capability: credit
+    evidence_required: true
+  - id: rates
+    objective: "Separate duration from credit in {issuer}'s spread over {horizon}."
+    assigned_agent_id: cr-rates
+    capability: rates
+    evidence_required: true
+  - id: covenants
+    objective: "Read {issuer}'s documentation and state holder protection."
+    assigned_agent_id: cr-covenant
+    capability: legal
+    evidence_required: true
+  - id: decision
+    objective: "Decide own/avoid/wait for {issuer} with required spread and recovery."
+    assigned_agent_id: cr-pm
+    depends_on: [fundamentals, rates, covenants]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

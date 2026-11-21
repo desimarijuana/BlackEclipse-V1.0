@@ -41,6 +41,7 @@ from .tool_bm25 import rank_tools
 CORE_TOOLS = frozenset({
     "tool_search",
     "tool_invoke",
+    "load_tool_schema",
     "read_tool_output",
     "response_block_schema",
     "response_style_guide",
@@ -224,7 +225,14 @@ def resolve_disclosure(
     `query` focuses the read-only tail: the tools most relevant to this turn
     stay bound, the rest are catalogued. It never removes an effectful,
     interactive or core tool, so authority is unchanged.
+
+    When narrowing is active the schema-on-demand tool is installed here, if it
+    is not already registered: it is needed exactly when a tool is catalogued but
+    its schema is not bound. The install is idempotent and read-only.
     """
+    from .tool_schema_load import install_tool_schema_load  # noqa: PLC0415
+
+    install_tool_schema_load(registry)
     mode = disclosure_mode(environ)
     threshold = disclosure_threshold_pct(environ)
     plan = DisclosurePlan(

@@ -91,13 +91,43 @@ Providers split by transport (ADR-H200):
 |---|---|---|---|
 | `telegram` | pull | `getUpdates` long-poll + `sendMessage` | **No** |
 | `discord` | pull | Gateway WebSocket bot + REST | **No** |
+| `matrix` | pull | `/sync` long-poll + `m.room.message` sends (any homeserver) | **No** |
+| `zulip` | pull | event-queue long-poll (`/register` + `/events`) + stream sends | **No** |
+| `rocketchat` | pull | channel-history poll (watermark) + `chat.postMessage` | **No** |
 | `email` | pull | IMAP poll + SMTP replies | **No** |
 | `slack` | both | Socket Mode (no public URL) or Events API (signed) + Web API replies | **No / Yes** |
 | `lark` | both | WebSocket long connection (`lark-oapi`) or event webhook (verified/decrypted) + IM API replies | **No / Yes** |
 | `teams` | push | Bot Framework webhook (JWT verified) + connector replies | **Yes** |
 | `google_chat` | push | Chat app webhook (Google JWT verified) + Chat API replies | **Yes** |
 | `whatsapp` | push | Cloud API (signed) + Graph API replies | **Yes** |
+| `twilio` | push | SMS webhook (X-Twilio-Signature, form-encoded) + REST replies | **Yes** |
+| `line` | push | Messaging API webhook (X-Line-Signature, base64 body HMAC) + push replies | **Yes** |
+| `viber` | push | Public-account webhook (X-Viber-Content-Signature, hex body HMAC) + send_message | **Yes** |
 | `webhook` | push | signed generic inbound + HTTP reply | **Yes** |
+| `dingtalk` | outbound | custom-robot webhook (HMAC-signed) — no inbound | **No** |
+| `mattermost` | outbound | REST posts to a self-hosted server — no inbound | **No** |
+| `signal` | outbound | self-hosted `signal-cli` REST bridge — no inbound | **No** |
+| `wecom` | outbound | group-robot webhook (`errcode` decides) — no inbound | **No** |
+
+Matrix is a pull provider like Telegram, but with one extra required field:
+`userId` is the bot's **own MXID**, and the poller drops every event whose sender
+is that id. Without it the bot's replies arrive back through `/sync` and
+re-trigger the agent; a bounded seen-event set on top of the `since` token makes
+redelivery on reconnect harmless rather than merely unlikely.
+
+Zulip is the same shape with a different transport: it registers an event queue
+(`POST /api/v1/register`), long-polls it, and drops events whose `sender_email` is
+the bot's own address. Two honest limits are config rather than guesses: replies go
+to one configured **stream + topic** (`defaultStream`, `topic`) because Zulip
+requires a topic and per-thread reply routing is not implemented, and a queue the
+server no longer accepts is **dropped** so the poller registers a fresh one instead
+of polling a dead id forever.
+
+Rocket.Chat polls `channels.history` with an `oldest` **watermark** and dedupes by
+message `_id`. Its first poll deliberately starts from *now*: replaying a room's
+history into the agent would answer questions nobody asked. Auth is two headers
+(`X-Auth-Token`, `X-User-Id`), not a bearer token, and the bot's own `_id` is what
+both identifies it and filters its posts out of the inbound stream.
 
 The provider contract is declared once in `channels/provider.py` +
 `channels/registry.py`: kind, label, inbound mode, config fields, required
@@ -129,6 +159,16 @@ Config fields (all visible in Settings → Connections):
   `defaultSpaceId`, `pubsubAudience`.
 - WhatsApp: `accessToken`, `phoneNumberId`, `appSecret`, `verifyToken`.
 - Webhook: `replyUrl`, `replyToken`, `webhookSecret`.
+- Matrix: `homeserverUrl`, `accessToken`, `userId` (the bot's MXID),
+  `defaultRoomId`, `pollTimeoutMs`.
+- Zulip: `site`, `botEmail`, `apiKey`, `defaultStream`, `topic`, `pollSeconds`.
+- Rocket.Chat: `baseUrl`, `authToken`, `userId`, `roomId`, `pollSeconds`.
+- Mattermost: `baseUrl`, `botToken`, `channelId`.
+- Signal: `baseUrl` (the local signal-cli REST bridge), `number` (the bot's registered Signal number), optional `apiToken`.
+- Twilio: `accountSid`, `authToken`, `fromNumber`, `publicUrl`.
+- LINE: `channelAccessToken`, `channelSecret`.
+- Viber: `authToken` (signs inbound and authenticates sends), `senderName`.
+- WeCom: `webhookKey`.
 
 ### Provider setup guide
 
@@ -139,6 +179,16 @@ Config fields (all visible in Settings → Connections):
 | Teams | bot app id + app password | Azure Bot messaging endpoint = `/api/channels/webhook/teams`. JWT is validated against Bot Framework OpenID metadata; `serviceUrl` must be a Microsoft host. |
 | Google Chat | service-account JSON (or ADC) | Chat app HTTP endpoint = `/api/channels/webhook/google_chat`; `projectNumber` is the expected JWT audience. |
 | WhatsApp | access token + phone number id + app secret + verify token | Meta webhook URL = `/api/channels/webhook/whatsapp`. |
+| DingTalk | robot webhook URL (+ optional sign secret) | None — outbound-only. Paste the custom-robot URL from the DingTalk group; add the robot's secret to have every post HMAC-signed. |
+| Matrix | homeserver URL + access token + bot MXID | None — `/sync` is long-polled from the local machine. Invite the bot to the room and set `defaultRoomId` (or let each message carry its room). |
+| Rocket.Chat | base URL + personal access token + bot user id | None — the room is polled from the local machine. Set `roomId`; messages are deduped by id and the first poll starts from *now*, not from the room's history. |
+| Zulip | site URL + bot email + API key | None — the event queue is long-polled from the local machine. Subscribe the bot to the stream and set `defaultStream`; replies land in `topic` (default `eclipse`). |
+| WeCom | group-robot key | None — **send only**, by design: WeCom's inbound path is an AES-encrypted callback on an **app**, not on a group robot, so declaring inbound would be a promise the platform does not make. The response is HTTP 200 with an `errcode`, and that code (not the status) decides success. |
+| Viber | auth token + sender name | Set the bot's webhook to `<app origin>/api/channels/webhook/viber`. Viber signs the **raw body with a hex HMAC** (LINE's sibling, different encoding) and retries anything that is not a bare 200. |
+| LINE | channel access token + channel secret | Set the Messaging API webhook to `<app origin>/api/channels/webhook/line` and enable "Use webhook". LINE signs the **raw body only** (no timestamp, no URL), so redelivery is handled by the gateway's event-id dedupe rather than a replay window. |
+| Twilio | account SID + auth token + from number + **public URL** | Point the number's messaging webhook at `<app origin>/api/channels/webhook/twilio` and paste that exact URL into `publicUrl`: Twilio signs the URL it fetched, and the harness only sees the internal one — a missing `publicUrl` is a 503, never a guess that would fail every signature. |
+| Signal | signal-cli REST URL + the bot's registered number | None — **send only**. The bridge's receive endpoint is a streaming socket with reconnect semantics this gateway does not implement, and a poll over it would look bidirectional while silently missing messages. Signal is an alerts surface (fills, risk breaches, job failures) until that path is built properly. |
+| Mattermost | base URL + bot token + channel id | None — outbound-only for now: its outgoing webhooks need a per-kind signature check the gateway does not yet have, and accepting unverified traffic would be worse than not accepting it. |
 
 The public webhook base is the app origin, e.g.
 `https://your-host/api/channels/webhook/{kind}`. Slack Socket Mode and Lark

@@ -45,7 +45,9 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1270 -> 1272 (2026-11-17): the strategy-bot trading router
     # (`routers/bot_trading.py`) needs one import + one include_router. The setup
     # route block remains the split candidate. May only shrink.
-    "main.py": 1272,
+    # Shrank 1272 -> 1271 (2026-11-20): the OpenBB router adds an import + an
+    # include_router, paid for by joining the four stdlib imports. May only shrink.
+    "main.py": 1271,
     # Grew with the deterministic finance tool catalog (`finance_calc`,
     # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
     # Re-pinned 1222 -> 1227 (2026-11-11) for in-flight shared-tree research

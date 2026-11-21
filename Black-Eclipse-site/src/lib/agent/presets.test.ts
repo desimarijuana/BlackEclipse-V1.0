@@ -42,7 +42,7 @@ describe("LLM presets", () => {
   it("looks up by id and matches a saved base URL", () => {
     expect(getLLMPreset("groq")?.name).toBe("Groq");
     expect(getLLMPreset("opencode-go")?.name).toBe("OpenCode Go");
-    expect(getLLMPreset("opencode-go")?.envVar).toBe("OPENCODE_API_KEY");
+    expect(getLLMPreset("opencode-go")?.envVar).toBe("OPENCODE_GO_API_KEY");
     expect(presetForBaseUrl("https://opencode.ai/inference/go/openai/v1")?.id).toBe("opencode-go");
     expect(getLLMPreset("nope")).toBeUndefined();
     expect(presetForBaseUrl("https://api.groq.com/openai/v1/")?.id).toBe("groq");

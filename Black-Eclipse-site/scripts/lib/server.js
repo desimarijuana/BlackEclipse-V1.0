@@ -203,7 +203,18 @@ function build(options = {}) {
     execSync(`npx next build${bundler}`, {
       cwd: root,
       stdio: "inherit",
-      env: { ...process.env, NODE_OPTIONS: buildNodeOptions() },
+      env: {
+        ...process.env,
+        // Pin what decides WHERE the output lands, because the freshness hash
+        // below is always recorded in `.next/.build-hash`. Inheriting
+        // `NODE_ENV=development` (or a NEXT_DIST_DIR left by a live/dev session)
+        // sent the compile to `.next-dev` while marking `.next` as current, so
+        // the next refresh said "already built" and re-pinned the OLD build.
+        // Silent, and exactly the "I updated and nothing changed" report.
+        NODE_ENV: "production",
+        NEXT_DIST_DIR: ".next",
+        NODE_OPTIONS: buildNodeOptions(),
+      },
     });
     fs.mkdirSync(nextDir, { recursive: true });
     fs.writeFileSync(hashFile, startedHash);

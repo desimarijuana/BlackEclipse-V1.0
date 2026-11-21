@@ -76,7 +76,11 @@ def test_recap_template_drives_a_cron_job():
     assert job.cron == "30 21 * * 1-5"
     assert job.target.kind == "objective"
     assert "BTC-USD, ETH-USD" in (job.target.objective or "")
-    assert "video_create_project" in (job.target.objective or "")
+    # G13: a scheduled prompt states the CAPABILITY, never a tool id, so a rename
+    # cannot silently break the job. The flow must still be described.
+    objective = job.target.objective or ""
+    assert "video_create_project" not in objective
+    assert "storyboard" in objective and "render" in objective
 
 
 # ── HTTP entry point ─────────────────────────────────────────────────────────

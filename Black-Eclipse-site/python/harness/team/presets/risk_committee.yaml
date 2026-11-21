@@ -1,0 +1,68 @@
+id: risk_committee
+name: Risk Committee
+description: >-
+  Drawdown, tail risk and regime risk are reviewed in parallel; a head of risk
+  signs off with the surviving exposure, the hedge and the kill criteria.
+objective: >-
+  Review the risk of {portfolio} over {horizon} and sign off with the exposure
+  that survives, the hedge, and what would force a reduction.
+variables: [portfolio, horizon]
+members:
+  - agent_id: rc-drawdown
+    label: Drawdown Analyst
+    role: researcher
+    capabilities: [risk, statistics]
+    instructions: |
+      Characterise {portfolio}'s drawdowns: the worst episodes, recovery times,
+      the current distance from high, and the distribution of depths over
+      {horizon}. Say what a repeat would cost in time, not just money.
+  - agent_id: rc-tail
+    label: Tail Risk Analyst
+    role: researcher
+    capabilities: [risk, derivatives]
+    instructions: |
+      Estimate tail exposure: VaR/CVaR, correlation under stress, and the
+      scenarios where diversification fails. Name the position most responsible
+      for the tail.
+  - agent_id: rc-regime
+    label: Regime Analyst
+    role: researcher
+    capabilities: [regime, macro]
+    instructions: |
+      Identify the current regime and how {portfolio}'s risk profile behaves when
+      it changes. Flag exposures that only work in one regime.
+  - agent_id: rc-head
+    label: Head of Risk
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Sign off: the risk that survives all three reviews, the hedge that pays for
+      itself, and the explicit criteria that would force a reduction. You may
+      reject a position the other three accepted - say why.
+subtasks:
+  - id: drawdowns
+    objective: "Characterise {portfolio}'s drawdown risk over {horizon}."
+    assigned_agent_id: rc-drawdown
+    capability: risk
+    evidence_required: true
+  - id: tails
+    objective: "Estimate {portfolio}'s tail exposure and the failing-diversification scenario."
+    assigned_agent_id: rc-tail
+    capability: risk
+    evidence_required: true
+  - id: regimes
+    objective: "Identify regime-dependent risk in {portfolio}."
+    assigned_agent_id: rc-regime
+    capability: regime
+    evidence_required: true
+  - id: signoff
+    objective: "Sign off on {portfolio}: surviving risk, hedge, and reduction criteria."
+    assigned_agent_id: rc-head
+    depends_on: [drawdowns, tails, regimes]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

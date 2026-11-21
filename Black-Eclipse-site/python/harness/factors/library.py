@@ -96,11 +96,19 @@ BUILTIN_FACTORS: list[dict[str, Any]] = [
 ]
 
 
+#: The Alpha Zoo (documented factor definitions on the SAME safe engine).
+#: Merged by name so a zoo entry can never shadow a builtin; a duplicate is
+#: dropped rather than silently replacing the builtin's definition.
+from .zoo import ZOO_FACTORS as _ZOO_FACTORS  # noqa: E402  (after BUILTIN_FACTORS)
+
+_BUILTIN_NAMES = {f["name"] for f in BUILTIN_FACTORS}
+BUILTIN_FACTORS.extend(f for f in _ZOO_FACTORS if f["name"] not in _BUILTIN_NAMES)
+
+
 def list_builtins(*, available_only: bool = False) -> list[dict[str, Any]]:
     if available_only:
         return [f for f in BUILTIN_FACTORS if f.get("available", True)]
     return [dict(f) for f in BUILTIN_FACTORS]
-
 
 def get_builtin(name: str) -> dict[str, Any] | None:
     for f in BUILTIN_FACTORS:

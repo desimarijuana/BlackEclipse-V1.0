@@ -877,3 +877,39 @@ decision.
 - The background reconciler is off unless `TRADING_RECONCILE_SECONDS` is set.
 - A demo fill is still a real broker round-trip (latency, requotes, spread), but
   it is not evidence that a live strategy is profitable.
+
+## Declared broker kinds (generated)
+
+<!-- BEGIN GENERATED broker-capability-matrix -->
+
+Declared broker kinds, generated from `python/harness/trade/registry.py`.
+Every row is a **declaration, not a runtime verification**: `available`
+only reports whether the adapter's dependency imports on this host, and a
+paper mode never grants live trading. Live execution still requires an
+armed connection plus a mandate. In the Capabilities column `orders` means
+**reading** working orders; only the Execution column permits placement, so
+a kind without execution is read-only.
+
+| Kind | Label | Auth | Modes | Asset classes | Capabilities | Execution | Available |
+|---|---|---|---|---|---|---|---|
+| `alpaca` | Alpaca | `credentials` | `demo`, `live` | `crypto`, `etf`, `stocks` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `binance` | Binance (spot) | `credentials` | `live` | `crypto` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `bitfinex` | Bitfinex v2 | `credentials` | `live` | `crypto`, `derivatives` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `bitget` | Bitget v2 | `credentials` | `live` | `crypto`, `derivatives` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `bitstamp` | Bitstamp v2 | `credentials` | `live` | `crypto` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `bybit` | Bybit (unified) | `credentials` | `live` | `crypto`, `derivatives` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `coinbase` | Coinbase Exchange | `credentials` | `live` | `crypto` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `coincheck` | Coincheck | `credentials` | `live` | `crypto` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `deribit` | Deribit (derivatives) | `credentials` | `live` | `crypto`, `derivatives`, `options` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `gateio` | Gate.io v4 | `credentials` | `live` | `crypto`, `derivatives` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `ibkr` | Interactive Brokers | `credentials` | `demo`, `live` | `etf`, `futures`, `fx`, `options`, `stocks` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `kraken` | Kraken | `credentials` | `live` | `crypto` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `mt4_bridge` | MetaTrader 4 (bridge) | `bridge` | `demo`, `live` | `cfd`, `futures`, `fx`, `metals`, `stocks` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `mt5` | MetaTrader 5 | `attach` | `demo`, `live` | `cfd`, `crypto`, `futures`, `fx`, `metals`, `stocks` | `account`, `orders`, `positions`, `quote` | yes | yes |
+| `oanda` | OANDA v20 (FX/CFD) | `credentials` | `live` | `cfd`, `fx`, `metals` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `okx` | OKX | `credentials` | `live` | `crypto` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `tradier` | Tradier | `credentials` | `demo`, `live` | `etf`, `options`, `stocks` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+| `trading212` | Trading212 | `credentials` | `demo`, `live` | `etf`, `stocks` | `account`, `orders`, `positions` | no (read-only) | yes |
+| `zerodha` | Zerodha Kite | `credentials` | `live` | `etf`, `futures`, `options`, `stocks` | `account`, `orders`, `positions`, `quote` | no (read-only) | yes |
+
+<!-- END GENERATED broker-capability-matrix -->

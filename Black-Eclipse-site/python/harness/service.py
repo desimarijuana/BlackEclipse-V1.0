@@ -98,15 +98,15 @@ class AgenticService:
         # The memory/skill tools the system prompt promises â€” on the SAME
         # registry, so validation/permission/timeout machinery is shared.
         register_memory_tools(self.registry)
-        # Bounded read-only GET over the app's OWN loopback API (QA Round 1). The
-        # sanctioned alternative to the hard-denied `curl` dead-end.
+        # Schema-on-demand, registered at boot so the portable manifest is truthful.
+        from .tool_schema_load import install_tool_schema_load  # noqa: PLC0415
+        install_tool_schema_load(self.registry)
+        # Bounded read-only GET over the app's OWN loopback API (QA Round 1).
         from .app_api_tools import register_app_api_tools  # noqa: PLC0415
 
         register_app_api_tools(self.registry)
         # Workflow authoring from chat: creates and SAVES a Graph Studio workflow
-        # through the front door (the catalog lives in JDDS/Prisma, which this
-        # runtime cannot write). The front door owns planning, validation and the
-        # store; this is only the bridge.
+        # through the front door; the store lives in JDDS/Prisma, not this runtime.
         from .graph_tools import register_graph_tools  # noqa: PLC0415
 
         register_graph_tools(self.registry)

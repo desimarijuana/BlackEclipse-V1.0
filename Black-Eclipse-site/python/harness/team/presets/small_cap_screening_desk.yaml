@@ -1,0 +1,68 @@
+id: small_cap_screening_desk
+name: Small-Cap Screening Desk
+description: >-
+  A liquidity screener, a quality analyst and a catalyst analyst filter a small-cap
+  universe; a portfolio manager selects the names that can actually be traded.
+objective: >-
+  Screen {universe} for small-cap candidates that are liquid enough to own and
+  worth owning, and name the names that fail on liquidity alone.
+variables: [universe]
+members:
+  - agent_id: sc-liquidity
+    label: Liquidity Screener
+    role: researcher
+    capabilities: [liquidity, screening]
+    instructions: |
+      Filter {universe} for tradability: ADV, spread, free float, and days-to-exit
+      for the intended position. Name the names that look cheap only because they
+      cannot be sold.
+  - agent_id: sc-quality
+    label: Quality Analyst
+    role: researcher
+    capabilities: [fundamentals, accounting]
+    instructions: |
+      Assess the survivors on quality: cash conversion, balance sheet, dilution
+      history and accounting red flags. Small caps fail on governance first.
+  - agent_id: sc-catalyst
+    label: Catalyst Analyst
+    role: researcher
+    capabilities: [events, research]
+    instructions: |
+      Identify the catalyst: earnings, contract, index inclusion, management
+      change. Say when it resolves and what the market already expects.
+  - agent_id: sc-pm
+    label: Small-Cap PM
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Select the names with a position size each can absorb, an exit plan, and the
+      liquidity condition that would force a sale.
+subtasks:
+  - id: liquidity
+    objective: "Filter {universe} by tradable liquidity and days-to-exit."
+    assigned_agent_id: sc-liquidity
+    capability: liquidity
+    evidence_required: true
+  - id: quality
+    objective: "Assess quality and governance of the surviving names."
+    assigned_agent_id: sc-quality
+    depends_on: [liquidity]
+    capability: fundamentals
+    evidence_required: true
+  - id: catalyst
+    objective: "Identify catalysts and timing for the surviving names."
+    assigned_agent_id: sc-catalyst
+    depends_on: [liquidity]
+    capability: events
+    evidence_required: true
+  - id: selection
+    objective: "Select small caps with size, exit plan and forced-sale conditions."
+    assigned_agent_id: sc-pm
+    depends_on: [liquidity, quality, catalyst]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

@@ -759,6 +759,49 @@ That is the difference between hosting and owning the data: the hosted
 platform rents you a decade of ticks; this one *keeps* what it fetched, on
 your machine, and serves it from there forever.
 
+## Market execution rules — what each market permits
+
+`quant/market_rules.py` is a **different axis** from `quant/venues.py` below: a
+**market** is a place that trades instruments (US, A-shares, HK, crypto); a
+*venue* is a language a strategy is written in. Do not conflate them.
+
+`StrategySpec.market` (default `us_equity`) names the market whose mandates
+apply. It is serialized with the spec and **named on every run-manifest strategy
+record** (`"market"`), so a reader does not have to infer it from the content
+hash:
+
+| `market` | Settlement | Lot | Price limits | Taxes | Retail short |
+|---|---|---|---|---|---|
+| `us_equity` | same-day sell | fractional | none | none | allowed |
+| `a_share` | **T+1** | 100-share lots | ±10% main / ±20% ChiNext+STAR / ±30% Beijing | 5 bp sell stamp + 0.1 bp transfer | **banned** |
+| `hk_equity` | same-day sell | per instrument | none | 10 bp **both** sides | banned |
+| `crypto` | same-day sell | fractional (8 dp) | none | none | allowed |
+
+Rules that depend on instrument state are never guessed: `band()` takes an
+explicit `board` and returns `None` for an unknown one; `round_size()` leaves
+size alone when the market has no fixed lot.
+
+Enforcement (wired into the event engine):
+
+- **Lot mandate** — every entry size is floored to the market's tradeable
+  increment; a sub-lot size becomes no trade with `MARKET_LOT_BELOW_ONE`.
+  (A `lot_size` a strategy declares is not allowed to override the market.)
+- **Price limits** — before a fill is applied, the fill price is checked
+  against the band computed from the **previous close**; an out-of-band print is
+  cancelled with `MARKET_LIMIT_BAND`. The board comes from the code prefix
+  (`board_for_code`: 688/689 STAR, 300/301 ChiNext, 8xx/4xx/920 Beijing, else
+  main) — a best-effort mapping, since ST status and listing-day exemptions are
+  instrument state the code cannot know.
+- **Settlement** — a sell is clamped to the quantity acquired on an earlier
+  calendar day; a fully-unsettled exit is refused with `MARKET_T1_UNSETTLED`
+  instead of inventing a fill the market would reject.
+- `BacktestConfig.market` overrides the per-strategy market (useful for
+  A/B-testing the same data under different mandates).
+
+Known limit, stated: the end-of-run **forced liquidation** path does not consult
+the T+1 gate. It is a synthetic close of the book, not a market order, and its
+fills are labelled `margin_call`/forced, never as signal exits.
+
 ## The venues ? one seam, four languages
 
 `quant/venues.py` makes the multi-DSL promise explicit instead of implied. A
@@ -983,6 +1026,143 @@ behaviour; a caller opts into each cost explicitly.
 `report_export.py` writes a stored experiment as a self-contained HTML report or
 a replayable notebook. It reads the artifact and manifest and computes nothing;
 the disclaimer and warnings travel with it.
+
+The HTML report also embeds the artifact's **figures** — the same
+`quant/visuals` builders and the same chart engine the app's figure panel uses,
+rendered to PNG and inlined as `data:` URIs. There is no JavaScript and no
+external asset, so the file opens anywhere and stays a single artifact. Figure
+rendering is best-effort: if the renderer is unavailable the report says
+`Figures unavailable: <reason>` and still prints every number.
+
+## Alpha Zoo and strict bench
+
+`factors/zoo/academic.py` holds documented price/volume factors (overnight gap,
+intraday momentum, close-location value, Bollinger position, RSI reversal,
+price-volume correlation, Amihud illiquidity, volume shock, drawdown proximity,
+up-day ratio, high-low spread, price-volume trend). Each record carries
+`zoo`, `source` and `reference`, and its `expression` runs on the ONE safe
+formula engine (`stats.formula`) — no Python `eval`. They are merged by name
+into `factors.library.BUILTIN_FACTORS`; a zoo entry can never shadow a builtin,
+and a duplicate is dropped. A factor whose inputs the data surface cannot supply
+ships `available=False` with `unavailableReason` instead of a fake series.
+
+`factors/zoo/alpha101.py` adds the Alpha101 formulas that map **one-to-one** onto
+available operators: **101 of 101 — the paper is complete**, each naming its alpha number and paper. Many
+need a **cross-sectional** rank and are flagged `requiresPanel` (#8, #10, #18,
+#19, #20, #22, #30, #42, #45, #52, #60 among others); they are evaluated by
+`factors/panel.py`, the universe-panel evaluator added for exactly this. It takes
+`{symbol: rows}` into a TA-N panel, evaluates the same formula AST with
+cross-sectional `rank`/`scale` and column-wise rolling operators, and refuses any
+function it does not implement (`UNSUPPORTED_FUNCTION`) rather than applying a
+per-series implementation to a 2-D array. It is causal by construction: rolling
+windows read only the past, cross-sectional operators read one row.
+
+**Inputs are a declared contract, not an assumption.** `adv20` is *derived*
+(average dollar volume = `sma(volume * close, 20)`) and inlined in every formula
+that needs it, because the bar carries no dollar-volume field. `vwap` is the
+opposite case: it **cannot** be derived from OHLCV (`(high+low+close)/3` is a
+typical price, not a volume-weighted average), so a factor that needs it declares
+`requiresInputs: ["vwap"]` and `harness.factors.contracts` raises a named
+`MISSING_INPUT` when the caller has not supplied one — a refusal, never a
+plausible NaN column. Two such alphas ship (#41, #42); the rest of the vwap family
+stays unported for a narrower reason (below).
+
+The remaining 48 alphas are **not approximated**. Three specific reasons, none of
+them an operator gap the engine could close cheaply:
+
+- **`IndClass` neutralisation** (sector/subindustry) — the data surface has no
+  industry classification, so those formulas cannot be transcribed without
+  inventing one.
+- ~~a cross-sectional rank *inside* a rolling correlation~~ — **this was wrong**.
+  The panel evaluator evaluates `correlation(rank(volume), rank(vwap), 5)`: `rank`
+  produces a T×N array of per-date cross-sectional ranks and the correlation runs
+  column-wise over time, which is exactly the published operation. A smoke test
+  disproved the old claim and tranche 11 of the zoo ports the family. The claim is
+  kept here, struck through, because a doc that quietly deletes its own error
+  teaches the next reader nothing.
+- **`min`/`max` of two full series, `product`, and `SignedPower` with a
+  data-dependent exponent** — none is in `stats.formula`, and adding them for one
+  alpha each would be a contract change, not a port.
+
+**The vwap family is verified, not remembered.** Tranche 5's fourteen formulas
+were checked against a published reference implementation
+(`WorldQuant_alpha101_code`, whose inline comments reproduce the paper's
+expressions verbatim), and the paper's fractional windows are **rounded** — the
+paper's own convention — with the original constant quoted in each description
+(`3.51013 -> 4`, `6.72611 -> 7`, `2.95011 -> 3`, `14.7444 -> 15`). Each of those
+alphas declares `requiresInputs: ["vwap"]`, so the contract refuses a caller that
+cannot supply a true volume-weighted average.
+
+`factors/zoo/qlib158.py` ports **all 158 of Qlib Alpha158's features**:
+
+- **10 base**: KMID, KLEN, KMID2, KUP, KLOW, KSFT, OPEN0, HIGH0, LOW0 and
+  **VWAP0** (the three level features are each price relative to **close**);
+- **29 per horizon** at 5/10/20/30/60 sessions: ROC, MA, STD, BETA, RSQR, RESI,
+  MAX, MIN, QTLU, QTLD, RANK, RSV, IMAX, IMIN, IMXD, CORR, CORD, CNTP, CNTN, CNTD,
+  SUMP, SUMN, SUMD, VMA, VSTD, WVMA, VSUMP, VSUMN, VSUMD.
+
+`PORTED = 10 + 29 * len(HORIZONS)` is derived, and a test asserts it equals the
+list length. **VWAP0 is the first Qlib feature to use the input contract**:
+`requiresInputs: ["vwap"]`, because a typical price is not a volume-weighted
+average and substituting one would measure something else.
+
+Two subtleties are recorded because both are silent when wrong:
+
+- **qlib's `Greater(x, 0)` keeps the value** (`np.maximum`), it is not a 0/1
+  comparison. SUMP/SUMN/SUMD and VSUMP/VSUMN/VSUMD therefore use
+  `where(greater_than(x, 0), x, 0)`; the comparison alone summed *day-counts* over
+  a *magnitude* denominator and produced shares that did not add up — caught by
+  the invariant `SUMP + SUMN ≈ S/(S+1) < 1`.
+- qlib's `+1` denominators are kept verbatim, so a flat window is `0`, never a
+  division by zero.
+
+`TOTAL` is qlib's published 158. The **3 features this list does not name are
+counted as unported**, not guessed: claiming a name we cannot verify would ship a
+different factor under qlib's label.
+
+`factors/zoo/fundamental.py` declares **15 documented value/quality factors**
+(gross profitability, accruals, ROE/ROA, leverage, liquidity, FCF yield, EV/EBITDA,
+dividend and buyback yield, asset and sales growth, earnings stability). **All
+ship `available=False`** with one reason: the surface does not supply
+point-in-time fundamentals, and a restated figure is lookahead that would produce
+a beautiful false IC. `fundamental_positions_port()` reports
+`declared / available / total` and the blocker.
+
+The library is now 18 builtin + 16 academic + 101 Alpha101 + 155 Qlib + 189 GTJA +
+15 fundamental = **497**.
+
+`factors/zoo/gtja191.py` (base tranches) + `gtja191_batches.py` (tranches 5-10) together port **151 of GTJA's 191**. Tranches 2's formulas were
+verified against a published GTJA191 implementation (`lrb777/gtja191`,
+`src/factors/alpha_001_050.py`, whose comments carry each Chinese-alpha formula),
+and the list is kept **sorted by alpha number** so a duplicate or a transposed
+number is visible at a glance.
+
+Two things this tranche established:
+
+- **GTJA's `SMA(X,N,M)` is not this DSL's `sma`** — it is the Wilder recursion
+  `Y = (M·X + (N−M)·Y') / N`, and it is now a first-class operator (`wilder`, also
+  aliased `sma_cn`) in both evaluators, together with GTJA's elementwise
+  `MAX(x,y)`/`MIN(x,y)` (`maximum`/`minimum`), and `wma` (weights `N…1`, oldest heaviest — the
+  mirror of `decay_linear`). `wilder` also **resets** on a missing input and
+  reseeds from the next valid one, which is the published convention.
+- **A bug in the previous port was found and fixed:** GTJA #11 is `SUM(…, 6)`, not
+  `MEAN(…, 6)` — a factor-of-six error that no IC comparison would have attributed
+  to the right cause. A test now asserts `SUM == 6 × MEAN` on the same window.
+
+**Seven formulas are deliberately unported**, and each has a specific reason —
+not a missing operator, since every operator they need now exists:
+
+| # | Blocker |
+|---|---|
+| 69 | needs `DTM`/`DBM`, a GTJA-specific operator pair whose definition differs between published revisions |
+| 91 | the published `MAX(CLOSE,5)` is ambiguous (elementwise vs rolling); the two readings are different factors |
+| 137, 172, 186 | the ATR/DMI construction nests elementwise `MAX` inside conditional branches whose published form does not fix the argument order |
+| 159 | the publication carries a corrected-weight erratum, so the weights are not verifiable |
+| 190 | depends on the same ambiguous pieces as 137/172/186 (asymmetric `SUMIF` guards) |
+
+That is the whole gap: **184 of 191**, with the seven named above. Qlib is
+**155 of 158** — the three unclaimed features are not named by any source this
+project could verify, so they are counted as unported rather than guessed.
 
 ## QuantBench
 

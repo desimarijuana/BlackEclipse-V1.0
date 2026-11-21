@@ -106,7 +106,7 @@ rows are badged in the list and Today chips. `POST /evolution/drift/candidate` t
 | `replan.py` | **Phase 11**: bounded replanning — the trigger (`should_replan`), the bound (`ReplanBudget`), the deterministic directive (`build_replan_instruction`) and the optional model-authored plan (`model_replan`). The `replan` node rides the SAME graph. `HARNESS_REPLAN_ENABLED` still forces it for any agent; ordinary `eclipse-agent` chat now gets the bounded path by default so a failed or stalled tool step gets one revised approach before the run ends. Custom agents keep the opt-in (ADR-H122 as amended) |
 | `answer_guard.py` | **bounded answer recovery (2026-11-16)**: a PURE classifier + directive generator. `is_bare_refusal` recognises a short route-specific give-up (not a substantive partial answer, not a policy refusal); `sources_restricted` honours an explicit user source restriction; `recovery_reason` permits at most `MAX_ANSWER_RECOVERIES` (2) extra turns while the run still has steps and an untried permitted route; `build_recovery_instruction` names those routes; `render_fallback_block` puts the concrete ladder next to the user turn. The graph owns the loop (`answer_recoveries`/`recovery_pending`/`tools_used`/`unavailable_tools`); events are `answer.recovery_started` / `answer.recovered` / `answer.recovery_exhausted`, and `run_outcome.answerRecovery` reads them. A refusal after the ladder is exhausted is accepted |
 | `final_answer.py` | **final-answer settlement** (extracted from `graph.py`, 2026-11-16): the no-tool-call branch — empty-final budget failure, bounded answer recovery (calls `answer_guard.maybe_recover`), one-shot `recovery_pending`, C4 `plan.finish_answer`, `answer.recovered`, the accepted state, checkpoint and step event. The graph owns the loop/edges; this module owns the branch. `RunSpec.dispatch_allowed` keeps the PRE-disclosure surface for dispatch: hiding a tool is an advertising choice, never a revocation (a policy removal is absent from both sets). |
-| `tool_disclosure.py` | **progressive tool disclosure**: when the advertised schemas cross the declared window's threshold (or `ABSOLUTE_SCHEMA_BUDGET_TOKENS` = 20k when the window is unknown), effectful/interactive/core tools stay bound and the read-only tail is catalogued behind `tool_search`/`tool_invoke`. The tail is query-focused (`rank_tools` + `FOCUS_READ_TOOLS`, `DEFAULT_MAX_READ_TOOLS` = 32), so a data turn keeps its ordinary tools. `DisclosurePlan.to_dict` always records `window`/`windowUnknown`/`maxReadTools`; `execute_run` narrows `allowed` BEFORE the RunSpec/build_graph binding |
+| `tool_disclosure.py` | **progressive tool disclosure**: when the advertised schemas cross the declared window's threshold (or `ABSOLUTE_SCHEMA_BUDGET_TOKENS` = 20k when the window is unknown), effectful/interactive/core tools stay bound and the read-only tail is catalogued behind `tool_search`/`tool_invoke`. The tail is query-focused (`rank_tools` + `FOCUS_READ_TOOLS`, `DEFAULT_MAX_READ_TOOLS` = 32), so a data turn keeps its ordinary tools. `DisclosurePlan.to_dict` always records `window`/`windowUnknown`/`maxReadTools`; `execute_run` narrows `allowed` BEFORE the RunSpec/build_graph binding. `tool_schema_load.py` adds the missing third step: `load_tool_schema` returns a catalogued tool's exact `parameters` (bounded, ≤5 per call, read-only, allowlist-checked) before `tool_invoke`, and is in `CORE_TOOLS` so it stays bound exactly when narrowing is active |
 | `history.py` | history bounding (`_bounded_history`/`_history_messages`) + the inert dropped-context block, extracted from `graph.py` (size ratchet) and re-exported there |
 | `checkpoint_io.py` | checkpoint (de)serialization (`serialize_messages`/`restore_messages`/`checkpoint_payload_of`), extracted from `graph.py` (size ratchet) and re-exported there |
 | `async_timeout.py` | the hard-deadline primitive (`await_bounded`): races a coroutine against a plain timer and raises `asyncio.TimeoutError` WITHOUT waiting for cancellation to be acknowledged, so a provider/tool that swallows `CancelledError` (observed: a run sat on `model.requested` for 10+ minutes) cannot hold a run hostage. Outer cancellation still cancels the inner task; abandoned work is drained. Used by `model_stream.py` and `ToolRegistry.execute` |
@@ -903,6 +903,17 @@ model leaves the skeleton untouched, and the run records why. The block is
 DATA, never instruction (a compaction can contain anything the user typed),
 and it never enters a research claim: a summary of a conversation is not
 evidence.
+
+**Two more layers exist, both opt-in (Phase 4).** (1) A *zero-cost fold*: a turn
+longer than `COLLAPSE_MIN_CHARS` is reduced to head + tail + a marker naming how
+many characters were omitted and the sha256 of the full original — no model
+call, idempotent, never a summary. It runs in `_bounded_history` BEFORE the
+character cap so an oversized turn can stay instead of being dropped whole.
+It can change which turns survive trimming, so it is OFF unless
+`BE_HISTORY_COLLAPSE=1`. (2) An *iterative* narrative: when a prior briefing is
+supplied, the compaction prompt asks the model to UPDATE it (keeping facts that
+are still true, correcting what is wrong) instead of writing a fresh one, so the
+Nth compaction does not forget what the earlier ones established.
 
 **One edit tool, and it insists the run read the file (ADR-H285).** A *text
 edit* is ONE tool: `code_edit` (`path`, `oldText`, `newText`,
@@ -1900,3 +1911,20 @@ front door can raise a restart/build requirement; `test_selfhost_landing.py`.
 | A skill source other than a GitHub repo | Extend `parse_source`/`fetch_archive` in `python/harness/skills/install.py` (bounds and the staged validate/scan/trust pipeline stay untouched) and cover it in `python/tests/test_skill_install.py`. See ADR-H188. |
 | A skill API surface | Add a proxy route under `src/app/api/skills/` (or `learning/`) and a typed call in `skills-client.ts` (server) / `skills-browser.ts` (UI). |
 | A conversational surface | `POST /api/harness/chat` (`chatWithAgent`); pass `history` so follow-ups keep the thread. |
+
+## Model endpoint guard and router probe budget
+
+**Endpoint guard (`model_runtime/endpoint_guard.py`).** A user-supplied base URL
+is an outbound request carrying the user's key. An IP literal that is private,
+loopback, link-local, multicast, reserved or unspecified is refused at model
+construction (`ENDPOINT_NOT_ALLOWED`); local servers stay allowed when the URL is
+loopback or local-only privacy mode is on. Hostname resolution is opt-in
+(`BE_ENDPOINT_PINNING=1`) and refuses a name that resolves privately.
+Connect-time pinning is NOT implemented, and the module says so.
+
+**Router probe budget (`market/router.py`).** `provider_order` stays the pure
+preference order. `attempt_order` is the execution order: an OPEN breaker is
+skipped unless a recent success for that provider in a DIFFERENT scope grants
+this scope exactly one probe per cooldown. That is evidence, not a reset — the
+failures stay counted, and a failed probe re-arms the cooldown.
+

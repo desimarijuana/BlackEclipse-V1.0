@@ -178,3 +178,6 @@ sec/
 # working tree. Re-include it explicitly.
 !python/harness/plugins/bundled/sec/
 
+# Windows UI-automation trace written by pywinauto next to the app;
+# machine-specific, never product.
+@AutomationLog.txt

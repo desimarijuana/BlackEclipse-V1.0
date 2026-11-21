@@ -60,6 +60,8 @@ export type UpdateJobPhase =
   | "promoting"
   /** Downloading a signed installer (packaged installs, which have no git tree). */
   | "downloading"
+  /** Extracting/validating the signed prebuilt build before promoting it. */
+  | "unpacking"
   /** The runner closed the app so it could replace its native dependencies. */
   | "stopping"
   | "ready"
@@ -75,11 +77,31 @@ export interface UpdateInstallerAsset {
   size?: number;
 }
 
+/**
+ * A signed RELEASE BUILD: the already-compiled Next `.next` the updater
+ * downloads and promotes. No git checkout, no `npm ci`, no local compile — the
+ * release is the artifact, not a tag to rebuild.
+ */
+export interface UpdateBuildAsset extends UpdateInstallerAsset {
+  /** The BUILD_ID the archive must contain (checked before promoting). */
+  buildId?: string;
+  /** Release version the archive was built from. */
+  version?: string;
+  /** sha256 of that release's package-lock.json; differs → install first. */
+  lockHash?: string;
+}
+
 export interface UpdateArtifact {
   path: string;
   name: string;
   sha256: string;
   bytes: number;
+}
+
+/** A prebuilt release build that was downloaded and staged by the runner. */
+export interface UpdateBuildArtifact extends UpdateArtifact {
+  buildId: string | null;
+  stagedDir: string;
 }
 
 export interface UpdateJob {
@@ -94,12 +116,16 @@ export interface UpdateJob {
   /** Version that was checked out and built, once known. */
   toVersion: string | null;
   /**
-   * How the release was applied. `git` = checkout + build (source installs);
-   * `installer` = verified signed installer (packaged installs).
+   * How the release was applied. `build` = downloaded the signed prebuilt build
+   * and promoted it (the normal path); `git` = checkout + build (fallback for a
+   * manifest with no build artifact); `installer` = verified signed installer
+   * (packaged installs).
    */
-  mode?: "git" | "installer";
+  mode?: "build" | "git" | "installer";
   /** The verified installer this run downloaded, when `mode` is `installer`. */
   artifact?: UpdateArtifact | null;
+  /** Where the verified prebuilt build was unpacked, when `mode` is `build`. */
+  stagedDir?: string | null;
   startedAt: string;
   /** Heartbeat, written with every phase change. Used to spot a dead job. */
   updatedAt: string;
@@ -126,4 +152,10 @@ export interface UpdateManifestPayload {
    * against `sha256` before it will start the installer.
    */
   installers?: Record<string, UpdateInstallerAsset>;
+  /**
+   * Signed prebuilt builds (`any`, or `<platform>-<arch>`). A Next build is
+   * platform-independent JS, so `any` is the normal key. When present the
+   * updater downloads + verifies + promotes it instead of rebuilding the tag.
+   */
+  builds?: Record<string, UpdateBuildAsset>;
 }

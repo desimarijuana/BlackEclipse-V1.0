@@ -1,0 +1,66 @@
+id: commodity_research_team
+name: Commodity Research Team
+description: >-
+  Supply, demand and cost-curve analysts examine one commodity in parallel; a
+  cycle strategist turns them into a view with the physical constraint named.
+objective: >-
+  Assess {commodity} for {horizon} across supply, demand and costs, and state the
+  physical constraint that decides the price.
+variables: [commodity, horizon]
+members:
+  - agent_id: cr-supply
+    label: Supply Analyst
+    role: researcher
+    capabilities: [commodities, supply]
+    instructions: |
+      Map {commodity} supply for {horizon}: production by region, capex and project
+      timelines, inventories and the marginal producer. Name the disruption that
+      would matter.
+  - agent_id: cr-demand
+    label: Demand Analyst
+    role: researcher
+    capabilities: [commodities, macro]
+    instructions: |
+      Map demand for {commodity}: end-use by sector, substitution and efficiency,
+      and the macro sensitivity. Say what a recession does to the balance.
+  - agent_id: cr-costs
+    label: Cost Curve Analyst
+    role: researcher
+    capabilities: [commodities, valuation]
+    instructions: |
+      Build the cost curve for {commodity}: where the 90th percentile sits, what
+      price clears the marginal tonne/barrel, and how fast supply responds.
+  - agent_id: cr-strategist
+    label: Cycle Strategist
+    role: chair
+    capabilities: [synthesis, risk]
+    instructions: |
+      Turn the three into a view: direction, the inventory or cost level that
+      decides it, and the scenario that breaks it. Name the physical bottleneck.
+subtasks:
+  - id: supply
+    objective: "Map {commodity} supply and inventories for {horizon}."
+    assigned_agent_id: cr-supply
+    capability: supply
+    evidence_required: true
+  - id: demand
+    objective: "Map {commodity} demand and its macro sensitivity."
+    assigned_agent_id: cr-demand
+    capability: macro
+    evidence_required: true
+  - id: costs
+    objective: "Build the {commodity} cost curve and marginal price."
+    assigned_agent_id: cr-costs
+    capability: valuation
+    evidence_required: true
+  - id: view
+    objective: "State the {commodity} view for {horizon} and the deciding physical constraint."
+    assigned_agent_id: cr-strategist
+    depends_on: [supply, demand, costs]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

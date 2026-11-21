@@ -1,0 +1,28 @@
+{
+  "messages": [
+    {"role": "user", "content": "What moved in my portfolio today?"},
+    {"role": "assistant", "content": "Your portfolio was up 0.8%, led by NVDA."},
+    {"role": "user", "content": "Compare that with the S&P 500 and explain the gap."}
+  ],
+  "context": [
+    {
+      "type": "widget",
+      "name": "Portfolio performance",
+      "description": "Selected dashboard widget: 1D performance by holding.",
+      "data": {"NVDA": 0.031, "AAPL": -0.004}
+    },
+    {
+      "type": "dashboard",
+      "name": "Main",
+      "description": "User dashboard with three widgets."
+    }
+  ],
+  "widgets": [{"id": "w1", "name": "Portfolio performance"}],
+  "urls": ["https://example.com/report"],
+  "api_keys": {"POLYGON_API_KEY": "sk-should-never-appear"},
+  "force_web_search": false,
+  "timezone": "America/New_York",
+  "workspace_state": {"tab": "portfolio"},
+  "workspace_options": {},
+  "tools": []
+}

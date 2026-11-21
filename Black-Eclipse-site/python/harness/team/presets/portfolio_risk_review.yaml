@@ -1,0 +1,67 @@
+id: portfolio_risk_review
+name: Portfolio Risk Review
+description: >-
+  A concentration analyst, a drawdown analyst and a correlation analyst work in
+  parallel; a portfolio manager turns the three into rebalance decisions with
+  explicit trade-offs.
+objective: >-
+  Review {portfolio} for {horizon} and produce rebalance decisions with the
+  trade-offs stated.
+variables: [portfolio, horizon]
+members:
+  - agent_id: pr-concentration
+    label: Concentration Analyst
+    role: researcher
+    capabilities: [portfolio, risk]
+    instructions: |
+      Measure concentration for {portfolio}: top holdings, HHI, effective N,
+      sector and factor tilts. Name the single position whose failure hurts most.
+  - agent_id: pr-drawdown
+    label: Drawdown Analyst
+    role: researcher
+    capabilities: [risk, statistics]
+    instructions: |
+      Characterise drawdown for {portfolio} over {horizon}: worst episodes,
+      recovery times, current distance from high, and what a repeat would cost.
+  - agent_id: pr-correlation
+    label: Correlation Analyst
+    role: researcher
+    capabilities: [risk, statistics]
+    instructions: |
+      Measure how {portfolio}'s holdings move together: rolling correlations,
+      regime shifts, and which pairs are secretly the same bet.
+  - agent_id: pr-pm
+    label: Portfolio Manager
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Turn the three analyses into decisions. For each proposed change state the
+      expected benefit, the cost, and what you are giving up. No change is a
+      decision too - say why.
+subtasks:
+  - id: concentration
+    objective: "Measure concentration and the largest single-name risk in {portfolio}."
+    assigned_agent_id: pr-concentration
+    capability: risk
+    evidence_required: true
+  - id: drawdown
+    objective: "Characterise the drawdown history of {portfolio} over {horizon}."
+    assigned_agent_id: pr-drawdown
+    capability: risk
+    evidence_required: true
+  - id: correlation
+    objective: "Measure co-movement and hidden duplication inside {portfolio}."
+    assigned_agent_id: pr-correlation
+    capability: risk
+    evidence_required: true
+  - id: decisions
+    objective: "Produce rebalance decisions for {portfolio}, each with benefit, cost and trade-off."
+    assigned_agent_id: pr-pm
+    depends_on: [concentration, drawdown, correlation]
+    capability: portfolio
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

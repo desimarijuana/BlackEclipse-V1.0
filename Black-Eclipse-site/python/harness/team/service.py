@@ -37,6 +37,26 @@ from .model import (
     new_team_run_id,
 )
 from .review import ReviewInput, repeat_signature, repair_plan, review
+
+
+def unevidenced_subtasks(
+    team: TeamDefinition,
+    statuses: dict[str, TeamSubtaskStatus],
+    findings: list[TeamFinding],
+) -> list[str]:
+    """Completed subtasks that declared `evidence_required` and carry none.
+
+    A finding counts as evidence only when it names at least one evidence ref.
+    This is the execution half of the contract: the field is not a label.
+    """
+    evidenced = {f.subtask_id for f in findings if f.subtask_id and f.evidence_refs}
+    return [
+        subtask.id
+        for subtask in team.subtasks
+        if subtask.evidence_required
+        and statuses.get(subtask.id) is TeamSubtaskStatus.COMPLETED
+        and subtask.id not in evidenced
+    ]
 from .store import TeamStore
 
 log = logging.getLogger("harness.team.service")
@@ -547,6 +567,22 @@ class TeamService:
 
         team = self._team(run)
         findings = self._collect_findings(run)
+        # `evidence_required` is enforced here: a completed, gated subtask with no
+        # evidenced finding becomes a blocking finding, so the reviewer cannot
+        # approve an unsourced result.
+        for subtask_id in unevidenced_subtasks(team, statuses, findings):
+            findings.append(TeamFinding(
+                id="fnd_" + uuid.uuid4().hex[:12],
+                subtask_id=subtask_id,
+                task_id=run.subtask_task_ids.get(subtask_id),
+                agent_id="",
+                claim=(
+                    f"subtask {subtask_id!r} completed without an evidence "
+                    "reference, but declares evidence_required"
+                ),
+                confidence=1.0,
+                evidence_refs=[],
+            ))
         recon: ReconcileResult = reconcile(findings, evidence_exists=self._evidence_exists())
 
         failed_required = [

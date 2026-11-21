@@ -66,3 +66,6 @@ include = ["harness*"]
 
 [tool.setuptools.package-data]
 "harness" = ["py.typed"]
+# The bundled finance team library is data, not code: it must ship with the
+# package or `team.preset_library` finds an empty directory after install.
+"harness.team" = ["presets/*.yaml"]

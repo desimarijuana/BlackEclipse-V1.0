@@ -1,0 +1,70 @@
+id: macro_strategy_forum
+name: Macro Strategy Forum
+description: >-
+  A global economist, a domestic policy analyst and a cross-asset strategist
+  debate the outlook in parallel; a chief strategist delivers one allocation view
+  with the disagreement preserved.
+objective: >-
+  Debate the {market} outlook for {horizon} and deliver a cross-asset allocation
+  with the strongest opposing case stated.
+variables: [market, horizon]
+members:
+  - agent_id: ms-global
+    label: Global Economist
+    role: researcher
+    capabilities: [macro, rates]
+    instructions: |
+      Cover the global picture for {horizon}: growth momentum, inflation, the
+      major central banks and cross-border spillovers into {market}. Separate what
+      is known from what is priced.
+  - agent_id: ms-domestic
+    label: Domestic Policy Analyst
+    role: researcher
+    capabilities: [policy, macro]
+    instructions: |
+      Cover {market}'s domestic policy: fiscal stance, regulation, credit impulse
+      and the political constraints. Name the policy decision that matters most
+      over {horizon}.
+  - agent_id: ms-crossasset
+    label: Cross-Asset Strategist
+    role: researcher
+    capabilities: [portfolio, macro]
+    instructions: |
+      Translate the two macro views into cross-asset positioning: what to own,
+      what to avoid, the hedge, and the cost of being early.
+  - agent_id: ms-chief
+    label: Chief Strategist
+    role: chair
+    capabilities: [synthesis]
+    instructions: |
+      Deliver one allocation view for {market} over {horizon}. State the
+      strongest opposing case and the data that would flip the call; do not
+      average the three views into a mush.
+subtasks:
+  - id: global
+    objective: "Set the global macro outlook relevant to {market} over {horizon}."
+    assigned_agent_id: ms-global
+    capability: macro
+    evidence_required: true
+  - id: domestic
+    objective: "Assess {market} domestic policy over {horizon}."
+    assigned_agent_id: ms-domestic
+    capability: policy
+    evidence_required: true
+  - id: allocation
+    objective: "Translate the macro views into cross-asset positioning."
+    assigned_agent_id: ms-crossasset
+    depends_on: [global, domestic]
+    capability: portfolio
+    evidence_required: true
+  - id: view
+    objective: "Deliver the {market} allocation view with the opposing case stated."
+    assigned_agent_id: ms-chief
+    depends_on: [global, domestic, allocation]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

@@ -46,6 +46,7 @@ const PHASE_PERCENT: Record<UpdateJobPhase, number> = {
   installing: 52,
   building: 74,
   downloading: 60,
+  unpacking: 68,
   promoting: 90,
   stopping: 60,
   ready: 100,
@@ -98,6 +99,7 @@ export function UpdateButton() {
   const failed = job?.status === 'failed' && !ready;
   const stagedVersion = ready ? job?.toVersion ?? latest : null;
   const installerMode = job?.mode === 'installer';
+  const buildMode = job?.mode === 'build';
 
   const fetchJob = useCallback(async (): Promise<UpdateJob | null> => {
     try {
@@ -295,7 +297,9 @@ export function UpdateButton() {
                   : ready
                     ? installerMode
                       ? 'Downloaded and verified. The installer is opening — follow its steps.'
-                      : 'Built and published. Restart Eclipse — or quit and reopen — to switch.'
+                      : buildMode
+                        ? 'The signed build was downloaded and verified. Restart Eclipse — or quit and reopen — to switch.'
+                        : 'Built and published. Restart Eclipse — or quit and reopen — to switch.'
                     : failed
                       ? job?.error || 'The updater stopped.'
                       : available
@@ -335,13 +339,17 @@ export function UpdateButton() {
               </div>
               {misses > 2 && (
                 <p className="text-[10px] text-amber-200/80">
-                  Eclipse is rebuilding — the window may go quiet for a minute.
+                  {buildMode
+                    ? 'Verifying the build — the window may go quiet for a moment.'
+                    : 'Eclipse is rebuilding — the window may go quiet for a minute.'}
                 </p>
               )}
               <p className="text-[10px] text-muted-foreground/70">
                 {installerMode
                   ? 'The signed installer keeps your data directory untouched.'
-                  : 'Your database was backed up first. Keep the app open.'}
+                  : buildMode
+                    ? 'Checking the signed checksum before anything is installed.'
+                    : 'Your database was backed up first. Keep the app open.'}
               </p>
             </div>
           )}

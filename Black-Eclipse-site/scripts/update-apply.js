@@ -58,7 +58,9 @@ const job = {
   message: "Checking the signed release…",
   fromVersion,
   toVersion: null,
+  // Set to "build" once the prebuilt path reports a staged build directory.
   mode: "git",
+  stagedDir: null,
   artifact: null,
   startedAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -122,6 +124,13 @@ function pushLog(line) {
 const PHASES = [
   [/^\[update\] installed: v/, "verifying", "Checking the signed release…"],
   [/^\[update\] backing up jdds\.db/, "backing-up", "Backing up your database…"],
+  [/^\[update\] mode: signed prebuilt build/, "verifying", "Checking the signed release…"],
+  [/^\[update\] downloading the verified build/, "downloading", "Downloading the signed build…"],
+  [/^\[update\] still downloading/, "downloading", "Downloading the signed build…"],
+  [/^\[update\] extracting the verified build/, "unpacking", "Verifying and unpacking the build…"],
+  [/^\[update\] build validated/, "unpacking", "Verifying and unpacking the build…"],
+  [/^\[update\] this release changed dependencies/, "installing", "Installing dependencies…"],
+  [/^\[update\] promoting the verified build/, "promoting", "Publishing the new build…"],
   [/^\[update\] checking out /, "checkout", "Checking out the signed release…"],
   [/^\[update\] waiting for the native modules/, "installing", "Waiting for Eclipse to release its files…"],
   [/^\[update\] installing dependencies/, "installing", "Installing dependencies (slow)…"],
@@ -130,16 +139,44 @@ const PHASES = [
   [/^\[desktop:refresh\]/, "building", "Preparing the new build…"],
 ];
 
+// Where the phases sit on the timeline. `downloading`/`unpacking` belong to the
+// prebuilt path; `checkout`/`building` to the git fallback. A phase may only
+// move forward, so a late "installed: v" line cannot undo "building".
+const PHASE_ORDER = [
+  "starting",
+  "stopping",
+  "verifying",
+  "backing-up",
+  "downloading",
+  "unpacking",
+  "checkout",
+  "installing",
+  "building",
+  "promoting",
+];
+
 function onLine(line) {
   pushLog(line);
-  if (/^\[update\] (checking out|installing dependencies|building production bundle)/.test(line)) {
+  if (
+    /^\[update\] (checking out|installing dependencies|building production bundle|build staged:)/.test(line)
+  ) {
     applied = true;
   }
+  // The prebuilt path reports where it staged the verified build; the runner
+  // promotes from exactly that directory (never from `.next`, which the user's
+  // tree may have rebuilt since).
+  const staged = /^\[update\] build staged: (.+)$/.exec(line);
+  if (staged) {
+    job.mode = "build";
+    job.stagedDir = staged[1].trim();
+  }
+  // The staged directory is the checkout-independent truth about WHICH version
+  // was staged; the checkout on disk may be on another version entirely.
+  const stagedRelease = /^\[update\] staged release: v([\d.]+)/.exec(line);
+  if (stagedRelease) job.toVersion = stagedRelease[1];
   for (const [pattern, phase, message] of PHASES) {
     if (pattern.test(line)) {
-      // Never move backwards: a late "installed: v" line must not undo "building".
-      const order = ["starting", "stopping", "verifying", "backing-up", "checkout", "installing", "building", "promoting"];
-      if (order.indexOf(phase) > order.indexOf(job.phase)) setPhase(phase, message);
+      if (PHASE_ORDER.indexOf(phase) > PHASE_ORDER.indexOf(job.phase)) setPhase(phase, message);
       return;
     }
   }
@@ -219,9 +256,12 @@ function closeRunningApp() {
 }
 
 /** Promote the staged build, restarting the window when this runner closed it. */
-function promote(restart) {
+function promote(restart, from) {
   setPhase("promoting", "Publishing the new build…");
   const args = ["--no-build", "--channel", desktopChannel];
+  // `--from` promotes the build the updater just verified, not `.next` (which
+  // belongs to the user's working tree and may be anything).
+  if (from) args.push("--from", from);
   if (!restart) args.push("--no-restart");
   const result = spawnSync(
     process.execPath,
@@ -251,10 +291,14 @@ function sleep(ms) {
 // download those exact bytes, verify them, and hand the verified file to the
 // Windows installer. Nothing runs before the digest matches.
 
-/** Is this checkout a git work tree, or a packaged `<install>\app` payload? */
+/**
+ * Is this checkout a git work tree, or a packaged `<install>\app` payload?
+ * The repo root can be above ROOT (this app lives in `Black-Eclipse-site/`
+ * inside its repo), so look for the enclosing work tree, not `ROOT/.git`.
+ */
 function isGitCheckout() {
   try {
-    return fs.existsSync(path.join(ROOT, ".git"));
+    return require("./lib/git-root").isSourceCheckout(ROOT);
   } catch {
     return false;
   }
@@ -544,7 +588,7 @@ async function main() {
   child.on("exit", (code) => {
     if (buffered) onLine(buffered);
     if (code === 0) {
-      const version = readVersion();
+      const version = job.toVersion || readVersion();
       if (!applied) {
         // The updater had nothing to do (already current, or not published).
         // Report it honestly instead of offering a restart that changes nothing.
@@ -561,7 +605,7 @@ async function main() {
         reviveIfStopped();
         return;
       }
-      if (!promote(stoppedServer)) return;
+      if (!promote(stoppedServer, job.stagedDir || undefined)) return;
       // The promote relaunched the window on the new build.
       stoppedServer = false;
       finish(

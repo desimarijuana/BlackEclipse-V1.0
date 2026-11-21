@@ -6,7 +6,8 @@
 //   black update --check      check only (no changes)
 //   black update --yes        apply without prompting
 //   black update --restart    restart the desktop app after applying
-//   black update --no-desktop skip the desktop refresh (build only)
+//   black update --no-desktop stage only (the in-app runner promotes)
+//   black update --git        force checkout + build (contributor path)
 //   black update --channel beta
 //
 // Desktop first: after a successful build the native app is re-pinned and
@@ -14,15 +15,25 @@
 // consider — the product is the desktop app. The refresh is a safe no-op when
 // the desktop is not installed or is a packaged (non-bridged) install.
 //
-// Safety order (do not reorder):
-//   1. Manifest signature verifies against config/update-signing-key.pub.
-//   2. Working tree is clean, so nothing of the user's is overwritten.
-//   3. The release tag's commit SHA equals the signed manifest's commit.
-//   4. jdds.db is backed up BEFORE checkout.
-//   5. Build runs; ANY failure rolls the checkout back and rebuilds the old one.
+// TWO APPLICATION PATHS, one verification chain:
 //
-// This never downloads an executable and never runs remote code. It checks out
-// a signed-off git tag from the repository the user already cloned.
+//   1. Prebuilt (normal). The signed manifest advertises `builds`, the release's
+//      COMPILED `.next`. `scripts/lib/build-artifact.js` downloads it, verifies
+//      the signed size + sha256, extracts it into `.runtime/updates`, and
+//      `desktop-promote.js --from` swaps it in atomically. git is never read,
+//      nothing is compiled, and a dirty working tree is irrelevant — every
+//      release touches the changelog, so that used to block every update.
+//   2. Git fallback (manifests through v0.4.21, or `--git`). The old path:
+//      verify the tag, require a clean tree, checkout, `npm ci`, build.
+//
+// Shared safety order (do not reorder):
+//   1. Manifest signature verifies against config/update-signing-key.pub.
+//   2. Every artifact byte matches the signed size + sha256.
+//   3. For the git path: working tree clean, tag commit == signed commit,
+//      jdds.db backed up BEFORE checkout, build failure rolls back.
+//
+// This never downloads an executable and never runs remote code. The packaged
+// installer path lives in scripts/update-apply.js.
 
 "use strict";
 
@@ -38,6 +49,7 @@ const {
   isNewerVersion,
   parseVersion,
 } = require("./lib/update-verify");
+const { assetForPlatform, downloadVerified, unpackBuild, lockHash } = require("./lib/build-artifact");
 
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 const args = process.argv.slice(2);
@@ -53,6 +65,10 @@ const assumeYes = hasFlag("yes") || hasFlag("y");
 const restart = hasFlag("restart");
 const noDesktop = hasFlag("no-desktop");
 const skipBackup = hasFlag("no-backup");
+// Escape hatch: restore the old "check out the tag and build it here" path even
+// when the release advertises a prebuilt build. Needed by a contributor who
+// wants the signed tag in their own tree (detached HEAD).
+const forceGit = hasFlag("git");
 
 // The version the RUNNING app is serving, when the caller knows it (the in-app
 // updater does). It is not always `package.json` on disk: a checkout can be
@@ -89,12 +105,41 @@ function git(commandArgs, options = {}) {
   }).trim();
 }
 
-function workingTreeDirty() {
+/** The uncommitted paths (`git status --porcelain`), or ["<git failed>"] . */
+function dirtyPaths() {
   try {
-    return git(["status", "--porcelain"]) !== "";
+    const out = git(["status", "--porcelain"]);
+    return out ? out.split(/\r?\n/).filter(Boolean) : [];
   } catch {
-    return true;
+    return ["<git status failed>"];
   }
+}
+
+/**
+ * The refusal has to be actionable, because a dirty tree is the most common
+ * reason an update "does nothing". Two states look identical to the user but
+ * need different answers:
+ *   * A developer tree already AT/PAST the signed release. There is nothing to
+ *     fetch, and `git checkout <tag>` would move it backwards — the running app
+ *     is just a stale pinned build, so `npm run desktop:refresh` is the fix.
+ *   * An ordinary install behind the release: commit/stash, then retry.
+ */
+function dirtyTreeMessage(paths, manifest) {
+  const sample = paths
+    .slice(0, 3)
+    .map((line) => line.replace(/^..\s+/, ""))
+    .join(", ");
+  const more = paths.length > 3 ? ` and ${paths.length - 3} more` : "";
+  const ahead = compareVersions(pkg.version, manifest.version) >= 0;
+  const hint = ahead
+    ? `This checkout is already on v${pkg.version} (the signed release is v${manifest.version}), so ` +
+      "the window is just serving an older pinned build. Commit or stash, then run " +
+      "`npm run desktop:refresh` to rebuild and re-pin it — no git checkout is involved."
+    : "Commit or stash them, then run `black update` again.";
+  return (
+    `the working tree has ${paths.length} uncommitted change(s) (${sample}${more}), so updating would ` +
+    `mix your edits into the release build. ${hint}`
+  );
 }
 
 function ask(question) {
@@ -199,6 +244,91 @@ function refreshDesktop() {
 // while a channel is live; this is the managed path and owns the restart.
 process.env.BE_ALLOW_BUILD_WHILE_RUNNING = "1";
 
+// ── Prebuilt build mode ─────────────────────────────────────────────────────
+// The normal path. The release publishes the COMPILED `.next` as a signed
+// artifact, so an update is: verify the manifest, download, verify the bytes,
+// extract, validate, promote. No git checkout, no `npm ci`, no local build —
+// which is why an uncommitted changelog can no longer block an update.
+//
+// This mirrors how shipped desktop apps update (Tauri updater, VS Code,
+// electron-updater, OpenCode): the vendor ships an artifact, the client swaps
+// it atomically and restarts. Building the release on the user's machine was
+// the design flaw.
+function updatesDir() {
+  return path.join(ROOT, ".runtime", "updates");
+}
+
+function promotePrebuilt(buildDir) {
+  log("promoting the verified build…");
+  run(process.execPath, [
+    path.join(ROOT, "scripts", "desktop-promote.js"),
+    "--channel",
+    channel,
+    "--from",
+    buildDir,
+  ]);
+}
+
+async function applyPrebuilt(manifest, { key, asset }, current) {
+  log(`mode: signed prebuilt build (${key}) — no checkout, no local compile`);
+  log("downloading the verified build…");
+
+  const dest = path.join(updatesDir(), `BlackEclipse-Build-${manifest.version}-${key}.zip`);
+  // A long download must keep talking, or the in-app job reads as dead after
+  // five minutes without a heartbeat.
+  let lastBeat = 0;
+  const onBeat = () => {
+    if (Date.now() - lastBeat < 20000) return;
+    lastBeat = Date.now();
+    log("still downloading…");
+  };
+
+  let downloaded;
+  try {
+    downloaded = await downloadVerified(asset.url, dest, {
+      sha256: asset.sha256,
+      size: asset.size,
+      onBeat,
+    });
+  } catch (err) {
+    fail(err && err.message ? err.message : "The build download failed.");
+  }
+  log(`checksum verified (${downloaded.bytes} bytes, sha256 ${asset.sha256.slice(0, 12)}…)`);
+
+  log("extracting the verified build…");
+  const stage = path.join(updatesDir(), `stage-${manifest.version}-${key}`);
+  let build;
+  try {
+    build = unpackBuild(dest, stage, { buildId: asset.buildId });
+  } catch (err) {
+    fail(err && err.message ? err.message : "The downloaded build could not be unpacked.");
+  }
+  log(`build validated: ${build.buildId}`);
+
+  // The artifact was compiled against the release's lockfile. If dependencies
+  // moved, install them first — otherwise `next start` runs a build whose
+  // modules are absent. Rare, and the only time this path touches node_modules.
+  if (asset.lockHash) {
+    const local = lockHash(ROOT);
+    if (local && local !== asset.lockHash) {
+      log("this release changed dependencies — installing them first…");
+      releaseDependencies();
+      installDependencies();
+    }
+  }
+
+  if (noDesktop) {
+    // In-app staging: the runner promotes (and owns the restart), exactly like
+    // the git path. The CLI without --no-desktop promotes right here.
+    log(`staged release: v${manifest.version}`);
+    log(`build staged: ${build.buildDir}`);
+    return;
+  }
+
+  promotePrebuilt(build.buildDir);
+  log(`updated v${current} -> v${manifest.version}`);
+}
+
 async function main() {
   if (!CHANNELS.includes(channel)) fail(`unknown channel "${channel}" (use ${CHANNELS.join(" | ")})`);
   if (process.env.ECLIPSE_UPDATES_DISABLED === "1") fail("update checks are disabled by ECLIPSE_UPDATES_DISABLED=1");
@@ -244,11 +374,23 @@ async function main() {
     return;
   }
 
-  if (workingTreeDirty()) {
-    fail(
-      "the working tree has uncommitted changes. Commit or stash them first — updating would " +
-        "otherwise overwrite local edits.",
-    );
+  // Prefer the signed prebuilt build. Only fall back to checkout+build when the
+  // release advertises none (every manifest through v0.4.21) or `--git` is set.
+  const platform = `${process.platform}-${process.arch}`;
+  const prebuilt = forceGit ? null : assetForPlatform(manifest.builds, platform);
+  if (prebuilt) {
+    await applyPrebuilt(manifest, prebuilt, current);
+    return;
+  }
+  if (forceGit) {
+    log("--git: using the checkout + build path");
+  } else {
+    log("this release advertises no prebuilt build — falling back to checkout + build");
+  }
+
+  const dirty = dirtyPaths();
+  if (dirty.length) {
+    fail(dirtyTreeMessage(dirty, manifest));
   }
 
   if (!assumeYes) {

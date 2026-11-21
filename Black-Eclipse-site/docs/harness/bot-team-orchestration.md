@@ -43,7 +43,26 @@ It composes the subsystems that already exist.
 | `service.py` | `TeamService`: validate → plan → delegate → start → collect → reconcile → review → repair. |
 | `store.py` | The durable `TeamRun` table on the ONE `agent-memory.db` connection. |
 | `tools.py` | The model-facing `TEAM_TOOLS` (`team_run`/`team_status`/`team_result`/`team_review`/`team_cancel`), on the ONE registry. |
+| `preset_library.py` | The bundled finance team library: `load_presets`, `list_presets`, `get_preset`, `render_preset`, `validate_definition`. Validates ids, dependencies, cycles and assignees at load time. |
+| `presets/*.yaml` | `investment_committee`, `quant_strategy_desk`, `portfolio_risk_review`, `earnings_review_desk`, `macro_rates_fx_desk`. Data, not code — shipped via `package-data`. |
 | `bootstrap.py` | `install_team_layer(service)`; called from the runtime lifespan after A2A + Tasks. |
+
+### The bundled team library
+
+A preset is a **documented collaboration pattern**: members with instructions, a
+dependency-aware subtask graph, and a policy. `preset_library.render_preset`
+substitutes declared `{variables}` (`{target}`, `{horizon}`, …) into a concrete
+`TeamDefinition`; a missing variable raises rather than shipping a literal
+`{target}` in a prompt.
+
+`TeamSubtask.evidence_required` is what makes the library more than a prompt
+pack: in `TeamService.finalize`, a completed gated subtask with no evidenced
+finding becomes a BLOCKING finding, so the reviewer cannot approve it silently.
+Every bundled preset gates its research and verdict subtasks.
+Structural problems (duplicate ids, unknown/cyclic dependencies, an assignee
+that is not a member, a non-orchestrator lead that is not a member) fail at load
+time with the file name.
+
 
 Routes: `python/harness/routers/team.py` (`/team/*`, operator-gated). Front door:
 `src/lib/harness/team-client.ts` + `src/app/api/team/[[...path]]/route.ts`. The

@@ -103,6 +103,52 @@ jobs:
             !Black-Eclipse-site/.next-desktop/cache
           if-no-files-found: error
 
+  # The artifact the UPDATER ships: the compiled production `.next` for this
+  # tag. The client downloads it, verifies the signed sha256/size, and promotes
+  # it — no git checkout and no compile on the user's machine. Without it the
+  # updater falls back to checkout+build, which a dirty tree (any release that
+  # touches the changelog) blocks.
+  #
+  # Deliberately separate from `payload`: that one is a Next standalone bundle
+  # for the installers, this one is the plain build the desktop serves. Two
+  # compiles per release buys the update path; the npm cache keeps it cheap.
+  release-build:
+    name: release build artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Black-Eclipse-site/package-lock.json
+
+      - name: Install dependencies
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+          npx prisma generate
+
+      - name: Build and zip the release build
+        working-directory: Black-Eclipse-site
+        shell: bash
+        run: npm run release:build
+
+      - name: Upload the release build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-build
+          path: Black-Eclipse-site/dist/BlackEclipse-Build-*.zip
+          if-no-files-found: error
+
   build:
     name: build (${{ matrix.os }})
     needs: payload
@@ -383,7 +429,7 @@ jobs:
 
   release:
     name: publish release
-    needs: build
+    needs: [build, release-build]
     # Publish whatever platforms succeeded, even if another one failed: a red
     # macOS job must not withhold the Windows and Linux installers. The guard
     # step below still refuses to create an empty release.
@@ -452,3 +498,4 @@ jobs:
             artifacts/**/SHA256SUMS.txt
             artifacts/**/packs/*.zip
             artifacts/**/packs/manifest.json
+            artifacts/**/BlackEclipse-Build-*.zip

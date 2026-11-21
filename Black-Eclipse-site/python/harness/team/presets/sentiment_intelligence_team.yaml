@@ -1,0 +1,65 @@
+id: sentiment_intelligence_team
+name: Market Sentiment Intelligence Unit
+description: >-
+  News, social and flow analysis run in parallel; a synthesiser turns them into a
+  sentiment signal and names the divergence between narrative and positioning.
+objective: >-
+  Read sentiment on {target} over {horizon} across news, social and flows, and
+  report the signal plus the divergence that matters.
+variables: [target, horizon]
+members:
+  - agent_id: si-news
+    label: News Intelligence Analyst
+    role: researcher
+    capabilities: [news, sentiment]
+    instructions: |
+      Read the news coverage of {target} over {horizon}: tone, themes, and whether
+      the narrative is strengthening or fading. Separate reporting from opinion.
+  - agent_id: si-social
+    label: Social Analyst
+    role: researcher
+    capabilities: [social, sentiment]
+    instructions: |
+      Read social discussion of {target}: volume, stance, and whether it is retail
+      enthusiasm or informed commentary. Flag the extremes, not the average.
+  - agent_id: si-flows
+    label: Flow Analyst
+    role: researcher
+    capabilities: [flows, positioning]
+    instructions: |
+      Read positioning: flows, short interest, options skew. Say where the crowd is
+      leaning and where that is already priced.
+  - agent_id: si-synth
+    label: Sentiment Synthesizer
+    role: chair
+    capabilities: [synthesis]
+    instructions: |
+      Produce the signal: a direction, a confidence, and the divergence between
+      narrative and positioning. Name the evidence that would flip it.
+subtasks:
+  - id: news
+    objective: "Read {target} news tone and themes over {horizon}."
+    assigned_agent_id: si-news
+    capability: news
+    evidence_required: true
+  - id: social
+    objective: "Read social sentiment on {target}, including extremes."
+    assigned_agent_id: si-social
+    capability: social
+    evidence_required: true
+  - id: flows
+    objective: "Read positioning and flows for {target}."
+    assigned_agent_id: si-flows
+    capability: flows
+    evidence_required: true
+  - id: signal
+    objective: "Synthesize the sentiment signal for {target} and name the divergence."
+    assigned_agent_id: si-synth
+    depends_on: [news, social, flows]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

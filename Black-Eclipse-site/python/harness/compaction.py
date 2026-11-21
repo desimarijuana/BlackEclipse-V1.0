@@ -63,6 +63,121 @@ MODEL_TIMEOUT_S = 20.0
 #: The policy key that turns the model narrative OFF (the skeleton always runs).
 MODEL_POLICY_KEY = "history_compaction_model"
 
+#: The policy key / env flag that enables the zero-cost fold. OFF by default:
+#: folding long turns changes which turns survive trimming, and that is a
+#: behaviour change nobody has measured yet. `BE_HISTORY_COLLAPSE=1` (or the
+#: `history_collapse` policy key) enables it.
+COLLAPSE_POLICY_KEY = "history_collapse"
+
+#: ---- Zero-cost collapse (Phase 4) -------------------------------------------
+#: A turn longer than this is folded to head + tail before it is allowed to eat
+#: the history budget. No model call, no failure mode: this is layer 2 of the
+#: context strategy, and it runs before a turn is DROPPED.
+COLLAPSE_MIN_CHARS = 1_200
+#: How much of the beginning and the end survive the fold.
+COLLAPSE_HEAD_CHARS = 400
+COLLAPSE_TAIL_CHARS = 400
+#: The marker prefix. A folded text is never re-folded (idempotent).
+COLLAPSE_MARKER = "[collapsed"
+
+
+@dataclass(frozen=True)
+class CollapseReport:
+    """What the zero-cost fold did. Never claims a model was involved."""
+
+    folded: int = 0
+    saved_chars: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"folded": self.folded, "savedChars": self.saved_chars}
+
+
+def collapse_text(
+    text: Any,
+    *,
+    head: int = COLLAPSE_HEAD_CHARS,
+    tail: int = COLLAPSE_TAIL_CHARS,
+    min_chars: int = COLLAPSE_MIN_CHARS,
+) -> tuple[str, bool, str]:
+    """Fold the middle of a long text. Returns `(text, collapsed, digest)`.
+
+    The survivor is the head plus the tail plus a marker naming exactly how much
+    was folded and the sha256 of the FULL original. Nothing is invented and
+    nothing is summarized: the caller that holds the original can verify it, and
+    the marker tells a reader that this text is partial.
+
+    Idempotent: an already-folded text (it carries the marker and is shorter than
+    `min_chars`) is returned unchanged, so folding twice never compounds.
+    """
+    value = str(text or "")
+    if len(value) <= max(0, int(min_chars)):
+        return value, False, ""
+    if value.startswith(COLLAPSE_MARKER) or f"\n{COLLAPSE_MARKER}" in value:
+        return value, False, ""
+    import hashlib  # noqa: PLC0415 - only paid when a fold happens
+
+    digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
+    folded_chars = max(0, len(value) - max(0, head) - max(0, tail))
+    marker = (
+        f"\n{COLLAPSE_MARKER}: {folded_chars} of {len(value)} chars omitted; "
+        f"sha256:{digest[:16]}]\n"
+    )
+    collapsed = value[: max(0, head)] + marker + value[len(value) - max(0, tail):]
+    return collapsed, True, digest
+
+
+def collapse_turn(turn: Any, **overrides: Any) -> tuple[Any, bool, str]:
+    """Fold one turn's content without mutating it. Returns `(turn, did, digest)`.
+
+    Supports the pydantic `ConversationTurn` (`model_copy`), dataclasses
+    (`replace`) and plain dicts. An unknown turn shape is returned unchanged:
+    compaction must never break a run over a type it does not understand.
+    """
+    content = getattr(turn, "content", None)
+    if content is None and isinstance(turn, dict):
+        content = turn.get("content")
+    folded, did, digest = collapse_text(content, **overrides)
+    if not did:
+        return turn, False, ""
+    if hasattr(turn, "model_copy"):
+        return turn.model_copy(update={"content": folded}), True, digest
+    if isinstance(turn, dict):
+        copy = dict(turn)
+        copy["content"] = folded
+        return copy, True, digest
+    try:
+        from dataclasses import replace  # noqa: PLC0415
+
+        return replace(turn, content=folded), True, digest
+    except Exception:  # noqa: BLE001 - unknown shape stays untouched
+        return turn, False, ""
+
+
+def collapse_turns(turns: list[Any], **overrides: Any) -> tuple[list[Any], CollapseReport]:
+    """Fold every long turn in `turns`, preserving order and the originals."""
+    out: list[Any] = []
+    folded = 0
+    saved = 0
+    for turn in turns or []:
+        new_turn, did, _digest = collapse_turn(turn, **overrides)
+        if did:
+            folded += 1
+            saved += max(0, len(getattr(turn, "content", "") or "") - len(getattr(new_turn, "content", "") or ""))
+        out.append(new_turn)
+    return out, CollapseReport(folded=folded, saved_chars=saved)
+
+
+def collapse_enabled() -> bool:
+    """Whether the history bound may fold long turns for THIS process.
+
+    OFF unless `BE_HISTORY_COLLAPSE` is set to a truthy value. The fold changes
+    which turns survive trimming (it can make every turn fit), so it is opt-in
+    rather than a silent rewrite of existing behaviour.
+    """
+    import os  # noqa: PLC0415 - trivial, kept local with the other policy reads
+
+    return str(os.environ.get("BE_HISTORY_COLLAPSE", "")).strip().lower() in {"1", "on", "true", "yes"}
+
 
 @dataclass(frozen=True)
 class HistoryCompaction:
@@ -110,6 +225,9 @@ class CompactionResult:
     reason: str = ""
     #: The characters the rendered block costs.
     chars: int = 0
+    #: True when this compaction UPDATED an earlier summary instead of starting
+    #: fresh (iterative mode). The skeleton is still rebuilt every time.
+    iterated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -119,6 +237,7 @@ class CompactionResult:
             "requests": len(self.requests),
             "answers": len(self.answers),
             "chars": self.chars,
+            "iterated": self.iterated,
             "reason": self.reason or None,
         }
 
@@ -189,29 +308,53 @@ def render_compaction_block(result: CompactionResult) -> str:
     return "\n".join(lines)
 
 
-def build_compaction_prompt(requests: tuple[str, ...], answers: tuple[str, ...]) -> str:
-    """The prompt the model is asked for - a NARRATIVE, not a transcript."""
-    return "\n".join(
-        [
-            "The earlier part of a conversation was compacted to fit a context window. "
-            "Below are the requests that were made and the answers that were given.",
+def build_compaction_prompt(
+    requests: tuple[str, ...], answers: tuple[str, ...], *, prior: Optional[str] = None,
+) -> str:
+    """The prompt the model is asked for - a NARRATIVE, not a transcript.
+
+    When `prior` is given (iterative mode), the model is asked to UPDATE that
+    briefing rather than write a new one. Without it, a long session's Nth
+    compaction would forget what the earlier summaries had already established.
+    """
+    lines = [
+        "The earlier part of a conversation was compacted to fit a context window. "
+        "Below are the requests that were made and the answers that were given.",
+        "",
+        "REQUESTS:",
+        *[f"- {r}" for r in requests],
+        "",
+        "ANSWERS:",
+        *[f"- {a}" for a in answers],
+        "",
+    ]
+    if prior:
+        lines.extend([
+            "You previously wrote this briefing for the even-earlier part of the "
+            "conversation:",
+            "<prior-briefing>",
+            prior,
+            "</prior-briefing>",
             "",
-            "REQUESTS:",
-            *[f"- {r}" for r in requests],
-            "",
-            "ANSWERS:",
-            *[f"- {a}" for a in answers],
-            "",
+            "UPDATE that briefing with what the newer material above adds. Keep every "
+            "fact from the prior briefing that is still true, correct anything it got "
+            "wrong, and add the new decisions, open questions and state of the work. "
+            "Do not restate the transcript. At most 12 short lines, plain text, no "
+            "headings, no preamble.",
+        ])
+    else:
+        lines.append(
             "Write a short briefing (at most 12 short lines) that would let someone "
             "continue this work without the original text. Cover: the decisions that "
             "were made, what is still open, and the state of the work. Plain text, no "
-            "headings, no preamble. If you do not know something, say so.",
-        ]
-    )
+            "headings, no preamble. If you do not know something, say so."
+        )
+    return "\n".join(lines)
 
 
 async def _model_narrative(
     request: Any, requests: tuple[str, ...], answers: tuple[str, ...],
+    *, prior: Optional[str] = None,
 ) -> tuple[str, str]:
     """Ask the run's own model for the narrative. Returns `(narrative, reason)`.
 
@@ -223,7 +366,7 @@ async def _model_narrative(
     from .model_runtime import get_runtime  # noqa: PLC0415
     from .models import build_chat_model  # noqa: PLC0415
 
-    prompt = build_compaction_prompt(requests, answers)
+    prompt = build_compaction_prompt(requests, answers, prior=prior)
     if not prompt:
         return "", "nothing to compact"
     try:
@@ -251,6 +394,7 @@ async def compact_dropped(
     request: Any = None,
     settings: Optional[dict[str, Any]] = None,
     use_model: Optional[bool] = None,
+    prior_summary: Optional[str] = None,
 ) -> CompactionResult:
     """Compact the dropped turns into a summary that carries them forward.
 
@@ -275,7 +419,9 @@ async def compact_dropped(
         # runtime rather than by the model - leaves the skeleton untouched. A
         # compaction must never break a run.
         try:
-            narrative, reason = await _model_narrative(request, requests, answers)
+            narrative, reason = await _model_narrative(
+                request, requests, answers, prior=prior_summary,
+            )
         except Exception as exc:  # noqa: BLE001 - absence/failure is not an error here
             narrative, reason = "", f"model unavailable: {type(exc).__name__}"
         used_model = bool(narrative)
@@ -288,6 +434,7 @@ async def compact_dropped(
         dropped_turns=len(turns or []),
         used_model=used_model,
         reason="" if used_model else reason,
+        iterated=bool(prior_summary),
     )
     block = render_compaction_block(result)
     return CompactionResult(
@@ -299,11 +446,12 @@ async def compact_dropped(
         used_model=result.used_model,
         reason=result.reason,
         chars=len(block),
+        iterated=result.iterated,
     )
 
 
 async def compact_history(
-    turns: list[Any], *, keep_turns: int = 6,
+    turns: list[Any], *, keep_turns: int = 6, prior_summary: Optional[str] = None,
 ) -> HistoryCompaction:
     """Compact an explicit conversation history for a user-requested `/compact`.
 
@@ -328,7 +476,7 @@ async def compact_history(
             reason="nothing to compact",
         )
     dropped = history[:-keep] if keep else list(history)
-    result = await compact_dropped(dropped, use_model=False)
+    result = await compact_dropped(dropped, use_model=False, prior_summary=prior_summary)
     block = render_compaction_block(result)
     if not block:
         return HistoryCompaction(
@@ -345,15 +493,23 @@ async def compact_history(
 
 
 __all__ = [
+    "COLLAPSE_HEAD_CHARS",
+    "COLLAPSE_MARKER",
+    "COLLAPSE_MIN_CHARS",
+    "COLLAPSE_TAIL_CHARS",
     "MAX_ITEM_CHARS",
     "MAX_NARRATIVE_CHARS",
     "MAX_SKELETON_ITEMS",
     "MODEL_POLICY_KEY",
     "MODEL_TIMEOUT_S",
+    "CollapseReport",
     "CompactionResult",
     "HistoryCompaction",
     "build_compaction_prompt",
     "build_skeleton",
+    "collapse_text",
+    "collapse_turn",
+    "collapse_turns",
     "compact_dropped",
     "compact_history",
     "render_compaction_block",

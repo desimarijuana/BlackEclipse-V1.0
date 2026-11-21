@@ -1,0 +1,66 @@
+id: sector_rotation_team
+name: Sector Rotation Team
+description: >-
+  Cycle, earnings-revision and flow analysts read the market in parallel; a
+  rotation strategist ranks sectors and names the tilt with its invalidation.
+objective: >-
+  Rank {market} sectors for {horizon} and propose a rotation with the evidence
+  and the trigger that would reverse it.
+variables: [market, horizon]
+members:
+  - agent_id: sr-cycle
+    label: Cycle Analyst
+    role: researcher
+    capabilities: [macro, sector]
+    instructions: |
+      Place {market} in the cycle for {horizon}: growth and inflation direction,
+      where each sector historically performs in this phase, and how confident
+      the phase call is.
+  - agent_id: sr-revisions
+    label: Revision Analyst
+    role: researcher
+    capabilities: [estimates, sector]
+    instructions: |
+      Read earnings revisions by sector: breadth, direction and whether consensus
+      is rising or fading. Name the sector where revisions and price disagree.
+  - agent_id: sr-flows
+    label: Flow Analyst
+    role: researcher
+    capabilities: [flows, sector]
+    instructions: |
+      Read positioning and flows: fund flows, breadth, and crowding. Flag the
+      sector where positioning is already extreme in either direction.
+  - agent_id: sr-strategist
+    label: Rotation Strategist
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Rank the sectors and name the tilt for {horizon}. State the relative
+      weight, the hedge, and the specific trigger that would reverse the rotation.
+subtasks:
+  - id: cycle
+    objective: "Place {market} in the cycle for {horizon} with confidence."
+    assigned_agent_id: sr-cycle
+    capability: macro
+    evidence_required: true
+  - id: revisions
+    objective: "Read sector earnings revisions in {market}."
+    assigned_agent_id: sr-revisions
+    capability: estimates
+    evidence_required: true
+  - id: flows
+    objective: "Read positioning and flows across {market} sectors."
+    assigned_agent_id: sr-flows
+    capability: flows
+    evidence_required: true
+  - id: rotation
+    objective: "Rank {market} sectors and name the tilt, hedge and reversal trigger."
+    assigned_agent_id: sr-strategist
+    depends_on: [cycle, revisions, flows]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

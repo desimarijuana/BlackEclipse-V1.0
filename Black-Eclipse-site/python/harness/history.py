@@ -55,6 +55,15 @@ def _bounded_history(
     if not history:
         return [], []
     trimmed = list(history[-max_turns:]) if max_turns > 0 else []
+    # Zero-cost collapse BEFORE the character cap, when enabled: a single
+    # over-long turn is folded to head+tail (marked, digest-bearing, no model
+    # call) instead of being dropped whole for its size. Nothing is summarized
+    # here; the marker says exactly how much was omitted. OFF by default — see
+    # `compaction.collapse_enabled`.
+    from .compaction import collapse_enabled, collapse_turns  # noqa: PLC0415
+
+    if collapse_enabled():
+        trimmed = collapse_turns(trimmed)[0]
     dropped = list(history[: max(0, len(history) - max_turns)]) if max_turns > 0 else list(history)
     # Also cap total characters, dropping oldest turns first.
     total = sum(len(t.content) for t in trimmed)

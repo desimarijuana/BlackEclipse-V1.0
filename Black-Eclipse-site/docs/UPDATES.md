@@ -1,7 +1,7 @@
 ---
 title: Updates & Release Signing
 status: Current
-last-verified: 2026-11-20
+last-verified: 2026-11-21
 ---
 
 # Updates & Release Signing
@@ -85,6 +85,9 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 | Concern | File |
 |---|---|
 | Wire format, Ed25519 verify, semver, allowlist | `scripts/lib/update-verify.js` |
+| Prebuilt build: download, verify, extract, validate | `scripts/lib/build-artifact.js` |
+| Produce the release build archive (`npm run release:build`) | `scripts/release-build-zip.js` |
+| Checkout-vs-packaged detection (shared by runner) | `scripts/lib/git-root.js` (`findGitRoot`, `isSourceCheckout`) |
 | Server mirror used by the route | `src/lib/updates/core.ts` |
 | Shared types (client-safe) | `src/lib/updates/types.ts` |
 | Repo slug, manifest URLs, allowed hosts | `config/updates.json` |
@@ -104,35 +107,52 @@ key-order/whitespace ambiguity: change one byte and verification fails.
 | Settings UI | `src/components/screens/general-settings.tsx` → General › Updates |
 | Tests | `src/lib/updates/core.test.ts` |
 
+## Checkout detection (never test `<app>/.git`)
+
+The app lives in `Black-Eclipse-site/`, but the repository root is its **parent**;
+`Black-Eclipse-site/.git` does not exist. In-app updating therefore has to answer
+two questions: *is this a git work tree?* and *is this a packaged payload?* Both
+answers come from one place — `scripts/lib/git-root.js` (`findGitRoot`,
+`isSourceCheckout`). `src/lib/updates/core.ts` mirrors it because the Next server
+cannot import the CommonJS helper; the two must agree (a test asserts they do).
+
+Detection walks up to the nearest `.git` **file or directory**, and a payload
+root containing `server.js` is always packaged — even when some unrelated
+repository sits above the install directory.
+
+**Why this is written down.** A bare `existsSync(<app>/.git)` test was shipped
+once: every clone (and every CI checkout) has the `.git` one level up, so
+`/api/updates` reported `canSelfUpdate: false` and `POST /api/updates/apply`
+answered *"This installed build cannot update in place"* — the window could not
+download an update at all. `src/lib/updates/core.test.ts` now pins the
+parent-root, packaged-marker and real-layout cases for **both** implementations.
+Do not replace the helper with a direct `.git` check.
+
 ## Release state (current)
 
 Updates are **published**: the repository is
-`dumbpabloo/BlackEclipse-V1.0` (public), `config/updates.json` has
-`"published": true`, and a signed `stable.json` for **v0.4.18** is attached to
-that release. A live check therefore verifies the signature and reports *up to
-date* for anyone on 0.4.18; it starts offering a release as soon as a newer
-signed manifest exists.
+`dumbpabloo/BlackEclipse-V1.0` (public) and `config/updates.json` has
+`"published": true`. A live check verifies the newest signed manifest and offers
+it as soon as it is newer than the running build.
 
-**v0.4.18 is published** (2026-11-20) with its manifest uploaded before the
-draft was promoted, and Windows is the only advertised download (macOS/Linux
-artifacts are opt-in backfills, see *Windows-first tags*). Its manifest carries
-the per-platform `installers` map (`win32-x64`), so packaged installs can take
-the download path as well as checkouts. Verified after publishing:
-`node scripts/update.js --check` reports *latest signed release v0.4.18 / already
-up to date*, and `npm run check:downloads` resolves `BlackEclipse-Setup.exe` and
-`SHA256SUMS.txt`. The rule still
-holds for the next cut: the release workflow builds installers but never holds the
-signing key, so **sign and upload `stable.json` while the release is still a
-draft**. Publishing without it would 404 `releases/latest/download/stable.json`
-for every user, which is why the order is *sign → upload → publish*.
+**v0.4.21 is published** (2026-11-21, signed with key id `47e545f302249385`) and
+is the last release built on the checkout path: its manifest carries the
+`installers` map (`win32-x64`) but no `builds` map, so a checkout on 0.4.21
+still updates by checking out the tag. **Every later release must sign a
+`builds` entry** (see *Release builds* and *Publishing a release*) — that is what
+turns the update into a download instead of a compile. The release workflow
+builds and attaches the archive but never holds the signing key, so **sign and
+upload `stable.json` while the release is still a draft**; publish without it
+and `releases/latest/download/stable.json` 404s for every user (order:
+*sign → upload → publish*).
 
-**Signing key id `3e5f4f12096f06ac`.** The previous key (`7a08848038457e37`) was
-retired on 2026-11-19 — its private half no longer existed, so nothing could be
-signed with it. Rotating leaves a one-time scar, not a permanent one: a build
-verifies manifests against the `.pub` it shipped with, so anyone on **0.4.12 or
-older** cannot verify a manifest signed by the new key. They keep running, get
-no notice, and rejoin the update path by installing 0.4.13 manually once. 0.4.13
-and later ship the new key and update normally.
+**Signing key id `47e545f302249385`.** The previous key
+(`3e5f4f12096f06ac`) was retired on 2026-11-21 because its private half was
+unavailable, so nothing could be signed with it. Rotating leaves a one-time
+scar: a build verifies manifests against the `.pub` it shipped with, so anyone
+on **0.4.20 or older** cannot verify a manifest signed by the new key. They keep
+running, get no notice, and rejoin the update path by installing 0.4.21 manually
+once; 0.4.21 and later ship the new key and update normally.
 
 Every release asset gap is visible from outside, so check it after publishing:
 `node scripts/update.js --check` prints `HTTP 404` when the **latest** release
@@ -211,9 +231,23 @@ node scripts/update-sign.js \
   --installer-file dist/BlackEclipse-Setup.exe \
   --installer-url https://github.com/<org>/<repo>/releases/download/v0.4.0/BlackEclipse-Setup.exe \
   --installer-platform win32-x64 \
+  --build-file dist/BlackEclipse-Build-0.4.0.zip \
+  --build-url https://github.com/<org>/<repo>/releases/download/v0.4.0/BlackEclipse-Build-0.4.0.zip \
+  --build-id "$(node -p "require('./.next/BUILD_ID').trim()")" \
+  --build-lock-hash "$(node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync('package-lock.json')).digest('hex'))")" \
   --out release/stable.json --force
 gh release upload v0.4.0 release/stable.json --clobber
+
+# The release-build job already attached BlackEclipse-Build-0.4.0.zip. If you
+# are publishing by hand, create it with `npm run release:build`, attach it,
+# then sign — the digest must describe the file that is actually uploaded.
 ```
+
+Without `--build-*` the manifest still works: clients fall back to the
+checkout + build path. Signing the build is what makes updates work from a dirty
+checkout without a compile, so a release that forgets it silently degrades to
+the slow, fragile path. `npm run release:build` prints every value the flags
+need.
 
 `scripts/update-sign.js` self-verifies against the committed public key before
 writing the file: a manifest users cannot verify is worse than no manifest.
@@ -301,9 +335,6 @@ every platform, not only Windows.
   published just after a check must not stay invisible for hours). `?refresh=1`
   (Settings › Check now, and the panel's refresh) bypasses the cache; the client
   interval plus focus checks make a short TTL timely without hammering GitHub.
-  Each fetch carries a per-request `ts` query: GitHub's `latest/download` URL is
-  CDN-cached, and without it a just-published manifest can serve the previous
-  release from an edge (seen after v0.4.17 went live).
 - The banner appears only when the manifest verifies and the version is newer.
   It offers **How to update** (copy `black update`), **What's new**, **Skip this
   version**, and dismiss.
@@ -343,9 +374,12 @@ branch:
    its own child so the app's supervisor cannot kill it. A window without that
    listener falls back to `POST /api/updates/apply`, which spawns the same
    runner from the server. Either way the runner calls the verified updater
-   (`scripts/update.js --yes --no-desktop`): signature + allowlisted URLs, clean
-   tree, tag == signed commit, `jdds.db` backup, checkout, `npm ci`,
-   `npm run build`. It then **stops**.
+   (`scripts/update.js --yes --no-desktop`). With a signed `builds` entry it
+   downloads and verifies the release build (see *Release builds*) and stops
+   after reporting the staged directory — **no checkout, no build**. Without one
+   it takes the git fallback: signature + allowlisted URLs, clean tree,
+   tag == signed commit, `jdds.db` backup, checkout, `npm ci`, `npm run build`. Either
+   way it then **stops**; promotion is the next step.
    - **Windows file locks.** A loaded `.node` binary cannot be replaced, and
      `npm ci` empties `node_modules` before it installs — so installing over a
      running app would destroy the tree and then fail. Before touching anything
@@ -406,10 +440,12 @@ Deliberate limits:
 - The panel never claims to have applied anything the running window has not
   loaded. A staged job stays "ready" only while the running `version` is still
   the one it started from; after the restart it is treated as spent.
-- In-app staging needs the running app to close eventually, because `npm ci`
-  cannot replace `next-swc`/`skia` while they are loaded. The shell-spawned
-  runner does that itself; the HTTP fallback (an older shell) refuses instead of
-  emptying `node_modules`, and the CLI path does the same.
+- In-app **git-fallback** staging needs the running app to close eventually,
+  because `npm ci` cannot replace `next-swc`/`skia` while they are loaded. The
+  shell-spawned runner does that itself; the HTTP fallback (an older shell)
+  refuses instead of emptying `node_modules`, and the CLI path does the same.
+  The prebuilt path touches no native module unless the release's `lockHash`
+  differs, so the window usually stays up through the download.
 - Only the **stable desktop channel** can stage in-app, because `npm run build`
   always produces `.next` (the Stable channel's build dir). The Dev channel keeps
   using the CLI. Running it from an old shell that lacks the `be-update` listener
@@ -467,17 +503,91 @@ Notes:
   `app/package.json` with the install version; without both, a packaged install
   has no updater to run.
 
+## Release builds: the release is the artifact, not a tag to rebuild
+
+**The design rule.** An update moves a verified ARTIFACT into place. It does not
+check out the release in the user's repository and compile it. This is how
+shipped desktop software updates (the Tauri updater the shell already uses, VS
+Code, electron-updater) and how OpenCode ships: the vendor builds once, signs
+the artifact's digest, the client verifies and swaps it.
+
+**Why.** The checkout-based updater had four compounding failure modes, and the
+worst one fired on essentially every release:
+
+| Failure | Effect |
+|---|---|
+| Refused a dirty tree | Every release edits the changelog (a date, some prose). The maintainer's own checkout is therefore dirty, and the update could never be applied there. |
+| Checked out the tag | If the checkout was ahead of the release, updating moved the tree BACKWARD and detached HEAD. |
+| Ran `npm ci` + `npm run build` | 3–5 minutes, a 12 GB heap, and any build failure became an update failure. |
+| Trusted a source-hash cache | A build that landed outside `.next` still marked `.next` current, so "already built" could hide a stale build. |
+
+None of those can happen on the artifact path. The user's source tree is not
+touched, so it may be as dirty as it likes; no compiler runs; and the promoted
+directory is the exact bytes whose digest the manifest signed.
+
+**What ships.** `npm run release:build` (`scripts/release-build-zip.js`) produces
+`dist/BlackEclipse-Build-<version>.zip` from a completed `.next` (Next's cache,
+diagnostics, trace and standalone output are excluded). The release workflow's
+`release-build` job builds and attaches it to every release. The signed payload
+then carries:
+
+```json
+"builds": {
+  "any": {
+    "url": "https://github.com/<org>/<repo>/releases/download/v0.4.22/BlackEclipse-Build-0.4.22.zip",
+    "sha256": "<64 hex>",
+    "size": 135621169,
+    "buildId": "iMDae0ZQf-iLEsqePNmgK",
+    "lockHash": "<sha256 of package-lock.json>"
+  }
+}
+```
+
+- `any` is the normal key: a Next build is platform-independent JS. An exact
+  `<platform>-<arch>` entry overrides it when that is ever needed.
+- `buildId` is checked against the archive before promotion.
+- `lockHash` makes a dependency change explicit: the runner installs before
+  promoting only when it differs.
+- The `sha256`/`size` are signed, so a tampered asset is refused and deleted.
+
 ## Applying an update: `black update`
 
 ```bash
 black update --check            # read-only
 black update                    # prompt, then apply (desktop refreshed first)
-black update --yes --restart    # unattended, desktop + browser production
-black update --no-desktop       # skip the native-app refresh (web-only machines)
+black update --yes --restart    # unattended
+black update --no-desktop       # stage only; the in-app runner promotes
+black update --git              # force checkout + build (contributor path)
 black update --channel beta
 ```
 
 Order of operations (enforced in `scripts/update.js`):
+
+**The normal path is the prebuilt build.** The signed manifest can advertise
+`builds` — the release's COMPILED `.next`, uploaded as a release asset. When it
+does:
+
+1. Verify the manifest signature and the allowlisted URLs.
+2. Download the archive, hashing as it streams; **refuse** unless the bytes match
+   the signed `sha256` (and `size`, when present). A mismatch deletes the file.
+3. Extract into `.runtime/updates/stage-<version>` (absolute paths and `..`
+   entries in the archive are rejected) and require a serviceable build:
+   `BUILD_ID` (equal to the signed `buildId` when present), `routes-manifest`,
+   `server/`, `static/<buildId>/`.
+4. If the release's `lockHash` differs from this checkout's
+   `package-lock.json`, run `npm ci` first — the build was compiled against
+   those modules. Otherwise node_modules is not touched.
+5. Promote exactly that directory (`desktop-promote.js --from …`): copy into
+   `releases/stable/<buildId>/`, validate the copy, move the pointer, keep the
+   previous release as the rollback target.
+
+`git` is never read, nothing is compiled, and an uncommitted working tree is
+irrelevant. That last point is the whole reason this path exists: every release
+touches the changelog (a date, some prose), so "refuse if dirty" meant the
+maintainer's own machine could not take an update.
+
+**The git path is the fallback**, used when the manifest advertises no `builds`
+(every release through v0.4.21) or when `--git` is passed:
 
 1. Verify the manifest signature and the allowlisted URLs.
 2. Refuse if the working tree is dirty.
@@ -491,8 +601,7 @@ Order of operations (enforced in `scripts/update.js`):
 6. **Desktop first:** re-pin the native app's immutable build and restart its
    own server/reopen the window through `scripts/desktop-refresh.js`. It no-ops
    with an explanation if the desktop is not installed or is a packaged
-   (non-bridged) install; `--no-desktop` skips it. The browser production server
-   on 3105 is **not** started (or restarted) unless `--restart` is passed.
+   (non-bridged) install; `--no-desktop` skips it.
 7. Any failure → check out the previous commit. Reinstall and rebuild only if
    `node_modules` was actually replaced; if the install never ran, the previous
    build is still intact and re-running `npm ci` could only do damage. The DB
@@ -508,9 +617,10 @@ Updates never auto-apply from the browser. That is deliberate: the update path
 touches the user's local database and runs new code, so the person whose data it
 is gets the final yes.
 
-`black update` checks out the release tag in **detached HEAD** state. That is the
-point: the running code is exactly the signed commit. To go back to developing
-on a branch, run `git switch main` (and `git pull`).
+`black update --git` checks out the release tag in **detached HEAD** state. That
+is the point of the fallback: the running code is exactly the signed commit. To
+go back to developing on a branch, run `git switch main` (and `git pull`). The
+prebuilt path never moves HEAD, so this only applies when you opt into it.
 
 ## Compromise and rotation
 
@@ -554,3 +664,17 @@ node scripts/update-sign.js ... --out .black-eclipse/test.json --force
   key than the committed `.pub`, or the bytes were edited after signing.
 - **"tag points at … but the signed manifest names …"** — the tag moved, or you
   signed the wrong commit. Re-tag from the signed commit and re-sign.
+- **"the working tree has N uncommitted change(s)"** — only the git fallback
+  says this (a manifest with no `builds` entry, or `--git`), and it is by design:
+  a build that mixes your edits with the signed tag is not the release. It names
+  the files, and when the checkout is already at/past the release it says so
+  (`npm run desktop:refresh` re-pins without a checkout). With a signed build,
+  commit state is irrelevant. The in-app panel shows the same text, and
+  `.runtime/update-job.json` keeps the log.
+- **"this release advertises no prebuilt build"** — that manifest predates the
+  artifact path (every release through v0.4.21), so the updater fell back to
+  checkout + build. Re-sign the manifest with `--build-*` to fix it.
+- **"The downloaded build failed its signed checksum"** — the asset and the
+  manifest disagree (a stale CDN edge, a re-uploaded file, or tampering). The
+  download was deleted and nothing was installed; retry, then re-check the
+  uploaded asset against `npm run release:build`'s printed sha256.

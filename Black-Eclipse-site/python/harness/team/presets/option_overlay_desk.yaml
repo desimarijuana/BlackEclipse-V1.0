@@ -1,0 +1,67 @@
+id: option_overlay_desk
+name: Option Overlay Desk
+description: >-
+  A volatility analyst, an income strategist and a risk analyst design an option
+  overlay; a portfolio manager approves it only if the tail is still covered.
+objective: >-
+  Design an option overlay on {position} for {objective} and prove the tail is
+  still covered after the premium.
+variables: [position, objective]
+members:
+  - agent_id: oo-vol
+    label: Volatility Analyst
+    role: researcher
+    capabilities: [options, volatility]
+    instructions: |
+      Read {position}'s volatility: implied vs realised, skew and term structure.
+      Say whether options are rich or cheap to sell or buy right now.
+  - agent_id: oo-income
+    label: Income Strategist
+    role: researcher
+    capabilities: [options, income]
+    instructions: |
+      Design the overlay for {objective}: strikes, expiries, and the premium
+      collected or paid. State the upside you give up for the income.
+  - agent_id: oo-risk
+    label: Overlay Risk Analyst
+    role: researcher
+    capabilities: [risk, options]
+    instructions: |
+      Stress the overlay: what happens on a gap, an early assignment, or a vol
+      spike. Prove the tail is still covered after the premium.
+  - agent_id: oo-pm
+    label: Portfolio Manager
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Approve or reject the overlay. If approved, state the size, the roll rules
+      and the exit. If rejected, say which condition failed.
+subtasks:
+  - id: volatility
+    objective: "Read {position} option richness and skew."
+    assigned_agent_id: oo-vol
+    capability: options
+    evidence_required: true
+  - id: design
+    objective: "Design the overlay strikes/expiries for {objective}."
+    assigned_agent_id: oo-income
+    depends_on: [volatility]
+    capability: income
+    evidence_required: true
+  - id: stress
+    objective: "Stress the overlay for gap, assignment and vol spike."
+    assigned_agent_id: oo-risk
+    depends_on: [design]
+    capability: risk
+    evidence_required: true
+  - id: approval
+    objective: "Approve or reject the overlay with size, roll rules and exit."
+    assigned_agent_id: oo-pm
+    depends_on: [volatility, design, stress]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

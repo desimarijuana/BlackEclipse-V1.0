@@ -23,6 +23,59 @@ from .instruments import CanonicalInstrument
 from .providers import ProviderDescriptor, default_providers
 
 
+class ProbeBudget:
+    """One half-open recovery probe per (scope, provider) per cooldown.
+
+    Scope is the routing intent (for example ``"quote:crypto"``), not the whole
+    process: a provider that is broken for crypto may still be healthy for US
+    equities, and one scope's failure must not spend another scope's probe.
+
+    Cross-scope evidence: a recent SUCCESS for the same provider in a DIFFERENT
+    scope makes this scope probe-ready earlier. It never clears this scope's
+    failures and never bypasses the one-probe-per-cooldown budget — the provider
+    still has to prove itself for the scope that is actually being routed.
+    """
+
+    def __init__(self, cooldown_s: float, clock=None) -> None:
+        import time  # noqa: PLC0415 - the default is only paid when used
+
+        self.cooldown_s = float(cooldown_s)
+        self._clock = clock or time.monotonic
+        self._probes: dict[tuple[str, str], float] = {}
+        self._successes: dict[tuple[str, str], float] = {}
+
+    def claim(self, scope: str, provider: str) -> bool:
+        """Whether this caller may spend the scope's single probe now."""
+        now = self._clock()
+        key = (scope, provider)
+        last = self._probes.get(key)
+        if last is not None and now - last < self.cooldown_s:
+            return False
+        self._probes[key] = now
+        return True
+
+    def record_success(self, scope: str, provider: str) -> None:
+        self._successes[(scope, provider)] = self._clock()
+
+    def record_failure(self, scope: str, provider: str) -> None:
+        # A failure keeps the probe timestamp (the cooldown started at the claim)
+        # and grants no cross-scope credit.
+        self._successes.pop((scope, provider), None)
+
+    def evidence_elsewhere(self, scope: str, provider: str) -> bool:
+        """A recent success for `provider` in another scope."""
+        now = self._clock()
+        return any(
+            other_scope != scope
+            and other_provider == provider
+            and now - at <= self.cooldown_s
+            for (other_scope, other_provider), at in self._successes.items()
+        )
+
+    def snapshot(self) -> dict[str, float]:
+        return {f"{scope}|{provider}": at for (scope, provider), at in self._probes.items()}
+
+
 @dataclass
 class ProviderHealth:
     provider: str
@@ -67,6 +120,9 @@ class ProviderRouter:
             )
             for pid in self._providers
         }
+        self._probes = ProbeBudget(
+            cooldown_s=breaker_reset_s if breaker_reset_s is not None else cfg.breaker_reset_s,
+        )
 
     def get(self, provider: str) -> Optional[ProviderDescriptor]:
         return self._providers.get(provider)
@@ -98,26 +154,61 @@ class ProviderRouter:
             out.append(pid)
         return tuple(out)
 
+    def attempt_order(
+        self, capability: str, instrument: Optional[CanonicalInstrument], *, scope: Optional[str] = None,
+    ) -> tuple[str, ...]:
+        """Providers to TRY now: an open breaker is skipped unless a probe is due.
+
+        `provider_order` is the preference order and never consults health; this
+        is the execution order. A provider whose breaker is OPEN rejoins only
+        when a recent success for it in ANOTHER scope grants this scope one probe
+        (budgeted once per cooldown). That is evidence, not a reset: the breaker
+        still counts the failure, and a failed probe re-arms the cooldown.
+        """
+        order = self.provider_order(capability, instrument)
+        if not order:
+            return order
+        key = scope or f"{capability}:{getattr(instrument, 'asset_type', None) or 'any'}"
+        out: list[str] = []
+        for pid in order:
+            health = self._health.get(pid)
+            if health is None:
+                continue
+            if health.breaker.allow():
+                out.append(pid)
+                continue
+            if (
+                health.breaker.state() == "open"
+                and self._probes.evidence_elsewhere(key, pid)
+                and self._probes.claim(key, pid)
+            ):
+                out.append(pid)
+        return tuple(out)
+
     def allow(self, provider: str) -> bool:
         health = self._health.get(provider)
         if health is None:
             return False
         return health.breaker.allow()
 
-    def record_success(self, provider: str) -> None:
+    def record_success(self, provider: str, *, scope: Optional[str] = None) -> None:
         health = self._health.get(provider)
         if health is None:
             return
         health.successes += 1
         health.last_success_at = _iso_now()
         health.breaker.record_success()
+        if scope:
+            self._probes.record_success(scope, provider)
 
-    def record_failure(self, provider: str) -> None:
+    def record_failure(self, provider: str, *, scope: Optional[str] = None) -> None:
         health = self._health.get(provider)
         if health is None:
             return
         health.failures += 1
         health.last_failure_at = _iso_now()
+        if scope:
+            self._probes.record_failure(scope, provider)
         if health.breaker.state() == "half_open" or health.breaker.probe_in_flight:
             health.breaker.record_probe_failure(None, now_iso=health.last_failure_at)
         else:

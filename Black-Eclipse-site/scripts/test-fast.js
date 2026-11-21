@@ -12,11 +12,12 @@
 // just shortens the loop in between. It prints that reminder when it passes.
 //
 // Usage: npm run test:fast
-const { spawnSync } = require("child_process");
 const path = require("path");
+const fs = require("fs");
+const { spawnSync } = require("child_process");
+const { changedFiles, under } = require("./lib/changed-files");
 
 const root = path.join(__dirname, "..");
-const appPrefix = "Black-Eclipse-site/";
 // Above this many changed source files the narrowing stops paying for itself —
 // treat it as a broad change and run the whole vitest suite.
 const BROAD_CHANGE = 40;
@@ -28,29 +29,16 @@ const run = (cmd, args) =>
     shell: process.platform === "win32",
   });
 
-const status = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
-if (status.status !== 0) {
+const changed = changedFiles();
+if (!changed.ok) {
   // No git (tarball install) means the changed set is unknowable; be honest and
   // fall back to the full suite rather than silently testing nothing.
   console.log("[fast] not a git work tree - running the full vitest suite instead.");
   process.exit(run("npx", ["vitest", "run"]).status ?? 1);
 }
 
-// `git status` is run from the app dir but still prints paths relative to the
-// repository root, so strip the app prefix. Paths outside the app are not ours.
-const files = status.stdout
-  .split("\n")
-  .map((line) => line.slice(3).trim())
-  .filter(Boolean)
-  .map((line) => (line.includes(" -> ") ? line.split(" -> ")[1] : line))
-  .map((file) => (file.startsWith(appPrefix) ? file.slice(appPrefix.length) : file))
-  .filter((file) => !file.startsWith("Black-Eclipse-site/"));
-
-const under = (prefix, ...exts) =>
-  files.filter((file) => file.startsWith(prefix) && exts.some((ext) => file.endsWith(ext)));
-
-const ts = under("src/", ".ts", ".tsx");
-const py = under("python/", ".py");
+const ts = under(changed.files, "src/", ".ts", ".tsx");
+const py = under(changed.files, "python/", ".py");
 const memory = py.filter((file) => file.startsWith("python/harness/eclipse_memory/"));
 
 // Typecheck first: 16s on this machine, and it catches the class of break the
@@ -72,12 +60,34 @@ if (ts.length === 0) {
   }
 }
 
-// Python modules are not mapped file-to-test here: the suite is small enough
-// that a changed harness module is worth the full run, and a partial run would
-// create false confidence about the shared runtime.
+// Python modules are not mapped by "which test imports me" (that would cost a
+// collection pass); they are mapped by name, which is how this suite is laid
+// out: `harness/market/yahoo.py` is covered by `test_yahoo*.py`. Running the
+// WHOLE Python suite from one changed module was measured at 26 minutes - far
+// past what a fast lane is for. If nothing matches, say so instead of pretending
+// the module is covered; `npm run verify` runs the domain in full.
 if (py.length > 0) {
-  console.log(`[fast] python suite (${py.length} changed .py file${py.length === 1 ? "" : "s"})`);
-  if ((run("node", ["scripts/test-python.js"]).status ?? 1) !== 0) process.exit(1);
+  const testsDir = path.join(root, "python", "tests");
+  const testFiles = fs
+    .readdirSync(testsDir, { recursive: true })
+    .map((entry) => String(entry))
+    .filter((entry) => /(^|[\\/])test_.*\.py$/.test(entry));
+
+  const related = new Set();
+  for (const file of py) {
+    const stem = path.basename(file, ".py");
+    if (stem === "__init__") continue;
+    for (const test of testFiles) {
+      if (path.basename(test).includes(stem)) related.add(path.join("python/tests", path.basename(test)));
+    }
+  }
+
+  if (related.size === 0) {
+    console.log(`[fast] ${py.length} python file(s) changed, no test named after them - run \`npm run verify\`.`);
+  } else {
+    console.log(`[fast] python tests matched by name (${related.size})`);
+    if ((run("node", ["scripts/test-python.js", ...related]).status ?? 1) !== 0) process.exit(1);
+  }
 }
 
 if (memory.length > 0) {

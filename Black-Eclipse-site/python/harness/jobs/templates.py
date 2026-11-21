@@ -218,9 +218,10 @@ JOB_TEMPLATES: tuple[JobTemplate, ...] = (
         target={
             "kind": "objective",
             "objective": (
-                "Produce an evidence-backed research brief on: {topic}. Use research_plan "
-                "then research_query, verify facts against sources, cite every material "
-                "claim, and clearly state any gap or unresolved conflict."
+                "Produce an evidence-backed research brief on: {topic}. Plan the "
+                "research, gather the evidence from the relevant sources, verify facts "
+                "against them, cite every material claim, and clearly state any gap or "
+                "unresolved conflict."
             ),
         },
         parameters=[
@@ -281,8 +282,8 @@ JOB_TEMPLATES: tuple[JobTemplate, ...] = (
         target={
             "kind": "objective",
             "objective": (
-                "Create today's market recap video for {symbols}. Use video_create_project "
-                "with kind storyboard and data-bound scenes (price/changePct/volume "
+                "Create today's market recap video for {symbols}. Build a storyboard "
+                "with data-bound scenes (price/changePct/volume "
                 "sources — never authored numbers), validate it, render a draft, inspect "
                 "it, and if clean render the final. Report the artifact id (or the honest "
                 "failure) and say when figures are stale."

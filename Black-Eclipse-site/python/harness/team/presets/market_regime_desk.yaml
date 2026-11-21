@@ -1,0 +1,65 @@
+id: market_regime_desk
+name: Market Regime Desk
+description: >-
+  A volatility analyst, a breadth analyst and a macro analyst identify the current
+  regime; a strategist decides which playbooks are valid right now.
+objective: >-
+  Identify the regime for {market} and say which strategies are valid, which are
+  dangerous, and the signal that would mark a change.
+variables: [market]
+members:
+  - agent_id: mr-vol
+    label: Volatility Analyst
+    role: researcher
+    capabilities: [volatility, risk]
+    instructions: |
+      Characterise {market} volatility: level vs history, term structure, and
+      whether it is trending or mean-reverting. Say what a vol shock would break.
+  - agent_id: mr-breadth
+    label: Breadth Analyst
+    role: researcher
+    capabilities: [breadth, market_data]
+    instructions: |
+      Read breadth: participation, new highs/lows, and dispersion. Distinguish a
+      narrow rally from a broad one.
+  - agent_id: mr-macro
+    label: Macro Analyst
+    role: researcher
+    capabilities: [macro, rates]
+    instructions: |
+      Set the macro driver: policy, growth and liquidity. Name the input whose
+      change would reclassify the regime.
+  - agent_id: mr-strategist
+    label: Regime Strategist
+    role: chair
+    capabilities: [synthesis, portfolio]
+    instructions: |
+      Name the regime and the playbooks it validates. Say which strategies are
+      dangerous here, and the marker that would signal a change.
+subtasks:
+  - id: volatility
+    objective: "Characterise {market} volatility and its term structure."
+    assigned_agent_id: mr-vol
+    capability: volatility
+    evidence_required: true
+  - id: breadth
+    objective: "Read {market} breadth and dispersion."
+    assigned_agent_id: mr-breadth
+    capability: breadth
+    evidence_required: true
+  - id: macro
+    objective: "Identify the macro driver defining the {market} regime."
+    assigned_agent_id: mr-macro
+    capability: macro
+    evidence_required: true
+  - id: regime
+    objective: "Name the {market} regime, valid playbooks, and the change marker."
+    assigned_agent_id: mr-strategist
+    depends_on: [volatility, breadth, macro]
+    capability: synthesis
+    evidence_required: true
+    review: true
+policy:
+  max_depth: 2
+  max_concurrency: 3
+  require_review: true

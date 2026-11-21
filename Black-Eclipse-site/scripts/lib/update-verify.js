@@ -128,6 +128,47 @@ function validateInstallers(value) {
   }
 }
 
+/**
+ * Validate the signed prebuilt-build map's SHAPE (`builds`).
+ *
+ * A build is the release's COMPILED `.next` — the artifact the updater promotes
+ * instead of checking out a tag and rebuilding on the user's machine. Keys are
+ * `any` (a Next build is platform-independent JS) or `<platform>-<arch>`.
+ * `lockHash` (sha256 of package-lock.json) lets the runner notice that the
+ * release changed dependencies and install before promoting.
+ */
+function validateBuilds(value) {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new UpdateVerifyError("builds", "Signed update payload has an invalid builds map.");
+  }
+  for (const [key, raw] of Object.entries(value)) {
+    if (key !== "any" && !/^[a-z0-9]+-[a-z0-9_]+$/i.test(key)) {
+      throw new UpdateVerifyError("builds", `Unknown build platform "${key}".`);
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new UpdateVerifyError("builds", `Build entry "${key}" is not an object.`);
+    }
+    if (typeof raw.url !== "string") {
+      throw new UpdateVerifyError("builds", `Build "${key}" has no url.`);
+    }
+    if (typeof raw.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(raw.sha256)) {
+      throw new UpdateVerifyError("builds", `Build "${key}" has an invalid sha256.`);
+    }
+    if (raw.size !== undefined && (!Number.isInteger(raw.size) || raw.size <= 0)) {
+      throw new UpdateVerifyError("builds", `Build "${key}" has an invalid size.`);
+    }
+    for (const field of ["buildId", "version"]) {
+      if (raw[field] !== undefined && (typeof raw[field] !== "string" || !raw[field])) {
+        throw new UpdateVerifyError("builds", `Build "${key}" has an invalid ${field}.`);
+      }
+    }
+    if (raw.lockHash !== undefined && !/^[0-9a-f]{64}$/i.test(String(raw.lockHash))) {
+      throw new UpdateVerifyError("builds", `Build "${key}" has an invalid lockHash.`);
+    }
+  }
+}
+
 function parseVersion(value) {  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
     String(value || "").trim(),
   );
@@ -292,6 +333,7 @@ function verifyEnvelope(envelopeJson, publicKeyPem, expectedChannel) {
     throw new UpdateVerifyError("commit", "Signed update payload has no valid commit SHA.");
   }
   validateInstallers(payload.installers);
+  validateBuilds(payload.builds);
   return payload;
 }
 
@@ -329,6 +371,13 @@ async function fetchManifest(channel, cfg) {
     }
     safe.installers = installers;
   }
+  if (payload.builds) {
+    const builds = {};
+    for (const [key, asset] of Object.entries(payload.builds)) {
+      builds[key] = { ...asset, url: assertSafeUrl(asset.url, cfg) };
+    }
+    safe.builds = builds;
+  }
   return safe;
 }
 
@@ -349,4 +398,5 @@ module.exports = {
   resolveManifestUrl,
   verifyEnvelope,
   fetchManifest,
+  validateBuilds,
 };

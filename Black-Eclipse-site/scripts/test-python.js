@@ -80,7 +80,37 @@ if (process.argv.includes("smoke")) {
 // Any extra arguments are passed to pytest, so a slice can be run on its own:
 //   node scripts/test-python.js python/tests/test_rsl_loop.py
 // The full suite is `node scripts/test-python.js` (no arguments).
-const extra = process.argv.slice(2).filter((arg) => arg !== "smoke");
-const targets = extra.length > 0 ? extra : [pythonDir];
-const result = spawnSync(py, ["-m", "pytest", ...targets], { stdio: "inherit", cwd: root, env: childEnv });
-process.exit(result.status ?? 1);
+const extra = process.argv.slice(2).filter((arg) => arg !== "smoke" && arg !== "--serial");
+
+// The full suite is split across independent pytest processes. The cost is
+// per-file (import + collection), so this is close to linear in wall-clock;
+// `pytest-xdist` would re-collect the whole session in every worker instead.
+// Slices (an explicit file list) stay serial: the caller already narrowed them,
+// and `test:rsl` runs single files where spawn overhead would dominate.
+// Override the fan-out with BE_TEST_WORKERS, force serial with --serial.
+if (extra.length === 0 && !process.argv.includes("--serial")) {
+  const { runParallel } = require("./lib/pytest-parallel");
+  const requested = Number(process.env.BE_TEST_WORKERS);
+  // Default is SERIAL, measured rather than assumed: on a 12-core / 16 GB
+  // Windows box with the desktop app resident, four workers took 1333s against
+  // 953s serial. Each worker holds the full harness import graph, so the
+  // fan-out only pays off when there is RAM to hold several of them. Set
+  // BE_TEST_WORKERS to measure your own machine; it is opt-in, not a default.
+  const workers = Number.isFinite(requested) && requested > 1 ? requested : 1;
+
+  const testRoot = path.join(pythonDir, "tests");
+  const files = fs
+    .readdirSync(testRoot, { recursive: true })
+    .map((entry) => String(entry))
+    .filter((entry) => /(^|[\\/])test_.*\.py$/.test(entry))
+    .map((entry) => path.relative(root, path.join(testRoot, entry)));
+
+  console.log(`[test] python: ${files.length} files, ${workers} workers`);
+  runParallel({ py, cwd: root, env: childEnv, files, workers })
+    .then((code) => process.exit(code))
+    .catch(() => process.exit(1));
+} else {
+  const targets = extra.length > 0 ? extra : [pythonDir];
+  const result = spawnSync(py, ["-m", "pytest", ...targets], { stdio: "inherit", cwd: root, env: childEnv });
+  process.exit(result.status ?? 1);
+}

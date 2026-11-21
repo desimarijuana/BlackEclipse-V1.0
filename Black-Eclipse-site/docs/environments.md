@@ -1,7 +1,7 @@
 ---
 title: Development and production servers
 status: Current
-last-verified: 2026-11-19
+last-verified: 2026-11-21
 ---
 
 # Desktop channels — Stable and Dev
@@ -111,8 +111,11 @@ concurrent build and used to be mistaken for a dead runtime.
 longer defaults to a website: it opens the native app, and `black eclipse`,
 `black start` and `black proxy` print where the functionality went and exit 1.
 There is no flag to bring the browser server back. Validation is `npm test`
-(`npm run test:fast` while iterating: `tsc` plus only the tests reachable from
-your working-tree changes - never a substitute for the full gate),
+(while iterating: `npm run test:fast` = `tsc` plus only the tests reachable from
+your working-tree changes; before reporting done: `npm run verify` = the FULL
+suite for each domain you changed - `src/` → vitest, `python/` → pytest, the
+memory subsystem → eval floors. Neither is a substitute for `npm test` on a
+release),
 `npx tsc --noEmit` and a desktop build — no server.
 
 **Nothing advertises a browser address.** `bin/black.js`, `setup:desktop` and
@@ -167,9 +170,23 @@ with `Ineffective mark-compacts near heap limit`. `next.config.ts` also sets
 `experimental.webpackMemoryOptimizations` for the fallback (a little slower,
 less heap). A production build that OOMs is not an update bug: check
 `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` for a second
-`next build` before raising the heap. The in-app source updater inherits this
-same ceiling because it runs `npm run build` on the user's machine; a packaged
-install does not build at all (see `docs/UPDATES.md`).
+`next build` before raising the heap. The git fallback of the in-app updater
+inherits this same ceiling because it runs `npm run build` on the user's machine;
+the normal path downloads the release's prebuilt build instead of compiling, and
+a packaged install does not build at all (see `docs/UPDATES.md`).
+
+**Build freshness is one hash, so the build must land where the hash lives.**
+`build()` records the source hash in `.next/.build-hash` and `needsBuild()`
+compares against it, which is what lets `desktop:refresh` / `npm run build` skip
+a three-minute compile. That only holds if the compile actually writes `.next`:
+`next build` takes its output directory from `NODE_ENV` (dev → `.next-dev`) and
+`NEXT_DIST_DIR` (live/dev/payload lanes), so `build()` pins both to production
+and `.next` for the child. Inheriting a dev `NODE_ENV` from the shell used to
+send the output to `.next-dev` while still marking `.next` current — the next
+refresh then announced "the current source is already built", promoted the OLD
+build, and the app looked like it had ignored the update. If a build ever
+claims to be current while the window still reports an older version, delete
+`.next/.build-hash` (runtime data, never committed) to force a real rebuild.
 
 **A plain `npm run build` refuses while a channel is live.** The window is safe
 (it serves a pinned copy), but a build started under a running app saturates the
