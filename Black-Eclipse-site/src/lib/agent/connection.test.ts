@@ -209,6 +209,39 @@ describe("probeModels auth", () => {
     expect(headers["user-agent"]).toContain("BlackEclipse");
   });
 
+  it("never reports ok from a public model list alone", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ data: [{ id: "deepseek/deepseek-v4.1-flash" }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await testConnection({
+      providerId: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "sk-or-v1-present",
+      verifyChat: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("UNVERIFIED");
+    // The models probe did run and found the real id.
+    expect(result.models).toEqual(["deepseek/deepseek-v4.1-flash"]);
+  });
+
+  it("does not let OpenRouter's public model list hide a missing key", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("probe must not run without a key");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await testConnection({
+      providerId: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "",
+      verifyChat: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("MISSING_KEY");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("requires a key for a remote provider without making a request", async () => {
     const fetchMock = vi.fn(async () => {
       throw new Error("probe must not run without a key");
@@ -285,7 +318,8 @@ describe("connectProvider atomicity", () => {
       authStyle: "x-api-key",
       verifyChat: false,
     });
-    expect(result.ok).toBe(true);
+    // A list-only probe is deliberately UNVERIFIED, never "connected".
+    expect(result.code).toBe("UNVERIFIED");
     const [, init] = fetchMock.mock.calls[0];
     expect((init as RequestInit).headers).toMatchObject({ "x-api-key": "company-key" });
     expect(((init as RequestInit).headers as Record<string, string>).authorization).toBeUndefined();

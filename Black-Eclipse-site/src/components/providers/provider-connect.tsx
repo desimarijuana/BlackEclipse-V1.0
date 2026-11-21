@@ -309,6 +309,13 @@ export function ProviderConnect({
       setError({ message: "Choose a provider first." });
       return;
     }
+    // Never send an empty key to a keyed provider: OpenRouter's public /models
+    // endpoint would pass, then the chat probe would return a confusing
+    // "Missing Authentication header".
+    if (provider && !provider.keyless && !apiKey.trim()) {
+      setError({ message: `Paste your ${provider.name} API key before testing.` });
+      return;
+    }
     setPhase("testing");
     setError(null);
     setTestNote(null);
@@ -735,7 +742,7 @@ export function ProviderConnect({
           type="button"
           size="sm"
           className="cursor-pointer rounded-lg"
-          disabled={busy || !providerId}
+          disabled={busy || !providerId || Boolean(provider && !provider.keyless && !apiKey.trim())}
           onClick={() => void connect()}
         >
           {phase === "connecting" ? (
@@ -750,7 +757,7 @@ export function ProviderConnect({
           variant="outline"
           size="sm"
           className="cursor-pointer rounded-lg"
-          disabled={busy || !providerId}
+          disabled={busy || !providerId || Boolean(provider && !provider.keyless && !apiKey.trim())}
           onClick={() => void test()}
         >
           {phase === "testing" ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
@@ -771,6 +778,13 @@ export function ProviderConnect({
           </button>
         )}
       </div>
+
+      {provider && !provider.keyless && !apiKey.trim() && (
+        <p className="text-[10.5px] leading-relaxed text-amber-300/90">
+          Paste the API key to enable Connect and Test. A model list alone never
+          counts as connected.
+        </p>
+      )}
 
       <p className="flex items-start gap-1.5 text-[10px] leading-relaxed text-muted-foreground/80">
         <CircleDashed size={10} className="mt-0.5 shrink-0" />

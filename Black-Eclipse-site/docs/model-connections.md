@@ -148,7 +148,13 @@ returns 200.
 5. **Status is evidence-based.** "Connected" requires a configured key (or a
    keyless/local provider). A local server is not marked connected merely because
    a preset exists.
-6. **Secrets stay server-side.** The browser receives `hasApiKey` and a masked
+6. **A public model list is not proof of a key.** OpenRouter serves `/models`
+   without authentication. A keyed provider is therefore rejected with
+   `MISSING_KEY` **before any request** when the key is empty — otherwise the
+   public list passes, the chat probe fails with `Missing Authentication header`,
+   and the UI wrongly says "key rejected". `ok: true` always means the chat probe
+   succeeded, never just that the model list was reachable.
+7. **Secrets stay server-side.** The browser receives `hasApiKey` and a masked
    hint only. The probe uses the key in memory and never logs it.
 
 ## UI

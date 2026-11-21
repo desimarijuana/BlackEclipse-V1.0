@@ -6,6 +6,14 @@ Older entries are **moved, never deleted** into [`docs/changelog/`](./changelog/
 
 ## 2026-11-20
 
+- **fix(ai): a public model list can no longer look like a connected provider.**
+  OpenRouter serves /models without auth; an empty key passed the models probe,
+  then the chat probe returned `Missing Authentication header` and the UI said
+  the key was rejected. A keyed provider now returns MISSING_KEY before any
+  request, Connect/Test stay disabled until a key is pasted, and a list-only
+  probe is UNVERIFIED - `ok` requires a successful real chat request.
+  Docs updated: `docs/model-connections.md`.
+
 - **feat(ai): change the active model from the connection card.** The live
   catalog (31 OpenCode Go models) is now a dropdown on the active card instead of
   being hidden inside the collapsed Model & sampling section. no doc change -

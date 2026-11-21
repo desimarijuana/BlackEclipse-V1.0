@@ -37,6 +37,7 @@ export type ConnectionErrorCode =
   | "UNREACHABLE"
   | "MODEL_REJECTED"
   | "REQUEST_REJECTED"
+  | "UNVERIFIED"
   | "UNKNOWN_PROVIDER";
 
 export interface ProbeResult {
@@ -469,6 +470,23 @@ export async function testConnection(input: TestConnectionInput): Promise<ProbeR
     };
   }
 
+  // A keyed provider must have a key BEFORE any request. Some gateways expose a
+  // PUBLIC /models endpoint (OpenRouter does), so an empty key passed the model
+  // probe and then failed the chat probe with "Missing Authentication header" —
+  // which we wrongly reported as "key rejected". Say "paste a key" instead.
+  const needsKey =
+    target.provider.authStyle !== "none" &&
+    !target.provider.keyless &&
+    !target.provider.local;
+  if (needsKey && !target.apiKey) {
+    return {
+      ok: false,
+      code: "MISSING_KEY",
+      message: `Paste your ${target.provider.name} API key to connect.`,
+      models: [],
+    };
+  }
+
   const models = await probeModels(target);
   // A missing/rejected key, an unreachable host or a rate limit cannot be fixed
   // by a second request — return the honest failure before the chat probe. The
@@ -490,7 +508,18 @@ export async function testConnection(input: TestConnectionInput): Promise<ProbeR
   const chosen = effectiveModel(target, models.models);
   const verifyChat = input.verifyChat !== false;
   if (!verifyChat) {
-    return { ...models, model: chosen };
+    // `ok` means "a real chat request succeeded". A model list alone — especially
+    // OpenRouter's PUBLIC list — is never proof of a working key, so a
+    // list-only probe is explicitly UNVERIFIED, not connected.
+    return {
+      ok: false,
+      code: "UNVERIFIED",
+      message: "Model list reachable, but the chat request was not verified.",
+      httpStatus: models.httpStatus,
+      latencyMs: models.latencyMs,
+      models: models.models,
+      model: chosen,
+    };
   }
 
   const chat = await probeChat(target, chosen);
